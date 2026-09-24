@@ -200,3 +200,40 @@ def test_fake_mode_uses_configured_chat_id(monkeypatch, capsys):
     monkeypatch.setattr(sys, "stdin", io.StringIO("/help\n"))
     assert tb.main(["--fake"]) == 0
     assert "bot> [LOCAL] Job Engine commands:" in capsys.readouterr().out
+
+
+def test_fetch_in_fake_mode_returns_prefixed_summary(monkeypatch, capsys):
+    monkeypatch.setattr(tb, "get_settings", lambda: load_settings("local", {}))
+    monkeypatch.setattr(sys, "stdin", io.StringIO("/fetch\n"))
+    assert tb.main(["--fake"]) == 0
+    out = capsys.readouterr().out
+    assert "bot> [LOCAL] Sweep done: 8 new, 1 updated, 5 reposts" in out
+
+
+def test_fetch_reply_goes_through_telegram_text():
+    fetcher = tb.make_fetcher(settings(), fake=True)
+    _, text = tb.handle_update(update(1, "/fetch"), settings(), fetcher)
+    assert text.startswith("[LOCAL] Sweep done:")
+    _, dev_text = tb.handle_update(update(2, "/fetch"), settings("dev"), lambda: "Sweep done")
+    assert dev_text == "[DEV] Sweep done"
+
+
+def test_fetch_respects_strategy_gate(monkeypatch):
+    monkeypatch.setattr(tb.fakes, "FAKE_TODAY", tb.date(2026, 11, 30))
+    _, text = tb.handle_update(update(1, "/fetch"), settings(), tb.make_fetcher(settings(), True))
+    assert text.startswith("[LOCAL] /fetch is blocked: strategy last updated 2026-09-23")
+
+
+def test_fetch_without_fetcher_and_on_failure():
+    _, text = tb.handle_update(update(1, "/fetch"), settings())
+    assert text == "[LOCAL] /fetch is not available in this bot."
+
+    def boom():
+        raise RuntimeError("notion down")
+
+    _, text = tb.handle_update(update(2, "/fetch"), settings(), boom)
+    assert text == "[LOCAL] /fetch failed: notion down"
+
+
+def test_help_lists_fetch():
+    assert "/fetch" in tb.HELP_TEXT

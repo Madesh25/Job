@@ -18,11 +18,14 @@ import time
 import urllib.error
 import urllib.request
 from collections.abc import Callable
+from datetime import date
 from typing import Any, TextIO
 
 from jobengine.main import banner
 from jobengine.safety import SafetyError, check_startup, telegram_text
 from jobengine.settings import Settings, get_settings
+from jobengine.sweep import fakes
+from jobengine.sweep.runner import fake_deps, real_deps, run_sweep
 
 log = logging.getLogger("jobengine.telegram_bot")
 
@@ -34,11 +37,14 @@ HELP_TEXT = (
     "Job Engine commands:\n"
     "/start - check that the bot is alive\n"
     "/status - show environment and safety settings\n"
+    "/fetch - run the job sweep and report what it found\n"
     "/help - show this list"
 )
 
 # (method, payload, http_timeout) -> decoded JSON response
 Transport = Callable[[str, dict[str, Any], float], dict[str, Any]]
+# Runs the sweep and returns its summary text.
+Fetcher = Callable[[], str]
 
 
 class TelegramError(Exception):
@@ -137,9 +143,17 @@ def status_text(s: Settings) -> str:
     return f"{banner(s)}\nmodel={model}"
 
 
-def reply_for(text: str, s: Settings) -> str:
+def reply_for(text: str, s: Settings, fetch: Fetcher | None = None) -> str:
     """Plain reply text (without the env prefix) for an incoming message."""
     command = parse_command(text)
+    if command == "fetch":
+        if fetch is None:
+            return "/fetch is not available in this bot."
+        try:
+            return fetch()
+        except Exception as exc:  # report any sweep failure instead of stopping the bot
+            log.exception("/fetch failed")
+            return f"/fetch failed: {exc}"
     if command == "start":
         return f"Job Engine bot is running (env={s.app_env}).\n\n{HELP_TEXT}"
     if command == "status":
@@ -151,7 +165,9 @@ def reply_for(text: str, s: Settings) -> str:
     return f"Unknown command /{command}. Send /help to see the commands."
 
 
-def handle_update(update: dict[str, Any], s: Settings) -> tuple[str, str] | None:
+def handle_update(
+    update: dict[str, Any], s: Settings, fetch: Fetcher | None = None
+) -> tuple[str, str] | None:
     """Return (chat_id, text) to send for an update, or None to ignore it.
 
     Messages from any chat other than TELEGRAM_CHAT_ID are ignored.
@@ -164,14 +180,16 @@ def handle_update(update: dict[str, Any], s: Settings) -> tuple[str, str] | None
     if chat_id != str(s.telegram_chat_id):
         log.warning("Ignoring message from unknown chat %s", chat_id)
         return None
-    return chat_id, telegram_text(reply_for(text, s), s)
+    return chat_id, telegram_text(reply_for(text, s, fetch), s)
 
 
-def poll_once(client: TelegramClient, s: Settings, offset: int | None) -> int | None:
+def poll_once(
+    client: TelegramClient, s: Settings, offset: int | None, fetch: Fetcher | None = None
+) -> int | None:
     """Fetch one batch of updates, answer them, and return the next offset."""
     for update in client.get_updates(offset):
         offset = update["update_id"] + 1
-        out = handle_update(update, s)
+        out = handle_update(update, s, fetch)
         if out is not None:
             client.send_message(*out)
     return offset
@@ -198,6 +216,7 @@ def run(
     client: TelegramClient,
     max_polls: int | None = None,
     sleep: Callable[[float], None] = time.sleep,
+    fetch: Fetcher | None = None,
 ) -> None:
     """Announce startup, then poll forever (or max_polls times, for tests)."""
     client.send_message(str(s.telegram_chat_id), telegram_text("Job Engine bot started.", s))
@@ -206,10 +225,21 @@ def run(
     while max_polls is None or polls < max_polls:
         polls += 1
         try:
-            offset = poll_once(client, s, offset)
+            offset = poll_once(client, s, offset, fetch)
         except TelegramError as exc:
             log.error("%s, retrying in 5s", exc)
             sleep(5)
+
+
+def make_fetcher(s: Settings, fake: bool) -> Fetcher:
+    """/fetch runs the sweep: fixtures and an in-memory Notion with --fake, real otherwise."""
+
+    def fetch() -> str:
+        if fake:
+            return run_sweep(s, fake_deps(s), fakes.FAKE_TODAY).text()
+        return run_sweep(s, real_deps(s), date.today()).text()
+
+    return fetch
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -236,7 +266,7 @@ def main(argv: list[str] | None = None) -> int:
         client = TelegramClient(http_transport(s.telegram_bot_token))
 
     try:
-        run(s, client)
+        run(s, client, fetch=make_fetcher(s, args.fake))
     except TelegramError as exc:
         print(f"Job Engine bot stopped: {exc}", file=sys.stderr)
         return 1
