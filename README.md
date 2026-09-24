@@ -16,6 +16,23 @@ python -m jobengine.main
 
 ## Run the Telegram bot (local)
 
+### With a dummy Telegram (no token, no network)
+
+```bash
+python -m jobengine.telegram_bot --fake
+```
+
+Each line you type is treated as a message from your chat and the bot's replies are printed:
+
+```
+you> /start
+bot> [LOCAL] Job Engine bot is running (env=local).
+```
+
+Stop it with Ctrl+D or Ctrl+C.
+
+### With the real DEV bot
+
 Put the DEV bot token and your chat ID in `.env`:
 
 ```

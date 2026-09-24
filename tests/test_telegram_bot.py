@@ -1,5 +1,6 @@
 import io
 import json
+import sys
 import urllib.error
 
 import pytest
@@ -160,5 +161,42 @@ def test_http_errors_never_include_token(monkeypatch):
 
 def test_main_fails_without_secrets(monkeypatch, capsys):
     monkeypatch.setattr(tb, "get_settings", lambda: load_settings("local", {}))
-    assert tb.main() == 1
+    assert tb.main([]) == 1
     assert "missing TELEGRAM_BOT_TOKEN" in capsys.readouterr().err
+
+
+def test_console_transport_reads_lines_and_prints_replies():
+    out = io.StringIO()
+    client = tb.TelegramClient(tb.console_transport(CHAT_ID, io.StringIO("/help\n"), out))
+    updates = client.get_updates(None)
+    assert updates == [
+        {"update_id": 1, "message": {"chat": {"id": CHAT_ID}, "text": "/help"}}
+    ]
+    client.send_message(CHAT_ID, "hello")
+    assert out.getvalue() == "you> /help\nbot> hello\n"
+    with pytest.raises(EOFError):
+        client.get_updates(2)
+
+
+def test_fake_mode_runs_without_token_or_network(monkeypatch, capsys):
+    monkeypatch.setattr(tb, "get_settings", lambda: load_settings("local", {}))
+    monkeypatch.setattr(sys, "stdin", io.StringIO("/start\n/status\nhi\n"))
+
+    def no_network(*args, **kwargs):
+        raise AssertionError("fake mode must not open network connections")
+
+    monkeypatch.setattr(tb.urllib.request, "urlopen", no_network)
+    assert tb.main(["--fake"]) == 0
+    out = capsys.readouterr().out
+    assert "bot> [LOCAL] Job Engine bot started." in out
+    assert "bot> [LOCAL] Job Engine bot is running (env=local)." in out
+    assert "bot> [LOCAL] Job Engine | env=local | dry_run=true" in out
+    assert "bot> [LOCAL] I only understand commands for now." in out
+    assert out.rstrip().endswith("Job Engine bot stopped.")
+
+
+def test_fake_mode_uses_configured_chat_id(monkeypatch, capsys):
+    monkeypatch.setattr(tb, "get_settings", lambda: settings())
+    monkeypatch.setattr(sys, "stdin", io.StringIO("/help\n"))
+    assert tb.main(["--fake"]) == 0
+    assert "bot> [LOCAL] Job Engine commands:" in capsys.readouterr().out

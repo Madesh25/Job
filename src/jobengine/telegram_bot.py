@@ -3,10 +3,14 @@
 Run with `python -m jobengine.telegram_bot`. It long-polls the Telegram Bot API using the
 standard library only. Every outgoing message goes through safety.telegram_text so local and
 dev messages carry their [LOCAL] or [DEV] prefix.
+
+Run with `--fake` to use a dummy Telegram in the terminal instead: each line you type is a
+message from your chat and the replies are printed. No token and no network are needed.
 """
 
 from __future__ import annotations
 
+import argparse
 import json
 import logging
 import sys
@@ -14,7 +18,7 @@ import time
 import urllib.error
 import urllib.request
 from collections.abc import Callable
-from typing import Any
+from typing import Any, TextIO
 
 from jobengine.main import banner
 from jobengine.safety import SafetyError, check_startup, telegram_text
@@ -23,6 +27,7 @@ from jobengine.settings import Settings, get_settings
 log = logging.getLogger("jobengine.telegram_bot")
 
 API_BASE = "https://api.telegram.org"
+FAKE_CHAT_ID = "1"
 POLL_TIMEOUT = 30
 
 HELP_TEXT = (
@@ -67,6 +72,35 @@ def http_transport(token: str) -> Transport:
         except ValueError:
             message = f"{method} failed: response was not valid JSON"
         raise TelegramError(message.replace(token, "<token>"))
+
+    return call
+
+
+def console_transport(chat_id: str, stdin: TextIO, stdout: TextIO) -> Transport:
+    """Dummy Telegram: stdin lines become messages from chat_id, replies go to stdout.
+
+    getUpdates raises EOFError when the input ends, which stops the bot.
+    """
+    next_id = 0
+
+    def call(method: str, payload: dict[str, Any], timeout: float) -> dict[str, Any]:
+        nonlocal next_id
+        if method == "sendMessage":
+            print(f"bot> {payload['text']}", file=stdout, flush=True)
+            return {"ok": True, "result": {}}
+        if method == "getUpdates":
+            print("you> ", end="", file=stdout, flush=True)
+            line = stdin.readline()
+            if not line:
+                print(file=stdout)
+                raise EOFError
+            if not stdin.isatty():
+                # Piped input is not echoed by the terminal, so show it.
+                print(line.rstrip("\n"), file=stdout, flush=True)
+            next_id += 1
+            message = {"chat": {"id": chat_id}, "text": line.rstrip("\n")}
+            return {"ok": True, "result": [{"update_id": next_id, "message": message}]}
+        return {"ok": False, "description": f"{method} is not supported by the fake"}
 
     return call
 
@@ -143,8 +177,10 @@ def poll_once(client: TelegramClient, s: Settings, offset: int | None) -> int | 
     return offset
 
 
-def check_bot_settings(s: Settings) -> None:
+def check_bot_settings(s: Settings, fake: bool = False) -> None:
     check_startup(s)
+    if fake:
+        return
     missing = [
         name
         for name, value in (
@@ -176,22 +212,35 @@ def run(
             sleep(5)
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(prog="python -m jobengine.telegram_bot")
+    parser.add_argument(
+        "--fake", action="store_true", help="use a dummy Telegram in this terminal (no network)"
+    )
+    args = parser.parse_args(argv)
+
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     try:
         s = get_settings()
-        check_bot_settings(s)
+        check_bot_settings(s, fake=args.fake)
     except (SafetyError, ValueError) as exc:
         print(f"Job Engine bot startup failed: {exc}", file=sys.stderr)
         return 1
     print(banner(s))
-    client = TelegramClient(http_transport(s.telegram_bot_token))
+
+    if args.fake:
+        s = s.model_copy(update={"telegram_chat_id": s.telegram_chat_id or FAKE_CHAT_ID})
+        print("Fake Telegram: type a message and press Enter. Ctrl+D or Ctrl+C to stop.")
+        client = TelegramClient(console_transport(str(s.telegram_chat_id), sys.stdin, sys.stdout))
+    else:
+        client = TelegramClient(http_transport(s.telegram_bot_token))
+
     try:
         run(s, client)
     except TelegramError as exc:
         print(f"Job Engine bot stopped: {exc}", file=sys.stderr)
         return 1
-    except KeyboardInterrupt:
+    except (KeyboardInterrupt, EOFError):
         print("Job Engine bot stopped.")
     return 0
 
