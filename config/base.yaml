@@ -13,6 +13,15 @@ safety:
   redirect_to: "madeshwaranm02@gmail.com"
   dev_sender: "madeshwaranm02@gmail.com"
   prod_sender: "madeshwaran.manikam@gmail.com"
+  # Every HTTP request made through jobengine.http must go to one of these hosts.
+  # linkedin hosts are refused even if listed here.
+  allowed_hosts:
+    - api.notion.com
+    - api.adzuna.com
+    - boards-api.greenhouse.io
+    - api.lever.co
+    - api.eu.lever.co
+    - api.smartrecruiters.com
 sweep:
   # Title filters (section 4). Matched as whole words on the canonical (lowercase ASCII) title.
   title_include:

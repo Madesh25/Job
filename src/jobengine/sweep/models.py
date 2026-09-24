@@ -93,3 +93,14 @@ class SweepSummary:
             lines.append("High ghost risk (kept, check before applying):")
             lines.extend(f"- {job}" for job in self.high_ghost_jobs)
         return "\n".join(lines)
+
+
+@dataclass(frozen=True)
+class TargetCompany:
+    """A Target Companies row (read only)."""
+
+    name: str
+    careers_url: str
+    ats_platform: str  # Greenhouse, Lever, SmartRecruiters, Workday, Custom or Unknown
+    active: bool
+    region: str | None = None

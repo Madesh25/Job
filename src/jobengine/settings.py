@@ -53,6 +53,7 @@ class Settings(BaseModel):
     dev_sender: str
     force_model: str | None
     sweep: dict[str, Any] = Field(default_factory=dict)
+    allowed_hosts: tuple[str, ...] = ()
 
     notion_token: str | None = None
     telegram_bot_token: str | None = None
@@ -137,6 +138,7 @@ def load_settings(env: str | None = None, environ: Mapping[str, str] | None = No
         dev_sender=safety["dev_sender"],
         force_model=cfg.get("llm", {}).get("force_model"),
         sweep=dict(cfg.get("sweep") or {}),
+        allowed_hosts=tuple(safety.get("allowed_hosts") or ()),
         **secrets,
     )
 
