@@ -13,3 +13,115 @@ safety:
   redirect_to: "madeshwaranm02@gmail.com"
   dev_sender: "madeshwaranm02@gmail.com"
   prod_sender: "madeshwaran.manikam@gmail.com"
+sweep:
+  # Title filters (section 4). Matched as whole words on the canonical (lowercase ASCII) title.
+  title_include:
+    - devops
+    - sre
+    - site reliability
+    - platform engineer
+    - cloud engineer
+    - infrastructure engineer
+    - infra engineer
+    - kubernetes
+    - systems engineer
+    - build engineer
+    - release engineer
+    - devsecops
+    - cloud ops
+    - cloudops
+  title_exclude:
+    - lead
+    - principal
+    - head of
+    - director
+    - manager
+    - architect
+    - staff
+    - intern
+    - internship
+    - student
+  # Country -> names and cities. City keys are the display names written to Notion;
+  # aliases are canonical (lowercase ASCII, as produced by normalize.canon).
+  locations:
+    Poland:
+      names: [poland, polska]
+      cities:
+        Warszawa: [warszawa, warsaw]
+        Kraków: [krakow, cracow]
+        Wrocław: [wroclaw]
+        Poznań: [poznan]
+        Gdańsk: [gdansk]
+        Łódź: [lodz]
+        Katowice: [katowice]
+    Netherlands:
+      names: [netherlands, nederland]
+      cities:
+        Amsterdam: [amsterdam]
+        Amstelveen: [amstelveen]
+        Utrecht: [utrecht]
+        Rotterdam: [rotterdam]
+        Den Haag: [den haag, the hague, s gravenhage]
+        Eindhoven: [eindhoven]
+    Ireland:
+      names: [ireland]
+      cities:
+        Dublin: [dublin]
+        Cork: [cork]
+        Galway: [galway]
+        Limerick: [limerick]
+  gmail:
+    query: "newer_than:2d -in:spam -in:trash from:(linkedin.com OR justjoin.it OR nofluffjobs.com OR pracuj.pl OR theprotocol.it OR bulldogjob.pl OR indeed.com OR iamexpat.nl OR nationalevacaturebank.nl OR irishjobs.ie OR jobs.ie OR jobsireland.ie)"
+    max_messages: 100
+    # Sender domain (or parent domain) -> Board option in Job Opportunities.
+    sender_boards:
+      linkedin.com: LinkedIn
+      justjoin.it: JustJoin IT
+      nofluffjobs.com: NoFluffJobs
+      pracuj.pl: Pracuj.pl
+      theprotocol.it: theprotocol.it
+      bulldogjob.pl: Bulldogjob
+      indeed.com: Indeed
+      iamexpat.nl: IamExpat
+      nationalevacaturebank.nl: Nationale Vacaturebank
+      irishjobs.ie: IrishJobs.ie
+      jobs.ie: Jobs.ie
+      jobsireland.ie: JobsIreland
+    # Board -> job link pattern. The last capturing group is the posting ID.
+    # These are only used to recognise links inside emails; links are never requested.
+    job_url_patterns:
+      LinkedIn: 'linkedin\.com/(comm/)?jobs/view/(\d+)'
+      JustJoin IT: 'justjoin\.it/(job-offer|offers)/([\w-]+)'
+      NoFluffJobs: 'nofluffjobs\.com/(pl/)?job/([\w-]+)'
+      Pracuj.pl: 'pracuj\.pl/praca/.*,oferta,(\d+)'
+    # Anchor texts that are never job titles (generic fallback for other boards).
+    ignore_link_texts:
+      - unsubscribe
+      - view all
+      - see all
+      - settings
+      - manage
+      - preferences
+      - privacy
+      - help
+      - terms
+      - log in
+      - sign in
+      - download
+      - app store
+      - google play
+  adzuna:
+    countries: [pl, nl]
+    # Adzuna results carry no currency field; each country endpoint reports salaries
+    # in that country's currency.
+    currency:
+      pl: PLN
+      nl: EUR
+    results_per_page: 50
+    max_days_old: 3
+    what_or: "devops sre kubernetes platform cloud infrastructure"
+    max_calls_per_run: 6
+  ats:
+    max_detail_calls: 20
+  # Company name -> {ats, token} for companies whose careers URL is their own domain.
+  ats_boards: {}
