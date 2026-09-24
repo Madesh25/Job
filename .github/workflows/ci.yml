@@ -29,3 +29,6 @@ jobs:
 
       - name: Smoke test
         run: APP_ENV=local python -m jobengine.main
+
+      - name: Telegram bot smoke test (fake Telegram, no network)
+        run: printf '/start\n/status\n/help\n' | APP_ENV=local python -m jobengine.telegram_bot --fake
