@@ -1,0 +1,10 @@
+env_label: "[LOCAL]"
+notion:
+  write:
+    job_opportunities: "2e31d687-5a7b-442b-87e2-4d8f8c6dea95"
+    contacts: "8701fac7-2aae-4c95-a36c-c892fb9a138e"
+    resume_log: "8b1d6f16-f8d4-404e-8e12-4dca035b7e2f"
+gmail:
+  sender: "madeshwaranm02@gmail.com"
+llm:
+  force_model: "claude-haiku-4-5"

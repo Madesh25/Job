@@ -1,0 +1,13 @@
+env_label: ""
+notion:
+  write:
+    job_opportunities: "0228ce56-475a-4b60-8d6b-fd2a59297b24"
+    contacts: "ccb541f8-9e38-43e2-8d17-5dd6b24e6ea6"
+    resume_log: "9a768923-470a-4883-9fe7-8e156b4c5e97"
+    target_companies: "064bf98d-ab49-498d-9b94-2ecc41640230"
+    config: "84f44e56-ff55-4806-9859-50b3744fc325"
+    strategy: "4097af1c-faaf-455f-9616-728301043408"
+gmail:
+  sender: "madeshwaran.manikam@gmail.com"
+llm:
+  force_model: null

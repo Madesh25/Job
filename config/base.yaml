@@ -1,0 +1,15 @@
+notion:
+  job_engine_page_id: "3c16edc2-b0d4-8161-82a3-e1add3c02be6"
+  read:
+    target_companies: "064bf98d-ab49-498d-9b94-2ecc41640230"
+    config: "84f44e56-ff55-4806-9859-50b3744fc325"
+    strategy: "4097af1c-faaf-455f-9616-728301043408"
+    skills_inventory: "9b9ff879-be17-4164-b177-ebe774d9d8ae"
+    term_map: "68c437db-6dcf-4ddd-8a27-fb235bbe81fe"
+    evidence_library: "78b711ac-4374-4296-b822-58fc6c28008a"
+    project_registry: "7dc5a9ec-33b6-4118-b857-e6f9d0adf44e"
+    resume_sections: "e4f4f4e9-bbfd-47a8-8e78-4c90de8409ec"
+safety:
+  redirect_to: "madeshwaranm02@gmail.com"
+  dev_sender: "madeshwaranm02@gmail.com"
+  prod_sender: "madeshwaran.manikam@gmail.com"
