@@ -14,6 +14,24 @@ python -m jobengine.main
 
 `APP_ENV` defaults to `local` and `DRY_RUN` defaults to `true`.
 
+## Run the Telegram bot (local)
+
+Put the DEV bot token and your chat ID in `.env`:
+
+```
+TELEGRAM_BOT_TOKEN=<token from @BotFather>
+TELEGRAM_CHAT_ID=<your chat id>
+```
+
+Then start the bot and leave it running:
+
+```bash
+python -m jobengine.telegram_bot
+```
+
+It sends `[LOCAL] Job Engine bot started.` to your chat and answers `/start`, `/status` and
+`/help`. Messages from any other chat are ignored. Stop it with Ctrl+C.
+
 ## Run tests
 
 ```bash
