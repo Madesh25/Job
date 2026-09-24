@@ -15,7 +15,7 @@ from typing import Any
 
 import yaml
 from dotenv import dotenv_values
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 ROOT_DIR = Path(__file__).resolve().parents[2]
 CONFIG_DIR = ROOT_DIR / "config"
@@ -52,6 +52,8 @@ class Settings(BaseModel):
     prod_sender: str
     dev_sender: str
     force_model: str | None
+    sweep: dict[str, Any] = Field(default_factory=dict)
+    allowed_hosts: tuple[str, ...] = ()
 
     notion_token: str | None = None
     telegram_bot_token: str | None = None
@@ -135,6 +137,8 @@ def load_settings(env: str | None = None, environ: Mapping[str, str] | None = No
         prod_sender=safety["prod_sender"],
         dev_sender=safety["dev_sender"],
         force_model=cfg.get("llm", {}).get("force_model"),
+        sweep=dict(cfg.get("sweep") or {}),
+        allowed_hosts=tuple(safety.get("allowed_hosts") or ()),
         **secrets,
     )
 

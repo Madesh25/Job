@@ -1,0 +1,20 @@
+[
+  {
+    "id": "fake-msg-linkedin-1",
+    "from": "LinkedIn Job Alerts <jobalerts-noreply@linkedin.com>",
+    "subject": "DevOps Engineer: 3 new jobs in Europe",
+    "file": "linkedin_alert.html"
+  },
+  {
+    "id": "fake-msg-justjoin-1",
+    "from": "JustJoin.IT <alerts@justjoin.it>",
+    "subject": "New offers matching your alert",
+    "file": "justjoin_alert.html"
+  },
+  {
+    "id": "fake-msg-irishjobs-1",
+    "from": "IrishJobs.ie <alerts@mail.irishjobs.ie>",
+    "subject": "Jobs matching: site reliability",
+    "file": "generic_alert.html"
+  }
+]

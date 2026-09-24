@@ -86,3 +86,47 @@ def test_gmail_write_calls_only_in_safety_or_gmail_client():
         text = p.read_text(encoding="utf-8")
         offenders.extend(f"{rel}: {call}" for call in GMAIL_WRITE_CALLS if call in text)
     assert offenders == []
+
+
+HTTP_IMPORT = re.compile(r"^\s*(?:import|from)\s+(httpx|requests|urllib\.request)\b", re.M)
+HTTP_IMPORT_ALLOWED = {
+    "src/jobengine/http.py",
+    "src/jobengine/telegram_bot.py",
+    "src/jobengine/gmail_reader.py",
+}
+GMAIL_READER = "src/jobengine/gmail_reader.py"
+GMAIL_FORBIDDEN = [".send(", "drafts(", "modify(", "trash(", "delete(", "batchModify"]
+# A URL literal pointing at linkedin. Regex patterns in config/ are allowed; src/ has none.
+LINKEDIN_URL = re.compile(r"https?://(?:[\w-]+\.)*linked" + r"in\.com", re.I)
+
+
+def src_files():
+    return [p for p in repo_text_files() if p.relative_to(ROOT).as_posix().startswith("src/")]
+
+
+def test_http_libraries_only_imported_by_allowed_modules():
+    offenders = []
+    for p in src_files():
+        rel = p.relative_to(ROOT).as_posix()
+        if rel in HTTP_IMPORT_ALLOWED:
+            continue
+        for match in HTTP_IMPORT.finditer(p.read_text(encoding="utf-8")):
+            offenders.append(f"{rel}: {match.group(1)}")
+    assert offenders == []
+
+
+def test_gmail_reader_is_read_only():
+    path = ROOT / GMAIL_READER
+    if not path.exists():
+        return
+    text = path.read_text(encoding="utf-8")
+    assert [call for call in GMAIL_FORBIDDEN if call in text] == []
+
+
+def test_no_request_to_linkedin_in_src():
+    offenders = [
+        p.relative_to(ROOT).as_posix()
+        for p in src_files()
+        if LINKEDIN_URL.search(p.read_text(encoding="utf-8"))
+    ]
+    assert offenders == []

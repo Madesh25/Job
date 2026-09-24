@@ -49,6 +49,15 @@ python -m jobengine.telegram_bot
 It sends `[LOCAL] Job Engine bot started.` to your chat and answers `/start`, `/status` and
 `/help`. Messages from any other chat are ignored. Stop it with Ctrl+C.
 
+## Run the job sweep
+
+```bash
+python -m jobengine.sweep --fake --today 2026-10-01   # fixtures only, no network
+python -m jobengine.sweep --parse-report              # check the Gmail parser, writes nothing
+```
+
+`/fetch` in the Telegram bot runs the same sweep. See [docs/sweep.md](docs/sweep.md).
+
 ## Run tests
 
 ```bash
@@ -60,3 +69,4 @@ pytest
 
 - [Branching model](docs/branching.md)
 - [Environments and safety rules](docs/environments.md)
+- [Job sweep](docs/sweep.md)

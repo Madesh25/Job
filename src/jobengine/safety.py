@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from urllib.parse import urlsplit
+
 from jobengine.settings import PROD_WRITE_IDS, Settings
 
 PROD = "prod"
@@ -70,3 +72,18 @@ def resolve_model(requested: str, s: Settings) -> str:
 
 def telegram_text(text: str, s: Settings) -> str:
     return f"{s.env_label} {text}" if s.env_label else text
+
+
+def assert_fetch_allowed(url: str, s: Settings) -> None:
+    """Raise SafetyError unless url is https and its host is on safety.allowed_hosts.
+
+    linkedin hosts are always refused, even when someone adds them to the allowlist.
+    """
+    parts = urlsplit(url)
+    host = (parts.hostname or "").lower().rstrip(".")
+    if "linkedin" in host:
+        raise SafetyError(f"refusing to fetch {host}: linkedin is never fetched")
+    if parts.scheme != "https":
+        raise SafetyError(f"refusing to fetch {host or '(no host)'}: only https is allowed")
+    if host not in {h.lower() for h in s.allowed_hosts}:
+        raise SafetyError(f"refusing to fetch {host}: host is not on safety.allowed_hosts")

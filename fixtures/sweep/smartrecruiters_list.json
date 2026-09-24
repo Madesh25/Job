@@ -1,0 +1,33 @@
+{
+  "offset": 0,
+  "limit": 100,
+  "totalFound": 3,
+  "content": [
+    {
+      "id": "744000011111111",
+      "name": "DevOps Engineer",
+      "uuid": "0b6f7c1e-0000-4000-8000-000000000001",
+      "refNumber": "REF-11",
+      "company": {"identifier": "VistulaPayments", "name": "Vistula Payments"},
+      "releasedDate": "2026-09-25T10:00:00.000Z",
+      "location": {"city": "Warszawa", "region": "Mazowieckie", "country": "pl", "remote": false},
+      "ref": "https://api.smartrecruiters.com/v1/companies/VistulaPayments/postings/744000011111111"
+    },
+    {
+      "id": "744000011111112",
+      "name": "Senior Accountant",
+      "company": {"identifier": "VistulaPayments", "name": "Vistula Payments"},
+      "releasedDate": "2026-09-20T10:00:00.000Z",
+      "location": {"city": "Warszawa", "country": "pl", "remote": false},
+      "ref": "https://api.smartrecruiters.com/v1/companies/VistulaPayments/postings/744000011111112"
+    },
+    {
+      "id": "744000011111113",
+      "name": "Head of Platform Engineering",
+      "company": {"identifier": "VistulaPayments", "name": "Vistula Payments"},
+      "releasedDate": "2026-09-22T10:00:00.000Z",
+      "location": {"city": "Krakow", "country": "pl", "remote": false},
+      "ref": "https://api.smartrecruiters.com/v1/companies/VistulaPayments/postings/744000011111113"
+    }
+  ]
+}

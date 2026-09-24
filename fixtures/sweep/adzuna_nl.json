@@ -1,0 +1,41 @@
+{
+  "__CLASS__": "Adzuna::API::Response::JobSearchResults",
+  "count": 3,
+  "results": [
+    {
+      "__CLASS__": "Adzuna::API::Response::Job",
+      "id": "5100000001",
+      "title": "Lead Platform Engineer",
+      "description": "Lead our platform team ...",
+      "created": "2026-09-29T10:00:00Z",
+      "redirect_url": "https://www.adzuna.nl/details/5100000001",
+      "company": {"display_name": "Tulip Data B.V."},
+      "location": {"display_name": "Amsterdam, Noord-Holland", "area": ["Nederland", "Noord-Holland", "Amsterdam"]},
+      "salary_is_predicted": "0"
+    },
+    {
+      "__CLASS__": "Adzuna::API::Response::Job",
+      "id": "5100000002",
+      "title": "Cloud Engineer",
+      "description": "Delft Digital builds Azure landing zones. 2+ years with Terraform ...",
+      "created": "2026-09-30T06:30:00Z",
+      "redirect_url": "https://www.adzuna.nl/details/5100000002",
+      "company": {"display_name": "Delft Digital B.V."},
+      "location": {"display_name": "Den Haag, Zuid-Holland", "area": ["Nederland", "Zuid-Holland", "Den Haag"]},
+      "salary_min": 4500,
+      "salary_max": 6000,
+      "salary_is_predicted": "0"
+    },
+    {
+      "__CLASS__": "Adzuna::API::Response::Job",
+      "id": "5100000003",
+      "title": "Medior DevOps Engineer",
+      "description": "Maas Logistics is looking for a medior DevOps engineer ...",
+      "created": "2026-09-20T12:00:00Z",
+      "redirect_url": "https://www.adzuna.nl/details/5100000003",
+      "company": {"display_name": "Maas Logistics"},
+      "location": {"display_name": "Rotterdam, Zuid-Holland", "area": ["Nederland", "Zuid-Holland", "Rotterdam"]},
+      "salary_is_predicted": "0"
+    }
+  ]
+}

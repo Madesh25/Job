@@ -1,0 +1,38 @@
+{
+  "jobs": [
+    {
+      "id": 4001001,
+      "internal_job_id": 3001001,
+      "title": "Senior DevOps Engineer",
+      "updated_at": "2026-09-30T12:00:00-04:00",
+      "first_published": "2026-09-10T09:00:00-04:00",
+      "requisition_id": "ENG-101",
+      "location": {"name": "Dublin, Ireland"},
+      "absolute_url": "https://boards.greenhouse.io/northwindcloud/jobs/4001001",
+      "language": "en",
+      "company_name": "Northwind Cloud",
+      "metadata": null,
+      "content": "&lt;p&gt;Northwind Cloud runs a multi-region Kubernetes platform.&lt;/p&gt;&lt;ul&gt;&lt;li&gt;4+ years of experience with AWS&lt;/li&gt;&lt;li&gt;Terraform and ArgoCD&lt;/li&gt;&lt;/ul&gt;",
+      "departments": [{"id": 1, "name": "Engineering"}],
+      "offices": [{"id": 1, "name": "Dublin"}]
+    },
+    {
+      "id": 4001002,
+      "title": "Data Analyst",
+      "updated_at": "2026-09-29T12:00:00-04:00",
+      "first_published": "2026-09-01T09:00:00-04:00",
+      "location": {"name": "Dublin, Ireland"},
+      "absolute_url": "https://boards.greenhouse.io/northwindcloud/jobs/4001002",
+      "content": "&lt;p&gt;Analytics role.&lt;/p&gt;"
+    },
+    {
+      "id": 4001003,
+      "title": "Site Reliability Engineer",
+      "updated_at": "2026-09-29T08:00:00-04:00",
+      "location": {"name": "Cork, Ireland"},
+      "absolute_url": "https://boards.greenhouse.io/northwindcloud/jobs/4001003",
+      "content": "&lt;p&gt;Keep our services reliable. 3-5 years of on-call experience.&lt;/p&gt;"
+    }
+  ],
+  "meta": {"total": 3}
+}

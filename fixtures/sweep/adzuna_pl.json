@@ -1,0 +1,62 @@
+{
+  "__CLASS__": "Adzuna::API::Response::JobSearchResults",
+  "count": 4,
+  "mean": 21000,
+  "results": [
+    {
+      "__CLASS__": "Adzuna::API::Response::Job",
+      "id": "4300000001",
+      "adref": "eyJhbGciOiJIUzI1NiJ9.fake.adref1",
+      "title": "<strong>DevOps</strong> Engineer",
+      "description": "Vistula Cloud is looking for a DevOps Engineer with 3+ years of experience in Kubernetes, Terraform and GitLab CI. You will run our AWS platform ...",
+      "created": "2026-09-29T08:15:00Z",
+      "redirect_url": "https://www.adzuna.pl/details/4300000001?utm_medium=api&utm_source=example",
+      "company": {"__CLASS__": "Adzuna::API::Response::Company", "display_name": "Vistula Cloud Sp. z o.o."},
+      "location": {
+        "__CLASS__": "Adzuna::API::Response::Location",
+        "display_name": "Krakow, Malopolskie",
+        "area": ["Polska", "Małopolskie", "Kraków"]
+      },
+      "category": {"__CLASS__": "Adzuna::API::Response::Category", "label": "IT Jobs", "tag": "it-jobs"},
+      "salary_min": 18000,
+      "salary_max": 24000,
+      "salary_is_predicted": "0",
+      "contract_type": "permanent"
+    },
+    {
+      "__CLASS__": "Adzuna::API::Response::Job",
+      "id": "4300000002",
+      "title": "Senior Site Reliability Engineer",
+      "description": "Odra Systems needs an SRE with at least 5 years of production Linux experience ...",
+      "created": "2026-09-28T11:40:00Z",
+      "redirect_url": "https://www.adzuna.pl/details/4300000002?utm_medium=api",
+      "company": {"display_name": "Odra Systems S.A."},
+      "location": {"display_name": "Warszawa, Mazowieckie", "area": ["Polska", "Mazowieckie", "Warszawa"]},
+      "salary_min": 26000.5,
+      "salary_max": 30000,
+      "salary_is_predicted": "1"
+    },
+    {
+      "__CLASS__": "Adzuna::API::Response::Job",
+      "id": "4300000003",
+      "title": "Kubernetes Platform Engineer",
+      "description": "Relocation to Berlin, Germany required ...",
+      "created": "2026-09-30T07:00:00Z",
+      "redirect_url": "https://www.adzuna.pl/details/4300000003",
+      "company": {"display_name": "Wawel Soft"},
+      "location": {"display_name": "Berlin, Deutschland", "area": ["Deutschland", "Berlin"]},
+      "salary_is_predicted": "0"
+    },
+    {
+      "__CLASS__": "Adzuna::API::Response::Job",
+      "id": "4300000004",
+      "title": "Junior DevOps Engineer (k/m)",
+      "description": "Baltic Bank is hiring a junior DevOps engineer. Minimum 1 year with Linux and Bash ...",
+      "created": "2026-08-01T09:00:00Z",
+      "redirect_url": "https://www.adzuna.pl/details/4300000004",
+      "company": {"display_name": "Baltic Bank"},
+      "location": {"display_name": "Gdansk, Pomorskie", "area": ["Polska", "Pomorskie", "Gdańsk"]},
+      "salary_is_predicted": "0"
+    }
+  ]
+}
