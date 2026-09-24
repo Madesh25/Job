@@ -1,0 +1,34 @@
+[
+  {
+    "id": "5f1c2a90-0001-4c1e-9d11-aa0000000001",
+    "text": "Platform Engineer",
+    "categories": {
+      "commitment": "Full-time",
+      "department": "Engineering",
+      "location": "The Hague, Netherlands",
+      "team": "Infrastructure",
+      "allLocations": ["The Hague, Netherlands"]
+    },
+    "country": "NL",
+    "createdAt": 1790240400000,
+    "workplaceType": "hybrid",
+    "hostedUrl": "https://jobs.eu.lever.co/tulipdata/5f1c2a90-0001-4c1e-9d11-aa0000000001",
+    "applyUrl": "https://jobs.eu.lever.co/tulipdata/5f1c2a90-0001-4c1e-9d11-aa0000000001/apply",
+    "descriptionPlain": "Tulip Data runs data pipelines on Kubernetes.",
+    "description": "<div>Tulip Data runs data pipelines on Kubernetes.</div>",
+    "lists": [
+      {"text": "Requirements", "content": "<li>3+ years operating Kubernetes</li><li>Go or Python</li>"}
+    ],
+    "additionalPlain": "Hybrid, two days a week in The Hague.",
+    "salaryRange": {"currency": "EUR", "interval": "per-year-salary", "min": 60000, "max": 75000}
+  },
+  {
+    "id": "5f1c2a90-0002-4c1e-9d11-aa0000000002",
+    "text": "Staff Infrastructure Engineer",
+    "categories": {"location": "Amsterdam, Netherlands", "team": "Infrastructure"},
+    "createdAt": 1789203600000,
+    "workplaceType": "on-site",
+    "hostedUrl": "https://jobs.eu.lever.co/tulipdata/5f1c2a90-0002-4c1e-9d11-aa0000000002",
+    "descriptionPlain": "Staff level role."
+  }
+]
