@@ -198,3 +198,26 @@ def test_description_filled_on_existing_row_without_body():
     appends = [w for w in repo.writes if w[0] == "append_body"]
     assert len(appends) == 1
     assert appends[0][2] == ["Description source: adzuna (snippet only)", "Kubernetes"]
+
+
+def test_existing_non_email_rows_skip_the_body_check():
+    repo = FakeJobsRepo([{
+        "page_id": "p1", "Dedupe key": "acme|devops engineer|warszawa",
+        "Posting IDs": "adzuna:1", "Times seen": 1, "First seen": date(2026, 9, 30),
+    }])
+    checked = []
+    repo.has_body = lambda page_id: checked.append(page_id) or True
+    posting = RawPosting(
+        source="adzuna", board="Adzuna", title="DevOps Engineer", company="Acme",
+        location_text="Warszawa", url="https://example.com/1", posting_id="1",
+        description="Kubernetes", description_is_snippet=True,
+    )
+    deps = SweepDeps(
+        config=fakes.config, companies=lambda: [], repo=repo,
+        gmail=lambda: SourceResult("gmail"),
+        adzuna=lambda: SourceResult("adzuna", postings=[posting]),
+        ats=lambda companies, keep: SourceResult("ats"),
+    )
+    summary = run_sweep(S, deps, TODAY)
+    assert summary.updated == 1
+    assert checked == []  # created by Adzuna, so it already has a description

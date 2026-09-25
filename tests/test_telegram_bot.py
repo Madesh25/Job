@@ -214,7 +214,9 @@ def test_fetch_reply_goes_through_telegram_text():
     fetcher = tb.make_fetcher(settings(), fake=True)
     _, text = tb.handle_update(update(1, "/fetch"), settings(), fetcher)
     assert text.startswith("[LOCAL] Sweep done:")
-    _, dev_text = tb.handle_update(update(2, "/fetch"), settings("dev"), lambda: "Sweep done")
+    _, dev_text = tb.handle_update(
+        update(2, "/fetch"), settings("dev"), lambda progress: "Sweep done"
+    )
     assert dev_text == "[DEV] Sweep done"
 
 
@@ -228,7 +230,7 @@ def test_fetch_without_fetcher_and_on_failure():
     _, text = tb.handle_update(update(1, "/fetch"), settings())
     assert text == "[LOCAL] /fetch is not available in this bot."
 
-    def boom():
+    def boom(progress):
         raise RuntimeError("notion down")
 
     _, text = tb.handle_update(update(2, "/fetch"), settings(), boom)
@@ -237,3 +239,90 @@ def test_fetch_without_fetcher_and_on_failure():
 
 def test_help_lists_fetch():
     assert "/fetch" in tb.HELP_TEXT
+
+
+class FakeClock:
+    def __init__(self):
+        self.now = 0.0
+
+    def __call__(self):
+        return self.now
+
+
+def test_run_fetch_replies_at_once_updates_progress_and_sends_summary():
+    fake = FakeTelegram()
+    edits = []
+
+    def transport(method, payload, timeout):
+        if method == "editMessageText":
+            edits.append(payload)
+            return {"ok": True, "result": {}}
+        if method == "sendMessage":
+            fake.sent.append((payload["chat_id"], payload["text"]))
+            return {"ok": True, "result": {"message_id": len(fake.sent)}}
+        return fake(method, payload, timeout)
+
+    clock = FakeClock()
+
+    def fetch(progress):
+        progress("adzuna pl page 1: 50 postings")  # within 4s: no edit yet
+        clock.now = 5
+        progress("adzuna nl page 1: 50 postings")  # 5s later: edit
+        return "Sweep done: 1 new"
+
+    tb.run_fetch(tb.TelegramClient(transport), settings(), CHAT_ID, fetch, clock=clock)
+    assert fake.sent[0][1].startswith("[LOCAL] Sweep started at ")
+    assert fake.sent[-1] == (CHAT_ID, "[LOCAL] Sweep done: 1 new")
+    assert len(edits) == 2  # one throttled progress edit, one final
+    assert edits[0]["message_id"] == 1
+    assert edits[0]["text"].startswith("[LOCAL] Sweep running (started ")
+    assert "adzuna nl page 1: 50 postings" in edits[0]["text"]
+    assert edits[1]["text"].startswith("[LOCAL] Sweep finished:")
+
+
+def test_run_fetch_reports_failure():
+    sent = []
+
+    def transport(method, payload, timeout):
+        if method == "sendMessage":
+            sent.append(payload["text"])
+            return {"ok": True, "result": {"message_id": 7}}
+        return {"ok": True, "result": {}}
+
+    def fetch(progress):
+        raise RuntimeError("notion down")
+
+    tb.run_fetch(tb.TelegramClient(transport), settings(), CHAT_ID, fetch)
+    assert sent[-1] == "[LOCAL] /fetch failed: notion down"
+
+
+def test_progress_edit_errors_do_not_stop_the_sweep():
+    def transport(method, payload, timeout):
+        if method == "editMessageText":
+            return {"ok": False, "description": "Too Many Requests"}
+        return {"ok": True, "result": {"message_id": 1}}
+
+    clock = FakeClock()
+    progress = tb.ProgressMessage(tb.TelegramClient(transport), CHAT_ID, settings(), clock)
+    clock.now = 10
+    progress.update("line")  # the failed edit is only logged
+    progress.finish("done")
+
+
+def test_fake_bot_fetch_shows_start_progress_and_summary(monkeypatch, capsys):
+    monkeypatch.setattr(tb, "get_settings", lambda: load_settings("local", {}))
+    monkeypatch.setattr(sys, "stdin", io.StringIO("/fetch\n"))
+    assert tb.main(["--fake"]) == 0
+    out = capsys.readouterr().out
+    assert "bot> [LOCAL] Sweep started at " in out
+    assert "bot (updated)> [LOCAL] Sweep finished:" in out
+    assert "gmail: 6 postings collected" in out
+    assert "bot> [LOCAL] Sweep done: 8 new, 1 updated, 5 reposts" in out
+
+
+def test_poll_once_routes_fetch_to_run_fetch():
+    fake = FakeTelegram([[update(1, "/fetch")]])
+    tb.poll_once(tb.TelegramClient(fake), settings(), None, lambda progress: "Sweep done")
+    texts = [text for _, text in fake.sent]
+    assert texts[0].startswith("[LOCAL] Sweep started")
+    assert texts[-1] == "[LOCAL] Sweep done"

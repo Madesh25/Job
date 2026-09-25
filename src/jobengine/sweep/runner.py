@@ -78,6 +78,10 @@ def real_deps(s: Settings) -> SweepDeps:
     )
 
 
+def _may_lack_body(row: IndexRow) -> bool:
+    return all(ref.startswith(gmail_alerts.SOURCE + ":") for ref in row.posting_ids)
+
+
 def _label(job: Job) -> str:
     return f"{job.company}, {job.role} ({job.city or job.country})"
 
@@ -169,7 +173,10 @@ def run_sweep(
             if repo:
                 repo.update(row.page_id, plan_update.props)
                 if job.description and row.page_id not in with_body:
-                    if not repo.has_body(row.page_id):
+                    # Only rows seen so far through email alerts can lack a description:
+                    # every other source writes one when it creates the row. Checking just
+                    # those rows halves the Notion requests on a daily re-sweep.
+                    if _may_lack_body(row) and not repo.has_body(row.page_id):
                         repo.append_body(row.page_id, description_blocks(job))
                     with_body.add(row.page_id)
             index[job.dedupe_key] = plan_update.row
