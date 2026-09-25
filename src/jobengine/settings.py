@@ -59,6 +59,7 @@ class Settings(BaseModel):
     drive: dict[str, Any] = Field(default_factory=dict)
     contacts: dict[str, Any] = Field(default_factory=dict)
     mail: dict[str, Any] = Field(default_factory=dict)
+    tracking: dict[str, Any] = Field(default_factory=dict)
     allowed_hosts: tuple[str, ...] = ()
 
     notion_token: str | None = None
@@ -150,6 +151,7 @@ def load_settings(env: str | None = None, environ: Mapping[str, str] | None = No
         drive=dict(cfg.get("drive") or {}),
         contacts=dict(cfg.get("contacts") or {}),
         mail=dict(cfg.get("mail") or {}),
+        tracking=dict(cfg.get("tracking") or {}),
         allowed_hosts=tuple(safety.get("allowed_hosts") or ()),
         **secrets,
     )

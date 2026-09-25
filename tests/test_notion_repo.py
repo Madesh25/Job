@@ -255,3 +255,13 @@ def test_relation_and_checkbox_round_trip():
     assert notion_value("checkbox", 1) == {"checkbox": True}
     assert plain_value({"type": "relation", "relation": [{"id": "a-1"}]}) == ["a-1"]
     assert plain_value({"type": "checkbox", "checkbox": True}) is True
+
+
+def test_contact_update_clears_empty_values():
+    from jobengine.notion_repo import contact_update_properties
+
+    props = contact_update_properties({"Gmail draft ID": "", "Status": "Contacted",
+                                       "Last contacted": None})
+    assert props["Gmail draft ID"] == {"rich_text": []}
+    assert props["Last contacted"] == {"date": None}
+    assert props["Status"] == {"select": {"name": "Contacted"}}

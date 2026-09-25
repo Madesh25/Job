@@ -312,6 +312,8 @@ def _write_contact(deps: MailDeps, page_id: str, contact: dict[str, Any], line: 
         log.warning("DRY RUN: would write to contacts")
         return
     note = f"drafted for {clean_role(job.role)} {today.isoformat()}"
+    if contact.get("Status") == "Unverified":
+        note += " (was Unverified)"  # so a deleted draft goes back to Unverified (Module 07)
     notes = (contact.get("Notes") or "").strip()
     props: dict[str, Any] = {"Gmail draft ID": line.draft_id, "Gmail thread ID": line.thread_id,
                              "Notes": f"{notes}\n{note}" if notes else note}

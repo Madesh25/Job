@@ -23,6 +23,8 @@ from jobengine.track.models import (
 JOB_ORDER = ("New", "Screened", "Approved", "Resume built", "Applied", "Followed up", "Replied",
              "Screening", "Interview", "Offer")
 JOB_TERMINAL = ("Rejected", "Ghosted", "Withdrawn", "Declined", "Expired")
+# Never overwritten by the daily run (Offer is the last forward step, not terminal).
+NEVER_CHANGED = (*JOB_TERMINAL, "Offer")
 # Contacts: Ghosted can still turn into Replied (a late answer); Bounced and Do not contact
 # are final.
 CONTACT_ORDER = ("Unverified", "Verified", "Drafted", "Contacted", "Followed up", "Ghosted",
@@ -49,7 +51,7 @@ ONLY_FROM = {"Replied": ("Applied", "Followed up"), "Followed up": ("Applied",)}
 
 def advance_job(current: str | None, target: str | None) -> str | None:
     """`target` when the move is allowed, else None."""
-    if not target or current == target or current in JOB_TERMINAL:
+    if not target or current == target or current in NEVER_CHANGED:
         return None
     if target in ONLY_FROM and current not in ONLY_FROM[target]:
         return None

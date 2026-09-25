@@ -28,6 +28,11 @@ def test_terminal_is_never_changed(terminal):
         assert advance_job(terminal, target) is None
 
 
+def test_offer_is_never_overwritten():
+    assert advance_job("Offer", "Rejected") is None
+    assert advance_job("Offer", "Ghosted") is None
+
+
 def test_terminal_from_non_terminal():
     assert advance_job("Interview", "Rejected") == "Rejected"
     assert advance_job("Applied", "Ghosted") == "Ghosted"
