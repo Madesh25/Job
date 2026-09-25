@@ -47,7 +47,6 @@ Transport = Callable[[str, dict[str, Any], float], dict[str, Any]]
 Progress = Callable[[str], None]
 Fetcher = Callable[[Progress], str]
 PROGRESS_EDIT_SECONDS = 4
-PROGRESS_LINES = 6
 
 
 class TelegramError(Exception):
@@ -146,7 +145,7 @@ class TelegramClient:
 
 
 class ProgressMessage:
-    """One Telegram message that shows the latest sweep progress lines.
+    """One Telegram message that shows the sweep's current step in plain words.
 
     It is edited at most every PROGRESS_EDIT_SECONDS so the chat is not flooded and
     Telegram rate limits are respected. A failed edit never stops the sweep.
@@ -163,47 +162,38 @@ class ProgressMessage:
         self.chat_id = chat_id
         self.s = s
         self.clock = clock
-        self.lines: list[str] = []
+        self.status = "Starting..."
         self.started = time.strftime("%H:%M")
+        self.started_at = clock()
         self.message_id = client.send_message(
-            chat_id, telegram_text(f"Sweep started at {self.started}. Progress below.", s)
+            chat_id,
+            telegram_text(f"\U0001F50E Searching for jobs (started {self.started})...", s),
         )
         self.last_edit = clock()
 
-    def _text(self, header: str) -> str:
-        body = "\n".join(self.lines[-PROGRESS_LINES:])
-        return telegram_text(f"{header}\n{body}".strip(), self.s)
-
-    def _edit(self, header: str) -> None:
+    def _edit(self, text: str) -> None:
         if self.message_id is None:
             return
         try:
-            self.client.edit_message(self.chat_id, self.message_id, self._text(header))
+            self.client.edit_message(self.chat_id, self.message_id, telegram_text(text, self.s))
         except TelegramError as exc:
             log.warning("progress update failed: %s", exc)
         self.last_edit = self.clock()
 
-    def update(self, line: str) -> None:
-        self.lines.append(line)
+    def update(self, status: str) -> None:
+        self.status = status
         if self.clock() - self.last_edit >= PROGRESS_EDIT_SECONDS:
-            self._edit(f"Sweep running (started {self.started}):")
+            self._edit(f"\U0001F50E Job search running (started {self.started})\n{status}")
 
-    def finish(self, header: str) -> None:
-        self._edit(header)
+    def elapsed(self) -> str:
+        minutes = int((self.clock() - self.started_at) // 60)
+        return "under a minute" if minutes < 1 else f"{minutes} min"
 
-
-class _ProgressHandler(logging.Handler):
-    """Forwards the sweep's progress log lines to a callback."""
-
-    def __init__(self, progress: Progress):
-        super().__init__(level=logging.INFO)
-        self.progress = progress
-
-    def emit(self, record: logging.LogRecord) -> None:
-        try:
-            self.progress(record.getMessage())
-        except Exception:  # progress must never break the sweep
-            log.exception("progress callback failed")
+    def finish(self, ok: bool) -> None:
+        if ok:
+            self._edit(f"\u2705 Job search done in {self.elapsed()}. Summary below.")
+        else:
+            self._edit(f"\u274C Job search stopped after {self.elapsed()}: {self.status}")
 
 
 def parse_command(text: str) -> str | None:
@@ -293,10 +283,10 @@ def run_fetch(
         summary = fetch(progress.update)
     except Exception as exc:  # report any sweep failure instead of stopping the bot
         log.exception("/fetch failed")
-        progress.finish("Sweep failed:")
+        progress.finish(ok=False)
         client.send_message(chat_id, telegram_text(f"/fetch failed: {exc}", s))
         return
-    progress.finish("Sweep finished:")
+    progress.finish(ok=True)
     client.send_message(chat_id, telegram_text(summary, s))
 
 
@@ -340,18 +330,11 @@ def make_fetcher(s: Settings, fake: bool) -> Fetcher:
     """/fetch runs the sweep: fixtures and an in-memory Notion with --fake, real otherwise."""
 
     def fetch(progress: Progress) -> str:
-        sweep_log = logging.getLogger("jobengine.sweep")
-        handler = _ProgressHandler(progress)
-        old_level = sweep_log.level
-        sweep_log.addHandler(handler)
-        sweep_log.setLevel(logging.INFO)
-        try:
-            if fake:
-                return run_sweep(s, fake_deps(s), fakes.FAKE_TODAY).text()
-            return run_sweep(s, real_deps(s), date.today()).text()
-        finally:
-            sweep_log.removeHandler(handler)
-            sweep_log.setLevel(old_level)
+        if fake:
+            summary = run_sweep(s, fake_deps(s), fakes.FAKE_TODAY, progress=progress)
+        else:
+            summary = run_sweep(s, real_deps(s), date.today(), progress=progress)
+        return summary.friendly_text()
 
     return fetch
 

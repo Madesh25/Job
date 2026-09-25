@@ -28,6 +28,11 @@ log = logging.getLogger("jobengine.sweep")
 
 SOURCES = ("gmail", "adzuna", "ats")
 Prefilter = Callable[[str, str], bool]
+Progress = Callable[[str], None]
+
+# Plain names for the Telegram messages.
+SOURCE_LABELS = {"gmail": "Email alerts", "adzuna": "Adzuna", "ats": "Company career sites"}
+PROGRESS_EVERY = 25
 
 
 class SweepError(Exception):
@@ -91,7 +96,17 @@ def run_sweep(
     deps: SweepDeps,
     today: date,
     sources: Iterable[str] = SOURCES,
+    progress: Progress | None = None,
 ) -> SweepSummary:
+    """Run one sweep. `progress` receives short plain-language status lines (for Telegram)."""
+
+    def say(text: str) -> None:
+        if progress is not None:
+            try:
+                progress(text)
+            except Exception:  # progress must never break the sweep
+                log.exception("progress callback failed")
+
     sources = [name for name in SOURCES if name in set(sources)]
     config = deps.config()
     blocked = strategy_gate(config, today)
@@ -105,17 +120,21 @@ def run_sweep(
         country, _ = detect_location(location, rules)
         return title_scope(title, rules) is None and country in active
 
-    summary = SweepSummary()
+    summary = SweepSummary(countries=list(active))
     repo = deps.repo
     if repo is None:
         summary.notes.append("DRY RUN: would write to job_opportunities (no rows written)")
+        summary.not_checked.append("Notion: no write target here, nothing was saved")
+    say("Checking what is already in your Notion...")
     log.info("loading Job Opportunities index...")
     index: dict[str, IndexRow] = {row.dedupe_key: row for row in repo.load_index()} if repo else {}
     log.info("index: %d existing rows", len(index))
     companies = deps.companies() if "ats" in sources else []
 
     results: list[SourceResult] = []
+    found = 0
     for name in sources:
+        say(f"Searching {SOURCE_LABELS[name]}... ({found} jobs found so far)")
         try:
             if name == "ats":
                 result = deps.ats(companies, keep)
@@ -126,13 +145,17 @@ def run_sweep(
         summary.sources[name] = len(result.postings)
         log.info("%s: %d postings collected", name, len(result.postings))
         summary.not_supported += len(result.not_supported)
+        found += len(result.postings)
         if result.skipped_reason:
             summary.notes.append(result.skipped_reason)
+            problem = "not set up yet" if "missing" in result.skipped_reason else "failed this time"
+            summary.not_checked.append(f"{SOURCE_LABELS[name]}: {problem}")
         summary.notes.extend(result.notes)
         results.append(result)
 
     total = sum(len(result.postings) for result in results)
     log.info("normalising and writing %d postings...", total)
+    say(f"Found {total} jobs. Saving to your Notion...")
     done = 0
     touched: dict[str, tuple[str, str]] = {}  # dedupe key -> (label, ghost risk)
     with_body: set[str] = set()
@@ -140,8 +163,9 @@ def run_sweep(
     for result in results:
         for raw in result.postings:
             done += 1
-            if done % 25 == 0:
+            if done % PROGRESS_EVERY == 0:
                 log.info("... %d of %d postings processed", done, total)
+                say(f"Saving to your Notion: {done} of {total} jobs checked")
             outcome = normalize(raw, rules, active)
             if isinstance(outcome, Skipped):
                 summary.skipped += 1
@@ -166,6 +190,7 @@ def run_sweep(
                     company=job.company, role=job.role, city=job.city,
                 )
                 summary.new += 1
+                summary.new_by_country[job.country] = summary.new_by_country.get(job.country, 0) + 1
                 touched[job.dedupe_key] = (_label(job), plan["Ghost job risk"])
                 continue
 

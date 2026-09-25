@@ -207,13 +207,14 @@ def test_fetch_in_fake_mode_returns_prefixed_summary(monkeypatch, capsys):
     monkeypatch.setattr(sys, "stdin", io.StringIO("/fetch\n"))
     assert tb.main(["--fake"]) == 0
     out = capsys.readouterr().out
-    assert "bot> [LOCAL] Sweep done: 8 new, 1 updated, 5 reposts" in out
+    assert "bot> [LOCAL] \u2705 Job search finished" in out
+    assert "New jobs added to Notion: 8" in out
 
 
 def test_fetch_reply_goes_through_telegram_text():
     fetcher = tb.make_fetcher(settings(), fake=True)
     _, text = tb.handle_update(update(1, "/fetch"), settings(), fetcher)
-    assert text.startswith("[LOCAL] Sweep done:")
+    assert text.startswith("[LOCAL] \u2705 Job search finished")
     _, dev_text = tb.handle_update(
         update(2, "/fetch"), settings("dev"), lambda progress: "Sweep done"
     )
@@ -265,19 +266,19 @@ def test_run_fetch_replies_at_once_updates_progress_and_sends_summary():
     clock = FakeClock()
 
     def fetch(progress):
-        progress("adzuna pl page 1: 50 postings")  # within 4s: no edit yet
+        progress("Searching Adzuna... (0 jobs found so far)")  # within 4s: no edit yet
         clock.now = 5
-        progress("adzuna nl page 1: 50 postings")  # 5s later: edit
-        return "Sweep done: 1 new"
+        progress("Saving to your Notion: 25 of 300 jobs checked")  # 5s later: edit
+        clock.now = 130
+        return "Job search finished"
 
     tb.run_fetch(tb.TelegramClient(transport), settings(), CHAT_ID, fetch, clock=clock)
-    assert fake.sent[0][1].startswith("[LOCAL] Sweep started at ")
-    assert fake.sent[-1] == (CHAT_ID, "[LOCAL] Sweep done: 1 new")
+    assert fake.sent[0][1].startswith("[LOCAL] \U0001F50E Searching for jobs (started ")
+    assert fake.sent[-1] == (CHAT_ID, "[LOCAL] Job search finished")
     assert len(edits) == 2  # one throttled progress edit, one final
     assert edits[0]["message_id"] == 1
-    assert edits[0]["text"].startswith("[LOCAL] Sweep running (started ")
-    assert "adzuna nl page 1: 50 postings" in edits[0]["text"]
-    assert edits[1]["text"].startswith("[LOCAL] Sweep finished:")
+    assert edits[0]["text"].endswith("\nSaving to your Notion: 25 of 300 jobs checked")
+    assert edits[1]["text"] == "[LOCAL] \u2705 Job search done in 2 min. Summary below."
 
 
 def test_run_fetch_reports_failure():
@@ -292,8 +293,17 @@ def test_run_fetch_reports_failure():
     def fetch(progress):
         raise RuntimeError("notion down")
 
-    tb.run_fetch(tb.TelegramClient(transport), settings(), CHAT_ID, fetch)
+    edits = []
+    real_transport = transport
+
+    def recording(method, payload, timeout):
+        if method == "editMessageText":
+            edits.append(payload["text"])
+        return real_transport(method, payload, timeout)
+
+    tb.run_fetch(tb.TelegramClient(recording), settings(), CHAT_ID, fetch)
     assert sent[-1] == "[LOCAL] /fetch failed: notion down"
+    assert edits[-1].startswith("[LOCAL] \u274C Job search stopped after under a minute")
 
 
 def test_progress_edit_errors_do_not_stop_the_sweep():
@@ -306,7 +316,7 @@ def test_progress_edit_errors_do_not_stop_the_sweep():
     progress = tb.ProgressMessage(tb.TelegramClient(transport), CHAT_ID, settings(), clock)
     clock.now = 10
     progress.update("line")  # the failed edit is only logged
-    progress.finish("done")
+    progress.finish(ok=True)
 
 
 def test_fake_bot_fetch_shows_start_progress_and_summary(monkeypatch, capsys):
@@ -314,15 +324,18 @@ def test_fake_bot_fetch_shows_start_progress_and_summary(monkeypatch, capsys):
     monkeypatch.setattr(sys, "stdin", io.StringIO("/fetch\n"))
     assert tb.main(["--fake"]) == 0
     out = capsys.readouterr().out
-    assert "bot> [LOCAL] Sweep started at " in out
-    assert "bot (updated)> [LOCAL] Sweep finished:" in out
-    assert "gmail: 6 postings collected" in out
-    assert "bot> [LOCAL] Sweep done: 8 new, 1 updated, 5 reposts" in out
+    assert "bot> [LOCAL] \U0001F50E Searching for jobs (started " in out
+    assert "bot (updated)> [LOCAL] \u2705 Job search done in under a minute." in out
+    assert "\U0001F1F5\U0001F1F1 Poland: 4" in out
+    assert "\U0001F1F3\U0001F1F1 Netherlands: 2" in out
+    assert "\U0001F1EE\U0001F1EA Ireland: 2" in out
+    assert "Already in Notion, seen again: 6" in out
+    assert "Not a match (skipped): 3" in out
 
 
 def test_poll_once_routes_fetch_to_run_fetch():
     fake = FakeTelegram([[update(1, "/fetch")]])
     tb.poll_once(tb.TelegramClient(fake), settings(), None, lambda progress: "Sweep done")
     texts = [text for _, text in fake.sent]
-    assert texts[0].startswith("[LOCAL] Sweep started")
+    assert texts[0].startswith("[LOCAL] \U0001F50E Searching for jobs")
     assert texts[-1] == "[LOCAL] Sweep done"
