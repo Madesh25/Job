@@ -17,7 +17,9 @@ import yaml
 from dotenv import dotenv_values
 from pydantic import BaseModel, ConfigDict, Field
 
-ROOT_DIR = Path(__file__).resolve().parents[2]
+# The repository root (config/, fixtures/, out/). In the container the package is installed
+# into site-packages, so the Dockerfile sets JOBENGINE_ROOT=/app.
+ROOT_DIR = Path(os.environ.get("JOBENGINE_ROOT") or Path(__file__).resolve().parents[2])
 CONFIG_DIR = ROOT_DIR / "config"
 ALLOWED_ENVS = ("local", "dev", "prod")
 DEFAULT_ENV = "local"
@@ -36,6 +38,10 @@ SECRET_VARS = {
     "HUNTER_API_KEY": "hunter_api_key",
     "SNOV_CLIENT_ID": "snov_client_id",
     "SNOV_CLIENT_SECRET": "snov_client_secret",
+    # Cloud Run (Module 09).
+    "TELEGRAM_WEBHOOK_SECRET": "telegram_webhook_secret",
+    "SERVICE_URL": "service_url",
+    "SCHEDULER_SA_EMAIL": "scheduler_sa_email",
 }
 
 
@@ -75,6 +81,10 @@ class Settings(BaseModel):
     hunter_api_key: str | None = None
     snov_client_id: str | None = None
     snov_client_secret: str | None = None
+    telegram_webhook_secret: str | None = None
+    service_url: str | None = None
+    scheduler_sa_email: str | None = None
+    bot_mode: str = "polling"  # "webhook" on Cloud Run (BOT_MODE)
 
 
 def parse_dry_run(value: str | None) -> bool:
@@ -155,6 +165,7 @@ def load_settings(env: str | None = None, environ: Mapping[str, str] | None = No
         tracking=dict(cfg.get("tracking") or {}),
         strategy=dict(cfg.get("strategy") or {}),
         allowed_hosts=tuple(safety.get("allowed_hosts") or ()),
+        bot_mode=(environ.get("BOT_MODE") or "polling").strip().lower(),
         **secrets,
     )
 

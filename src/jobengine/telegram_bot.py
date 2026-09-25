@@ -367,23 +367,35 @@ def poll_once(
     desk: Desk | None = None,
 ) -> int | None:
     """Fetch one batch of updates, answer them, and return the next offset."""
-    _bind_notify(client, s, desk)
     for update in client.get_updates(offset):
         offset = update["update_id"] + 1
-        if "callback_query" in update:
-            handle_callback(client, s, update["callback_query"], desk)
-            continue
-        if fetch is not None and _is_fetch(update, s):
-            run_fetch(client, s, str(s.telegram_chat_id), fetch)
-            continue
-        replies = desk_replies(update, s, desk)
-        if replies is not None:
-            send_replies(client, s, str(s.telegram_chat_id), replies)
-            continue
-        out = handle_update(update, s, fetch)
-        if out is not None:
-            client.send_message(*out)
+        handle_one(client, s, update, fetch, desk)
     return offset
+
+
+def handle_one(
+    client: TelegramClient,
+    s: Settings,
+    update: dict[str, Any],
+    fetch: Fetcher | None = None,
+    desk: Desk | None = None,
+) -> None:
+    """Answer one update. Long polling and the webhook (jobengine.web) both call this, so the
+    chat ID lock and every command behave the same in both modes."""
+    _bind_notify(client, s, desk)
+    if "callback_query" in update:
+        handle_callback(client, s, update["callback_query"], desk)
+        return
+    if fetch is not None and _is_fetch(update, s):
+        run_fetch(client, s, str(s.telegram_chat_id), fetch)
+        return
+    replies = desk_replies(update, s, desk)
+    if replies is not None:
+        send_replies(client, s, str(s.telegram_chat_id), replies)
+        return
+    out = handle_update(update, s, fetch)
+    if out is not None:
+        client.send_message(*out)
 
 
 def send_replies(client: TelegramClient, s: Settings, chat_id: str, replies: list[Reply]) -> None:
@@ -579,6 +591,9 @@ def main(argv: list[str] | None = None) -> int:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     try:
         s = get_settings()
+        if s.bot_mode == "webhook" and not args.fake:
+            raise SafetyError("BOT_MODE=webhook: the bot runs inside python -m jobengine.web "
+                              "(Telegram calls it); long polling is for local runs only")
         check_bot_settings(s, fake=args.fake)
     except (SafetyError, ValueError) as exc:
         print(f"Job Engine bot startup failed: {exc}", file=sys.stderr)

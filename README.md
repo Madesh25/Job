@@ -114,6 +114,19 @@ python -m jobengine.strategy update --fake --today 2026-10-01
 `/update` researches current practice for your review; `/fetch` opens again when every tip is
 decided. See [docs/strategy.md](docs/strategy.md).
 
+## Deploy (Cloud Run)
+
+The same code runs on Cloud Run as `job-engine-dev` (from `develop`) and `job-engine-prod`
+(from `main`), with a Telegram webhook and Cloud Scheduler tasks:
+
+```bash
+python -m jobengine.web                                   # the container entry point
+python -m jobengine.deploy.set_webhook --url <service url>
+```
+
+GitHub Actions deploys after CI with Workload Identity Federation. The console, secrets,
+Notion and go-live checklists are in [docs/deploy.md](docs/deploy.md).
+
 ## Run tests
 
 ```bash
@@ -132,3 +145,4 @@ pytest
 - [Gmail drafts](docs/gmail.md)
 - [Tracking and digest](docs/tracking.md)
 - [Strategy gate](docs/strategy.md)
+- [Deploy and go-live](docs/deploy.md)
