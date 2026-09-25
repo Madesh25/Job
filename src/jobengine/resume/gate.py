@@ -31,7 +31,7 @@ NUMBER_RE = re.compile(r"\d+(?:[.,]\d+)?")
 STRIP_CHARS = ".,;:()[]\"'!?"
 
 
-def _key(text: str) -> str:
+def item_key(text: str) -> str:
     return " ".join(text.split()).casefold()
 
 
@@ -104,12 +104,12 @@ def chunk_errors(
 # ---------------------------------------------------------------- skills
 
 
-def _identify(row: PlanRow, originals: list[SkillRow]) -> SkillRow | None:
+def identify_row(row: PlanRow, originals: list[SkillRow]) -> SkillRow | None:
     """The master row a plan row comes from: it keeps at least half of its original items."""
-    items = {_key(i) for i in row.items}
+    items = {item_key(i) for i in row.items}
     best: tuple[int, SkillRow] | None = None
     for original in originals:
-        kept = sum(1 for i in original.items if _key(i) in items)
+        kept = sum(1 for i in original.items if item_key(i) in items)
         if original.items and 2 * kept >= len(original.items) and kept > 0:
             if best is None or kept > best[0]:
                 best = (kept, original)
@@ -133,21 +133,21 @@ def skill_errors(master: MasterResume, plan: Plan, reference: Reference) -> list
 
     originals = master.skills_main + master.skills_also
     original_labels = {r.label.casefold() for r in originals}
-    master_items = {_key(i) for i in master.all_items()}
+    master_items = {item_key(i) for i in master.all_items()}
     # An item may appear as often as in the master (some masters list CloudWatch twice), and
     # a new item once.
-    allowed = Counter(_key(i) for i in master.all_items())
-    counts = Counter(_key(i) for r in plan.skills_main + plan.skills_also for i in r.items)
+    allowed = Counter(item_key(i) for i in master.all_items())
+    counts = Counter(item_key(i) for r in plan.skills_main + plan.skills_also for i in r.items)
     for key, count in counts.items():
         if count > max(allowed.get(key, 0), 1):
             item = next(i for r in plan.skills_main + plan.skills_also for i in r.items
-                        if _key(i) == key)
+                        if item_key(i) == key)
             errors.append(f"skills: {item!r} appears twice")
     for row in plan.skills_main + plan.skills_also:
         if not row.items:
             errors.append(f"skills: row {row.label!r} has no items")
         if row.label.casefold() not in original_labels:
-            original = _identify(row, originals)
+            original = identify_row(row, originals)
             if original is None:
                 errors.append(f"skills: label {row.label!r} is new and keeps too few items of "
                               "any original row")
@@ -155,7 +155,7 @@ def skill_errors(master: MasterResume, plan: Plan, reference: Reference) -> list
                 errors.append(f"skills: label {row.label!r} is not an allowed rename of "
                               f"{original.label!r}")
         for item in row.items:
-            key = _key(item)
+            key = item_key(item)
             if key in master_items:
                 continue
             if reference.is_known_gap(item):
@@ -255,8 +255,8 @@ def summarise(master: MasterResume, plan: Plan) -> Changes:
     out = Changes()
     originals = master.skills_main + master.skills_also
     plan_rows = plan.skills_main + plan.skills_also
-    plan_items = {_key(i): i for r in plan_rows for i in r.items}
-    master_items = {_key(i): i for i in master.all_items()}
+    plan_items = {item_key(i): i for r in plan_rows for i in r.items}
+    master_items = {item_key(i): i for i in master.all_items()}
     for key, item in master_items.items():
         if key not in plan_items:
             out.skills.append(f"-{item}")
@@ -265,11 +265,11 @@ def summarise(master: MasterResume, plan: Plan) -> Changes:
             out.skills.append(f"+{item}")
     for row in plan_rows:
         if row.label.casefold() not in {o.label.casefold() for o in originals}:
-            original = _identify(row, originals)
+            original = identify_row(row, originals)
             if original:
                 out.skills.append(f"{original.label} -> {row.label}")
-    main_master = {_key(i) for r in master.skills_main for i in r.items}
-    main_plan = {_key(i) for r in plan.skills_main for i in r.items}
+    main_master = {item_key(i) for r in master.skills_main for i in r.items}
+    main_plan = {item_key(i) for r in plan.skills_main for i in r.items}
     for key, item in plan_items.items():
         if key in master_items and (key in main_master) != (key in main_plan):
             where = "main table" if key in main_plan else "Also worked with"
