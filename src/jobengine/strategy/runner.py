@@ -87,7 +87,7 @@ class StrategyDeps:
     stamp_config: Callable[[ConfigStore, date], None] | None = None
     today: Callable[[], date] = date.today
     write: bool = True
-    after_review: Callable[[], list[str]] | None = None  # the IND refresh (stage 3)
+    ind: Callable[[], str] | None = None  # the IND register refresh, run by every /update
 
 
 def hex_id(page_id: str) -> str:
@@ -210,7 +210,37 @@ def run_update(deps: StrategyDeps, force: bool = False) -> UpdateResult:
     lines = [summary]
     lines += [f"Auto-rejected: {tip.tip} ({reason})" for tip, reason in checked.rejected]
     cards = pending_cards(new_run) if items else [confirm_card(run_id)]
-    return UpdateResult(["\n".join(lines)], cards)
+    messages = ["\n".join(lines)]
+    if deps.ind is not None:
+        try:
+            messages.append(deps.ind())
+        except Exception as exc:  # the review goes on even when the IND check breaks
+            log.exception("IND refresh failed")
+            messages.append(f"IND register check failed: {exc}. Nothing was changed.")
+    return UpdateResult(messages, cards)
+
+
+# ---------------------------------------------------------------- monthly reminder
+
+
+def run_strategy_reminder(deps: StrategyDeps, today: date | None = None) -> str | None:
+    """Sent daily by Module 09; says something only when 3 or fewer days are left."""
+    from jobengine.sweep.gate import last_update
+
+    today = today or deps.today()
+    config = deps.config()
+    updated = last_update(config, deps.state, deps.s)
+    days = config.get_int("strategy_refresh_days") or 30
+    if updated is None:
+        return "Strategy review due now: Config last_strategy_update is missing. Run /update."
+    left = days - (today - updated).days
+    if left > 3:
+        return None
+    if left > 0:
+        return f"Strategy review due in {left} day{'s' if left != 1 else ''}. Run /update."
+    if left == 0:
+        return "Strategy review due today. Run /update."
+    return f"Strategy review is {-left} days overdue: /fetch is blocked. Run /update."
 
 
 # ---------------------------------------------------------------- decisions
@@ -241,10 +271,7 @@ def _finish(deps: StrategyDeps, run: dict[str, Any]) -> list[str]:
                if (run.get("decided") or {}).get(i["id"]) == "Adopted"]
     if adopted:
         lines += ["Adopted this month:", *[f"- {t}" for t in adopted], FOLD_REMINDER]
-    messages = ["\n".join(lines)]
-    if deps.after_review is not None:
-        messages += deps.after_review()
-    return messages
+    return ["\n".join(lines)]
 
 
 def decide(deps: StrategyDeps, page_hex: str, adopt: bool) -> list[str]:
@@ -332,12 +359,26 @@ def fake_deps(s: Settings, write: bool = True, state: BotState | None = None,
         def complete_json(self, *args, **kwargs):
             return llm.complete_json(*args, **kwargs)
 
+    from jobengine.strategy import ind_refresh
+
+    ind_writes: list[tuple[str, dict[str, Any]]] = []
+
+    def ind_writer(page_id: str, props: dict[str, Any]) -> None:
+        from jobengine.safety import check_target_companies_write
+
+        check_target_companies_write(list(props))
+        ind_writes.append((page_id, props))
+
+    ind_deps = ind_refresh.fake_deps(s, writer=ind_writer, write=write)
     deps = StrategyDeps(
         s=s, config=ConfigStore.fake, repo=repo, existing=repo.all_rows,
         state=state or FakeBotState(), llm=lambda config: _FixedKey(),
         v16_blocks=lambda: json.loads((base / "v16_page.json").read_text(encoding="utf-8")),
         stamp_config=stamp_config, write=write,
+        ind=lambda: ind_refresh.refresh(ind_deps).text(),
     )
+    deps.ind_deps = ind_deps  # type: ignore[attr-defined]  # read by tests and the CLI
+    deps.ind_writes = ind_writes  # type: ignore[attr-defined]
     deps.stamped = stamped  # type: ignore[attr-defined]  # read by tests
     return deps
 
@@ -371,9 +412,15 @@ def real_deps(s: Settings, state: BotState, write: bool = True) -> StrategyDeps:
             raise StrategyError("Config is not writable in this environment.")
         writer(STAMP_KEY, day.isoformat(), day)
 
-    return StrategyDeps(
+    from jobengine.strategy import ind_refresh
+
+    ind_deps = ind_refresh.real_deps(s, write=write)
+    deps = StrategyDeps(
         s=s, config=lambda: ConfigStore.load(client, s), repo=repo, existing=existing,
         state=state, llm=lambda config: AnthropicLLM(s, config) if llm_allowed(s) else None,
         v16_blocks=lambda: fetch_blocks(client, s.notion_pages.get("v16_spec", "")),
         stamp_config=stamp_config if s.app_env == "prod" else None, write=write,
+        ind=lambda: ind_refresh.refresh(ind_deps).text(),
     )
+    deps.ind_deps = ind_deps  # type: ignore[attr-defined]
+    return deps

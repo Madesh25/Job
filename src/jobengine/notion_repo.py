@@ -942,3 +942,26 @@ def strategy_repo_for(s: Settings, client: NotionClient) -> NotionStrategyRepo |
         log.warning("DRY RUN: would write to strategy")
         return None
     return NotionStrategyRepo(client, target)
+
+
+# ---------------------------------------------------------------- Target Companies (Module 08)
+
+TARGET_COMPANY_PROPERTY_TYPES = {"IND sponsor": "select", "Last checked": "date",
+                                 "ATS platform": "select"}
+
+
+def target_companies_writer(s: Settings, client: NotionClient) -> Any:
+    """(page_id, props) writer for Target Companies, or None when not writable (outside prod).
+    Only safety.target_companies_writable_fields may be written."""
+    from jobengine.safety import check_target_companies_write
+
+    if notion_write_target("target_companies", s) is None:
+        return None
+
+    def write(page_id: str, props: dict[str, Any]) -> None:
+        check_target_companies_write(list(props))
+        client.request("PATCH", f"/pages/{page_id}", {"properties": {
+            name: notion_value(TARGET_COMPANY_PROPERTY_TYPES[name], value)
+            for name, value in props.items()}})
+
+    return write
