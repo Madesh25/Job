@@ -18,6 +18,9 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: System packages for resume rendering (Lato font, Pango)
+        run: sudo apt-get update && sudo apt-get install -y fonts-lato libpango-1.0-0 libpangoft2-1.0-0
+
       - name: Install
         run: pip install -e ".[dev]"
 
@@ -26,6 +29,9 @@ jobs:
 
       - name: Test
         run: pytest -q
+
+      - name: Render tests (must run, not skip)
+        run: REQUIRE_RENDER=1 pytest -q -m render
 
       - name: Smoke test
         run: APP_ENV=local python -m jobengine.main
@@ -41,5 +47,8 @@ jobs:
 
       - name: Telegram screening smoke test (fake bot session)
         run: |
-          printf '/fetch\n/pending\ntap ap:nl-sponsor-yes\n/jd https://www.linkedin.com/jobs/view/4012345678\nWe run Kubernetes and Terraform on AWS.\n/done\n' \
+          printf '/fetch\n/pending\ntap ap:nl-sponsor-yes\n/jd https://www.linkedin.com/jobs/view/4012345678\nWe run Kubernetes and Terraform on AWS.\n/done\ntap ap:pl-clean\ntap ra:00000002000040008000000000000002\ntap ia:pl-clean\n' \
             | APP_ENV=local python -m jobengine.telegram_bot --fake
+
+      - name: Resume builder smoke test (fake Golden Master, fake LLM)
+        run: APP_ENV=local python -m jobengine.resume --fake --job fixture-clean-pl

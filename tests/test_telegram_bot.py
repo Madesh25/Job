@@ -355,14 +355,20 @@ class ButtonTelegram(FakeTelegram):
     def __init__(self, batches=None):
         super().__init__(batches)
         self.buttons = []
+        self.documents = []
 
     def __call__(self, method, payload, timeout):
         if method == "answerCallbackQuery":
             self.calls.append((method, payload))
             return {"ok": True, "result": True}
-        if method == "sendMessage":
+        if method in ("sendMessage", "sendDocument"):
             rows = (payload.get("reply_markup") or {}).get("inline_keyboard") or []
             self.buttons.append([b["callback_data"] for row in rows for b in row])
+        if method == "sendDocument":
+            self.calls.append((method, payload))
+            self.sent.append((payload["chat_id"], payload["caption"]))
+            self.documents.append(payload["_document"])
+            return {"ok": True, "result": {"message_id": len(self.sent)}}
         return super().__call__(method, payload, timeout)
 
 
@@ -380,10 +386,25 @@ class Clock:
         return self.now
 
 
+LINKS = ["mailto:alex@example.com", "tel:+15550100000", "https://alex.example.com",
+         "https://github.com/alex-example", "https://www.linkedin.com/in/alex-example/"]
+
+
+def fake_rendering(d, tmp_path):
+    """Resume rendering without WeasyPrint: tests run anywhere."""
+    from jobengine.resume.models import Measure
+
+    d.resume.render = lambda html: b"%PDF-fake"
+    d.resume.measure = lambda html: Measure(pages=1, fill=91.0, text="", links=LINKS,
+                                            fonts={"Lato"})
+    d.resume.out_dir = tmp_path
+
+
 @pytest.fixture
-def desk():
+def desk(tmp_path):
     s = settings()
     d = fake_desk(s, FAKE_TODAY, now=Clock())
+    fake_rendering(d, tmp_path)
     d.screen()  # screen the fixture rows first
     return d
 
@@ -413,16 +434,23 @@ def test_pending_shows_one_card_in_rank_order(desk):
     assert order.index("nl-not-register") > order.index("pl-polish-plus")
 
 
-def test_next_approve_skip_and_double_tap(desk):
+def test_next_approve_builds_resume_and_second_tap_shows_it_again(desk):
     fake = talk(desk, tap(1, "nx:1"), tap(2, "ap:pl-clean"), tap(3, "ap:pl-clean"),
-                tap(4, "sk:nl-ind"))
+                tap(4, "sk:nl-ind"), tap(5, "sk:nl-ind"))
     texts = [t for _, t in fake.sent]
     assert "Vistula Cloud, DevOps Engineer" in texts[0]
-    assert texts[1] == f"[LOCAL] {APPROVED_TEXT}"
-    assert texts[3] == "[LOCAL] Already handled"
-    assert desk.repo.rows["pl-clean"]["Status"] == "Approved"
+    assert texts[1] == "[LOCAL] " + APPROVED_TEXT.format(job="Vistula Cloud, DevOps Engineer")
+    assert texts[2] == "[LOCAL] Building resume for Vistula Cloud..."
+    assert texts[3].startswith("[LOCAL] Resume r1 for Vistula Cloud, DevOps Engineer\nFill 91.0%")
+    assert fake.documents[0] == ("Alex_Devops_VistulaCloud_r1.pdf", b"%PDF-fake")
+    assert fake.buttons[3] == ["ra:00000001000040008000000000000001", "rb:pl-clean"]
+    # Second Approve tap: the same preview again, no second build.
+    assert texts[6].startswith("[LOCAL] Resume r1 for Vistula Cloud")
+    assert len(desk.resume.resume_log.rows) == 1
+    assert desk.repo.rows["pl-clean"]["Status"] == "Resume built"
     assert desk.repo.rows["nl-ind"]["Status"] == "Declined"
-    assert [m for m, _ in fake.calls if m == "answerCallbackQuery"] == ["answerCallbackQuery"] * 4
+    assert "[LOCAL] Already handled" in texts
+    assert [m for m, _ in fake.calls if m == "answerCallbackQuery"] == ["answerCallbackQuery"] * 5
 
 
 def test_buttons_from_other_users_are_ignored(desk):
@@ -518,7 +546,8 @@ def test_fake_harness_taps(monkeypatch, capsys):
     assert tb.main(["--fake"]) == 0
     out = capsys.readouterr().out
     assert "[Approve: tap ap:nl-sponsor-yes]" in out
-    assert f"bot> [LOCAL] {APPROVED_TEXT}" in out
+    assert "bot> [LOCAL] Approved: Tulip Data B.V., Cloud Engineer." in out
+    assert "bot> [LOCAL] Building resume for Tulip Data B.V...." in out
 
 
 def test_help_lists_screening_commands():
@@ -539,3 +568,81 @@ def test_missing_llm_key_is_a_clear_reply(desk):
         "[LOCAL] Screening could not run: ANTHROPIC_API_KEY is not set, so LLM screening "
         "cannot run"
     )
+
+
+# ---------------------------------------------------------------- Module 04: resume buttons
+
+
+def preview_ref(fake):
+    return next(t for _, t in fake.sent if "Ref RL-" in t)
+
+
+def test_reply_to_preview_builds_revision_two(desk):
+    fake = talk(desk, tap(1, "ap:pl-clean"))
+    caption = preview_ref(fake)
+    reply = {"update_id": 2, "message": {
+        "chat": {"id": int(CHAT_ID)}, "text": "drop Oracle",
+        "reply_to_message": {"message_id": 3, "caption": caption.removeprefix("[LOCAL] ")}}}
+    fake = talk(desk, reply)
+    texts = [t for _, t in fake.sent]
+    assert texts[0] == "[LOCAL] Building resume for Vistula Cloud..."
+    assert texts[1].startswith("[LOCAL] Resume r2 for Vistula Cloud")
+    assert "-Oracle" in texts[1] and "Ref RL-00000002" in texts[1]
+    assert fake.documents[0][0] == "Alex_Devops_VistulaCloud_r2.pdf"
+
+
+def test_reply_to_unrelated_message_is_not_a_correction(desk):
+    talk(desk, tap(1, "ap:pl-clean"))
+    reply = {"update_id": 2, "message": {
+        "chat": {"id": int(CHAT_ID)}, "text": "drop Oracle",
+        "reply_to_message": {"message_id": 1, "text": "[1/17] Apply high ..."}}}
+    fake = talk(desk, reply)
+    assert fake.sent[0][1] == "[LOCAL] I only understand commands for now. Send /help to see them."
+    assert len(desk.resume.resume_log.rows) == 1
+
+
+def test_approve_resume_old_revision_rebuild_and_i_applied(desk):
+    talk(desk, tap(1, "ap:pl-clean"))
+    fake = talk(desk, tap(1, "rb:pl-clean"))
+    assert fake.sent[1][1].startswith("[LOCAL] Resume r2 for Vistula Cloud")
+    old, new = "00000001000040008000000000000001", "00000002000040008000000000000002"
+    fake = talk(desk, tap(1, f"ra:{old}"))
+    assert fake.sent[0][1] == "[LOCAL] A newer revision exists"
+    assert fake.sent[1][1].startswith("[LOCAL] Resume r2")
+    fake = talk(desk, tap(1, f"ra:{new}"))
+    assert fake.sent[0][1] == ("[LOCAL] Resume approved and saved. Apply here: "
+                               "https://jobs.example.com/pl-clean")
+    assert fake.buttons[0] == ["ia:pl-clean"]
+    row = desk.resume.resume_log.get(new)
+    assert row["Approved"] is True and row["File"].startswith("DRY RUN: ")
+    fake = talk(desk, tap(1, "ia:pl-clean"), tap(2, "ia:pl-clean"))
+    assert fake.sent[0][1].startswith("[LOCAL] Marked as applied on 2026-10-01")
+    assert fake.sent[1][1] == "[LOCAL] Already handled (Status is Applied)."
+    assert desk.repo.rows["pl-clean"]["Status"] == "Applied"
+
+
+def test_resume_build_failure_is_a_message(desk):
+    desk.resume.blocks = lambda: []
+    fake = talk(desk, tap(1, "ap:pl-clean"))
+    assert fake.sent[-2][1] == "[LOCAL] Golden Master not found in Notion. Nothing built."
+    assert desk.repo.rows["pl-clean"]["Status"] == "Approved"
+
+
+def test_send_document_is_multipart():
+    body, content_type = tb.multipart({"chat_id": "1", "caption": "c",
+                                       "reply_markup": {"inline_keyboard": []},
+                                       "_document": ("a.pdf", b"%PDF-1")})
+    assert content_type.startswith("multipart/form-data; boundary=")
+    assert b'name="document"; filename="a.pdf"' in body and b"%PDF-1" in body
+    assert b'name="reply_markup"' in body and b'{"inline_keyboard": []}' in body
+
+
+def test_console_reply_command_carries_the_caption(tmp_path):
+    out = io.StringIO()
+    transport = tb.console_transport("1", io.StringIO("reply 1 drop Oracle\n"), out, tmp_path)
+    transport("sendDocument", {"chat_id": "1", "caption": "Ref RL-00000001",
+                               "_document": ("a.pdf", b"%PDF")}, 5)
+    update = transport("getUpdates", {}, 5)["result"][0]["message"]
+    assert update["text"] == "drop Oracle"
+    assert update["reply_to_message"]["caption"] == "Ref RL-00000001"
+    assert (tmp_path / "a.pdf").read_bytes() == b"%PDF"

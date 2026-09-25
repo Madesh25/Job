@@ -129,6 +129,14 @@ def hex_id(page_id: str) -> str:
     return page_id.replace("-", "")
 
 
+def notion_id(value: str) -> str:
+    """A page ID from a button (32 hex characters) back in the hyphenated UUID form."""
+    v = value.strip().lower()
+    if re.fullmatch(r"[0-9a-f]{32}", v):
+        return f"{v[:8]}-{v[8:12]}-{v[12:16]}-{v[16:20]}-{v[20:]}"
+    return value.strip()
+
+
 # ---------------------------------------------------------------- deps
 
 
@@ -375,6 +383,7 @@ def build_resume(
 ) -> BuildOutcome:
     """Build the next revision. Without `force` (the first Approve), an existing build is
     shown again instead of building another one."""
+    job_id = notion_id(job_id)
     values, refused = _load_job(deps, job_id)
     if values is None:
         return BuildOutcome(status="refused", message=refused or "", job_id=job_id)
@@ -497,6 +506,7 @@ def on_resume_approved(job_page_id: str, resume_log_page_id: str) -> None:
 
 
 def finalise(deps: ResumeDeps, log_id: str) -> FinaliseOutcome:
+    log_id = notion_id(log_id)
     if deps.resume_log is None or deps.jobs is None:
         return FinaliseOutcome(status="failed", message="DRY RUN: no Resume Log target here.")
     row = deps.resume_log.get(log_id)
@@ -545,6 +555,7 @@ def finalise(deps: ResumeDeps, log_id: str) -> FinaliseOutcome:
 
 def mark_applied(deps: ResumeDeps, job_id: str) -> str:
     """"I applied": Status Applied, only from Resume built."""
+    job_id = notion_id(job_id)
     if deps.jobs is None:
         return "DRY RUN: no Job Opportunities target here."
     values = deps.jobs.get_values(job_id)

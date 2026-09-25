@@ -270,7 +270,17 @@ def summarise(master: MasterResume, plan: Plan) -> Changes:
                 out.skills.append(f"{original.label} -> {row.label}")
     main_master = {item_key(i) for r in master.skills_main for i in r.items}
     main_plan = {item_key(i) for r in plan.skills_main for i in r.items}
+    moved_rows: set[str] = set()
+    for table, rows in (("main table", plan.skills_main), ("Also worked with", plan.skills_also)):
+        for row in rows:
+            original = identify_row(row, originals)
+            was_main = original in master.skills_main if original else None
+            if original and was_main != (table == "main table"):
+                out.skills.append(f"{original.label} row to {table}")
+                moved_rows.update(item_key(i) for i in row.items)
     for key, item in plan_items.items():
+        if key in moved_rows:
+            continue
         if key in master_items and (key in main_master) != (key in main_plan):
             where = "main table" if key in main_plan else "Also worked with"
             out.skills.append(f"{item} to {where}")

@@ -1,4 +1,5 @@
 import json
+import os
 import re
 
 import pytest
@@ -135,7 +136,9 @@ def _can_render():
     return all("Lato" in f for f in m.fonts)
 
 
-render = pytest.mark.skipif(not _can_render(), reason="WeasyPrint with Pango and Lato needed")
+# CI sets REQUIRE_RENDER=1 so a missing Pango or Lato fails instead of skipping.
+render = pytest.mark.skipif(not os.environ.get("REQUIRE_RENDER") and not _can_render(),
+                            reason="WeasyPrint with Pango and Lato needed")
 
 
 @pytest.mark.render

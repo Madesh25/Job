@@ -1,5 +1,6 @@
 import dataclasses
 import json
+import os
 
 import pytest
 
@@ -237,7 +238,8 @@ def _can_render():
 
 
 @pytest.mark.render
-@pytest.mark.skipif(not _can_render(), reason="WeasyPrint with Pango and Lato needed")
+@pytest.mark.skipif(not os.environ.get("REQUIRE_RENDER") and not _can_render(),
+                    reason="WeasyPrint with Pango and Lato needed")
 def test_real_build_and_finalise(tmp_path):
     import io
 
@@ -253,3 +255,9 @@ def test_real_build_and_finalise(tmp_path):
     assert "ALEX EXAMPLE" in text and "CI/CD Pipelines" in text
     assert finalise(deps, out.log_id).status == "approved"
     assert (tmp_path / "Alex_Devops_VistulaCloud.pdf").read_bytes()[:4] == b"%PDF"
+
+
+def test_notion_ids_from_buttons():
+    assert builder.notion_id("0123456789abcdef0123456789abcdef") == (
+        "01234567-89ab-cdef-0123-456789abcdef")
+    assert builder.notion_id("pl-clean") == "pl-clean"
