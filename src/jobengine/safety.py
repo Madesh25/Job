@@ -49,14 +49,25 @@ def gmail_write_allowed(s: Settings) -> bool:
     return not s.dry_run
 
 
-# The only Config keys the code may write (Module 08 adds last_strategy_update).
-config_writable_keys = ["credits.apollo", "credits.hunter", "credits.snov"]
+# The only Config keys the code may write.
+config_writable_keys = ["credits.apollo", "credits.hunter", "credits.snov",
+                        "last_strategy_update"]
+# The only Target Companies properties the code may write (Module 08, prod only).
+target_companies_writable_fields = ["IND sponsor", "Last checked", "ATS platform"]
 
 
 def check_config_write(key: str) -> None:
     """Raise SafetyError unless `key` is on the Config write allowlist."""
     if key not in config_writable_keys:
         raise SafetyError(f"refusing to write Config key {key!r}: not on the allowlist")
+
+
+def check_target_companies_write(fields: list[str] | tuple[str, ...] | set[str]) -> None:
+    """Raise SafetyError unless every field is on the Target Companies allowlist."""
+    bad = [f for f in fields if f not in target_companies_writable_fields]
+    if bad:
+        raise SafetyError(f"refusing to write Target Companies {', '.join(map(repr, bad))}: "
+                          "not on the allowlist")
 
 
 def paid_api_allowed(provider: str, s: Settings) -> bool:

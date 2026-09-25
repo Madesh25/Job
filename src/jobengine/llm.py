@@ -41,6 +41,41 @@ class LLMClient(Protocol):
     ) -> dict[str, Any]: ...
 
 
+class SearchLLM(LLMClient, Protocol):
+    def complete_json_with_search(
+        self, stage: str, system: str, user: str, *, max_tokens: int = 4000,
+        max_uses: int = 8, key: str | None = None,
+    ) -> tuple[dict[str, Any], list[str]]: ...
+
+
+# Anthropic's server-side web search tool (basic version: works on every current model,
+# including the haiku that local and dev are forced to use).
+WEB_SEARCH_TOOL = "web_search_20250305"
+SEARCH_STAGES = ("strategy",)  # the only stage that may search the web
+MAX_CONTINUATIONS = 4
+
+
+def _field(obj: Any, name: str) -> Any:
+    return obj.get(name) if isinstance(obj, dict) else getattr(obj, name, None)
+
+
+def search_urls(content: list[Any]) -> list[str]:
+    """Every URL in the web search results and citations of a response, in order."""
+    urls: list[str] = []
+    for block in content:
+        kind = _field(block, "type")
+        if kind == "web_search_tool_result":
+            results = _field(block, "content")
+            for item in results if isinstance(results, list) else []:
+                if _field(item, "url"):
+                    urls.append(_field(item, "url"))
+        elif kind == "text":
+            for citation in _field(block, "citations") or []:
+                if _field(citation, "url"):
+                    urls.append(_field(citation, "url"))
+    return list(dict.fromkeys(urls))
+
+
 def _check_stage(stage: str) -> None:
     if stage not in STAGES:
         raise LLMError(f"unknown LLM stage {stage!r}; allowed: {', '.join(STAGES)}")
@@ -135,6 +170,53 @@ class AnthropicLLM:
                 ]
         raise LLMError("unreachable")  # pragma: no cover
 
+    def complete_json_with_search(
+        self, stage: str, system: str, user: str, *, max_tokens: int = 4000,
+        max_uses: int = 8, key: str | None = None,
+    ) -> tuple[dict[str, Any], list[str]]:
+        """complete_json with the web search tool enabled (at most `max_uses` searches).
+        Returns the JSON object and the URLs the searches returned."""
+        _check_stage(stage)
+        if stage not in SEARCH_STAGES:
+            raise LLMError(f"web search is not allowed for stage {stage}")
+        model = model_for(stage, self.config, self.s)
+        kwargs: dict[str, Any] = {
+            "model": model,
+            "max_tokens": max_tokens,
+            "system": [{"type": "text", "text": system}],
+            "tools": [{"type": WEB_SEARCH_TOOL, "name": "web_search", "max_uses": max_uses}],
+        }
+        messages: list[dict[str, Any]] = [{"role": "user", "content": user}]
+        urls: list[str] = []
+        retried = False
+        for _ in range(MAX_CONTINUATIONS + 2):
+            response = self._create(messages=messages, **kwargs)
+            usage = getattr(response, "usage", None)
+            log.info("llm stage=%s model=%s input_tokens=%s output_tokens=%s searches=%s",
+                     stage, model, getattr(usage, "input_tokens", None),
+                     getattr(usage, "output_tokens", None),
+                     getattr(getattr(usage, "server_tool_use", None), "web_search_requests",
+                             None))
+            content = list(response.content)
+            urls.extend(search_urls(content))
+            stop = getattr(response, "stop_reason", None)
+            if stop == "refusal":
+                raise LLMError(f"LLM declined the {stage} request")
+            if stop == "pause_turn":  # a long search turn: send it back to continue
+                messages = [*messages, {"role": "assistant", "content": content}]
+                continue
+            text = "".join(_field(b, "text") or "" for b in content
+                           if _field(b, "type") == "text")
+            try:
+                return parse_json_object(text), list(dict.fromkeys(urls))
+            except ValueError:
+                if retried:
+                    raise LLMError(f"LLM reply for {stage} was not valid JSON twice") from None
+                retried = True
+                messages = [*messages, {"role": "assistant", "content": content},
+                            {"role": "user", "content": RETRY_INSTRUCTION}]
+        raise LLMError(f"LLM {stage} research did not finish")
+
 
 class FakeLLM:
     """Returns fixtures/llm/<stage>/<key>.json and records every call."""
@@ -159,3 +241,19 @@ class FakeLLM:
         if not path.exists():
             raise LLMError(f"FakeLLM has no fixture {stage}/{key}.json")
         return json.loads(path.read_text(encoding="utf-8"))
+
+    def complete_json_with_search(
+        self, stage: str, system: str, user: str, *, max_tokens: int = 4000,
+        max_uses: int = 8, key: str | None = None,
+    ) -> tuple[dict[str, Any], list[str]]:
+        """fixtures/llm/<stage>/<key>.json holds {"reply": {...}, "search_urls": [...]}."""
+        _check_stage(stage)
+        if stage not in SEARCH_STAGES:
+            raise LLMError(f"web search is not allowed for stage {stage}")
+        self.calls.append({"stage": stage, "key": key, "system": system, "user": user,
+                           "max_uses": max_uses, "search": True})
+        path = self.base / stage / f"{key}.json"
+        if not key or not path.exists():
+            raise LLMError(f"FakeLLM has no fixture {stage}/{key}.json")
+        data = json.loads(path.read_text(encoding="utf-8"))
+        return data.get("reply") or {}, list(data.get("search_urls") or [])

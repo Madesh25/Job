@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import time
 from collections.abc import Callable, Iterator
 from datetime import date
@@ -17,7 +18,7 @@ from pathlib import Path
 from typing import Any, Protocol
 
 from jobengine import http
-from jobengine.safety import notion_write_target
+from jobengine.safety import SafetyError, notion_write_target
 from jobengine.settings import Settings
 from jobengine.sweep.dedupe import IndexRow, parse_posting_ids
 from jobengine.sweep.models import TargetCompany
@@ -311,6 +312,23 @@ def index_row(page_id: str, values: dict[str, Any]) -> IndexRow | None:
 
 # ---------------------------------------------------------------- real Notion client
 
+PAGE_PATH = re.compile(r"^/(?:pages|blocks)/([0-9a-fA-F-]{32,36})")
+
+
+def check_page_write(method: str, path: str, s: Settings) -> None:
+    """The V16 page, the Resume Build Spec and the Cold Mail Templates (notion.pages) are
+    read only for code: any write to them, or to their blocks, raises SafetyError."""
+    if method.upper() == "GET":
+        return
+    match = PAGE_PATH.match(path)
+    if not match:
+        return
+    target = match.group(1).replace("-", "").lower()
+    protected = {pid.replace("-", "").lower() for pid in s.notion_pages.values()}
+    if target in protected:
+        raise SafetyError(f"refusing to {method} {path}: pages under notion.pages are edited "
+                          "by hand only")
+
 
 class NotionClient:
     """Thin Notion API client: auth headers, pacing and pagination."""
@@ -339,6 +357,7 @@ class NotionClient:
         json_body: Any = None,
         params: list[tuple[str, Any]] | None = None,
     ) -> Any:
+        check_page_write(method, path, self._s)
         wait = self._last + MIN_INTERVAL_SECONDS - self._clock()
         if wait > 0:
             self._sleep(wait)
@@ -824,3 +843,102 @@ def config_writer_for(s: Settings, client: NotionClient, config: Any) -> Any:
             "Value": notion_value("rich_text", value), "Updated": notion_value("date", day)}})
 
     return write
+
+
+# ---------------------------------------------------------------- Strategy (Module 08)
+
+STRATEGY_PROPERTY_TYPES = {
+    "Tip / rule": "title",
+    "Category": "select",
+    "Status": "select",
+    "Source": "rich_text",
+    "Date added": "date",
+    "Notes": "rich_text",
+}
+
+
+class StrategyRepo(Protocol):
+    def all_rows(self) -> list[tuple[str, dict[str, Any]]]: ...
+
+    def create(self, props: dict[str, Any]) -> str: ...
+
+    def update(self, page_id: str, props: dict[str, Any]) -> None: ...
+
+    def get(self, page_id: str) -> dict[str, Any] | None: ...
+
+
+def strategy_properties(props: dict[str, Any]) -> dict[str, Any]:
+    return {name: cleared_or_value(STRATEGY_PROPERTY_TYPES[name], value)
+            for name, value in props.items()}
+
+
+class NotionStrategyRepo:
+    """Strategy (prod) or Strategy (DEV), through safety.notion_write_target("strategy")."""
+
+    def __init__(self, client: NotionClient, data_source_id: str):
+        self.client = client
+        self.data_source_id = data_source_id
+
+    def all_rows(self) -> list[tuple[str, dict[str, Any]]]:
+        return [(page["id"], page_values(page))
+                for page in self.client.query(self.data_source_id,
+                                              properties=tuple(STRATEGY_PROPERTY_TYPES))]
+
+    def create(self, props: dict[str, Any]) -> str:
+        body = {"parent": {"type": "data_source_id", "data_source_id": self.data_source_id},
+                "properties": strategy_properties(props)}
+        return self.client.request("POST", "/pages", body)["id"]
+
+    def update(self, page_id: str, props: dict[str, Any]) -> None:
+        self.client.request("PATCH", f"/pages/{page_id}",
+                            {"properties": strategy_properties(props)})
+
+    def get(self, page_id: str) -> dict[str, Any] | None:
+        return NotionJobsRepo(self.client, self.data_source_id).get_values(page_id)
+
+
+class FakeStrategyRepo:
+    """In-memory Strategy. New page IDs look like Notion UUIDs so button data works."""
+
+    def __init__(self, rows: list[dict[str, Any]] | None = None):
+        self.rows: dict[str, dict[str, Any]] = {}
+        self.writes: list[tuple[str, str, Any]] = []
+        for row in rows or []:
+            row = dict(row)
+            if isinstance(row.get("Date added"), str):
+                row["Date added"] = date.fromisoformat(row["Date added"])
+            self.rows[row.pop("page_id")] = row
+
+    @classmethod
+    def from_fixture(cls, path: Path) -> FakeStrategyRepo:
+        return cls(json.loads(path.read_text(encoding="utf-8")))
+
+    def _id(self, page_id: str) -> str:
+        return next((k for k in self.rows if _hex(k) == _hex(page_id)), page_id)
+
+    def all_rows(self) -> list[tuple[str, dict[str, Any]]]:
+        return [(pid, dict(row)) for pid, row in self.rows.items()]
+
+    def create(self, props: dict[str, Any]) -> str:
+        n = len(self.rows) + 1
+        page_id = f"5{n:07x}-0000-4000-8000-{n:012x}"
+        self.rows[page_id] = dict(props)
+        self.writes.append(("create", page_id, dict(props)))
+        return page_id
+
+    def update(self, page_id: str, props: dict[str, Any]) -> None:
+        page_id = self._id(page_id)
+        self.rows[page_id].update(props)
+        self.writes.append(("update", page_id, dict(props)))
+
+    def get(self, page_id: str) -> dict[str, Any] | None:
+        row = self.rows.get(self._id(page_id))
+        return dict(row) if row else None
+
+
+def strategy_repo_for(s: Settings, client: NotionClient) -> NotionStrategyRepo | None:
+    target = notion_write_target("strategy", s)
+    if target is None:
+        log.warning("DRY RUN: would write to strategy")
+        return None
+    return NotionStrategyRepo(client, target)
