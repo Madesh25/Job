@@ -49,6 +49,16 @@ def gmail_write_allowed(s: Settings) -> bool:
     return not s.dry_run
 
 
+# The only Config keys the code may write (Module 08 adds last_strategy_update).
+config_writable_keys = ["credits.apollo", "credits.hunter", "credits.snov"]
+
+
+def check_config_write(key: str) -> None:
+    """Raise SafetyError unless `key` is on the Config write allowlist."""
+    if key not in config_writable_keys:
+        raise SafetyError(f"refusing to write Config key {key!r}: not on the allowlist")
+
+
 def paid_api_allowed(provider: str, s: Settings) -> bool:
     return s.app_env == PROD and not s.dry_run
 

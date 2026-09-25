@@ -124,5 +124,38 @@
     "Key": "resume.max_revisions",
     "Value": "5",
     "Type": "Setting"
+  },
+  {
+    "Key": "contacts.mix",
+    "Value": "peer=2, hiring=1, recruiter=1",
+    "Type": "Setting"
+  },
+  {
+    "Key": "contacts.per_job",
+    "Value": "4",
+    "Type": "Setting"
+  },
+  {
+    "Key": "contacts.cache_months",
+    "Value": "6",
+    "Type": "Setting"
+  },
+  {
+    "Key": "credits.apollo",
+    "Value": "12 / 75 per month",
+    "Type": "Credit counter",
+    "Updated": "2026-09-28"
+  },
+  {
+    "Key": "credits.hunter",
+    "Value": "3 / 25 per month",
+    "Type": "Credit counter",
+    "Updated": "2026-09-15"
+  },
+  {
+    "Key": "credits.snov",
+    "Value": "0 / 50 per month",
+    "Type": "Credit counter",
+    "Updated": "2026-08-20"
   }
 ]

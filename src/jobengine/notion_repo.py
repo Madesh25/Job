@@ -62,6 +62,25 @@ JOB_PROPERTY_TYPES = {
     "Resume": "relation",
     "Applied date": "date",
     "Last activity date": "date",
+    # Written by the contact finder (Module 05).
+    "Contacts": "relation",
+    "Contact source": "select",
+    "Contact person": "rich_text",
+}
+
+# Contacts property name -> Notion property type.
+CONTACT_PROPERTY_TYPES = {
+    "Name": "title",
+    "Title": "rich_text",
+    "Email": "email",
+    "Company": "rich_text",
+    "Country": "select",
+    "Type": "select",
+    "Source": "select",
+    "Status": "select",
+    "Date found": "date",
+    "Related jobs": "relation",
+    "Notes": "rich_text",
 }
 
 # Resume Log property name -> Notion property type.
@@ -164,7 +183,7 @@ def plain_value(prop: dict[str, Any]) -> Any:
         return {"checkbox": bool(value)}
     if kind == "multi_select":
         return [item.get("name") for item in value or [] if item.get("name")]
-    if kind in ("number", "url", "checkbox"):
+    if kind in ("number", "url", "checkbox", "email"):
         return value
     if kind == "relation":
         return [item.get("id") for item in value or [] if item.get("id")]
@@ -183,6 +202,8 @@ def notion_value(kind: str, value: Any) -> dict[str, Any]:
         return {"number": value}
     if kind == "url":
         return {"url": value}
+    if kind == "email":
+        return {"email": value}
     if kind == "multi_select":
         # Option names cannot contain commas; new options are created by the API.
         names = [str(v).replace(",", " ").strip()[:100] for v in value or []]
@@ -652,3 +673,104 @@ def resume_log_for(s: Settings, client: NotionClient) -> NotionResumeLogRepo | N
         log.warning("DRY RUN: would write to resume_log")
         return None
     return NotionResumeLogRepo(client, target)
+
+
+# ---------------------------------------------------------------- Contacts
+
+
+class ContactsRepo(Protocol):
+    def all_rows(self) -> list[tuple[str, dict[str, Any]]]: ...
+
+    def create(self, props: dict[str, Any]) -> str: ...
+
+    def add_job(self, page_id: str, job_id: str) -> None: ...
+
+
+def contact_properties(props: dict[str, Any]) -> dict[str, Any]:
+    return {name: notion_value(CONTACT_PROPERTY_TYPES[name], value)
+            for name, value in props.items() if value not in (None, "")}
+
+
+class NotionContactsRepo:
+    """Contacts, written only through safety.notion_write_target("contacts")."""
+
+    def __init__(self, client: NotionClient, data_source_id: str):
+        self.client = client
+        self.data_source_id = data_source_id
+
+    def all_rows(self) -> list[tuple[str, dict[str, Any]]]:
+        names = tuple(CONTACT_PROPERTY_TYPES)
+        return [(page["id"], page_values(page))
+                for page in self.client.query(self.data_source_id, properties=names)]
+
+    def create(self, props: dict[str, Any]) -> str:
+        body = {"parent": {"type": "data_source_id", "data_source_id": self.data_source_id},
+                "properties": contact_properties(props)}
+        return self.client.request("POST", "/pages", body)["id"]
+
+    def add_job(self, page_id: str, job_id: str) -> None:
+        """Add the job to Related jobs. Nothing else on a cached contact is changed."""
+        page = self.client.request("GET", f"/pages/{page_id}")
+        related = plain_value((page.get("properties") or {}).get("Related jobs") or {}) or []
+        if _hex(job_id) in {_hex(j) for j in related}:
+            return
+        self.client.request("PATCH", f"/pages/{page_id}", {"properties": contact_properties(
+            {"Related jobs": [*related, job_id]})})
+
+
+class FakeContactsRepo:
+    def __init__(self, rows: list[dict[str, Any]] | None = None):
+        self.rows: dict[str, dict[str, Any]] = {}
+        self.writes: list[tuple[str, str, Any]] = []
+        for row in rows or []:
+            row = dict(row)
+            if row.get("Date found"):
+                row["Date found"] = date.fromisoformat(row["Date found"])
+            self.rows[row.pop("page_id")] = row
+
+    @classmethod
+    def from_fixture(cls, path: Path) -> FakeContactsRepo:
+        return cls(json.loads(path.read_text(encoding="utf-8")))
+
+    def all_rows(self) -> list[tuple[str, dict[str, Any]]]:
+        return [(pid, dict(row)) for pid, row in self.rows.items()]
+
+    def create(self, props: dict[str, Any]) -> str:
+        page_id = f"fake-contact-{len(self.rows) + 1}"
+        self.rows[page_id] = dict(props)
+        self.writes.append(("create", page_id, dict(props)))
+        return page_id
+
+    def add_job(self, page_id: str, job_id: str) -> None:
+        related = self.rows[page_id].setdefault("Related jobs", [])
+        if job_id not in related:
+            related.append(job_id)
+            self.writes.append(("add_job", page_id, job_id))
+
+
+def contacts_repo_for(s: Settings, client: NotionClient) -> NotionContactsRepo | None:
+    target = notion_write_target("contacts", s)
+    if target is None:
+        log.warning("DRY RUN: would write to contacts")
+        return None
+    return NotionContactsRepo(client, target)
+
+
+def config_writer_for(s: Settings, client: NotionClient, config: Any) -> Any:
+    """Writer for credits.* rows in prod (notion_write_target("config") is None elsewhere).
+    Only allowlisted keys are written (safety.check_config_write)."""
+    from jobengine.safety import check_config_write
+
+    if notion_write_target("config", s) is None:
+        return None
+
+    def write(key: str, value: str, day: date) -> None:
+        check_config_write(key)
+        page_id = config.page_id(key)
+        if not page_id:
+            log.warning("Config %s not found, counter not written", key)
+            return
+        client.request("PATCH", f"/pages/{page_id}", {"properties": {
+            "Value": notion_value("rich_text", value), "Updated": notion_value("date", day)}})
+
+    return write

@@ -173,3 +173,27 @@ def test_resume_fixtures_are_synthetic():
         text = path.read_text(encoding="utf-8")
         assert "@gmail.com" not in text, path.name
         assert "Alex Example" in text, path.name
+
+
+# An f-string or format call that puts a name next to "@" would be a guessed email.
+GUESSED_EMAIL = re.compile(
+    r"""(f["'][^"'\n]*\{[^}]*(first|last|name)[^}]*\}[^"'\n]*@)"""
+    r"""|(["'][^"'\n]*\{\}[^"'\n]*@[^"'\n]*["']\s*\.format\()""",
+    re.I,
+)
+
+
+def test_contacts_never_build_emails_from_names():
+    folder = ROOT / "src" / "jobengine" / "contacts"
+    offenders = [p.relative_to(ROOT).as_posix() for p in folder.rglob("*.py")
+                 if GUESSED_EMAIL.search(p.read_text(encoding="utf-8"))]
+    assert offenders == []
+
+
+def test_contact_fixtures_use_invented_addresses_only():
+    email = re.compile(r"[A-Za-z0-9._%+-]+@([A-Za-z0-9.-]+\.[A-Za-z]{2,})")
+    allowed = ("example.com", "example.org")
+    for path in (ROOT / "fixtures" / "contacts").glob("*.json"):
+        for domain in email.findall(path.read_text(encoding="utf-8")):
+            ok = domain.endswith(allowed) or domain == "gmail.com"  # the personal-address case
+            assert ok, f"{path.name}: {domain}"

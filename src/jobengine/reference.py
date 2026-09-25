@@ -79,6 +79,7 @@ class Company:
     active: bool = True
     careers_url: str | None = None
     hub_city: str | None = None
+    domain: str | None = None  # email domain, filled by hand in Target Companies
 
     @property
     def tier_number(self) -> int | None:
@@ -143,9 +144,10 @@ class Reference:
             Company(row_id=pid, name=v.get("Company") or "", region=v.get("Region"),
                     tier=v.get("Tier"), ind_sponsor=v.get("IND sponsor"),
                     active=bool(v.get("Active")), careers_url=v.get("Careers URL"),
-                    hub_city=v.get("Hub / City"))
+                    hub_city=v.get("Hub / City"), domain=(v.get("Domain") or "").strip() or None)
             for pid, v in rows("target_companies", ("Company", "Region", "Tier", "IND sponsor",
-                                                    "Active", "Careers URL", "Hub / City"))
+                                                    "Active", "Careers URL", "Hub / City",
+                                                    "Domain"))
             if v.get("Company")
         ]
         return cls(skills, term_map, companies)
@@ -173,7 +175,7 @@ class Reference:
             Company(row_id=r["id"], name=r["Company"], region=r.get("Region"),
                     tier=r.get("Tier"), ind_sponsor=r.get("IND sponsor"),
                     active=r.get("Active", True), careers_url=r.get("Careers URL"),
-                    hub_city=r.get("Hub / City"))
+                    hub_city=r.get("Hub / City"), domain=r.get("Domain"))
             for r in load("target_companies.json")
         ]
         return cls(skills, term_map, companies)

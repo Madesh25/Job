@@ -1,0 +1,52 @@
+{
+  "by_key": {
+    "ap-anna": {
+      "person": {
+        "id": "ap-anna",
+        "first_name": "Anna",
+        "last_name": "Example",
+        "name": "Anna Example",
+        "title": "Senior DevOps Engineer",
+        "email": "anna.example@vistula.example.com",
+        "email_status": "verified",
+        "country": "Poland"
+      }
+    },
+    "ap-marek": {
+      "person": {
+        "id": "ap-marek",
+        "first_name": "Marek",
+        "last_name": "Example",
+        "name": "Marek Example",
+        "title": "Site Reliability Engineer",
+        "email": "marek.example@vistula.example.com",
+        "email_status": "unverified",
+        "country": "Germany"
+      }
+    },
+    "ap-piotr": {
+      "person": {
+        "id": "ap-piotr",
+        "first_name": "Piotr",
+        "last_name": "Example",
+        "name": "Piotr Example",
+        "title": "Engineering Manager, Platform",
+        "email": "piotr.example@vistula.example.com",
+        "email_status": "verified",
+        "country": "Poland"
+      }
+    },
+    "ap-otto": {
+      "person": {
+        "id": "ap-otto",
+        "first_name": "Otto",
+        "last_name": "Example",
+        "name": "Otto Example",
+        "title": "Office Manager",
+        "email": "otto.example@vistula.example.com",
+        "email_status": "verified",
+        "country": "Poland"
+      }
+    }
+  }
+}

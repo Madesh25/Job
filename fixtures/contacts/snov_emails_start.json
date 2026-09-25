@@ -1,0 +1,19 @@
+{
+  "by_key": {
+    "sn-rita": {
+      "meta": {
+        "task_hash": "sn-em-rita"
+      }
+    },
+    "sn-tomas": {
+      "meta": {
+        "task_hash": "sn-em-tomas"
+      }
+    },
+    "sn-jan": {
+      "meta": {
+        "task_hash": "sn-em-jan"
+      }
+    }
+  }
+}

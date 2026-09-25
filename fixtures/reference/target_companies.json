@@ -7,7 +7,8 @@
     "IND sponsor": "N/A",
     "Active": true,
     "Careers URL": "https://vistulacloud.example.com/careers",
-    "Hub / City": "Kraków"
+    "Hub / City": "Kraków",
+    "Domain": "vistula.example.com"
   },
   {
     "id": "tc-odra",
@@ -47,7 +48,8 @@
     "IND sponsor": "N/A",
     "Active": true,
     "Careers URL": "https://boards.greenhouse.io/northwindcloud",
-    "Hub / City": "Dublin"
+    "Hub / City": "Dublin",
+    "Domain": "northwind.example.org"
   },
   {
     "id": "tc-baltic",

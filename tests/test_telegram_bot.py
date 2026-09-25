@@ -646,3 +646,52 @@ def test_console_reply_command_carries_the_caption(tmp_path):
     assert update["text"] == "drop Oracle"
     assert update["reply_to_message"]["caption"] == "Ref RL-00000001"
     assert (tmp_path / "a.pdf").read_bytes() == b"%PDF"
+
+
+# ---------------------------------------------------------------- Module 05: contacts
+
+
+def test_resume_approval_runs_the_contact_lookup(desk):
+    talk(desk, tap(1, "ap:pl-clean"))
+    fake = talk(desk, tap(1, "ra:00000001000040008000000000000001"))
+    texts = [t for _, t in fake.sent]
+    assert texts[0].startswith("[LOCAL] Resume approved and saved.")
+    assert texts[1] == "[LOCAL] Finding contacts for Vistula Cloud..."
+    summary = texts[2]
+    assert summary.startswith("[LOCAL] Contacts for Vistula Cloud, DevOps Engineer (Poland)")
+    assert "Peer engineer: Kasia Example (Platform Engineer) [cache]" in summary
+    assert "found. Credits: Apollo" in summary
+    assert desk.repo.rows["pl-clean"]["Contacts"]
+
+
+def test_credits_command(desk):
+    fake = talk(desk, "/credits")
+    text = fake.sent[0][1]
+    # Fake today is 2026-10-01: September counters start again at 0.
+    assert "Apollo: 0 / 75 per month (reset for this month), updated 2026-09-28, no key" in text
+    assert "Snov: 0 / 50 per month, updated 2026-08-20, no key" in text
+    assert "Paid calls are off here" in text
+
+
+def test_contacts_command_asks_for_an_unknown_domain_and_resumes_on_reply(desk):
+    fake = talk(desk, "/contacts https://jobs.example.com/nl-ind")
+    question = fake.sent[-1][1]
+    assert question == ("[LOCAL] What is the email domain for Canal Payments? Reply to this "
+                        "message with the domain, e.g. example.com. Ref JOB-nlind")
+    reply = {"update_id": 2, "message": {
+        "chat": {"id": int(CHAT_ID)}, "text": "canal.example.com",
+        "reply_to_message": {"message_id": 2, "text": question.removeprefix("[LOCAL] ")}}}
+    fake = talk(desk, reply)
+    assert fake.sent[-1][1].startswith("[LOCAL] Contacts for Canal Payments")
+    bad = dict(reply, message=dict(reply["message"], text="canal.greenhouse.io"))
+    fake = talk(desk, bad)
+    assert "no longer open" in fake.sent[-1][1]  # already answered
+
+
+def test_contacts_command_needs_a_job(desk):
+    assert talk(desk, "/contacts").sent[0][1] == "[LOCAL] Send /contacts <job URL or page id>."
+    assert "No Job Opportunities row" in talk(desk, "/contacts nothing-here").sent[0][1]
+
+
+def test_help_lists_contacts_and_credits():
+    assert "/contacts" in tb.HELP_TEXT and "/credits" in tb.HELP_TEXT

@@ -1,0 +1,62 @@
+[
+  {
+    "Company": "Vistula Cloud",
+    "Role": "DevOps Engineer",
+    "City": "Kraków",
+    "Country": "Poland",
+    "Board": "Company site",
+    "URL": "https://jobs.example.com/fixture-clean-pl",
+    "Dedupe key": "vistula cloud|devops engineer|krakow",
+    "Status": "Resume built",
+    "Screen verdict": "Apply high",
+    "First seen": "2026-09-28",
+    "Swept date": "2026-09-30",
+    "Times seen": 1,
+    "Ghost job risk": "Low",
+    "body": [
+      "Description source: ats",
+      "Vistula Cloud is hiring a DevOps Engineer in Krakow. You will run EKS with Helm and Argo CD and keep our Terraform modules for AWS tidy.\nQuestions about the role? Contact Ola Example (ola.example@vistula.example.com), our technical recruiter.\nOr send your CV to careers@vistula.example.com."
+    ],
+    "page_id": "fixture-clean-pl"
+  },
+  {
+    "Company": "Northwind Cloud",
+    "Role": "Platform Engineer",
+    "City": "Dublin",
+    "Country": "Ireland",
+    "Board": "Company site",
+    "URL": "https://jobs.example.com/fixture-clean-ie",
+    "Dedupe key": "northwind cloud|platform engineer|dublin",
+    "Status": "Resume built",
+    "Screen verdict": "Apply high",
+    "First seen": "2026-09-28",
+    "Swept date": "2026-09-30",
+    "Times seen": 1,
+    "Ghost job risk": "Low",
+    "body": [
+      "Description source: ats",
+      "Northwind Cloud runs Kubernetes on AWS."
+    ],
+    "page_id": "fixture-clean-ie"
+  },
+  {
+    "Company": "Mystery Example Labs",
+    "Role": "SRE",
+    "City": "Kraków",
+    "Country": "Poland",
+    "Board": "Company site",
+    "URL": "https://mysteryexamplelabs.teamtailor.com/jobs/1",
+    "Dedupe key": "mystery example labs|sre|krakow",
+    "Status": "Resume built",
+    "Screen verdict": "Apply high",
+    "First seen": "2026-09-28",
+    "Swept date": "2026-09-30",
+    "Times seen": 1,
+    "Ghost job risk": "Low",
+    "body": [
+      "Description source: ats",
+      "Mystery Example Labs is hiring an SRE."
+    ],
+    "page_id": "fixture-no-domain"
+  }
+]

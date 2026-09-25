@@ -50,9 +50,11 @@ HELP_TEXT = (
     "/jd - list jobs waiting for a description\n"
     "/screen - screen jobs that are not screened yet\n"
     "/screen <url or id> - screen one job again\n"
+    "/contacts <url or id> - find contacts for a job (cache first, then Apollo, Hunter, Snov)\n"
+    "/credits - show the contact providers' credit counters\n"
     "/help - show this list"
 )
-DESK_COMMANDS = ("pending", "jd", "done", "screen")
+DESK_COMMANDS = ("pending", "jd", "done", "screen", "contacts", "credits")
 
 # (method, payload, http_timeout) -> decoded JSON response
 Transport = Callable[[str, dict[str, Any], float], dict[str, Any]]
@@ -147,6 +149,8 @@ def console_transport(
                          else path).as_posix()
                 print(f"bot [message {message_id}, document {where}]> {text}", file=stdout,
                       flush=True)
+            elif "Ref JOB-" in text:  # a question you answer with `reply <n> <text>`
+                print(f"bot [message {message_id}]> {text}", file=stdout, flush=True)
             else:
                 print(f"bot> {text}", file=stdout, flush=True)
             rows = (payload.get("reply_markup") or {}).get("inline_keyboard") or []
@@ -414,8 +418,15 @@ def desk_replies(update: dict[str, Any], s: Settings, desk: Desk | None) -> list
         replies = _guarded("Correction", lambda: desk.correction(ref_text, text) or [])
         if replies:
             return replies
+        replies = _guarded("Domain", lambda: desk.domain_answer(ref_text, text) or [])
+        if replies:
+            return replies
     if command == "pending":
         return _guarded("/pending", desk.pending)
+    if command == "contacts":
+        return _guarded("/contacts", lambda: desk.contacts_command(args))
+    if command == "credits":
+        return _guarded("/credits", desk.credits)
     if command == "jd":
         return _guarded("/jd", lambda: desk.jd(args))
     if command == "done":
