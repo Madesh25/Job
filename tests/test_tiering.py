@@ -129,13 +129,21 @@ def test_employer_size_and_contract_rules():
 
 
 def test_rank_order():
-    e = ext()
-    good = rank_key("Apply normal", False, row(years_required=3, posted_date=date(2026, 9, 29)),
-                    e, REF, TODAY)
-    five = rank_key("Apply normal", False, row(years_required=5), e, REF, TODAY)
-    ghost = rank_key("Apply normal", False, row(ghost_risk="High"), e, REF, TODAY)
-    bottom = rank_key("Apply normal", True, row(years_required=3), e, REF, TODAY)
-    high = rank_key("Apply high", False, row(ghost_risk="High"), e, REF, TODAY)
-    review = rank_key("Needs review", False, row(years_required=3), e, REF, TODAY)
+    def key(verdict, bottom=False, **kw):
+        return rank_key(row(**kw), REF, TODAY, verdict=verdict, bottom=bottom, ext=ext())
+
+    good = key("Apply normal", years_required=3, posted_date=date(2026, 9, 29))
+    five = key("Apply normal", years_required=5)
+    ghost = key("Apply normal", ghost_risk="High")
+    bottom = key("Apply normal", True, years_required=3)
+    high = key("Apply high", ghost_risk="High")
+    review = key("Needs review", years_required=3)
     ordered = sorted([review, bottom, ghost, five, good, high], reverse=True)
     assert ordered == [high, good, five, ghost, bottom, review]
+
+
+def test_rank_from_written_row():
+    written = row(screen_verdict="Apply low", sponsorship="Stated yes", years_required=3)
+    blocked = row(screen_verdict="Apply low", visa_flags=(visa.NOT_ON_IND,))
+    assert rank_key(written, REF, TODAY) > rank_key(blocked, REF, TODAY)
+    assert rank_key(blocked, REF, TODAY)[1] == 0

@@ -151,3 +151,8 @@ class JobRow:
     salary: str | None = None
     visa_flags: tuple[str, ...] = ()
     url: str | None = None
+    board: str | None = None
+    posting_ids: str | None = None
+    sponsorship: str | None = None  # Stated yes | Stated no | Not mentioned
+    contract_type: str | None = None
+    gaps: str | None = None

@@ -102,3 +102,33 @@ def test_salary_flags_only_with_config_thresholds():
     assert check(ie("Northwind Cloud"), high, config).flags == []
     vague = salary("EUR 36,000")
     assert check(ie("Northwind Cloud"), vague, config).flags == []
+
+
+def test_parse_fixture_register():
+    from jobengine.ind_register import load_register, parse_register_html
+    from jobengine.settings import ROOT_DIR
+
+    html = (ROOT_DIR / "fixtures" / "ind_register.html").read_text(encoding="utf-8")
+    names = parse_register_html(html)
+    assert len(names) == 20
+    assert "Canal Payments B.V." in names
+    assert all(not n.isdigit() for n in names)  # the KvK number column is not read
+    register = load_register("https://ind.nl/x", lambda url: html)
+    assert register.match("Example") is None
+    assert register.match("Canal Payments") == "Canal Payments B.V."
+
+
+def test_parse_uses_the_organisation_column():
+    from jobengine.ind_register import parse_register_html
+
+    html = ("<table><tr><th>KvK</th><th>Organisatie</th></tr>"
+            "<tr><td>123</td><td>Example Cloud B.V.</td></tr></table>")
+    assert parse_register_html(html) == ["Example Cloud B.V."]
+    assert IndRegister.from_names(parse_register_html(html)).match("Example Cloud")
+
+
+def test_parse_without_names_is_an_error():
+    from jobengine.ind_register import parse_register_html
+
+    with pytest.raises(ValueError):
+        parse_register_html("<html><body>Maintenance</body></html>")

@@ -1,0 +1,83 @@
+{
+  "years_required_min": {
+    "value": 3,
+    "quote": "at least 3 years of experience"
+  },
+  "seniority_title_flag": {
+    "value": "none",
+    "quote": null
+  },
+  "languages": [
+    {
+      "language": "English",
+      "level": "mandatory",
+      "quote": "English at B2 level is required"
+    }
+  ],
+  "contract_types": [
+    {
+      "value": "UoP",
+      "quote": "employment contract (umowa o prace, UoP)"
+    }
+  ],
+  "mandatory_requirements": [
+    {
+      "text": "Kubernetes in production",
+      "terms": [
+        "Kubernetes"
+      ],
+      "kind": "tool",
+      "quote": "Kubernetes in production"
+    },
+    {
+      "text": "Terraform",
+      "terms": [
+        "Terraform"
+      ],
+      "kind": "tool",
+      "quote": "Terraform for all infrastructure as code"
+    },
+    {
+      "text": "AWS",
+      "terms": [
+        "AWS"
+      ],
+      "kind": "tool",
+      "quote": "Good knowledge of AWS"
+    }
+  ],
+  "nice_to_have": [
+    {
+      "text": "Prometheus",
+      "terms": [
+        "Prometheus"
+      ],
+      "kind": "tool",
+      "quote": "Experience with Prometheus is a plus"
+    }
+  ],
+  "sponsorship": {
+    "value": "not_mentioned",
+    "quote": null
+  },
+  "work_mode": {
+    "value": "Hybrid",
+    "quote": "Hybrid work"
+  },
+  "salary_text": {
+    "value": "16 000 - 21 000 PLN gross per month",
+    "quote": "16 000 - 21 000 PLN gross per month"
+  },
+  "expires": {
+    "value": null,
+    "quote": null
+  },
+  "agency_posting": {
+    "value": null,
+    "quote": null
+  },
+  "specific_details": [
+    "moving our workloads to EKS",
+    "running GitOps with Argo CD"
+  ]
+}

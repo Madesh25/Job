@@ -69,6 +69,40 @@ def _error_detail(resp: httpx.Response) -> str:
     return ""
 
 
+def _send(
+    method: str,
+    url: str,
+    *,
+    params: Mapping[str, Any] | list[tuple[str, Any]] | None = None,
+    headers: Mapping[str, str] | None = None,
+    json: Any = None,
+    s: Settings | None = None,
+) -> tuple[str, httpx.Response]:
+    """Send one request, retrying HTTP 429 up to MAX_429_RETRIES times (Retry-After)."""
+    s = s or get_settings()
+    assert_fetch_allowed(url, s)
+    where = f"{method} {safe_url(url)}"
+    with httpx.Client(transport=_transport, timeout=TIMEOUT_SECONDS) as client:
+        for attempt in range(MAX_429_RETRIES + 1):
+            log.debug("%s", where)
+            try:
+                resp = client.request(method, url, params=params, headers=headers, json=json)
+                resp.read()
+            except httpx.HTTPError as exc:
+                raise HttpError(f"{where} failed: {type(exc).__name__}") from None
+            if resp.status_code == 429 and attempt < MAX_429_RETRIES:
+                wait = _retry_after(resp)
+                log.info("%s rate limited, retrying in %.1fs", where, wait)
+                _sleep(wait)
+                continue
+            if resp.status_code >= 400:
+                detail = _error_detail(resp)
+                message = f"{where} failed: HTTP {resp.status_code} {detail}".strip()
+                raise HttpError(message, resp.status_code)
+            return where, resp
+    raise HttpError(f"{where} failed: still rate limited", 429)  # pragma: no cover
+
+
 def request_json(
     method: str,
     url: str,
@@ -82,30 +116,21 @@ def request_json(
 
     HTTP 429 is retried up to MAX_429_RETRIES times, waiting for Retry-After.
     """
-    s = s or get_settings()
-    assert_fetch_allowed(url, s)
-    where = f"{method} {safe_url(url)}"
-    with httpx.Client(transport=_transport, timeout=TIMEOUT_SECONDS) as client:
-        for attempt in range(MAX_429_RETRIES + 1):
-            log.debug("%s", where)
-            try:
-                resp = client.request(method, url, params=params, headers=headers, json=json)
-            except httpx.HTTPError as exc:
-                raise HttpError(f"{where} failed: {type(exc).__name__}") from None
-            if resp.status_code == 429 and attempt < MAX_429_RETRIES:
-                wait = _retry_after(resp)
-                log.info("%s rate limited, retrying in %.1fs", where, wait)
-                _sleep(wait)
-                continue
-            if resp.status_code >= 400:
-                detail = _error_detail(resp)
-                message = f"{where} failed: HTTP {resp.status_code} {detail}".strip()
-                raise HttpError(message, resp.status_code)
-            try:
-                return resp.json()
-            except ValueError:
-                raise HttpError(f"{where} failed: response was not JSON") from None
-    raise HttpError(f"{where} failed: still rate limited", 429)  # pragma: no cover
+    where, resp = _send(method, url, params=params, headers=headers, json=json, s=s)
+    try:
+        return resp.json()
+    except ValueError:
+        raise HttpError(f"{where} failed: response was not JSON") from None
+
+
+def get_text(
+    url: str,
+    params: Mapping[str, Any] | list[tuple[str, Any]] | None = None,
+    headers: Mapping[str, str] | None = None,
+    s: Settings | None = None,
+) -> str:
+    """GET a page (HTML or text) and return its body."""
+    return _send("GET", url, params=params, headers=headers, s=s)[1].text
 
 
 def get_json(

@@ -133,15 +133,26 @@ def tier(
     return Tiering(verdict, bottom, employer, gaps, tuple(added), tuple(notes))
 
 
+def is_bottom(row: JobRow) -> bool:
+    """Rows that structurally cannot sponsor rank last within their tier."""
+    return row.sponsorship == "Stated no" or bool(
+        {visa.NOT_ON_IND, visa.AGENCY_IE} & set(row.visa_flags)
+    )
+
+
 def rank_key(
-    verdict: str,
-    bottom: bool,
     row: JobRow,
-    ext: Extraction | None,
     ref: Reference,
     today: date,
+    *,
+    verdict: str | None = None,
+    bottom: bool | None = None,
+    ext: Extraction | None = None,
 ) -> tuple[int, int, int]:
-    """Sort key for /pending, highest first (use with reverse=True)."""
+    """Sort key for /pending, highest first (use with reverse=True). Reads the written row;
+    `verdict`, `bottom` and `ext` override it right after screening."""
+    verdict = verdict or row.screen_verdict or ""
+    bottom = is_bottom(row) if bottom is None else bottom
     score = 0
     years = row.years_required if row.years_required is not None else (ext.years if ext else None)
     if years is None:
@@ -150,7 +161,8 @@ def rank_key(
         score += 3
     elif years == 5:
         score -= 2
-    if ext and ext.sponsorship_value == "stated_yes":
+    sponsored = ext.sponsorship_value == "stated_yes" if ext else row.sponsorship == "Stated yes"
+    if sponsored:
         score += 3
     company = ref.company(row.company)
     if company and company.tier_number in LARGE_TIERS:

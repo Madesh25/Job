@@ -1,0 +1,58 @@
+{
+  "years_required_min": {
+    "value": 3,
+    "quote": "3 years of AWS and Terraform experience"
+  },
+  "seniority_title_flag": {
+    "value": "none",
+    "quote": null
+  },
+  "languages": [],
+  "contract_types": [
+    {
+      "value": "permanent",
+      "quote": "Permanent role"
+    }
+  ],
+  "mandatory_requirements": [
+    {
+      "text": "AWS and Terraform",
+      "terms": [
+        "AWS",
+        "Terraform"
+      ],
+      "kind": "tool",
+      "quote": "AWS and Terraform"
+    },
+    {
+      "text": "Linux",
+      "terms": [
+        "Linux"
+      ],
+      "kind": "tool",
+      "quote": "solid Linux skills"
+    }
+  ],
+  "nice_to_have": [],
+  "sponsorship": {
+    "value": "not_mentioned",
+    "quote": null
+  },
+  "work_mode": {
+    "value": "Hybrid",
+    "quote": "hybrid working"
+  },
+  "salary_text": {
+    "value": null,
+    "quote": null
+  },
+  "expires": {
+    "value": null,
+    "quote": null
+  },
+  "agency_posting": {
+    "value": true,
+    "quote": "on behalf of our client"
+  },
+  "specific_details": []
+}

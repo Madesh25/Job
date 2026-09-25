@@ -1,0 +1,56 @@
+{
+  "years_required_min": {
+    "value": 2,
+    "quote": "2 years of experience"
+  },
+  "seniority_title_flag": {
+    "value": "none",
+    "quote": null
+  },
+  "languages": [
+    {
+      "language": "Polish",
+      "level": "mandatory",
+      "quote": "Fluent Polish is required"
+    }
+  ],
+  "contract_types": [
+    {
+      "value": "UoP",
+      "quote": "employment contract (UoP)"
+    }
+  ],
+  "mandatory_requirements": [
+    {
+      "text": "Kubernetes and Terraform",
+      "terms": [
+        "Kubernetes",
+        "Terraform"
+      ],
+      "kind": "tool",
+      "quote": "experience with Kubernetes and Terraform"
+    }
+  ],
+  "nice_to_have": [],
+  "sponsorship": {
+    "value": "not_mentioned",
+    "quote": null
+  },
+  "work_mode": {
+    "value": "Office",
+    "quote": "Office work"
+  },
+  "salary_text": {
+    "value": null,
+    "quote": null
+  },
+  "expires": {
+    "value": null,
+    "quote": null
+  },
+  "agency_posting": {
+    "value": null,
+    "quote": null
+  },
+  "specific_details": []
+}
