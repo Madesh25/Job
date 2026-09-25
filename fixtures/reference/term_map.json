@@ -5,7 +5,10 @@
     "Truthful equivalent": "CI/CD pipelines in GitLab CI",
     "Status": "Active",
     "Category": "CI/CD",
-    "Notes": "Same pipeline concepts."
+    "Notes": "Same pipeline concepts.",
+    "Backed by evidence": [
+      "ev-pipelines"
+    ]
   },
   {
     "id": "tm-eks",
@@ -13,7 +16,11 @@
     "Truthful equivalent": "Kubernetes on AWS",
     "Status": "Active",
     "Category": "Containers",
-    "Notes": ""
+    "Notes": "",
+    "Backed by evidence": [
+      "ev-eks-migration",
+      "ev-pipelines"
+    ]
   },
   {
     "id": "tm-gcp",

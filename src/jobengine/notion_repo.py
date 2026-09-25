@@ -141,6 +141,8 @@ def plain_value(prop: dict[str, Any]) -> Any:
         return [item.get("name") for item in value or [] if item.get("name")]
     if kind in ("number", "url", "checkbox"):
         return value
+    if kind == "relation":
+        return [item.get("id") for item in value or [] if item.get("id")]
     return None
 
 
