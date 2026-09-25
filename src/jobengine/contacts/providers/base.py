@@ -61,7 +61,7 @@ ROUTES = {
     "api.apollo.io/api/v1/mixed_people/api_search": "apollo_search.json",
     "api.apollo.io/api/v1/people/match": "apollo_match.json",
     "api.hunter.io/v2/domain-search": "hunter_domain_search.json",
-    "api.snov.io/v1/oauth/access_token": "snov_token.json",
+    "api.snov.io/v1/oauth/access_token": "snov_auth.json",
     "api.snov.io/v2/domain-search/prospects/start": "snov_prospects_start.json",
     "api.snov.io/v2/domain-search/prospects/result": "snov_prospects.json",
     "api.snov.io/v2/domain-search/prospects/search-emails/start": "snov_emails_start.json",
