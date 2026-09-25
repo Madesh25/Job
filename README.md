@@ -58,6 +58,16 @@ python -m jobengine.sweep --parse-report              # check the Gmail parser, 
 
 `/fetch` in the Telegram bot runs the same sweep. See [docs/sweep.md](docs/sweep.md).
 
+## Run screening
+
+```bash
+python -m jobengine.screen --fake --today 2026-10-01   # fake LLM and fixtures, no network
+python -m jobengine.screen --no-write                  # real verdicts, writes nothing
+```
+
+In Telegram, `/pending` shows the screened jobs one at a time and `/jd <url>` takes a pasted
+job description. See [docs/screening.md](docs/screening.md).
+
 ## Run tests
 
 ```bash
@@ -70,3 +80,4 @@ pytest
 - [Branching model](docs/branching.md)
 - [Environments and safety rules](docs/environments.md)
 - [Job sweep](docs/sweep.md)
+- [Screening](docs/screening.md)

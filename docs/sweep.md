@@ -25,6 +25,8 @@ jobs checked"), then sends a short summary: new jobs per country (in Config
 `countries.active` order), jobs seen again, jobs skipped, possible ghost jobs, and any source
 that was not checked. The terminal CLI keeps the detailed summary shown below. With
 `python -m jobengine.telegram_bot --fake`, `/fetch` uses the fixtures and the in-memory repo.
+Since Module 03, `/fetch` screens the new jobs right after the sweep (see
+`docs/screening.md`).
 
 Progress lines (time, source counts, pages, rows processed) go to stderr while it runs; the
 summary is printed at the end.
