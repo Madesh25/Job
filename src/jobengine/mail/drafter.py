@@ -175,6 +175,11 @@ def resume_pdf(deps: MailDeps, row: dict[str, Any]) -> bytes:
     return deps.drive().download(file_value)
 
 
+def _max_kb(deps: MailDeps, config: ConfigStore) -> int:
+    default = int(deps.s.mail.get("max_attachment_kb", DEFAULT_MAX_KB))
+    return config.get_int("mail.max_attachment_kb", default)
+
+
 def env_where(s: Settings) -> str:
     account = s.gmail_sender.split("@", 1)[0]
     if s.app_env == "prod":
@@ -210,8 +215,7 @@ def create_drafts(deps: MailDeps, job_id: str, contact_ids: list[str] | None = N
         attachment = None
         if (config.get("mail.attach_resume") or "yes").casefold() != "no":
             attachment = (resume_name(row), resume_pdf(deps, row))
-            check_attachment(attachment[1], config.get_int("mail.max_attachment_kb",
-                                                           DEFAULT_MAX_KB))
+            check_attachment(attachment[1], _max_kb(deps, config))
         gmail = None if dry else deps.gmail()  # checks the token scope before any API call
     except (TemplateError, ComposeError, DriveError, GmailError) as exc:
         return failed(str(exc))
@@ -220,8 +224,9 @@ def create_drafts(deps: MailDeps, job_id: str, contact_ids: list[str] | None = N
     if not rows:
         return failed(f"No contacts for {job.company}, {job.role}. Run /contacts first.")
     today = deps.today()
-    cooldown = config.get_int("mail.same_person_cooldown_days", DEFAULT_COOLDOWN_DAYS)
-    max_kb = config.get_int("mail.max_attachment_kb", DEFAULT_MAX_KB)
+    cooldown = config.get_int("mail.same_person_cooldown_days", int(
+        deps.s.mail.get("same_person_cooldown_days", DEFAULT_COOLDOWN_DAYS)))
+    max_kb = _max_kb(deps, config)
     mailboxes = deps.s.contacts.get("generic_mailboxes") or GENERIC_MAILBOXES
     greeting = generic_greeting(config)
     llm = deps.llm(config) if job.details and len(job.details) > 1 else None

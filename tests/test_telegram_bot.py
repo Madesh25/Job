@@ -662,6 +662,24 @@ def test_resume_approval_runs_the_contact_lookup(desk):
     assert "Peer engineer: Kasia Example (Platform Engineer) [cache]" in summary
     assert "found. Credits: Apollo" in summary
     assert desk.repo.rows["pl-clean"]["Contacts"]
+    # Module 06: then the Gmail drafts (DRY_RUN here: nothing created, a preview instead).
+    assert texts[3].startswith("[LOCAL] Writing Gmail drafts for 4 contacts")
+    drafts = texts[4]
+    assert drafts.startswith("[LOCAL] Drafts for Vistula Cloud, DevOps Engineer")
+    assert "DRY RUN: 4 drafts not created." in drafts
+    assert "Subject: [LOCAL] to piotr.example@vistula.example.com | " in drafts
+    assert "Attachment: Alex_Devops_VistulaCloud.pdf" in drafts
+
+
+def test_drafts_command(desk):
+    talk(desk, tap(1, "ap:pl-clean"))
+    talk(desk, tap(1, "ra:00000001000040008000000000000001"))
+    fake = talk(desk, "/drafts pl-clean")
+    assert fake.sent[-1][1].startswith("[LOCAL] Drafts for Vistula Cloud, DevOps Engineer")
+    assert talk(desk, "/drafts").sent[0][1] == "[LOCAL] Send /drafts <job URL or page id>."
+    fake = talk(desk, "/drafts https://jobs.example.com/nl-ind")
+    assert fake.sent[0][1].startswith("[LOCAL] No approved resume for this job")
+    assert "/drafts" in tb.HELP_TEXT
 
 
 def test_credits_command(desk):
@@ -682,7 +700,8 @@ def test_contacts_command_asks_for_an_unknown_domain_and_resumes_on_reply(desk):
         "chat": {"id": int(CHAT_ID)}, "text": "canal.example.com",
         "reply_to_message": {"message_id": 2, "text": question.removeprefix("[LOCAL] ")}}}
     fake = talk(desk, reply)
-    assert fake.sent[-1][1].startswith("[LOCAL] Contacts for Canal Payments")
+    texts = [text for _, text in fake.sent]
+    assert texts[-1].startswith("[LOCAL] Contacts for Canal Payments")
     bad = dict(reply, message=dict(reply["message"], text="canal.greenhouse.io"))
     fake = talk(desk, bad)
     assert "no longer open" in fake.sent[-1][1]  # already answered
