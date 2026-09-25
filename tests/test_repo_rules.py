@@ -273,6 +273,8 @@ def test_deploy_workflow_uses_wif_and_never_turns_dry_run_off():
     # "on" is parsed as True by YAML 1.1.
     trigger = flow.get("on") or flow.get(True)
     assert trigger["workflow_run"]["workflows"] == ["CI"]
+    condition = flow["jobs"]["deploy"]["if"]
+    assert "vars.GCP_WIF_PROVIDER != ''" in condition and "'success'" in condition
     # Every action is pinned to a full commit SHA.
     uses = re.findall(r"uses:\s*([^\s#]+)", text)
     assert uses and all(re.search(r"@[0-9a-f]{40}$", u) for u in uses), uses
