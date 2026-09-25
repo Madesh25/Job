@@ -177,10 +177,6 @@ def plain_value(prop: dict[str, Any]) -> Any:
     if kind == "date":
         start = (value or {}).get("start")
         return date.fromisoformat(start[:10]) if start else None
-    if kind == "relation":
-        return {"relation": [{"id": str(v)} for v in value or []]}
-    if kind == "checkbox":
-        return {"checkbox": bool(value)}
     if kind == "multi_select":
         return [item.get("name") for item in value or [] if item.get("name")]
     if kind in ("number", "url", "checkbox", "email"):
@@ -204,6 +200,10 @@ def notion_value(kind: str, value: Any) -> dict[str, Any]:
         return {"url": value}
     if kind == "email":
         return {"email": value}
+    if kind == "relation":
+        return {"relation": [{"id": str(v)} for v in value or []]}
+    if kind == "checkbox":
+        return {"checkbox": bool(value)}
     if kind == "multi_select":
         # Option names cannot contain commas; new options are created by the API.
         names = [str(v).replace(",", " ").strip()[:100] for v in value or []]

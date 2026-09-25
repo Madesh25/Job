@@ -1,0 +1,372 @@
+[
+ {
+  "object": "block",
+  "type": "paragraph",
+  "paragraph": {
+   "rich_text": [
+    {
+     "type": "text",
+     "text": {
+      "content": "Invented test page for Alex Example. Not the real Cold Mail Templates."
+     },
+     "annotations": {
+      "bold": false
+     },
+     "plain_text": "Invented test page for Alex Example. Not the real Cold Mail Templates."
+    }
+   ]
+  }
+ },
+ {
+  "object": "block",
+  "type": "paragraph",
+  "paragraph": {
+   "rich_text": [
+    {
+     "type": "text",
+     "text": {
+      "content": "Placeholders: "
+     },
+     "annotations": {
+      "bold": true
+     },
+     "plain_text": "Placeholders: "
+    },
+    {
+     "type": "text",
+     "text": {
+      "content": "{first_name} {company} {role} {city} {country} {specific_detail} {permit_word}"
+     },
+     "annotations": {
+      "bold": false
+     },
+     "plain_text": "{first_name} {company} {role} {city} {country} {specific_detail} {permit_word}"
+    }
+   ]
+  }
+ },
+ {
+  "object": "block",
+  "type": "heading_1",
+  "heading_1": {
+   "rich_text": [
+    {
+     "type": "text",
+     "text": {
+      "content": "1. Peer engineer (referral ask) : APPROVED 01 Sep 2026"
+     },
+     "annotations": {
+      "bold": false
+     },
+     "plain_text": "1. Peer engineer (referral ask) : APPROVED 01 Sep 2026"
+    }
+   ]
+  }
+ },
+ {
+  "object": "block",
+  "type": "paragraph",
+  "paragraph": {
+   "rich_text": [
+    {
+     "type": "text",
+     "text": {
+      "content": "Subject:"
+     },
+     "annotations": {
+      "bold": true
+     },
+     "plain_text": "Subject:"
+    },
+    {
+     "type": "text",
+     "text": {
+      "content": " \\{role\\} role at \\{company\\} \\{country\\}"
+     },
+     "annotations": {
+      "bold": false
+     },
+     "plain_text": " \\{role\\} role at \\{company\\} \\{country\\}"
+    }
+   ]
+  }
+ },
+ {
+  "object": "block",
+  "type": "code",
+  "code": {
+   "language": "plain text",
+   "rich_text": [
+    {
+     "type": "text",
+     "text": {
+      "content": "Hi {first_name},\n\nI saw that {company} is hiring a {role} in {country}, and I wanted to ask someone on the engineering team before applying through the portal. I am Alex Example, an invented test engineer who builds made up pipelines for a fictional company. To be upfront, the role would need {permit_word}. Would you be open to referring me? My CV is attached."
+     },
+     "annotations": {
+      "bold": false
+     },
+     "plain_text": "Hi {first_name},\n\nI saw that {company} is hiring a {role} in {country}, and I wanted to ask someone on the engineering team before applying through the portal. I am Alex Example, an invented test engineer who builds made up pipelines for a fictional company. To be upfront, the role would need {permit_word}. Would you be open to referring me? My CV is attached."
+    }
+   ]
+  }
+ },
+ {
+  "object": "block",
+  "type": "paragraph",
+  "paragraph": {
+   "rich_text": [
+    {
+     "type": "text",
+     "text": {
+      "content": "Swap rule:"
+     },
+     "annotations": {
+      "bold": true
+     },
+     "plain_text": "Swap rule:"
+    },
+    {
+     "type": "text",
+     "text": {
+      "content": " an invented note that the bot ignores."
+     },
+     "annotations": {
+      "bold": false
+     },
+     "plain_text": " an invented note that the bot ignores."
+    }
+   ]
+  }
+ },
+ {
+  "object": "block",
+  "type": "heading_1",
+  "heading_1": {
+   "rich_text": [
+    {
+     "type": "text",
+     "text": {
+      "content": "2. Recruiter / Talent Acquisition : APPROVED 02 Sep 2026"
+     },
+     "annotations": {
+      "bold": false
+     },
+     "plain_text": "2. Recruiter / Talent Acquisition : APPROVED 02 Sep 2026"
+    }
+   ]
+  }
+ },
+ {
+  "object": "block",
+  "type": "paragraph",
+  "paragraph": {
+   "rich_text": [
+    {
+     "type": "text",
+     "text": {
+      "content": "Subject:"
+     },
+     "annotations": {
+      "bold": true
+     },
+     "plain_text": "Subject:"
+    },
+    {
+     "type": "text",
+     "text": {
+      "content": " {role} application, {company} {city}"
+     },
+     "annotations": {
+      "bold": false
+     },
+     "plain_text": " {role} application, {company} {city}"
+    }
+   ]
+  }
+ },
+ {
+  "object": "block",
+  "type": "code",
+  "code": {
+   "language": "plain text",
+   "rich_text": [
+    {
+     "type": "text",
+     "text": {
+      "content": "Hi {first_name},\n\nI have applied for the {role} role in {city} and wanted to reach out to you directly. This is invented test text for Alex Example and describes no real person.\nThe role would need {permit_word}, and I am ready to relocate. My CV is attached. Would you be open to a short call?"
+     },
+     "annotations": {
+      "bold": false
+     },
+     "plain_text": "Hi {first_name},\n\nI have applied for the {role} role in {city} and wanted to reach out to you directly. This is invented test text for Alex Example and describes no real person.\nThe role would need {permit_word}, and I am ready to relocate. My CV is attached. Would you be open to a short call?"
+    }
+   ]
+  }
+ },
+ {
+  "object": "block",
+  "type": "heading_1",
+  "heading_1": {
+   "rich_text": [
+    {
+     "type": "text",
+     "text": {
+      "content": "3. Hiring manager : APPROVED 02 Sep 2026"
+     },
+     "annotations": {
+      "bold": false
+     },
+     "plain_text": "3. Hiring manager : APPROVED 02 Sep 2026"
+    }
+   ]
+  }
+ },
+ {
+  "object": "block",
+  "type": "paragraph",
+  "paragraph": {
+   "rich_text": [
+    {
+     "type": "text",
+     "text": {
+      "content": "Subject:"
+     },
+     "annotations": {
+      "bold": true
+     },
+     "plain_text": "Subject:"
+    },
+    {
+     "type": "text",
+     "text": {
+      "content": " {role} on your team at {company}"
+     },
+     "annotations": {
+      "bold": false
+     },
+     "plain_text": " {role} on your team at {company}"
+    }
+   ]
+  }
+ },
+ {
+  "object": "block",
+  "type": "code",
+  "code": {
+   "language": "plain text",
+   "rich_text": [
+    {
+     "type": "text",
+     "text": {
+      "content": "Hi {first_name},\n\nI saw you are hiring a {role} at {company}, and the part about {specific_detail} is close to the invented work in this test template. The role would need {permit_word}, and I can relocate. My CV is attached."
+     },
+     "annotations": {
+      "bold": false
+     },
+     "plain_text": "Hi {first_name},\n\nI saw you are hiring a {role} at {company}, and the part about {specific_detail} is close to the invented work in this test template. The role would need {permit_word}, and I can relocate. My CV is attached."
+    }
+   ]
+  }
+ },
+ {
+  "object": "block",
+  "type": "heading_1",
+  "heading_1": {
+   "rich_text": [
+    {
+     "type": "text",
+     "text": {
+      "content": "4. Follow-up (one only, sent as a reply after 7 days) : DRAFT"
+     },
+     "annotations": {
+      "bold": false
+     },
+     "plain_text": "4. Follow-up (one only, sent as a reply after 7 days) : DRAFT"
+    }
+   ]
+  }
+ },
+ {
+  "object": "block",
+  "type": "paragraph",
+  "paragraph": {
+   "rich_text": [
+    {
+     "type": "text",
+     "text": {
+      "content": "Subject:"
+     },
+     "annotations": {
+      "bold": true
+     },
+     "plain_text": "Subject:"
+    },
+    {
+     "type": "text",
+     "text": {
+      "content": " (reply in thread, keep the original subject)"
+     },
+     "annotations": {
+      "bold": false
+     },
+     "plain_text": " (reply in thread, keep the original subject)"
+    }
+   ]
+  }
+ },
+ {
+  "object": "block",
+  "type": "code",
+  "code": {
+   "language": "plain text",
+   "rich_text": [
+    {
+     "type": "text",
+     "text": {
+      "content": "Hi {first_name},\n\nJust following up on my note about the {role} role at {company}. Thanks for your time either way."
+     },
+     "annotations": {
+      "bold": false
+     },
+     "plain_text": "Hi {first_name},\n\nJust following up on my note about the {role} role at {company}. Thanks for your time either way."
+    }
+   ]
+  }
+ },
+ {
+  "object": "block",
+  "type": "heading_1",
+  "heading_1": {
+   "rich_text": [
+    {
+     "type": "text",
+     "text": {
+      "content": "Rules the bot must follow"
+     },
+     "annotations": {
+      "bold": false
+     },
+     "plain_text": "Rules the bot must follow"
+    }
+   ]
+  }
+ },
+ {
+  "object": "block",
+  "type": "bulleted_list_item",
+  "bulleted_list_item": {
+   "rich_text": [
+    {
+     "type": "text",
+     "text": {
+      "content": "Use the templates word for word."
+     },
+     "annotations": {
+      "bold": false
+     },
+     "plain_text": "Use the templates word for word."
+    }
+   ]
+  }
+ }
+]

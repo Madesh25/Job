@@ -195,7 +195,7 @@ def _setting(deps: ResumeDeps, config: ConfigStore, key: str, default: float) ->
         return float(deps.s.resume.get(key, default))
 
 
-def _specific_details(body: list[str]) -> list[str]:
+def specific_details(body: list[str]) -> list[str]:
     for line in reversed(body):
         if line.startswith("Specific details:"):
             return [d.strip() for d in line.split(":", 1)[1].split(";") if d.strip()]
@@ -206,7 +206,7 @@ def _job_context(page_id: str, values: dict[str, Any], body: list[str]) -> JobCo
     jd, _ = description(body, full_min=0)
     return JobContext(
         page_id=page_id, company=values.get("Company") or "", role=values.get("Role") or "",
-        country=values.get("Country"), jd=jd, specific_details=_specific_details(body),
+        country=values.get("Country"), jd=jd, specific_details=specific_details(body),
         gaps=values.get("Gaps"),
     )
 
