@@ -714,3 +714,64 @@ def test_contacts_command_needs_a_job(desk):
 
 def test_help_lists_contacts_and_credits():
     assert "/contacts" in tb.HELP_TEXT and "/credits" in tb.HELP_TEXT
+
+
+# ---------------------------------------------------------------- Module 07: tracking
+
+
+def texts(fake):
+    return [text for _, text in fake.sent]
+
+
+def test_today_sends_the_report_then_the_cards(desk):
+    fake = talk(desk, "/today")
+    sent = texts(fake)
+    assert sent[0] == "[LOCAL] Running the daily check..."
+    assert sent[1].startswith("[LOCAL] Daily check 2026-10-15 (since 2026-10-01 08:00)")
+    assert "Replies: Piotr Example (Vistula Cloud) -> Interview" in sent[1]
+    assert "Tokens: alerts OK, sender OK" in sent[1]
+    assert any("Reply from marek.example@vistula.example.com" in t for t in sent)
+    assert ["lk:jobfjord:t-fjord-a", "lk:jobfjord:-"] in fake.buttons
+    assert "rd:20261015" in [b for row in fake.buttons for b in row]
+
+
+def test_card_taps(desk):
+    talk(desk, "/today")
+    fake = talk(desk, tap(1, "rc:c:cmarek:positive"))
+    assert fake.sent[-1][1] == "[LOCAL] Applied: Marek Example (Vistula Cloud) -> Replied"
+    fake = talk(desk, tap(2, "lk:jobfjord:t-fjord-a"))
+    assert fake.sent[-1][1] == "[LOCAL] Linked Fjord Data."
+    fake = talk(desk, tap(3, "rd:20261015"))
+    assert fake.sent[-1][1] == "[LOCAL] DRY RUN: would delete 1 old contacts (only prod deletes)."
+
+
+def test_status_is_extended(desk):
+    text = talk(desk, "/status").sent[0][1]
+    assert text.startswith("[LOCAL] Job Engine | env=local")
+    assert "Jobs by Status: Applied 5" in text
+    assert "Contacts by Status: Contacted 8" in text
+    assert "Drafts waiting: 3 cold mails, 2 follow-ups" in text
+    assert "Last daily check: never" in text
+
+
+def test_stats_followups_health_sources_digest(desk):
+    stats = talk(desk, "/stats").sent[0][1]
+    assert "Last 30 days: applied 5, replied 0" in stats  # before /today
+    assert "All time: applied 8, replied 1, screening 1, interview 1, offer 1" in stats
+    follow = talk(desk, "/followups").sent[0][1]
+    assert "- Ola Example (Vistula Cloud): due 2026-10-17" in follow
+    health = talk(desk, "/health").sent[0][1]
+    assert "Notion: OK" in health and "Gmail sender token: OK" in health
+    assert "Environment: local, DRY_RUN on" in health
+    tb.make_fetcher(settings(), True, desk)(lambda line: None)  # a fake sweep stores counts
+    sources = talk(desk, "/sources").sent[0][1]
+    assert "Sweep sources (last sweep: 2026-10-01)" in sources
+    assert "ats: enabled, no secret needed, last sweep" in sources
+    digest = talk(desk, "/digest").sent[0][1]
+    assert digest.startswith("[LOCAL] Weekly digest 2026-10-15")
+    assert "Strategy gate:" in digest
+
+
+def test_help_lists_tracking_commands():
+    for command in ("/today", "/followups", "/stats", "/sources", "/health", "/digest"):
+        assert command in tb.HELP_TEXT

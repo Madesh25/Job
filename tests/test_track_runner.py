@@ -294,3 +294,15 @@ def test_closed_jobs_are_never_changed_by_the_run(status):
     d.jobs.rows["job-canal"]["Status"] = status
     run(d)
     assert job(d, "job-canal")["Status"] == status
+
+
+def test_weekly_digest_compares_weeks():
+    from jobengine.track.digest import run_weekly_digest
+
+    d = deps()
+    text = run_weekly_digest(d, NOW.replace(day=11))
+    assert text.startswith("Weekly digest 2026-10-11")
+    # Week 5 to 11 Oct: Northwind, Fjord and Harbor applied; the week before: Vistula, Canal.
+    assert "This week: applied 3 (+1)" in text
+    assert "Unsent drafts: 3 cold mails, 2 follow-ups" in text
+    assert "Strategy gate:" in text

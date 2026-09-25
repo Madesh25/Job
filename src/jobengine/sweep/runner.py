@@ -6,6 +6,7 @@ import logging
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from datetime import date
+from typing import Any
 
 from jobengine import http
 from jobengine.config_store import ConfigStore
@@ -34,6 +35,8 @@ Progress = Callable[[str], None]
 # Plain names for the Telegram messages.
 SOURCE_LABELS = {"gmail": "Email alerts", "adzuna": "Adzuna", "ats": "Company career sites"}
 PROGRESS_EVERY = 25
+# bot_state key read by /sources and /health (Module 07).
+LAST_SUMMARY = "sweep.last_summary"
 
 
 class SweepError(Exception):
@@ -100,8 +103,10 @@ def run_sweep(
     today: date,
     sources: Iterable[str] = SOURCES,
     progress: Progress | None = None,
+    state: Any = None,
 ) -> SweepSummary:
-    """Run one sweep. `progress` receives short plain-language status lines (for Telegram)."""
+    """Run one sweep. `progress` receives short plain-language status lines (for Telegram).
+    With `state` (bot_state), the counts are stored for /sources."""
 
     def say(text: str) -> None:
         if progress is not None:
@@ -219,4 +224,11 @@ def run_sweep(
     high = sorted(label for label, risk in touched.values() if risk == "High")
     summary.high_ghost = len(high)
     summary.high_ghost_jobs = high
+    if state is not None:
+        try:
+            state.set(LAST_SUMMARY, {"at": today.isoformat(), "new": summary.new,
+                                     "updated": summary.updated,
+                                     "sources": dict(summary.sources)})
+        except Exception:  # never fail a sweep over the /sources counters
+            log.exception("could not store the sweep summary")
     return summary

@@ -11,7 +11,7 @@ import logging
 import re
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from datetime import date, datetime
+from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
 from jobengine import http
@@ -42,6 +42,10 @@ from jobengine.screen.runner import (
 from jobengine.screen.tiering import rank_key
 from jobengine.settings import ROOT_DIR, Settings
 from jobengine.sweep.normalize import dedupe_key
+from jobengine.track import commands as track_commands
+from jobengine.track import runner as track_runner
+from jobengine.track.digest import run_weekly_digest
+from jobengine.track.runner import DailyReport, TrackDeps
 
 log = logging.getLogger("jobengine.screen.desk")
 
@@ -99,12 +103,16 @@ class Desk:
         resume: ResumeDeps | None = None,
         contacts: ContactDeps | None = None,
         mail: MailDeps | None = None,
+        track: TrackDeps | None = None,
+        track_now: Callable[[], datetime] | None = None,
     ):
         self.s = s
         self.deps = deps
         self.resume = resume
         self.contacts = contacts
         self.mail = mail
+        self.track = track
+        self._track_now = track_now
         self.state = state
         # Set by the bot for each update: sends a reply at once (before a long build).
         self.notify: Callable[[Reply], None] | None = None
@@ -186,6 +194,8 @@ class Desk:
             return self.pending(int(arg) if arg.isdigit() else 0)
         if action in ("ra", "rb", "ia") and arg:
             return self.resume_tap(action, arg)
+        if action in ("rc", "lk", "rd") and arg:
+            return self.track_tap(action, data)
         if action not in ("ap", "sk") or not arg:
             return [Reply("That button is no longer valid. Send /pending.")]
         before = self.ranked()
@@ -363,6 +373,77 @@ class Desk:
             return [Reply("That resume preview is no longer in Resume Log.")]
         values = (self.repo.get_values(job_id) if self.repo else None) or {}
         return self.on_job_approved(job_id, values, correction=text.strip(), force=True)
+
+    # ------------------------------------------------------------ tracking (Module 07)
+
+    def tracking_now(self) -> datetime:
+        """Now, with the configured UTC offset (default +05:30) when the clock is naive."""
+        now = (self._track_now or self.now)()
+        if now.tzinfo is not None:
+            return now
+        sign, _, hm = str(self.s.tracking.get("utc_offset", "+05:30")).partition("+")
+        hours, _, minutes = (hm or sign.lstrip("-")).partition(":")
+        delta = timedelta(hours=int(hours or 0), minutes=int(minutes or 0))
+        return now.replace(tzinfo=timezone(-delta if sign.startswith("-") else delta))
+
+    def _no_track(self) -> list[Reply] | None:
+        return [Reply("Tracking is not available in this bot.")] if self.track is None else None
+
+    def report_replies(self, report: DailyReport) -> list[Reply]:
+        replies = [Reply(report.text()[:MAX_TEXT])]
+        replies += [Reply(card.text[:MAX_TEXT], card.buttons) for card in report.cards]
+        if report.retention is not None:
+            replies.append(Reply(report.retention.text, report.retention.buttons))
+        return replies
+
+    def today_command(self) -> list[Reply]:
+        """/today: the daily check now."""
+        if self.track is None:
+            return self._no_track() or []
+        self.say(Reply("Running the daily check..."))
+        return self.report_replies(track_runner.run_daily(self.track, self.tracking_now()))
+
+    def track_tap(self, action: str, data: str) -> list[Reply]:
+        if self.track is None:
+            return self._no_track() or []
+        now = self.tracking_now()
+        if action == "rc":
+            return [Reply(track_runner.apply_choice(self.track, now, data))]
+        if action == "lk":
+            return [Reply(track_runner.link_choice(self.track, now, data))]
+        return [Reply(track_runner.retention_choice(self.track, now, data))]
+
+    def followups_command(self) -> list[Reply]:
+        if self.track is None:
+            return self._no_track() or []
+        return [Reply(track_commands.followups_text(self.track, self.tracking_now().date()))]
+
+    def stats_command(self) -> list[Reply]:
+        from jobengine.track.stats import stats_text
+
+        if self.track is None:
+            return self._no_track() or []
+        jobs = [v for _, v in self.track.jobs.query_rows()] if self.track.jobs else []
+        contacts = [v for _, v in self.track.contacts.all_rows()] if self.track.contacts else []
+        return [Reply(stats_text(jobs, contacts, self.tracking_now().date())[:MAX_TEXT])]
+
+    def sources_command(self) -> list[Reply]:
+        if self.track is None:
+            return self._no_track() or []
+        return [Reply(track_commands.sources_text(self.track))]
+
+    def health_command(self) -> list[Reply]:
+        if self.track is None:
+            return self._no_track() or []
+        return [Reply(track_commands.health_text(self.track))]
+
+    def digest_command(self) -> list[Reply]:
+        if self.track is None:
+            return self._no_track() or []
+        return [Reply(run_weekly_digest(self.track, self.tracking_now()))]
+
+    def status_lines(self) -> str | None:
+        return track_commands.status_lines(self.track) if self.track is not None else None
 
     # ------------------------------------------------------------ /screen and /fetch
 
@@ -547,8 +628,12 @@ def fake_desk(s: Settings, today: date, now: Callable[[], datetime] | None = Non
     mail = mail_drafter.fake_deps(s, jobs=deps.repo, contacts=contacts.contacts,
                                   resume_log=resume.resume_log, drive=resume.drive())
     mail.today = lambda: today
+    # Tracking works on its own fixture world (fixtures/track), written for FAKE_NOW.
+    from jobengine.track.fakes import FAKE_NOW
+
+    track = track_runner.fake_deps(s, state=state)
     return Desk(s, deps, state, today=lambda: today, now=clock, resume=resume,
-                contacts=contacts, mail=mail)
+                contacts=contacts, mail=mail, track=track, track_now=lambda: FAKE_NOW)
 
 
 def real_desk(s: Settings) -> Desk | None:
@@ -580,4 +665,10 @@ def real_desk(s: Settings) -> Desk | None:
     except Exception as exc:  # the bot still works without Gmail drafts
         log.warning("gmail drafts not available: %s", exc)
         mail = None
-    return Desk(s, real_deps(s), state, resume=resume, contacts=contacts, mail=mail)
+    try:
+        track = track_runner.real_deps(s, state)
+    except Exception as exc:  # the bot still works without tracking
+        log.warning("tracking not available: %s", exc)
+        track = None
+    return Desk(s, real_deps(s), state, resume=resume, contacts=contacts, mail=mail,
+                track=track)

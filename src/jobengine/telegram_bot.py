@@ -53,9 +53,16 @@ HELP_TEXT = (
     "/contacts <url or id> - find contacts for a job (cache first, then Apollo, Hunter, Snov)\n"
     "/credits - show the contact providers' credit counters\n"
     "/drafts <url or id> - write Gmail drafts for a job's contacts again (never sends)\n"
+    "/today - run the daily check now (sent mails, replies, bounces, follow-ups)\n"
+    "/followups - follow-up drafts waiting to be sent, and follow-ups due soon\n"
+    "/stats - applied, replies, interviews and reply rates (30 days and all time)\n"
+    "/sources - sweep sources, their secrets and the last sweep counts\n"
+    "/health - Notion, Gmail tokens, Anthropic key, last runs\n"
+    "/digest - the weekly digest now\n"
     "/help - show this list"
 )
-DESK_COMMANDS = ("pending", "jd", "done", "screen", "contacts", "credits", "drafts")
+DESK_COMMANDS = ("pending", "jd", "done", "screen", "contacts", "credits", "drafts", "today",
+                 "followups", "stats", "sources", "health", "digest")
 
 # (method, payload, http_timeout) -> decoded JSON response
 Transport = Callable[[str, dict[str, Any], float], dict[str, Any]]
@@ -430,6 +437,13 @@ def desk_replies(update: dict[str, Any], s: Settings, desk: Desk | None) -> list
         return _guarded("/credits", desk.credits)
     if command == "drafts":
         return _guarded("/drafts", lambda: desk.drafts_command(args))
+    if command == "status" and desk.track is not None:
+        return _guarded("/status", lambda: [Reply(f"{status_text(s)}\n{desk.status_lines()}")])
+    tracking = {"today": desk.today_command, "followups": desk.followups_command,
+                "stats": desk.stats_command, "sources": desk.sources_command,
+                "health": desk.health_command, "digest": desk.digest_command}
+    if command in tracking:
+        return _guarded(f"/{command}", tracking[command])
     if command == "jd":
         return _guarded("/jd", lambda: desk.jd(args))
     if command == "done":
@@ -531,9 +545,12 @@ def make_fetcher(s: Settings, fake: bool, desk: Desk | None = None) -> Fetcher:
     def fetch(progress: Progress) -> str:
         if fake:
             repo = desk.repo if desk is not None else None
-            summary = run_sweep(s, fake_deps(s, repo=repo), fakes.FAKE_TODAY, progress=progress)
+            state = desk.state if desk is not None else None
+            summary = run_sweep(s, fake_deps(s, repo=repo), fakes.FAKE_TODAY, progress=progress,
+                                state=state)
         else:
-            summary = run_sweep(s, real_deps(s), date.today(), progress=progress)
+            state = desk.state if desk is not None else None
+            summary = run_sweep(s, real_deps(s), date.today(), progress=progress, state=state)
         text = summary.friendly_text()
         if desk is None or summary.blocked:
             return text

@@ -11,6 +11,8 @@ from jobengine.settings import ROOT_DIR
 from jobengine.track.models import Message
 
 FIXTURES = ROOT_DIR / "fixtures" / "track"
+# The fixture threads and rows are written for this moment.
+FAKE_NOW = datetime.fromisoformat("2026-10-15T08:00:00+05:30")
 
 
 def message(thread_id: str, raw: dict[str, Any]) -> Message:
