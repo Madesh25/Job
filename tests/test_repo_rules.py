@@ -236,3 +236,22 @@ def test_protected_notion_pages_are_only_linked_never_targeted():
                 if pid in flat and "app.notion.com/p/" not in line:
                     offenders.append(f"{p.relative_to(ROOT).as_posix()}: {line.strip()}")
     assert offenders == []
+
+
+# ---------------------------------------------------------------- Module 09: container
+
+
+def test_dockerignore_keeps_secrets_and_output_out_of_the_image():
+    lines = {line.strip() for line in (ROOT / ".dockerignore").read_text().splitlines()}
+    assert {".env", ".secrets", "out"} <= lines
+    assert "!.env" not in lines and "!.secrets" not in lines
+
+
+def test_dockerfile_bakes_in_no_secrets():
+    text = (ROOT / "Dockerfile").read_text()
+    assert "COPY .env" not in text and "COPY .secrets" not in text
+    for line in text.splitlines():
+        if line.strip().upper().startswith("ENV"):
+            assert not re.search(r"TOKEN|KEY|SECRET", line, re.I), line
+    assert "DRY_RUN" not in text  # it stays at its safe default (true)
+    assert 'CMD ["python", "-m", "jobengine.web"]' in text

@@ -17,7 +17,9 @@ import yaml
 from dotenv import dotenv_values
 from pydantic import BaseModel, ConfigDict, Field
 
-ROOT_DIR = Path(__file__).resolve().parents[2]
+# The repository root (config/, fixtures/, out/). In the container the package is installed
+# into site-packages, so the Dockerfile sets JOBENGINE_ROOT=/app.
+ROOT_DIR = Path(os.environ.get("JOBENGINE_ROOT") or Path(__file__).resolve().parents[2])
 CONFIG_DIR = ROOT_DIR / "config"
 ALLOWED_ENVS = ("local", "dev", "prod")
 DEFAULT_ENV = "local"
