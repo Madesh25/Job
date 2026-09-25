@@ -58,6 +58,7 @@ class TermRow:
     status: str | None
     category: str | None = None
     notes: str = ""
+    evidence: tuple[str, ...] = ()  # Evidence Library page IDs ("Backed by evidence")
 
     @property
     def is_gap(self) -> bool:
@@ -132,9 +133,10 @@ class Reference:
             TermRow(row_id=pid, jd_terms=tuple(split_terms(v.get("JD term"))),
                     truthful_equivalent=v.get("Truthful equivalent") or "",
                     status=v.get("Status"), category=v.get("Category"),
-                    notes=v.get("Notes") or "")
+                    notes=v.get("Notes") or "",
+                    evidence=tuple(v.get("Backed by evidence") or ()))
             for pid, v in rows("term_map", ("JD term", "Truthful equivalent", "Status",
-                                            "Category", "Notes"))
+                                            "Category", "Notes", "Backed by evidence"))
             if v.get("JD term")
         ]
         companies = [
@@ -163,7 +165,8 @@ class Reference:
             TermRow(row_id=r["id"], jd_terms=tuple(split_terms(r["JD term"])),
                     truthful_equivalent=r.get("Truthful equivalent") or "",
                     status=r.get("Status"), category=r.get("Category"),
-                    notes=r.get("Notes") or "")
+                    notes=r.get("Notes") or "",
+                    evidence=tuple(r.get("Backed by evidence") or ()))
             for r in load("term_map.json")
         ]
         companies = [
@@ -203,6 +206,23 @@ class Reference:
     def is_known_gap(self, term: str) -> bool:
         row = self._terms.get(canon_term(term))
         return bool(row and row.is_gap)
+
+    def skill_level(self, term: str) -> str | None:
+        """The Skills Inventory level for a term, whatever it is (Learning included)."""
+        skill = self._skills.get(canon_term(term))
+        return skill.level if skill else None
+
+    def term_row(self, term: str) -> TermRow | None:
+        return self._terms.get(canon_term(term))
+
+    def evidence_for(self, terms: list[str]) -> list[str]:
+        """Evidence Library page IDs linked from the Active Term Map rows behind `terms`."""
+        out: list[str] = []
+        for term in terms:
+            row = self.term_row(term)
+            if row and row.backs:
+                out.extend(e for e in row.evidence if e not in out)
+        return out
 
     def company(self, name: str | None) -> Company | None:
         return self._companies.get(company_key(name)) if name else None

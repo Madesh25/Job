@@ -58,6 +58,27 @@ JOB_PROPERTY_TYPES = {
     "Visa flags": "multi_select",
     "Tech stack": "multi_select",
     "Gaps": "rich_text",
+    # Written by the resume builder (Module 04).
+    "Resume": "relation",
+    "Applied date": "date",
+    "Last activity date": "date",
+}
+
+# Resume Log property name -> Notion property type.
+RESUME_LOG_PROPERTY_TYPES = {
+    "Resume name": "title",
+    "Date": "date",
+    "Job": "relation",
+    "Skills focus": "rich_text",
+    "Experience focus": "rich_text",
+    "Summary focus": "rich_text",
+    "Diff score": "rich_text",
+    "Page fill": "rich_text",
+    "Engine version": "rich_text",
+    "Evidence used": "relation",
+    "Approved": "checkbox",
+    "Revision": "number",
+    "File": "rich_text",
 }
 
 # Properties screening and /pending read.
@@ -137,10 +158,16 @@ def plain_value(prop: dict[str, Any]) -> Any:
     if kind == "date":
         start = (value or {}).get("start")
         return date.fromisoformat(start[:10]) if start else None
+    if kind == "relation":
+        return {"relation": [{"id": str(v)} for v in value or []]}
+    if kind == "checkbox":
+        return {"checkbox": bool(value)}
     if kind == "multi_select":
         return [item.get("name") for item in value or [] if item.get("name")]
     if kind in ("number", "url", "checkbox"):
         return value
+    if kind == "relation":
+        return [item.get("id") for item in value or [] if item.get("id")]
     return None
 
 
@@ -165,6 +192,24 @@ def notion_value(kind: str, value: Any) -> dict[str, Any]:
 
 def job_properties(plan: dict[str, Any]) -> dict[str, Any]:
     return {name: notion_value(JOB_PROPERTY_TYPES[name], value) for name, value in plan.items()}
+
+
+def rich_text(text: str) -> list[dict[str, Any]]:
+    """Rich text items of at most 2000 characters each (Notion's limit per item)."""
+    return [{"type": "text", "text": {"content": text[i:i + 2000]}}
+            for i in range(0, len(text), 2000)] or [{"type": "text", "text": {"content": ""}}]
+
+
+def typed_blocks(blocks: list[tuple[str, ...]]) -> list[dict[str, Any]]:
+    """Blocks from ("heading_2", text), ("paragraph", text) or ("code", text, language)."""
+    out = []
+    for block in blocks:
+        kind, text = block[0], block[1]
+        body: dict[str, Any] = {"rich_text": rich_text(text)}
+        if kind == "code":
+            body["language"] = block[2] if len(block) > 2 else "plain text"
+        out.append({"object": "block", "type": kind, kind: body})
+    return out
 
 
 def paragraph_blocks(texts: list[str]) -> list[dict[str, Any]]:
@@ -479,3 +524,131 @@ class FakeJobsRepo:
 
     def read_body(self, page_id: str) -> list[str]:
         return list(self.rows[page_id].get("body") or [])
+
+
+# ---------------------------------------------------------------- Resume Log
+
+
+class ResumeLogRepo(Protocol):
+    def create(self, props: dict[str, Any], blocks: list[tuple[str, ...]]) -> str: ...
+
+    def update(self, page_id: str, props: dict[str, Any]) -> None: ...
+
+    def get(self, page_id: str) -> dict[str, Any] | None: ...
+
+    def rows_for_job(self, job_id: str) -> list[tuple[str, dict[str, Any]]]: ...
+
+    def approved_rows(self) -> list[tuple[str, dict[str, Any]]]: ...
+
+    def all_rows(self) -> list[tuple[str, dict[str, Any]]]: ...
+
+    def read_body(self, page_id: str) -> list[str]: ...
+
+
+def _hex(page_id: str) -> str:
+    return page_id.replace("-", "").lower()
+
+
+class NotionResumeLogRepo:
+    """Resume Log (one row per resume revision). Written only through the target from
+    safety.notion_write_target("resume_log")."""
+
+    def __init__(self, client: NotionClient, data_source_id: str):
+        self.client = client
+        self.data_source_id = data_source_id
+        self._types: dict[str, str] | None = None
+
+    def _props(self, props: dict[str, Any]) -> dict[str, Any]:
+        if self._types is None:
+            # "Evidence used" may be a text field in an older schema: write the IDs as text.
+            schema = self.client.request("GET", f"/data_sources/{self.data_source_id}")
+            self._types = {name: (value or {}).get("type", "")
+                           for name, value in (schema.get("properties") or {}).items()}
+        out = {}
+        for name, value in props.items():
+            kind = RESUME_LOG_PROPERTY_TYPES[name]
+            if name == "Evidence used" and self._types.get(name) == "rich_text":
+                kind, value = "rich_text", ", ".join(value or [])
+            out[name] = notion_value(kind, value)
+        return out
+
+    def create(self, props: dict[str, Any], blocks: list[tuple[str, ...]]) -> str:
+        body = {
+            "parent": {"type": "data_source_id", "data_source_id": self.data_source_id},
+            "properties": self._props(props),
+            "children": typed_blocks(blocks),
+        }
+        return self.client.request("POST", "/pages", body)["id"]
+
+    def update(self, page_id: str, props: dict[str, Any]) -> None:
+        self.client.request("PATCH", f"/pages/{page_id}", {"properties": self._props(props)})
+
+    def get(self, page_id: str) -> dict[str, Any] | None:
+        return NotionJobsRepo(self.client, self.data_source_id).get_values(page_id)
+
+    def _query(self, body: dict[str, Any] | None) -> list[tuple[str, dict[str, Any]]]:
+        return [(page["id"], page_values(page))
+                for page in self.client.query(self.data_source_id, body)]
+
+    def rows_for_job(self, job_id: str) -> list[tuple[str, dict[str, Any]]]:
+        return self._query({"filter": {"property": "Job", "relation": {"contains": job_id}}})
+
+    def approved_rows(self) -> list[tuple[str, dict[str, Any]]]:
+        return self._query({"filter": {"property": "Approved", "checkbox": {"equals": True}}})
+
+    def all_rows(self) -> list[tuple[str, dict[str, Any]]]:
+        return self._query(None)
+
+    def read_body(self, page_id: str) -> list[str]:
+        return NotionJobsRepo(self.client, self.data_source_id).read_body(page_id)
+
+
+class FakeResumeLogRepo:
+    """In-memory Resume Log. Page IDs look like Notion UUIDs so short references work."""
+
+    def __init__(self) -> None:
+        self.rows: dict[str, dict[str, Any]] = {}
+        self.writes: list[tuple[str, str, Any]] = []
+
+    def _id(self, page_id: str) -> str:
+        return next((k for k in self.rows if _hex(k) == _hex(page_id)), page_id)
+
+    def create(self, props: dict[str, Any], blocks: list[tuple[str, ...]]) -> str:
+        n = len(self.rows) + 1
+        page_id = f"{n:08x}-0000-4000-8000-{n:012x}"
+        self.rows[page_id] = {**props, "body": [b[1] for b in blocks]}
+        self.writes.append(("create", page_id, dict(props)))
+        return page_id
+
+    def update(self, page_id: str, props: dict[str, Any]) -> None:
+        page_id = self._id(page_id)
+        self.rows[page_id].update(props)
+        self.writes.append(("update", page_id, dict(props)))
+
+    def get(self, page_id: str) -> dict[str, Any] | None:
+        row = self.rows.get(self._id(page_id))
+        return {k: v for k, v in row.items() if k != "body"} if row else None
+
+    def _rows(self, keep) -> list[tuple[str, dict[str, Any]]]:
+        return [(pid, {k: v for k, v in row.items() if k != "body"})
+                for pid, row in self.rows.items() if keep(row)]
+
+    def rows_for_job(self, job_id: str) -> list[tuple[str, dict[str, Any]]]:
+        return self._rows(lambda r: _hex(job_id) in {_hex(j) for j in r.get("Job") or []})
+
+    def approved_rows(self) -> list[tuple[str, dict[str, Any]]]:
+        return self._rows(lambda r: bool(r.get("Approved")))
+
+    def all_rows(self) -> list[tuple[str, dict[str, Any]]]:
+        return self._rows(lambda r: True)
+
+    def read_body(self, page_id: str) -> list[str]:
+        return list(self.rows[self._id(page_id)].get("body") or [])
+
+
+def resume_log_for(s: Settings, client: NotionClient) -> NotionResumeLogRepo | None:
+    target = notion_write_target("resume_log", s)
+    if target is None:
+        log.warning("DRY RUN: would write to resume_log")
+        return None
+    return NotionResumeLogRepo(client, target)

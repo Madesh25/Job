@@ -9,6 +9,10 @@ notion:
     evidence_library: "78b711ac-4374-4296-b822-58fc6c28008a"
     project_registry: "7dc5a9ec-33b6-4118-b857-e6f9d0adf44e"
     resume_sections: "e4f4f4e9-bbfd-47a8-8e78-4c90de8409ec"
+  pages:
+    resume_build_spec: "3e46edc2-b0d4-812b-82ea-d1766061390d"
+    cold_mail_templates: "3e46edc2-b0d4-8130-bdee-c62ac751d774"
+    v16_spec: "3e36edc2-b0d4-8134-8577-f84b2c39d066"
 safety:
   redirect_to: "madeshwaranm02@gmail.com"
   dev_sender: "madeshwaranm02@gmail.com"
@@ -31,6 +35,21 @@ screening:
   # /jd writes the pasted text in blocks of this size, at most this many blocks.
   block_chars: 2000
   max_blocks: 90
+resume:
+  # Defaults; Notion Config keys with the same names (resume.fill_min, ...) win when set.
+  fill_min: 88
+  fill_max: 96
+  max_revisions: 5
+  gate_retries: 2
+  max_words_per_bullet: 8
+  max_words_total: 25
+  # Words allowed around a backed term in an inserted chunk (resume.gate.connector_words).
+  # One string: in a YAML list the word "on" would be read as true.
+  connector_words: "and with using for on in the a an via to of across including through into by
+    its their"
+  out_dir: out
+drive:
+  resume_folder: Job Engine Resumes
 sweep:
   # Title filters (section 4). Matched as whole words on the canonical (lowercase ASCII) title.
   title_include:

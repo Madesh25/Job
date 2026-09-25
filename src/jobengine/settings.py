@@ -47,6 +47,7 @@ class Settings(BaseModel):
     env_label: str
     notion_read: dict[str, str]
     notion_write: dict[str, str]
+    notion_pages: dict[str, str] = Field(default_factory=dict)
     gmail_sender: str
     redirect_to: str
     prod_sender: str
@@ -54,6 +55,8 @@ class Settings(BaseModel):
     force_model: str | None
     sweep: dict[str, Any] = Field(default_factory=dict)
     screening: dict[str, Any] = Field(default_factory=dict)
+    resume: dict[str, Any] = Field(default_factory=dict)
+    drive: dict[str, Any] = Field(default_factory=dict)
     allowed_hosts: tuple[str, ...] = ()
 
     notion_token: str | None = None
@@ -133,6 +136,7 @@ def load_settings(env: str | None = None, environ: Mapping[str, str] | None = No
         env_label=cfg.get("env_label") or "",
         notion_read=dict(notion.get("read") or {}),
         notion_write=dict(notion.get("write") or {}),
+        notion_pages=dict(notion.get("pages") or {}),
         gmail_sender=cfg.get("gmail", {}).get("sender", ""),
         redirect_to=safety["redirect_to"],
         prod_sender=safety["prod_sender"],
@@ -140,6 +144,8 @@ def load_settings(env: str | None = None, environ: Mapping[str, str] | None = No
         force_model=cfg.get("llm", {}).get("force_model"),
         sweep=dict(cfg.get("sweep") or {}),
         screening=dict(cfg.get("screening") or {}),
+        resume=dict(cfg.get("resume") or {}),
+        drive=dict(cfg.get("drive") or {}),
         allowed_hosts=tuple(safety.get("allowed_hosts") or ()),
         **secrets,
     )

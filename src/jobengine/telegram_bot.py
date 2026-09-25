@@ -15,18 +15,21 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import re
 import sys
 import time
 import urllib.error
 import urllib.request
+import uuid
 from collections.abc import Callable
 from datetime import date
+from pathlib import Path
 from typing import Any, TextIO
 
 from jobengine.main import banner
 from jobengine.safety import SafetyError, check_startup, telegram_text
 from jobengine.screen.desk import Desk, Reply, fake_desk, real_desk
-from jobengine.settings import Settings, get_settings
+from jobengine.settings import ROOT_DIR, Settings, get_settings
 from jobengine.sweep import fakes
 from jobengine.sweep.runner import fake_deps, real_deps, run_sweep
 
@@ -34,6 +37,7 @@ log = logging.getLogger("jobengine.telegram_bot")
 
 API_BASE = "https://api.telegram.org"
 FAKE_CHAT_ID = "1"
+FAKE_FILES_DIR = ROOT_DIR / "out" / "fake"
 POLL_TIMEOUT = 30
 
 HELP_TEXT = (
@@ -66,10 +70,14 @@ def http_transport(token: str) -> Transport:
     """Return a transport that POSTs JSON to the Bot API for the given token."""
 
     def call(method: str, payload: dict[str, Any], timeout: float) -> dict[str, Any]:
+        if "_document" in payload:
+            data, content_type = multipart(payload)
+        else:
+            data, content_type = json.dumps(payload).encode("utf-8"), "application/json"
         req = urllib.request.Request(
             f"{API_BASE}/bot{token}/{method}",
-            data=json.dumps(payload).encode("utf-8"),
-            headers={"Content-Type": "application/json"},
+            data=data,
+            headers={"Content-Type": content_type},
             method="POST",
         )
         try:
@@ -93,23 +101,59 @@ def http_transport(token: str) -> Transport:
     return call
 
 
-def console_transport(chat_id: str, stdin: TextIO, stdout: TextIO) -> Transport:
+def multipart(payload: dict[str, Any]) -> tuple[bytes, str]:
+    """multipart/form-data body for sendDocument: the file plus the other fields."""
+    boundary = uuid.uuid4().hex
+    name, data = payload["_document"]
+    parts: list[bytes] = []
+    for key, value in payload.items():
+        if key == "_document":
+            continue
+        text = value if isinstance(value, str) else json.dumps(value)
+        parts.append(f'--{boundary}\r\nContent-Disposition: form-data; name="{key}"\r\n\r\n'
+                     f"{text}\r\n".encode())
+    parts.append(f'--{boundary}\r\nContent-Disposition: form-data; name="document"; '
+                 f'filename="{name}"\r\nContent-Type: application/pdf\r\n\r\n'.encode()
+                 + data + b"\r\n")
+    parts.append(f"--{boundary}--\r\n".encode())
+    return b"".join(parts), f"multipart/form-data; boundary={boundary}"
+
+
+def console_transport(
+    chat_id: str, stdin: TextIO, stdout: TextIO, files_dir: Path = FAKE_FILES_DIR,
+) -> Transport:
     """Dummy Telegram: stdin lines become messages from chat_id, replies go to stdout.
 
-    getUpdates raises EOFError when the input ends, which stops the bot.
+    `tap <data>` presses a button and `reply <message number> <text>` replies to a message
+    (for resume corrections). Documents are saved to out/fake/. getUpdates raises EOFError
+    when the input ends, which stops the bot.
     """
-    next_id = 0
+    next_id = 0  # update ids
+    message_id = 0  # bot message numbers, shown with documents for `reply <n> <text>`
+    sent: dict[int, str] = {}  # message number -> text or caption, for replies
 
     def call(method: str, payload: dict[str, Any], timeout: float) -> dict[str, Any]:
-        nonlocal next_id
-        if method == "sendMessage":
-            print(f"bot> {payload['text']}", file=stdout, flush=True)
+        nonlocal next_id, message_id
+        if method in ("sendMessage", "sendDocument"):
+            message_id += 1
+            text = payload.get("text") or payload.get("caption") or ""
+            sent[message_id] = text
+            if method == "sendDocument":
+                name, data = payload["_document"]
+                files_dir.mkdir(parents=True, exist_ok=True)
+                (files_dir / name).write_bytes(data)
+                path = files_dir / name
+                where = (path.relative_to(ROOT_DIR) if path.is_relative_to(ROOT_DIR)
+                         else path).as_posix()
+                print(f"bot [message {message_id}, document {where}]> {text}", file=stdout,
+                      flush=True)
+            else:
+                print(f"bot> {text}", file=stdout, flush=True)
             rows = (payload.get("reply_markup") or {}).get("inline_keyboard") or []
             keys = [f"[{b['text']}: tap {b['callback_data']}]" for row in rows for b in row]
             if keys:
                 print("     " + " ".join(keys), file=stdout, flush=True)
-            next_id += 1
-            return {"ok": True, "result": {"message_id": next_id}}
+            return {"ok": True, "result": {"message_id": message_id}}
         if method == "answerCallbackQuery":
             return {"ok": True, "result": True}
         if method == "editMessageText":
@@ -131,7 +175,13 @@ def console_transport(chat_id: str, stdin: TextIO, stdout: TextIO) -> Transport:
                 query = {"id": str(next_id), "from": {"id": chat_id},
                          "message": {"chat": {"id": chat_id}}, "data": text[4:].strip()}
                 return {"ok": True, "result": [{"update_id": next_id, "callback_query": query}]}
-            message = {"chat": {"id": chat_id}, "text": text}
+            message: dict[str, Any] = {"chat": {"id": chat_id}, "text": text}
+            reply = re.match(r"reply (\d+) (.+)", text, re.DOTALL)
+            if reply:
+                number = int(reply.group(1))
+                message = {"chat": {"id": chat_id}, "text": reply.group(2),
+                           "reply_to_message": {"message_id": number,
+                                                "caption": sent.get(number, "")}}
             return {"ok": True, "result": [{"update_id": next_id, "message": message}]}
         return {"ok": False, "description": f"{method} is not supported by the fake"}
 
@@ -167,6 +217,19 @@ class TelegramClient:
                 [{"text": label, "callback_data": data} for label, data in buttons]
             ]}
         result = self._call("sendMessage", payload)
+        return (result or {}).get("message_id") if isinstance(result, dict) else None
+
+    def send_document(
+        self, chat_id: str, name: str, data: bytes, caption: str,
+        buttons: list[tuple[str, str]] | None = None,
+    ) -> int | None:
+        payload: dict[str, Any] = {"chat_id": chat_id, "caption": caption[:1024],
+                                   "_document": (name, data)}
+        if buttons:
+            payload["reply_markup"] = {"inline_keyboard": [
+                [{"text": label, "callback_data": value} for label, value in buttons]
+            ]}
+        result = self._call("sendDocument", payload, timeout=60)
         return (result or {}).get("message_id") if isinstance(result, dict) else None
 
     def answer_callback(self, callback_id: str) -> None:
@@ -290,6 +353,7 @@ def poll_once(
     desk: Desk | None = None,
 ) -> int | None:
     """Fetch one batch of updates, answer them, and return the next offset."""
+    _bind_notify(client, s, desk)
     for update in client.get_updates(offset):
         offset = update["update_id"] + 1
         if "callback_query" in update:
@@ -310,7 +374,18 @@ def poll_once(
 
 def send_replies(client: TelegramClient, s: Settings, chat_id: str, replies: list[Reply]) -> None:
     for reply in replies:
-        client.send_message(chat_id, telegram_text(reply.text, s), reply.buttons or None)
+        if reply.document:
+            name, data = reply.document
+            client.send_document(chat_id, name, data, telegram_text(reply.text, s),
+                                 reply.buttons or None)
+        else:
+            client.send_message(chat_id, telegram_text(reply.text, s), reply.buttons or None)
+
+
+def _bind_notify(client: TelegramClient, s: Settings, desk: Desk | None) -> None:
+    if desk is not None:
+        chat = str(s.telegram_chat_id)
+        desk.notify = lambda reply: send_replies(client, s, chat, [reply])
 
 
 def _guarded(name: str, action: Callable[[], list[Reply]]) -> list[Reply]:
@@ -333,6 +408,12 @@ def desk_replies(update: dict[str, Any], s: Settings, desk: Desk | None) -> list
         return None
     command = parse_command(text)
     args = text.split(maxsplit=1)[1] if len(text.split(maxsplit=1)) > 1 else ""
+    replied = message.get("reply_to_message") or {}
+    if command is None and replied:
+        ref_text = replied.get("caption") or replied.get("text") or ""
+        replies = _guarded("Correction", lambda: desk.correction(ref_text, text) or [])
+        if replies:
+            return replies
     if command == "pending":
         return _guarded("/pending", desk.pending)
     if command == "jd":

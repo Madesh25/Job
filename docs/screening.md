@@ -136,8 +136,8 @@ sets `Status` to `Screened` only if it is `New` or `Screened`, so a row never mo
 
 - `/fetch` runs the sweep, then screening, and ends with `N ready to review: /pending`.
 - `/pending` shows one card at a time, best first, with `Approve`, `Skip` and `Next`.
-  Approve sets `Status` = `Approved` (resume building arrives in Module 04), Skip sets
-  `Declined`. A card already handled (a double tap, or changed in Notion) answers
+  Approve sets `Status` = `Approved` and builds the resume (see `docs/resume-builder.md`),
+  Skip sets `Declined`. A card already handled (a double tap, or changed in Notion) answers
   "Already handled". Buttons only work for your chat ID.
 - `/jd <url>` starts a paste. Send the description in as many messages as you like, then
   `/done`. It is saved in the page body as `Description source: pasted (full)` and screened at

@@ -19,6 +19,8 @@ from jobengine.bot_state import BotState, FakeBotState
 from jobengine.llm import LLMError
 from jobengine.notion_repo import FakeJobsRepo, JobsRepo
 from jobengine.reference import Reference
+from jobengine.resume import builder as resume_builder
+from jobengine.resume.builder import BuildOutcome, ResumeDeps
 from jobengine.screen import jd_capture
 from jobengine.screen.jd_capture import Capture, Captures
 from jobengine.screen.models import JobRow, ScreenSummary
@@ -34,12 +36,13 @@ from jobengine.screen.runner import (
     waiting_for_jd,
 )
 from jobengine.screen.tiering import rank_key
-from jobengine.settings import Settings
+from jobengine.settings import ROOT_DIR, Settings
 from jobengine.sweep.normalize import dedupe_key
 
 log = logging.getLogger("jobengine.screen.desk")
 
-APPROVED_TEXT = "Approved. Resume building arrives in Module 04."
+APPROVED_TEXT = "Approved: {job}."
+NO_RESUME = "Resume building is not available in this bot."
 UUID_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
 MATRIX_LINE = re.compile(r"^(Strong|Transferable|Gap) \| ")
 MAX_WAITING_LIST = 10
@@ -51,6 +54,7 @@ NO_TARGET = "DRY RUN: no Job Opportunities target in this environment, nothing t
 class Reply:
     text: str
     buttons: list[tuple[str, str]] = field(default_factory=list)  # (label, callback data)
+    document: tuple[str, bytes] | None = None  # (filename, PDF bytes); text is the caption
 
 
 def short_id(page_id: str) -> str:
@@ -60,12 +64,6 @@ def short_id(page_id: str) -> str:
 
 def same_page(a: str, b: str) -> bool:
     return short_id(a) == short_id(b)
-
-
-def on_job_approved(page_id: str) -> str:
-    """Hook for Module 04 (resume building). For now it only answers."""
-    log.info("job approved: %s", page_id)
-    return APPROVED_TEXT
 
 
 def match_counts(body: list[str]) -> dict[str, int]:
@@ -89,9 +87,13 @@ class Desk:
         state: BotState,
         today: Callable[[], date] = date.today,
         now: Callable[[], datetime] = datetime.now,
+        resume: ResumeDeps | None = None,
     ):
         self.s = s
         self.deps = deps
+        self.resume = resume
+        # Set by the bot for each update: sends a reply at once (before a long build).
+        self.notify: Callable[[Reply], None] | None = None
         self.today = today
         self.now = now
         window = int(s.screening.get("jd_capture_minutes", jd_capture.WINDOW_MINUTES))
@@ -168,21 +170,85 @@ class Desk:
         action, _, arg = data.partition(":")
         if action == "nx":
             return self.pending(int(arg) if arg.isdigit() else 0)
+        if action in ("ra", "rb", "ia") and arg:
+            return self.resume_tap(action, arg)
         if action not in ("ap", "sk") or not arg:
             return [Reply("That button is no longer valid. Send /pending.")]
         before = self.ranked()
         position = next((i for i, r in enumerate(before) if same_page(r.page_id, arg)), 0)
         values = self.repo.get_values(arg)
-        if not values or values.get("Status") != "Screened":
+        status = (values or {}).get("Status")
+        if action == "ap" and self.resume and status in resume_builder.BUILDABLE_STATUSES:
+            # A second Approve tap: show the latest preview instead of building again.
+            return [*self.on_job_approved(arg, values or {}), *self.pending(position)]
+        if not values or status != "Screened":
             return [Reply("Already handled"), *self.pending(position)]
         page_id = next((r.page_id for r in before if same_page(r.page_id, arg)), arg)
+        job = f"{values.get('Company')}, {values.get('Role')}"
         if action == "ap":
             self.repo.update(page_id, {"Status": "Approved"})
-            first = Reply(on_job_approved(page_id))
+            self.say(Reply(APPROVED_TEXT.format(job=job)))
+            replies = self.on_job_approved(page_id, values)
         else:
             self.repo.update(page_id, {"Status": "Declined"})
-            first = Reply(f"Skipped: {values.get('Company')}, {values.get('Role')}")
-        return [first, *self.pending(position)]
+            replies = [Reply(f"Skipped: {job}")]
+        return [*replies, *self.pending(position)]
+
+    # ------------------------------------------------------------ resumes (Module 04)
+
+    def say(self, reply: Reply) -> None:
+        if self.notify is not None:
+            self.notify(reply)
+
+    def on_job_approved(
+        self, page_id: str, values: dict[str, Any], *, correction: str | None = None,
+        force: bool = False,
+    ) -> list[Reply]:
+        """Build (or show) the resume for an approved job."""
+        if self.resume is None:
+            return [Reply(NO_RESUME)]
+        self.say(Reply(f"Building resume for {values.get('Company')}..."))
+        outcome = resume_builder.build_resume(
+            self.resume, page_id, correction=correction, force=force)
+        return [self.preview(outcome)]
+
+    def preview(self, outcome: BuildOutcome) -> Reply:
+        if not outcome.ok or outcome.pdf is None:
+            return Reply(outcome.message)
+        stem = (outcome.filename or "resume.pdf").removesuffix(".pdf")
+        buttons = [("Rebuild", f"rb:{short_id(outcome.job_id)}")]
+        if outcome.log_id:
+            buttons.insert(0, ("Approve resume", f"ra:{outcome.log_id.replace('-', '')}"))
+        return Reply(outcome.caption or "", buttons,
+                     document=(f"{stem}_r{outcome.revision}.pdf", outcome.pdf))
+
+    def resume_tap(self, action: str, arg: str) -> list[Reply]:
+        if self.resume is None:
+            return [Reply(NO_RESUME)]
+        if action == "rb":
+            values = (self.repo.get_values(arg) if self.repo else None) or {}
+            return self.on_job_approved(arg, values, force=True)
+        if action == "ia":
+            return [Reply(resume_builder.mark_applied(self.resume, arg))]
+        result = resume_builder.finalise(self.resume, arg)
+        if result.status == "newer":
+            latest = [self.preview(result.latest)] if result.latest else []
+            return [Reply(result.message), *latest]
+        if result.status == "approved" and result.job_id:
+            return [Reply(result.message, [("I applied", f"ia:{short_id(result.job_id)}")])]
+        return [Reply(result.message)]
+
+    def correction(self, replied_to: str, text: str) -> list[Reply] | None:
+        """A reply to a preview ("Ref RL-xxxxxxxx" in it) builds the next revision. None when
+        the replied-to message is not a preview."""
+        if self.resume is None or "Ref RL-" not in replied_to:
+            return None
+        log_id = resume_builder.find_log_by_ref(self.resume, replied_to)
+        job_id = resume_builder.job_for_log(self.resume, log_id) if log_id else None
+        if not job_id:
+            return [Reply("That resume preview is no longer in Resume Log.")]
+        values = (self.repo.get_values(job_id) if self.repo else None) or {}
+        return self.on_job_approved(job_id, values, correction=text.strip(), force=True)
 
     # ------------------------------------------------------------ /screen and /fetch
 
@@ -359,7 +425,9 @@ def fake_desk(s: Settings, today: date, now: Callable[[], datetime] | None = Non
         deps.repo = merged
     deps.llm = lambda config: FakeLLM(default={})
     clock = now or (lambda: datetime.combine(today, datetime.min.time()).replace(hour=9))
-    return Desk(s, deps, FakeBotState(), today=lambda: today, now=clock)
+    resume = resume_builder.fake_deps(s, jobs=deps.repo, out_dir=ROOT_DIR / "out" / "fake")
+    resume.today = lambda: today
+    return Desk(s, deps, FakeBotState(), today=lambda: today, now=clock, resume=resume)
 
 
 def real_desk(s: Settings) -> Desk | None:
@@ -376,4 +444,9 @@ def real_desk(s: Settings) -> Desk | None:
     if state is None:
         log.warning("bot_state not writable here: /jd pastes are kept in memory only")
         state = FakeBotState()
-    return Desk(s, real_deps(s), state)
+    try:
+        resume = resume_builder.real_deps(s)
+    except Exception as exc:  # the bot still screens without the resume builder
+        log.warning("resume builder not available: %s", exc)
+        resume = None
+    return Desk(s, real_deps(s), state, resume=resume)

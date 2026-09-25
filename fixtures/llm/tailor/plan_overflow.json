@@ -1,0 +1,168 @@
+{
+  "skills_main": [
+    {
+      "label": "Kubernetes",
+      "items": [
+        "EKS",
+        "Helm",
+        "Docker",
+        "kubeadm clusters",
+        "AKS",
+        "Kubernetes",
+        "Argo CD",
+        "Amazon EKS",
+        "GitHub Actions",
+        "Google Cloud",
+        "GCP"
+      ]
+    },
+    {
+      "label": "Cloud (AWS)",
+      "items": [
+        "EC2",
+        "VPC",
+        "IAM",
+        "S3",
+        "RDS",
+        "ELB",
+        "Route 53",
+        "CloudWatch",
+        "AWS"
+      ]
+    },
+    {
+      "label": "Infrastructure as Code",
+      "items": [
+        "Terraform",
+        "Ansible"
+      ]
+    },
+    {
+      "label": "CI/CD Pipelines",
+      "items": [
+        "GitLab CI",
+        "Jenkins",
+        "Azure DevOps Pipelines"
+      ]
+    },
+    {
+      "label": "GitOps & Registry",
+      "items": [
+        "Harbor"
+      ]
+    },
+    {
+      "label": "Observability",
+      "items": [
+        "Prometheus",
+        "Grafana",
+        "Loki"
+      ]
+    },
+    {
+      "label": "Systems & Scripting",
+      "items": [
+        "Linux (RHEL / Ubuntu)",
+        "Bash",
+        "Python",
+        "Windows Server",
+        "Linux"
+      ]
+    }
+  ],
+  "skills_also": [
+    {
+      "label": "Cloud (GCP)",
+      "items": [
+        "GKE",
+        "Compute Engine",
+        "Cloud Storage"
+      ]
+    },
+    {
+      "label": "Azure",
+      "items": [
+        "VNet",
+        "Azure Monitor"
+      ]
+    },
+    {
+      "label": "Databases",
+      "items": [
+        "PostgreSQL",
+        "MySQL",
+        "Oracle",
+        "MS SQL"
+      ]
+    }
+  ],
+  "bullet_edits": [
+    {
+      "id": "j0b0",
+      "text": "Sole owner of example platform migrations from on-premises servers to containerised Kubernetes environments on AWS, running discovery, target design, build, cutover and validation across development, testing and production."
+    },
+    {
+      "id": "j0b3",
+      "text": "Replaced manual recovery of failed releases on self-managed Kubernetes clusters with a GitLab CI pipeline that detects failure, retries and rolls back on its own, so environments recover without an engineer."
+    },
+    {
+      "id": "j1b1",
+      "text": "Met recovery targets by designing multi-zone topologies on AWS with EKS, provisioned with Terraform and configured with Ansible across EC2, VPC, IAM, S3, RDS, ELB and CloudWatch, proven through 4 scheduled failover tests a year."
+    },
+    {
+      "id": "j0b2",
+      "text": "Debugged the cluster through bring-up, working through pods stuck in CrashLoopBackOff and persistent volumes that failed to mount, on Kubernetes with Helm and Docker, until the whole workload ran end to end."
+    },
+    {
+      "id": "j1b2",
+      "text": "Held first-line responsibility on a rotating 24/7 on-call for a production web application on AWS with Prometheus, triaging incidents from alert to root cause with no major escalation during the support period."
+    },
+    {
+      "id": "j1b3",
+      "text": "Automated monthly patching and configuration drift checks for 30 Linux and Windows servers with Ansible playbooks run from a scheduled pipeline, cutting the maintenance window from a full day to two hours with Kubernetes and Helm."
+    }
+  ],
+  "term_mappings": [
+    {
+      "jd_term": "EKS",
+      "used_as": "EKS",
+      "where": "j1b1"
+    },
+    {
+      "jd_term": "GitHub Actions",
+      "used_as": "GitHub Actions",
+      "where": "skills"
+    }
+  ],
+  "priority": {
+    "bullet_edits": [
+      "j0b0",
+      "j1b1",
+      "j0b3",
+      "j0b2",
+      "j1b2",
+      "j1b3"
+    ],
+    "skill_items_low_relevance": [
+      "GCP",
+      "Google Cloud",
+      "GitHub Actions",
+      "Amazon EKS",
+      "Argo CD",
+      "Kubernetes",
+      "Linux",
+      "AWS",
+      "MS SQL",
+      "Oracle",
+      "Windows Server"
+    ]
+  },
+  "focus": {
+    "skills": "Kubernetes on AWS and CI/CD first",
+    "experience": "migration and pipeline work in Kubernetes and AWS terms",
+    "summary": "unchanged"
+  },
+  "gaps_reported": [
+    "Istio"
+  ]
+}

@@ -68,6 +68,16 @@ python -m jobengine.screen --no-write                  # real verdicts, writes n
 In Telegram, `/pending` shows the screened jobs one at a time and `/jd <url>` takes a pasted
 job description. See [docs/screening.md](docs/screening.md).
 
+## Build a resume
+
+```bash
+python -m jobengine.resume --fake --job fixture-clean-pl   # fake Golden Master, no network
+```
+
+In Telegram, Approve in `/pending` builds a tailored one-page resume and sends a PDF preview.
+Rendering needs WeasyPrint with Pango and the Lato font (use WSL on Windows). See
+[docs/resume-builder.md](docs/resume-builder.md).
+
 ## Run tests
 
 ```bash
@@ -81,3 +91,4 @@ pytest
 - [Environments and safety rules](docs/environments.md)
 - [Job sweep](docs/sweep.md)
 - [Screening](docs/screening.md)
+- [Resume builder](docs/resume-builder.md)
