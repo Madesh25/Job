@@ -20,6 +20,8 @@ dependencies = [
     "rapidfuzz",
     "weasyprint",
     "pdfplumber",
+    "fastapi",
+    "uvicorn",
 ]
 
 [project.optional-dependencies]
