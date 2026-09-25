@@ -16,6 +16,8 @@ from typing import Any
 
 from jobengine import http
 from jobengine.bot_state import BotState, FakeBotState
+from jobengine.contacts import finder as contact_finder
+from jobengine.contacts.finder import ContactDeps
 from jobengine.llm import LLMError
 from jobengine.notion_repo import FakeJobsRepo, JobsRepo
 from jobengine.reference import Reference
@@ -88,10 +90,13 @@ class Desk:
         today: Callable[[], date] = date.today,
         now: Callable[[], datetime] = datetime.now,
         resume: ResumeDeps | None = None,
+        contacts: ContactDeps | None = None,
     ):
         self.s = s
         self.deps = deps
         self.resume = resume
+        self.contacts = contacts
+        self.state = state
         # Set by the bot for each update: sends a reply at once (before a long build).
         self.notify: Callable[[Reply], None] | None = None
         self.today = today
@@ -235,8 +240,74 @@ class Desk:
             latest = [self.preview(result.latest)] if result.latest else []
             return [Reply(result.message), *latest]
         if result.status == "approved" and result.job_id:
-            return [Reply(result.message, [("I applied", f"ia:{short_id(result.job_id)}")])]
+            first = Reply(result.message, [("I applied", f"ia:{short_id(result.job_id)}")])
+            if self.contacts is None or self.notify is None:
+                return [first, *self.find_contacts(result.job_id)]
+            self.say(first)  # before the (slower) contact lookup
+            return self.find_contacts(result.job_id)
         return [Reply(result.message)]
+
+    # ------------------------------------------------------------ contacts (Module 05)
+
+    def find_contacts(self, job_id: str) -> list[Reply]:
+        """Contact lookup after a resume is approved, and for /contacts."""
+        if self.contacts is None:
+            return []
+        values = (self.repo.get_values(job_id) if self.repo else None) or {}
+        self.say(Reply(f"Finding contacts for {values.get('Company') or 'this job'}..."))
+        result = contact_finder.find_contacts(self.contacts, job_id)
+        if result.status == "done":
+            contact_finder.on_contacts_ready(job_id, result.contacts)
+        return [Reply(result.message)]
+
+    def contacts_command(self, args: str) -> list[Reply]:
+        if self.contacts is None or self.repo is None:
+            return [Reply("Contact lookup is not available in this bot.")]
+        if not args.strip():
+            return [Reply("Send /contacts <job URL or page id>.")]
+        row = find_row(self.repo, args.strip())
+        if row is None:
+            return [Reply(f"No Job Opportunities row found for {args.strip()}")]
+        return self.find_contacts(row.page_id)
+
+    def credits(self) -> list[Reply]:
+        """/credits: each provider's counter, when it was updated, and whether its key is set."""
+        from jobengine.contacts.credits import PROVIDERS, monthly_reset, parse_counter
+
+        config = (self.contacts.config if self.contacts else self.deps.config)()
+        keys = {"apollo": self.s.apollo_api_key, "hunter": self.s.hunter_api_key,
+                "snov": self.s.snov_client_id and self.s.snov_client_secret}
+        lines = ["Provider credits (reset on the 1st):"]
+        for provider in PROVIDERS:
+            key = f"credits.{provider}"
+            counter = parse_counter(config.get(key), config.updated(key))
+            updated = config.updated(key)
+            if counter:
+                reset = monthly_reset(counter, self.today())
+                value = reset.text() + (" (reset for this month)" if reset.used != counter.used
+                                        else "")
+            else:
+                value = config.get(key) or "not set"
+            when = f", updated {updated.isoformat()}" if updated else ""
+            key_state = "key set" if keys[provider] else "no key"
+            lines.append(f"{provider.capitalize()}: {value}{when}, {key_state}")
+        if self.s.app_env != "prod" or self.s.dry_run:
+            lines.append("Paid calls are off here (only prod with DRY_RUN=false); lookups use "
+                         "test data outside prod.")
+        return [Reply("\n".join(lines))]
+
+    def domain_answer(self, replied_to: str, text: str) -> list[Reply] | None:
+        """A reply to "What is the email domain for ...? Ref JOB-xxxxxxxx"."""
+        if self.contacts is None or "Ref JOB-" not in replied_to:
+            return None
+        answer = contact_finder.answer_domain(self.contacts, replied_to, text)
+        if answer is None:
+            return None
+        if isinstance(answer, str):
+            return [Reply(answer)]
+        if answer.status == "done":
+            contact_finder.on_contacts_ready(answer.job_id, answer.contacts)
+        return [Reply(answer.message)]
 
     def correction(self, replied_to: str, text: str) -> list[Reply] | None:
         """A reply to a preview ("Ref RL-xxxxxxxx" in it) builds the next revision. None when
@@ -427,7 +498,11 @@ def fake_desk(s: Settings, today: date, now: Callable[[], datetime] | None = Non
     clock = now or (lambda: datetime.combine(today, datetime.min.time()).replace(hour=9))
     resume = resume_builder.fake_deps(s, jobs=deps.repo, out_dir=ROOT_DIR / "out" / "fake")
     resume.today = lambda: today
-    return Desk(s, deps, FakeBotState(), today=lambda: today, now=clock, resume=resume)
+    state = FakeBotState()
+    contacts = contact_finder.fake_deps(s, jobs=deps.repo, state=state)
+    contacts.today = lambda: today
+    return Desk(s, deps, state, today=lambda: today, now=clock, resume=resume,
+                contacts=contacts)
 
 
 def real_desk(s: Settings) -> Desk | None:
@@ -449,4 +524,9 @@ def real_desk(s: Settings) -> Desk | None:
     except Exception as exc:  # the bot still screens without the resume builder
         log.warning("resume builder not available: %s", exc)
         resume = None
-    return Desk(s, real_deps(s), state, resume=resume)
+    try:
+        contacts = contact_finder.real_deps(s, state)
+    except Exception as exc:  # the bot still works without the contact finder
+        log.warning("contact finder not available: %s", exc)
+        contacts = None
+    return Desk(s, real_deps(s), state, resume=resume, contacts=contacts)

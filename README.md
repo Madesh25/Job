@@ -78,6 +78,15 @@ In Telegram, Approve in `/pending` builds a tailored one-page resume and sends a
 Rendering needs WeasyPrint with Pango and the Lato font (use WSL on Windows). See
 [docs/resume-builder.md](docs/resume-builder.md).
 
+## Find contacts
+
+```bash
+python -m jobengine.contacts --fake --job fixture-clean-pl   # fixture people, no network
+```
+
+After you approve a resume in Telegram the bot finds 4 contacts at the company (cache first,
+then Apollo, Hunter, Snov). See [docs/contacts.md](docs/contacts.md).
+
 ## Run tests
 
 ```bash
@@ -92,3 +101,4 @@ pytest
 - [Job sweep](docs/sweep.md)
 - [Screening](docs/screening.md)
 - [Resume builder](docs/resume-builder.md)
+- [Contact finder](docs/contacts.md)
