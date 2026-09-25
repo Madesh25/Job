@@ -44,8 +44,9 @@ resume:
   max_words_per_bullet: 8
   max_words_total: 25
   # Words allowed around a backed term in an inserted chunk (resume.gate.connector_words).
-  connector_words: [and, with, using, for, on, in, the, a, an, via, to, of, across, including,
-                    through, into, by, its, their]
+  # One string: in a YAML list the word "on" would be read as true.
+  connector_words: "and with using for on in the a an via to of across including through into by
+    its their"
   out_dir: out
 drive:
   resume_folder: Job Engine Resumes

@@ -143,3 +143,33 @@ def test_anthropic_imported_only_in_llm_module():
         and p.relative_to(ROOT).as_posix() != "src/jobengine/llm.py"
     ]
     assert offenders == []
+
+
+GOOGLE_CLIENT_IMPORT = re.compile(r"^\s*(?:import|from)\s+googleapiclient\b", re.M)
+GOOGLE_CLIENT_ALLOWED = {"src/jobengine/gmail_reader.py", "src/jobengine/drive_client.py"}
+DRIVE_FORBIDDEN = [".delete(", "permissions(", "emptyTrash", ".update(", ".copy("]
+
+
+def test_google_api_client_only_in_gmail_reader_and_drive_client():
+    offenders = [
+        p.relative_to(ROOT).as_posix()
+        for p in src_files()
+        if GOOGLE_CLIENT_IMPORT.search(p.read_text(encoding="utf-8"))
+        and p.relative_to(ROOT).as_posix() not in GOOGLE_CLIENT_ALLOWED
+    ]
+    assert offenders == []
+
+
+def test_drive_client_never_deletes_or_shares():
+    text = (ROOT / "src/jobengine/drive_client.py").read_text(encoding="utf-8")
+    assert [call for call in DRIVE_FORBIDDEN if call in text] == []
+
+
+def test_resume_fixtures_are_synthetic():
+    folder = ROOT / "fixtures" / "resume"
+    files = sorted(p for p in folder.rglob("*") if p.is_file())
+    assert files
+    for path in files:
+        text = path.read_text(encoding="utf-8")
+        assert "@gmail.com" not in text, path.name
+        assert "Alex Example" in text, path.name

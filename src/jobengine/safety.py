@@ -73,6 +73,11 @@ def llm_allowed(s: Settings) -> bool:
     return bool(s.anthropic_api_key)
 
 
+def drive_write_allowed(s: Settings) -> bool:
+    """Drive writes (saving approved resumes) are blocked in DRY_RUN."""
+    return not s.dry_run
+
+
 def resolve_model(requested: str, s: Settings) -> str:
     return s.force_model or requested
 
