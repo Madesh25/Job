@@ -16,6 +16,8 @@ dependencies = [
     "beautifulsoup4",
     "google-api-python-client",
     "google-auth",
+    "anthropic",
+    "rapidfuzz",
 ]
 
 [project.optional-dependencies]

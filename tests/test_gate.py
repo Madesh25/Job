@@ -1,12 +1,15 @@
 from datetime import date
 
+from jobengine.config_store import ConfigStore
 from jobengine.sweep.gate import strategy_gate
 
 TODAY = date(2026, 10, 1)
 
 
 def config(updated, days="30"):
-    return {"last_strategy_update": updated, "strategy_refresh_days": days}
+    return ConfigStore.from_values(
+        {"last_strategy_update": updated, "strategy_refresh_days": days}
+    )
 
 
 def test_open_at_thirty_days():
@@ -22,6 +25,6 @@ def test_blocked_at_thirty_one_days():
 
 
 def test_blocked_when_config_missing_or_invalid():
-    assert "missing or invalid" in strategy_gate({}, TODAY)
+    assert "missing or invalid" in strategy_gate(ConfigStore.from_values({}), TODAY)
     assert "missing or invalid" in strategy_gate(config("soon", "30"), TODAY)
     assert "missing or invalid" in strategy_gate(config("2026-09-30", "thirty"), TODAY)

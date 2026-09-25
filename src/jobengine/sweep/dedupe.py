@@ -75,19 +75,27 @@ def create_plan(job: Job, today: date) -> dict[str, Any]:
 @dataclass
 class UpdatePlan:
     props: dict[str, Any]
-    repost: bool  # True when the posting ID was new for this row
+    repost: bool  # True for a new posting ID from a source the row already had
     row: IndexRow  # the row as it will be after the update
+
+
+def _source(posting_ref: str) -> str:
+    return posting_ref.split(":", 1)[0]
 
 
 def update_plan(row: IndexRow, job: Job, today: date) -> UpdatePlan:
     props: dict[str, Any] = {"Swept date": today}
     ids = list(row.posting_ids)
     times_seen = row.times_seen or 1
-    repost = job.posting_ref not in ids
-    if repost:
+    new_ref = job.posting_ref not in ids
+    # A new ID from a source the row already has is a repost; a first ID from another
+    # source is the same job seen on another board and does not count as a sighting.
+    repost = new_ref and _source(job.posting_ref) in {_source(ref) for ref in ids}
+    if new_ref:
         ids = (ids + [job.posting_ref])[-MAX_POSTING_IDS:]
-        times_seen += 1
         props["Posting IDs"] = format_posting_ids(ids)
+    if repost:
+        times_seen += 1
         props["Times seen"] = times_seen
 
     # Fill empty fields, never overwrite filled ones.

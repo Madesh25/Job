@@ -182,7 +182,9 @@ def test_reader_config_and_target_companies_are_read_only(notion):
         "ATS platform": {"type": "select", "select": {"name": "Greenhouse"}},
         "Active": {"type": "checkbox", "checkbox": True},
     }}]}]
-    assert reader.config() == {"strategy_refresh_days": "30"}
+    from jobengine.config_store import ConfigStore
+
+    assert ConfigStore.load(reader.client, s).all() == {"strategy_refresh_days": "30"}
     companies = reader.target_companies()
     assert companies[0].name == "Acme" and companies[0].ats_platform == "Greenhouse"
     methods = {method for method, *_ in notion.requests}

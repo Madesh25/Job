@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from jobengine import http
+from jobengine.config_store import ConfigStore
 from jobengine.gmail_reader import GmailMessage
 from jobengine.notion_repo import FakeJobsRepo
 from jobengine.safety import assert_fetch_allowed
@@ -41,8 +42,8 @@ def gmail_messages(base: Path = FIXTURES) -> list[GmailMessage]:
     ]
 
 
-def config(base: Path = FIXTURES) -> dict[str, str]:
-    return _load("config.json", base)
+def config() -> ConfigStore:
+    return ConfigStore.fake()
 
 
 def target_companies(base: Path = FIXTURES) -> list[TargetCompany]:

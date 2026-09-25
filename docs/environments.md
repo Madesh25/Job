@@ -21,6 +21,10 @@ Local and dev read the production reference databases (Target Companies, Config,
 
 - `DRY_RUN=true` is the default in every environment. Nothing is written to Gmail and no paid API is called. Such actions are only logged as `DRY RUN: would ...`. Notion sandbox writes and Telegram messages still happen.
 - `DRY_RUN=false` lets Gmail drafts be created. In local and dev they are still redirected to madeshwaranm02@gmail.com. Only prod with `DRY_RUN=false` reaches real people.
+- `DRY_RUN` does **not** block LLM calls. They cost cents and nothing can be tested without them,
+  so they run whenever `ANTHROPIC_API_KEY` is set (`safety.llm_allowed`). DRY_RUN blocks Gmail
+  writes, Drive writes and paid contact APIs, not the LLM. Outside prod the model is still
+  forced to `claude-haiku-4-5`.
 - `DRY_RUN` is false only when the variable is exactly the string `false`. `False`, `0`, `no`, an empty value or a missing variable all mean true.
 
 ## Startup safety check

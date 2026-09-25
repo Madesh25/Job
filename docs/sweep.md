@@ -45,12 +45,12 @@ by the strategy gate.
 5. **Dedupe and write.** Create new rows, update existing ones.
 6. **Ghost risk** for every row touched.
 7. **Summary**, for example:
-   `Sweep done: 8 new, 1 updated, 5 reposts, 3 skipped (out of scope), 1 high ghost risk. Sources: gmail 6, adzuna 7, ats 4. Not supported: 2 companies.`
+   `Sweep done: 8 new, 4 updated, 2 reposts, 3 skipped (out of scope), 1 high ghost risk. Sources: gmail 6, adzuna 7, ats 4. Not supported: 2 companies.`
    Extra lines follow for skipped sources and notes, and the High ghost risk jobs come last.
 
-Counts: **new** rows created; **updated** existing rows seen again with a posting ID they
-already had; **reposts** existing rows that got a new posting ID (a repost, or the same job from
-another source); **skipped** postings dropped as out of scope; **Sources** raw postings per
+Counts: **new** rows created; **updated** existing rows seen again, either with a posting ID
+they already had or on another board (a first ID from a new source); **reposts** existing rows
+that got a new posting ID from a source they already had; **skipped** postings dropped as out of scope; **Sources** raw postings per
 source; **Not supported** Target Companies on Workday, Custom or unknown boards.
 
 ## Sources
@@ -109,8 +109,10 @@ A source whose secret is missing is skipped with a line in the summary; the run 
   Years required, Dedupe key, Posting IDs, First seen, Swept date, Times seen 1, Status New,
   Screen verdict Unscreened and Ghost job risk. The description goes into the page body
   (first line `Description source: <source>`, plus ` (snippet only)` for snippets).
-- Existing key: Swept date is set to today. A new posting ID is appended and Times seen goes
-  up by one; a known posting ID changes neither. Empty URL, Posted date, Salary, Years required
+- Existing key: Swept date is set to today. A new posting ID is always appended. Times seen
+  goes up by one only for a repost: a new ID from a source the row already has. The same job
+  seen on another board (the first ID from a new source) and a known posting ID do not change
+  it. Empty URL, Posted date, Salary, Years required
   and page body are filled; filled values are never overwritten. Ghost risk is recomputed.
   **Status and Screen verdict are never changed.**
 - The data source ID always comes from `safety.notion_write_target("job_opportunities", s)`.

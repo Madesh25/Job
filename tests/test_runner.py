@@ -28,7 +28,7 @@ def fake_run():
 def test_fake_sweep_summary(fake_run):
     summary, _ = fake_run
     assert summary.text().splitlines()[0] == (
-        "Sweep done: 8 new, 1 updated, 5 reposts, 3 skipped (out of scope), "
+        "Sweep done: 8 new, 4 updated, 2 reposts, 3 skipped (out of scope), "
         "1 high ghost risk. Sources: gmail 6, adzuna 7, ats 4. Not supported: 2 companies."
     )
     assert summary.text().splitlines()[-1] == "- Maas Logistics, Medior DevOps Engineer (Rotterdam)"
@@ -37,7 +37,8 @@ def test_fake_sweep_summary(fake_run):
 def test_same_job_from_adzuna_and_gmail_gives_one_row(fake_run):
     _, repo = fake_run
     _, row = rows_by_key(repo)["vistula cloud|devops engineer|krakow"]
-    assert row["Times seen"] == 2
+    # Another board is not a repost: 2 posting IDs, Times seen stays 1.
+    assert row["Times seen"] == 1
     assert row["Posting IDs"] == (
         "gmail:vistula-cloud-devops-engineer-krakow-devops, adzuna:4300000001"
     )
@@ -70,7 +71,8 @@ def test_status_and_screen_verdict_never_change(fake_run):
 def test_reposts_and_ghost_risk(fake_run):
     _, repo = fake_run
     repost = repo.rows["seed-repost"]
-    assert repost["Times seen"] == 3  # ats + LinkedIn alert, two new posting IDs
+    # ats:4001001 is a repost (same source, new ID); the LinkedIn alert is another board.
+    assert repost["Times seen"] == 2
     assert repost["First seen"] == date(2026, 8, 20)
     assert repost["Ghost job risk"] == "Medium"
     ghost = repo.rows["seed-old-ghost"]
@@ -85,7 +87,7 @@ def test_new_rows(fake_run):
     assert baltic["Seniority"] == "Junior" and baltic["Ghost job risk"] == "Medium"
     assert baltic["City"] == "Gdańsk" and baltic["Board"] == "Adzuna"
     _, tulip = rows["tulip data|platform engineer|den haag"]
-    assert tulip["Board"] == "LinkedIn" and tulip["Times seen"] == 2
+    assert tulip["Board"] == "LinkedIn" and tulip["Times seen"] == 1
     assert tulip["Salary"] == "60000 - 75000 EUR per year salary (Lever)"
     _, liffey = rows["liffey analytics|site reliability engineer|cork"]
     assert liffey["Country"] == "Ireland" and liffey["Ghost job risk"] == "Unknown"

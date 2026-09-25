@@ -97,6 +97,8 @@ def plain_value(prop: dict[str, Any]) -> Any:
     if kind == "date":
         start = (value or {}).get("start")
         return date.fromisoformat(start[:10]) if start else None
+    if kind == "multi_select":
+        return [item.get("name") for item in value or [] if item.get("name")]
     if kind in ("number", "url", "checkbox"):
         return value
     return None
@@ -276,14 +278,6 @@ class NotionReader:
     def __init__(self, client: NotionClient, s: Settings):
         self.client = client
         self.s = s
-
-    def config(self) -> dict[str, str]:
-        values = {}
-        for page in self.client.query(self.s.notion_read["config"], properties=("Key", "Value")):
-            row = page_values(page)
-            if row.get("Key"):
-                values[row["Key"]] = row.get("Value") or ""
-        return values
 
     def target_companies(self) -> list[TargetCompany]:
         body = {"filter": {"property": "Active", "checkbox": {"equals": True}}}

@@ -1,0 +1,50 @@
+[
+  {
+    "id": "tm-gha",
+    "JD term": "GitHub Actions",
+    "Truthful equivalent": "CI/CD pipelines in GitLab CI",
+    "Status": "Active",
+    "Category": "CI/CD",
+    "Notes": "Same pipeline concepts."
+  },
+  {
+    "id": "tm-eks",
+    "JD term": "EKS, Amazon EKS",
+    "Truthful equivalent": "Kubernetes on AWS",
+    "Status": "Active",
+    "Category": "Containers",
+    "Notes": ""
+  },
+  {
+    "id": "tm-gcp",
+    "JD term": "GCP, Google Cloud",
+    "Truthful equivalent": "public cloud (AWS, Azure)",
+    "Status": "Active",
+    "Category": "Cloud",
+    "Notes": ""
+  },
+  {
+    "id": "tm-pulumi",
+    "JD term": "Pulumi",
+    "Truthful equivalent": "infrastructure as code with Terraform",
+    "Status": "Needs review",
+    "Category": "IaC",
+    "Notes": "Not confirmed yet."
+  },
+  {
+    "id": "tm-nomad",
+    "JD term": "Nomad, Consul",
+    "Truthful equivalent": "(none)",
+    "Status": "Active",
+    "Category": "Orchestration",
+    "Notes": "Known gap, never claim."
+  },
+  {
+    "id": "tm-java",
+    "JD term": "Java",
+    "Truthful equivalent": "(none)",
+    "Status": "Active",
+    "Category": "Languages",
+    "Notes": "Known gap."
+  }
+]
