@@ -156,6 +156,12 @@ def _row(tip: Tip, status: str, today: date, notes: str) -> dict[str, Any]:
             "Source": "\n".join(tip.sources), "Date added": today, "Notes": notes}
 
 
+def open_review(deps: StrategyDeps) -> bool:
+    """True when the last run still has undecided tips (or an unconfirmed empty month)."""
+    run = deps.state.get(RUN_KEY) or {}
+    return bool(run) and not run.get("complete")
+
+
 def run_update(deps: StrategyDeps, force: bool = False) -> UpdateResult:
     """Research, validate, log and ask. With undecided tips from an earlier run, re-send those
     cards instead (unless `force`, i.e. /update new)."""
