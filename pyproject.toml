@@ -27,6 +27,10 @@ dev = [
     "pytest",
     "ruff",
 ]
+# Only for python -m jobengine.gmail_auth on your machine (not a runtime dependency).
+auth = [
+    "google-auth-oauthlib",
+]
 
 [tool.setuptools.packages.find]
 where = ["src"]

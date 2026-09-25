@@ -146,7 +146,19 @@ def test_anthropic_imported_only_in_llm_module():
 
 
 GOOGLE_CLIENT_IMPORT = re.compile(r"^\s*(?:import|from)\s+googleapiclient\b", re.M)
-GOOGLE_CLIENT_ALLOWED = {"src/jobengine/gmail_reader.py", "src/jobengine/drive_client.py"}
+GOOGLE_CLIENT_ALLOWED = {
+    "src/jobengine/gmail_reader.py",
+    "src/jobengine/drive_client.py",
+    "src/jobengine/gmail_client.py",
+    "src/jobengine/gmail_auth.py",
+}
+# Module 06: drafts only. Never send, remove, trash, edit a draft or create labels.
+GMAIL_CLIENT = "src/jobengine/gmail_client.py"
+GMAIL_CLIENT_FORBIDDEN = [".send(", "delete(", "trash(", "batchDelete", "drafts().update",
+                          "labels().create"]
+# The token helper only reads the profile of the account it authorised.
+GMAIL_AUTH = "src/jobengine/gmail_auth.py"
+GMAIL_AUTH_FORBIDDEN = [*GMAIL_CLIENT_FORBIDDEN, "drafts(", "modify("]
 DRIVE_FORBIDDEN = [".delete(", "permissions(", "emptyTrash", ".update(", ".copy("]
 
 
@@ -158,6 +170,13 @@ def test_google_api_client_only_in_gmail_reader_and_drive_client():
         and p.relative_to(ROOT).as_posix() not in GOOGLE_CLIENT_ALLOWED
     ]
     assert offenders == []
+
+
+def test_gmail_client_never_sends_or_deletes():
+    text = (ROOT / GMAIL_CLIENT).read_text(encoding="utf-8")
+    assert [call for call in GMAIL_CLIENT_FORBIDDEN if call in text] == []
+    auth = (ROOT / GMAIL_AUTH).read_text(encoding="utf-8")
+    assert [call for call in GMAIL_AUTH_FORBIDDEN if call in auth] == []
 
 
 def test_drive_client_never_deletes_or_shares():
@@ -193,7 +212,9 @@ def test_contacts_never_build_emails_from_names():
 def test_contact_fixtures_use_invented_addresses_only():
     email = re.compile(r"[A-Za-z0-9._%+-]+@([A-Za-z0-9.-]+\.[A-Za-z]{2,})")
     allowed = ("example.com", "example.org")
-    for path in (ROOT / "fixtures" / "contacts").glob("*.json"):
+    paths = [*(ROOT / "fixtures" / "contacts").glob("*.json"),
+             *(ROOT / "fixtures" / "mail").glob("*.json")]
+    for path in paths:
         for domain in email.findall(path.read_text(encoding="utf-8")):
             ok = domain.endswith(allowed) or domain == "gmail.com"  # the personal-address case
             assert ok, f"{path.name}: {domain}"

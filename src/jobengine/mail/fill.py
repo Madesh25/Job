@@ -54,7 +54,7 @@ class MailJob:
 @dataclass
 class Choice:
     template: Template | None
-    note: str = ""  # e.g. "no specific detail, recruiter template"
+    note: str = ""  # e.g. "no specific detail" (hiring got the recruiter template)
     skipped: str = ""  # why this contact gets no mail
 
 
@@ -89,14 +89,14 @@ def choose_template(templates: dict[str, Template], contact_type: str, has_detai
     """The template for a contact Type. Hiring without a specific detail, and a generic
     mailbox (only when it may be mailed), get the recruiter template."""
     if generic:
-        key, note = "recruiter", "generic mailbox, recruiter template"
+        key, note = "recruiter", "generic mailbox"
     else:
         key = TYPE_TEMPLATE.get(contact_type)
         if key is None:
             return Choice(None, skipped=f"Type {contact_type or 'empty'} has no template")
         note = ""
         if key == "hiring" and not has_detail:
-            key, note = "recruiter", "no specific detail, recruiter template"
+            key, note = "recruiter", "no specific detail"
     template = approved(templates, key)
     if template is None:
         return Choice(None, skipped=f"the {key} template is missing or not APPROVED")
@@ -127,9 +127,10 @@ def pick_detail(details: tuple[str, ...] | list[str], job: MailJob, llm: LLMClie
 
 
 def placeholder_values(job: MailJob, name: str, config: ConfigStore,
-                       detail: str | None) -> dict[str, str]:
+                       detail: str | None, greeting: str | None = None) -> dict[str, str]:
+    """`greeting` (Config mail.generic_greeting_name, generic mailboxes only) is used whole."""
     values = {
-        "first_name": first_name(name),
+        "first_name": greeting.strip() if greeting else first_name(name),
         "company": job.company.strip(),
         "role": clean_role(job.role),
         "city": city_for(job),
