@@ -5,6 +5,12 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import date
 
+COUNTRY_FLAGS = {
+    "Poland": "\U0001F1F5\U0001F1F1",
+    "Netherlands": "\U0001F1F3\U0001F1F1",
+    "Ireland": "\U0001F1EE\U0001F1EA",
+}
+
 
 @dataclass(frozen=True)
 class RawPosting:
@@ -77,6 +83,10 @@ class SweepSummary:
     notes: list[str] = field(default_factory=list)
     high_ghost_jobs: list[str] = field(default_factory=list)
     blocked: str | None = None
+    # For the friendly Telegram summary.
+    countries: list[str] = field(default_factory=list)  # Config countries.active, in order
+    new_by_country: dict[str, int] = field(default_factory=dict)
+    not_checked: list[str] = field(default_factory=list)  # plain-language source problems
 
     def text(self) -> str:
         if self.blocked:
@@ -92,6 +102,32 @@ class SweepSummary:
         if self.high_ghost_jobs:
             lines.append("High ghost risk (kept, check before applying):")
             lines.extend(f"- {job}" for job in self.high_ghost_jobs)
+        return "\n".join(lines)
+
+    def friendly_text(self) -> str:
+        """Short plain-language summary for Telegram."""
+        if self.blocked:
+            return self.blocked
+        lines = [
+            "\u2705 Job search finished",
+            "",
+            f"\U0001F195 New jobs added to Notion: {self.new}",
+        ]
+        for country in self.countries or sorted(self.new_by_country):
+            flag = COUNTRY_FLAGS.get(country, "")
+            lines.append(f"{flag} {country}: {self.new_by_country.get(country, 0)}".strip())
+        lines += [
+            "",
+            f"\U0001F501 Already in Notion, seen again: {self.updated + self.reposts}",
+            f"\U0001F6AB Not a match (skipped): {self.skipped}",
+        ]
+        if self.high_ghost_jobs:
+            lines += ["", f"\u26A0\uFE0F Possible ghost jobs (listed for a long time): "
+                          f"{self.high_ghost}"]
+            lines.extend(f"- {job}" for job in self.high_ghost_jobs)
+        if self.not_checked:
+            lines += ["", "\u2139\uFE0F Not checked this time:"]
+            lines.extend(f"- {item}" for item in self.not_checked)
         return "\n".join(lines)
 
 

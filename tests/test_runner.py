@@ -221,3 +221,53 @@ def test_existing_non_email_rows_skip_the_body_check():
     summary = run_sweep(S, deps, TODAY)
     assert summary.updated == 1
     assert checked == []  # created by Adzuna, so it already has a description
+
+
+def test_friendly_summary_counts_new_jobs_per_country(fake_run):
+    summary, _ = fake_run
+    assert summary.new_by_country == {"Netherlands": 2, "Poland": 4, "Ireland": 2}
+    text = summary.friendly_text()
+    lines = text.splitlines()
+    assert lines[0] == "\u2705 Job search finished"
+    # Countries follow Config countries.active order, each with its flag.
+    assert lines[3:6] == [
+        "\U0001F1F5\U0001F1F1 Poland: 4",
+        "\U0001F1F3\U0001F1F1 Netherlands: 2",
+        "\U0001F1EE\U0001F1EA Ireland: 2",
+    ]
+    assert "- Maas Logistics, Medior DevOps Engineer (Rotterdam)" in lines
+    assert "Not checked this time" not in text
+
+
+def test_friendly_summary_lists_sources_not_checked():
+    deps = fake_deps(S)
+    deps.gmail = lambda: SourceResult(
+        "gmail", skipped_reason="gmail skipped: GMAIL_ALERTS_TOKEN_JSON missing"
+    )
+    text = run_sweep(S, deps, TODAY).friendly_text()
+    assert "\u2139\uFE0F Not checked this time:\n- Email alerts: not set up yet" in text
+    assert "Ireland: 1" in text  # zero-count countries would still be listed
+
+
+def test_progress_lines_are_plain_language():
+    lines = []
+    run_sweep(S, fake_deps(S), TODAY, progress=lines.append)
+    assert lines == [
+        "Checking what is already in your Notion...",
+        "Searching Email alerts... (0 jobs found so far)",
+        "Searching Adzuna... (6 jobs found so far)",
+        "Searching Company career sites... (13 jobs found so far)",
+        "Found 17 jobs. Saving to your Notion...",
+    ]
+
+
+def test_failing_progress_callback_does_not_stop_the_sweep():
+    def broken(line):
+        raise RuntimeError("telegram down")
+
+    assert run_sweep(S, fake_deps(S), TODAY, progress=broken).new == 8
+
+
+def test_blocked_friendly_text_is_the_gate_message():
+    summary = run_sweep(S, fake_deps(S), date(2026, 11, 30))
+    assert summary.friendly_text() == summary.text()

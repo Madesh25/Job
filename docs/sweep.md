@@ -19,7 +19,11 @@ python -m jobengine.sweep --source adzuna
 python -m jobengine.sweep --parse-report
 ```
 
-In Telegram, `/fetch` runs the same sweep and replies with the summary. With
+In Telegram, `/fetch` runs the same sweep. It replies at once, keeps one message updated with
+the current step in plain words ("Searching Adzuna...", "Saving to your Notion: 125 of 300
+jobs checked"), then sends a short summary: new jobs per country (in Config
+`countries.active` order), jobs seen again, jobs skipped, possible ghost jobs, and any source
+that was not checked. The terminal CLI keeps the detailed summary shown below. With
 `python -m jobengine.telegram_bot --fake`, `/fetch` uses the fixtures and the in-memory repo.
 
 Progress lines (time, source counts, pages, rows processed) go to stderr while it runs; the
