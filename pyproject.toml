@@ -18,6 +18,8 @@ dependencies = [
     "google-auth",
     "anthropic",
     "rapidfuzz",
+    "weasyprint",
+    "pdfplumber",
 ]
 
 [project.optional-dependencies]
@@ -39,3 +41,6 @@ select = ["E", "F", "W", "I", "B", "UP"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]
+markers = [
+    "render: renders a PDF with WeasyPrint (needs Pango and the Lato font)",
+]

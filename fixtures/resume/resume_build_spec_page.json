@@ -1,0 +1,116 @@
+[
+ {
+  "object": "block",
+  "type": "paragraph",
+  "paragraph": {
+   "rich_text": [
+    {
+     "type": "text",
+     "text": {
+      "content": "Invented test page for Alex Example. Not a real resume."
+     },
+     "plain_text": "Invented test page for Alex Example. Not a real resume."
+    }
+   ]
+  }
+ },
+ {
+  "object": "block",
+  "type": "heading_1",
+  "heading_1": {
+   "rich_text": [
+    {
+     "type": "text",
+     "text": {
+      "content": "8. Golden Master HTML"
+     },
+     "plain_text": "8. Golden Master HTML"
+    }
+   ]
+  }
+ },
+ {
+  "object": "block",
+  "type": "code",
+  "code": {
+   "language": "html",
+   "rich_text": [
+    {
+     "type": "text",
+     "text": {
+      "content": "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n<title>Alex Example, DevOps Engineer</title>\n<style>\n  @page { size: A4; margin: 9mm 14mm 9mm 14mm; }\n  * { box-sizing: border-box; }\n  body { font-family: \"Lato\", sans-serif; font-size: 9.7pt; line-height: 1.18; color: #000; margin: 0; }\n  p { margin: 0; }\n  a { color: #1a0dab; text-decoration: underline; }\n\n  /* Header: centred */\n  .hdr { text-align: center; }\n  .name { font-size: 23pt; font-weight: 700; letter-spacing: 0.4px; line-height: 1.1; }\n  .headline { font-size: 11pt; margin-top: 2px; }\n  .contact { font-size: 9.5pt; margin-top: 2px; }\n  .contact .sep { padding: 0 5px; color: #000; }\n  .reloc { font-size: 9.2pt; font-style: italic; margin-top: 2px; }\n\n  /* Section headings: bold caps with full-width black rule */\n  h2 { font-size: 11.5pt; font-weight: 700; text-transform: uppercase; letter-spacing: 0.3px;\n       border-bottom: 1.3px solid #000; padding-bottom: 1px; margin: 7px 0 3px 0; }\n\n  .summary { text-align: justify; }\n\n  /* Skills: two-column table with small grey sub-head */\n  .subhead { font-size: 8.8pt; font-weight: 700; color: #555; text-transform: uppercase; letter-spacing: 0.5px; margin: 3px 0 1px 0; }\n  table.skills { border-collapse: collapse; width: 100%; }\n  table.skills td { padding: 1px 0; vertical-align: top; }\n  table.skills td.k { width: 41mm; font-weight: 700; }\n\n  /* Experience */\n  .job { margin-top: 5px; }\n  .row { display: flex; justify-content: space-between; }\n  .co { font-size: 11pt; font-weight: 700; }\n  .role { font-weight: 700; font-style: italic; }\n  ul.b { margin: 2px 0 0 0; padding-left: 18px; }\n  ul.b li { margin: 1.2px 0; text-align: justify; padding-left: 2px; }\n\n  .edu .deg { font-weight: 700; }\n</style>\n</head>\n<body>\n\n<div class=\"hdr\">\n  <p class=\"name\">ALEX EXAMPLE</p>\n  <p class=\"headline\">DevOps Engineer&nbsp; | &nbsp;Cloud &amp; Platform Engineering</p>\n  <p class=\"contact\">\n    <a href=\"mailto:snapshot@example.com\">snapshot@example.com</a><span cl"
+     },
+     "plain_text": "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n<title>Alex Example, DevOps Engineer</title>\n<style>\n  @page { size: A4; margin: 9mm 14mm 9mm 14mm; }\n  * { box-sizing: border-box; }\n  body { font-family: \"Lato\", sans-serif; font-size: 9.7pt; line-height: 1.18; color: #000; margin: 0; }\n  p { margin: 0; }\n  a { color: #1a0dab; text-decoration: underline; }\n\n  /* Header: centred */\n  .hdr { text-align: center; }\n  .name { font-size: 23pt; font-weight: 700; letter-spacing: 0.4px; line-height: 1.1; }\n  .headline { font-size: 11pt; margin-top: 2px; }\n  .contact { font-size: 9.5pt; margin-top: 2px; }\n  .contact .sep { padding: 0 5px; color: #000; }\n  .reloc { font-size: 9.2pt; font-style: italic; margin-top: 2px; }\n\n  /* Section headings: bold caps with full-width black rule */\n  h2 { font-size: 11.5pt; font-weight: 700; text-transform: uppercase; letter-spacing: 0.3px;\n       border-bottom: 1.3px solid #000; padding-bottom: 1px; margin: 7px 0 3px 0; }\n\n  .summary { text-align: justify; }\n\n  /* Skills: two-column table with small grey sub-head */\n  .subhead { font-size: 8.8pt; font-weight: 700; color: #555; text-transform: uppercase; letter-spacing: 0.5px; margin: 3px 0 1px 0; }\n  table.skills { border-collapse: collapse; width: 100%; }\n  table.skills td { padding: 1px 0; vertical-align: top; }\n  table.skills td.k { width: 41mm; font-weight: 700; }\n\n  /* Experience */\n  .job { margin-top: 5px; }\n  .row { display: flex; justify-content: space-between; }\n  .co { font-size: 11pt; font-weight: 700; }\n  .role { font-weight: 700; font-style: italic; }\n  ul.b { margin: 2px 0 0 0; padding-left: 18px; }\n  ul.b li { margin: 1.2px 0; text-align: justify; padding-left: 2px; }\n\n  .edu .deg { font-weight: 700; }\n</style>\n</head>\n<body>\n\n<div class=\"hdr\">\n  <p class=\"name\">ALEX EXAMPLE</p>\n  <p class=\"headline\">DevOps Engineer&nbsp; | &nbsp;Cloud &amp; Platform Engineering</p>\n  <p class=\"contact\">\n    <a href=\"mailto:snapshot@example.com\">snapshot@example.com</a><span cl"
+    },
+    {
+     "type": "text",
+     "text": {
+      "content": "ass=\"sep\">|</span><a href=\"tel:+10000000000\">+1 000 000 0000</a><span class=\"sep\">|</span><a href=\"https://snapshot.example.com\">Portfolio</a><span class=\"sep\">|</span><a href=\"https://github.com/snapshot-example\">GitHub</a><span class=\"sep\">|</span><a href=\"https://www.linkedin.com/in/snapshot-example/\">LinkedIn</a>\n  </p>\n  <p class=\"reloc\">Snapshot relocation line</p>\n</div>\n\n<h2>Professional Summary</h2>\n<p class=\"summary\">DevOps engineer with 5+ years of professional experience, 3+ of them in cloud infrastructure and platform engineering across AWS, Azure and GCP. Owns migrations of example workloads from on-premises data centres to managed Kubernetes, from discovery and target design through cutover and validation. Comfortable where infrastructure meets application behaviour, following a failure from scheduling and storage through to service networking instead of handing it over. Daily stack is Kubernetes, Docker and Helm, Terraform and Ansible, with on-call and observability work under agreed service levels.</p>\n\n<h2>Technical Skills</h2>\n<!-- EDITABLE ZONE 1 START: skills rows (select / reorder / remove; add only if backed) -->\n<table class=\"skills\">\n  <tr><td class=\"k\">Kubernetes</td><td>EKS, AKS, kubeadm clusters, Helm, Docker</td></tr>\n  <tr><td class=\"k\">Cloud (AWS)</td><td>EC2, VPC, IAM, S3, RDS, ELB, Route 53, CloudWatch</td></tr>\n  <tr><td class=\"k\">Cloud (GCP)</td><td>GKE, Compute Engine, Cloud Storage</td></tr>\n  <tr><td class=\"k\">Infrastructure as Code</td><td>Terraform, Ansible</td></tr>\n  <tr><td class=\"k\">CI/CD</td><td>Jenkins, GitLab CI, Azure DevOps Pipelines</td></tr>\n  <tr><td class=\"k\">Observability</td><td>Prometheus, Grafana, CloudWatch, Loki</td></tr>\n  <tr><td class=\"k\">Systems &amp; Scripting</td><td>Linux (RHEL / Ubuntu), Windows Server, Bash, Python</td></tr>\n</table>\n<p class=\"subhead\">Also worked with</p>\n<table class=\"skills\">\n  <tr><td class=\"k\">Azure</td><td>VNet, Azure Monitor</td></tr>\n  <tr><td class=\"k\">GitOps &amp; Registry"
+     },
+     "plain_text": "ass=\"sep\">|</span><a href=\"tel:+10000000000\">+1 000 000 0000</a><span class=\"sep\">|</span><a href=\"https://snapshot.example.com\">Portfolio</a><span class=\"sep\">|</span><a href=\"https://github.com/snapshot-example\">GitHub</a><span class=\"sep\">|</span><a href=\"https://www.linkedin.com/in/snapshot-example/\">LinkedIn</a>\n  </p>\n  <p class=\"reloc\">Snapshot relocation line</p>\n</div>\n\n<h2>Professional Summary</h2>\n<p class=\"summary\">DevOps engineer with 5+ years of professional experience, 3+ of them in cloud infrastructure and platform engineering across AWS, Azure and GCP. Owns migrations of example workloads from on-premises data centres to managed Kubernetes, from discovery and target design through cutover and validation. Comfortable where infrastructure meets application behaviour, following a failure from scheduling and storage through to service networking instead of handing it over. Daily stack is Kubernetes, Docker and Helm, Terraform and Ansible, with on-call and observability work under agreed service levels.</p>\n\n<h2>Technical Skills</h2>\n<!-- EDITABLE ZONE 1 START: skills rows (select / reorder / remove; add only if backed) -->\n<table class=\"skills\">\n  <tr><td class=\"k\">Kubernetes</td><td>EKS, AKS, kubeadm clusters, Helm, Docker</td></tr>\n  <tr><td class=\"k\">Cloud (AWS)</td><td>EC2, VPC, IAM, S3, RDS, ELB, Route 53, CloudWatch</td></tr>\n  <tr><td class=\"k\">Cloud (GCP)</td><td>GKE, Compute Engine, Cloud Storage</td></tr>\n  <tr><td class=\"k\">Infrastructure as Code</td><td>Terraform, Ansible</td></tr>\n  <tr><td class=\"k\">CI/CD</td><td>Jenkins, GitLab CI, Azure DevOps Pipelines</td></tr>\n  <tr><td class=\"k\">Observability</td><td>Prometheus, Grafana, CloudWatch, Loki</td></tr>\n  <tr><td class=\"k\">Systems &amp; Scripting</td><td>Linux (RHEL / Ubuntu), Windows Server, Bash, Python</td></tr>\n</table>\n<p class=\"subhead\">Also worked with</p>\n<table class=\"skills\">\n  <tr><td class=\"k\">Azure</td><td>VNet, Azure Monitor</td></tr>\n  <tr><td class=\"k\">GitOps &amp; Registry"
+    },
+    {
+     "type": "text",
+     "text": {
+      "content": "</td><td>Argo CD, Harbor</td></tr>\n  <tr><td class=\"k\">Databases</td><td>PostgreSQL, MySQL, Oracle, MS SQL</td></tr>\n</table>\n<!-- EDITABLE ZONE 1 END -->\n\n<h2>Professional Experience</h2>\n<!-- EDITABLE ZONE 2: inside <li> text only, max +8 words per bullet, +25 words total -->\n\n<div class=\"job\">\n  <div class=\"row\"><span class=\"co\">EXAMPLE CORP</span><span>Springfield, Exampleland</span></div>\n  <div class=\"row\"><span class=\"role\">Senior Associate (DevOps Engineer), Platform</span><span>Mar 2024 - Present</span></div>\n  <ul class=\"b\">\n    <li>Sole owner of example platform migrations from on-premises servers to containerised cloud environments, running discovery, target design, build, cutover and validation across development, testing and production.</li>\n    <li>Ran a mixed Windows and Linux analytics workload on one shared Kubernetes cluster, using node affinity, OS-specific scheduling and cross-platform service networking instead of two separate clusters.</li>\n    <li>Debugged the cluster through bring-up, working through pods stuck in CrashLoopBackOff and persistent volumes that failed to mount, until the whole workload ran end to end.</li>\n    <li>Replaced manual recovery of failed releases on self-managed clusters with a pipeline that detects failure, retries and rolls back on its own, so environments recover without an engineer.</li>\n    <li>Closed the manual handoff between the infrastructure and web teams on a client website programme by automating build, content release and environment configuration through to production.</li>\n  </ul>\n</div>\n\n<div class=\"job\">\n  <div class=\"row\"><span class=\"co\">SAMPLE SYSTEMS</span><span>Springfield, Exampleland</span></div>\n  <div class=\"row\"><span class=\"role\">Junior Platform Consultant</span><span>Jan 2021 - Feb 2024</span></div>\n  <ul class=\"b\">\n    <li>Ran two example industrial platforms across on-premises data centres and public cloud (AWS, GCP), owning availability, scaling and release automation for both customer"
+     },
+     "plain_text": "</td><td>Argo CD, Harbor</td></tr>\n  <tr><td class=\"k\">Databases</td><td>PostgreSQL, MySQL, Oracle, MS SQL</td></tr>\n</table>\n<!-- EDITABLE ZONE 1 END -->\n\n<h2>Professional Experience</h2>\n<!-- EDITABLE ZONE 2: inside <li> text only, max +8 words per bullet, +25 words total -->\n\n<div class=\"job\">\n  <div class=\"row\"><span class=\"co\">EXAMPLE CORP</span><span>Springfield, Exampleland</span></div>\n  <div class=\"row\"><span class=\"role\">Senior Associate (DevOps Engineer), Platform</span><span>Mar 2024 - Present</span></div>\n  <ul class=\"b\">\n    <li>Sole owner of example platform migrations from on-premises servers to containerised cloud environments, running discovery, target design, build, cutover and validation across development, testing and production.</li>\n    <li>Ran a mixed Windows and Linux analytics workload on one shared Kubernetes cluster, using node affinity, OS-specific scheduling and cross-platform service networking instead of two separate clusters.</li>\n    <li>Debugged the cluster through bring-up, working through pods stuck in CrashLoopBackOff and persistent volumes that failed to mount, until the whole workload ran end to end.</li>\n    <li>Replaced manual recovery of failed releases on self-managed clusters with a pipeline that detects failure, retries and rolls back on its own, so environments recover without an engineer.</li>\n    <li>Closed the manual handoff between the infrastructure and web teams on a client website programme by automating build, content release and environment configuration through to production.</li>\n  </ul>\n</div>\n\n<div class=\"job\">\n  <div class=\"row\"><span class=\"co\">SAMPLE SYSTEMS</span><span>Springfield, Exampleland</span></div>\n  <div class=\"row\"><span class=\"role\">Junior Platform Consultant</span><span>Jan 2021 - Feb 2024</span></div>\n  <ul class=\"b\">\n    <li>Ran two example industrial platforms across on-premises data centres and public cloud (AWS, GCP), owning availability, scaling and release automation for both customer"
+    },
+    {
+     "type": "text",
+     "text": {
+      "content": " environments.</li>\n    <li>Met recovery targets by designing multi-zone topologies on AWS, provisioned with Terraform and configured with Ansible across EC2, VPC, IAM, S3, RDS, ELB and CloudWatch, proven through 4 scheduled failover tests a year.</li>\n    <li>Held first-line responsibility on a rotating 24/7 on-call for a production web application, triaging incidents from alert to root cause with no major escalation during the support period.</li>\n    <li>Automated monthly patching and configuration drift checks for 30 Linux and Windows servers with Ansible playbooks run from a scheduled pipeline, cutting the maintenance window from a full day to two hours.</li>\n    <li>Built central monitoring and alerting with Prometheus, Grafana and CloudWatch across 12 instances, meeting the agreed availability target throughout the contract.</li>\n  </ul>\n</div>\n\n<div class=\"job\">\n  <div class=\"row\"><span class=\"co\">DEMO WORKS</span><span>Springfield, Exampleland</span></div>\n  <div class=\"row\"><span class=\"role\">Trainee</span><span>Jul 2020 - Dec 2020</span></div>\n  <ul class=\"b\">\n    <li>Carried out functional and performance testing of assembled example devices.</li>\n    <li>Completed final verification of build and quality documentation before dispatch.</li>\n  </ul>\n</div>\n\n<h2>Education</h2>\n<div class=\"edu\">\n  <div class=\"row\"><span class=\"deg\">Example Institute of Technology, Springfield</span><span>Sep 2016 - Jun 2020</span></div>\n  <div class=\"row\"><span><i>B.E. Example Engineering</i>, GPA 8.10/10</span><span></span></div>\n</div>\n\n</body>\n</html>\n"
+     },
+     "plain_text": " environments.</li>\n    <li>Met recovery targets by designing multi-zone topologies on AWS, provisioned with Terraform and configured with Ansible across EC2, VPC, IAM, S3, RDS, ELB and CloudWatch, proven through 4 scheduled failover tests a year.</li>\n    <li>Held first-line responsibility on a rotating 24/7 on-call for a production web application, triaging incidents from alert to root cause with no major escalation during the support period.</li>\n    <li>Automated monthly patching and configuration drift checks for 30 Linux and Windows servers with Ansible playbooks run from a scheduled pipeline, cutting the maintenance window from a full day to two hours.</li>\n    <li>Built central monitoring and alerting with Prometheus, Grafana and CloudWatch across 12 instances, meeting the agreed availability target throughout the contract.</li>\n  </ul>\n</div>\n\n<div class=\"job\">\n  <div class=\"row\"><span class=\"co\">DEMO WORKS</span><span>Springfield, Exampleland</span></div>\n  <div class=\"row\"><span class=\"role\">Trainee</span><span>Jul 2020 - Dec 2020</span></div>\n  <ul class=\"b\">\n    <li>Carried out functional and performance testing of assembled example devices.</li>\n    <li>Completed final verification of build and quality documentation before dispatch.</li>\n  </ul>\n</div>\n\n<h2>Education</h2>\n<div class=\"edu\">\n  <div class=\"row\"><span class=\"deg\">Example Institute of Technology, Springfield</span><span>Sep 2016 - Jun 2020</span></div>\n  <div class=\"row\"><span><i>B.E. Example Engineering</i>, GPA 8.10/10</span><span></span></div>\n</div>\n\n</body>\n</html>\n"
+    }
+   ]
+  }
+ },
+ {
+  "object": "block",
+  "type": "paragraph",
+  "paragraph": {
+   "rich_text": [
+    {
+     "type": "text",
+     "text": {
+      "content": "Certifications block (insert between Experience and Education only when enabled):"
+     },
+     "plain_text": "Certifications block (insert between Experience and Education only when enabled):"
+    }
+   ]
+  }
+ },
+ {
+  "object": "block",
+  "type": "code",
+  "code": {
+   "language": "html",
+   "rich_text": [
+    {
+     "type": "text",
+     "text": {
+      "content": "<h2>Certifications</h2>\n<p><b>Example Cloud Certificate (ECC)</b>, Example Foundation, Jan 2026</p>"
+     },
+     "plain_text": "<h2>Certifications</h2>\n<p><b>Example Cloud Certificate (ECC)</b>, Example Foundation, Jan 2026</p>"
+    }
+   ]
+  }
+ },
+ {
+  "object": "block",
+  "type": "code",
+  "code": {
+   "language": "python",
+   "rich_text": [
+    {
+     "type": "text",
+     "text": {
+      "content": "print('render command for Alex Example')"
+     },
+     "plain_text": "print('render command for Alex Example')"
+    }
+   ]
+  }
+ }
+]

@@ -59,5 +59,70 @@
     "Key": "ireland.agency_names",
     "Value": "Harbour Talent Partners, Liffey Recruitment",
     "Type": "Setting"
+  },
+  {
+    "Key": "profile.name",
+    "Value": "Alex Example",
+    "Type": "Profile"
+  },
+  {
+    "Key": "profile.email",
+    "Value": "alex@example.com",
+    "Type": "Profile"
+  },
+  {
+    "Key": "profile.phone",
+    "Value": "+1 555 010 0000",
+    "Type": "Profile"
+  },
+  {
+    "Key": "profile.website",
+    "Value": "alex.example.com",
+    "Type": "Profile"
+  },
+  {
+    "Key": "profile.website_url",
+    "Value": "https://alex.example.com",
+    "Type": "Profile"
+  },
+  {
+    "Key": "profile.github",
+    "Value": "https://github.com/alex-example",
+    "Type": "Profile"
+  },
+  {
+    "Key": "profile.linkedin_url",
+    "Value": "https://www.linkedin.com/in/alex-example/",
+    "Type": "Profile"
+  },
+  {
+    "Key": "resume.relocation_line",
+    "Value": "Open to relocation within Europe",
+    "Type": "Setting"
+  },
+  {
+    "Key": "resume.filename",
+    "Value": "Alex_Devops_<Company>.pdf",
+    "Type": "Setting"
+  },
+  {
+    "Key": "resume.shrink_job_when_certs",
+    "Value": "DEMO WORKS",
+    "Type": "Setting"
+  },
+  {
+    "Key": "resume.ncr_short_bullet",
+    "Value": "Functional testing of assembled example devices and final verification of build documentation.",
+    "Type": "Setting"
+  },
+  {
+    "Key": "drive.resume_folder",
+    "Value": "Job Engine Resumes",
+    "Type": "Setting"
+  },
+  {
+    "Key": "resume.max_revisions",
+    "Value": "5",
+    "Type": "Setting"
   }
 ]
