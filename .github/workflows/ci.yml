@@ -1,0 +1,37 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    env:
+      APP_ENV: local
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install
+        run: pip install -e ".[dev]"
+
+      - name: Lint
+        run: ruff check .
+
+      - name: Test
+        run: pytest -q
+
+      - name: Smoke test
+        run: APP_ENV=local python -m jobengine.main
+
+      - name: Telegram bot smoke test (fake Telegram, no network)
+        run: printf '/start\n/status\n/help\n' | APP_ENV=local python -m jobengine.telegram_bot --fake
+
+      - name: Sweep smoke test (fake sources, no network)
+        run: APP_ENV=local python -m jobengine.sweep --fake --today 2026-10-01

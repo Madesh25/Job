@@ -1,0 +1,37 @@
+[
+  {
+    "name": "Northwind Cloud",
+    "careers_url": "https://boards.greenhouse.io/northwindcloud",
+    "ats_platform": "Greenhouse",
+    "active": true,
+    "region": "Ireland"
+  },
+  {
+    "name": "Tulip Data B.V.",
+    "careers_url": "https://jobs.eu.lever.co/tulipdata",
+    "ats_platform": "Lever",
+    "active": true,
+    "region": "Netherlands"
+  },
+  {
+    "name": "Vistula Payments",
+    "careers_url": "https://jobs.smartrecruiters.com/VistulaPayments",
+    "ats_platform": "SmartRecruiters",
+    "active": true,
+    "region": "Poland"
+  },
+  {
+    "name": "Baltic Bank",
+    "careers_url": "https://balticbank.wd3.myworkdayjobs.com/careers",
+    "ats_platform": "Workday",
+    "active": true,
+    "region": "Poland"
+  },
+  {
+    "name": "Shamrock Systems",
+    "careers_url": "https://careers.shamrocksystems.example.com/jobs",
+    "ats_platform": "Custom",
+    "active": true,
+    "region": "Ireland"
+  }
+]

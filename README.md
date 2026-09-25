@@ -1,1 +1,72 @@
+# Job Engine
 
+Job Engine is a personal job search bot for Madeshwaran M, a DevOps engineer looking for roles in Poland, the Netherlands and Ireland. It finds and screens openings, builds tailored resumes, finds contacts, drafts outreach emails in Gmail and tracks everything in Notion, with Telegram as the control surface. This repository currently holds the foundation: environments, configuration and the safety layer that keeps test runs away from production data and real people.
+
+## Run locally
+
+```bash
+python3.12 -m venv .venv
+source .venv/bin/activate
+pip install -e ".[dev]"
+cp .env.example .env   # fill in dev values only
+python -m jobengine.main
+```
+
+`APP_ENV` defaults to `local` and `DRY_RUN` defaults to `true`.
+
+## Run the Telegram bot (local)
+
+### With a dummy Telegram (no token, no network)
+
+```bash
+python -m jobengine.telegram_bot --fake
+```
+
+Each line you type is treated as a message from your chat and the bot's replies are printed:
+
+```
+you> /start
+bot> [LOCAL] Job Engine bot is running (env=local).
+```
+
+Stop it with Ctrl+D or Ctrl+C.
+
+### With the real DEV bot
+
+Put the DEV bot token and your chat ID in `.env`:
+
+```
+TELEGRAM_BOT_TOKEN=<token from @BotFather>
+TELEGRAM_CHAT_ID=<your chat id>
+```
+
+Then start the bot and leave it running:
+
+```bash
+python -m jobengine.telegram_bot
+```
+
+It sends `[LOCAL] Job Engine bot started.` to your chat and answers `/start`, `/status` and
+`/help`. Messages from any other chat are ignored. Stop it with Ctrl+C.
+
+## Run the job sweep
+
+```bash
+python -m jobengine.sweep --fake --today 2026-10-01   # fixtures only, no network
+python -m jobengine.sweep --parse-report              # check the Gmail parser, writes nothing
+```
+
+`/fetch` in the Telegram bot runs the same sweep. See [docs/sweep.md](docs/sweep.md).
+
+## Run tests
+
+```bash
+ruff check .
+pytest
+```
+
+## Docs
+
+- [Branching model](docs/branching.md)
+- [Environments and safety rules](docs/environments.md)
+- [Job sweep](docs/sweep.md)

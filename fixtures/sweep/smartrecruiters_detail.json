@@ -1,0 +1,17 @@
+{
+  "id": "744000011111111",
+  "name": "DevOps Engineer",
+  "releasedDate": "2026-09-25T10:00:00.000Z",
+  "company": {"identifier": "VistulaPayments", "name": "Vistula Payments"},
+  "location": {"city": "Warszawa", "region": "Mazowieckie", "country": "pl", "remote": false},
+  "postingUrl": "https://jobs.smartrecruiters.com/VistulaPayments/744000011111111-devops-engineer",
+  "applyUrl": "https://jobs.smartrecruiters.com/VistulaPayments/744000011111111-devops-engineer?oga=true",
+  "jobAd": {
+    "sections": {
+      "companyDescription": {"title": "Company Description", "text": "<p>Vistula Payments processes card payments across Poland.</p>"},
+      "jobDescription": {"title": "Job Description", "text": "<p>Run our GCP and Kubernetes platform.</p>"},
+      "qualifications": {"title": "Qualifications", "text": "<ul><li>min. 3 lata doświadczenia z Kubernetes</li><li>Terraform</li></ul>"},
+      "additionalInformation": {"title": "Additional Information", "text": "<p>Hybrid work from Warszawa.</p>"}
+    }
+  }
+}

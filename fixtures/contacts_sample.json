@@ -1,0 +1,34 @@
+[
+  {
+    "name": "Alex Peer",
+    "title": "Senior DevOps Engineer",
+    "role_type": "peer",
+    "email": "alex.peer@example.com",
+    "company": "Example Corp",
+    "country": "Netherlands"
+  },
+  {
+    "name": "Sam Builder",
+    "title": "Platform Engineer",
+    "role_type": "peer",
+    "email": "sam.builder@example.com",
+    "company": "Example Corp",
+    "country": "Poland"
+  },
+  {
+    "name": "Jordan Lead",
+    "title": "Engineering Manager, Infrastructure",
+    "role_type": "hiring_manager",
+    "email": "jordan.lead@example.com",
+    "company": "Example Corp",
+    "country": "Ireland"
+  },
+  {
+    "name": "Casey Talent",
+    "title": "Technical Recruiter",
+    "role_type": "recruiter",
+    "email": "casey.talent@example.com",
+    "company": "Example Corp",
+    "country": "Netherlands"
+  }
+]
