@@ -1,0 +1,110 @@
+# Deploy to Cloud Run after CI passes: develop -> job-engine-dev, main -> job-engine-prod.
+#
+# No keys: GitHub authenticates to Google with Workload Identity Federation. Repository
+# VARIABLES (not secrets, none of them is sensitive): GCP_WIF_PROVIDER, GCP_DEPLOY_SA,
+# GCP_PROJECT_ID, GCP_PROJECT_NUMBER, GCP_REGION.
+#
+# DRY_RUN is never set here. Env vars are applied with --update-env-vars, which keeps every
+# other variable on the service, so a DRY_RUN value set by hand at go-live survives deploys.
+# Secrets come from Secret Manager (--set-secrets); see docs/deploy.md.
+name: Deploy
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [develop, main]
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: deploy-${{ github.event.workflow_run.head_branch }}
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    # Only a push to develop or main whose CI run succeeded.
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
+      (github.event.workflow_run.head_branch == 'develop' ||
+       github.event.workflow_run.head_branch == 'main')
+    runs-on: ubuntu-latest
+    environment: ${{ github.event.workflow_run.head_branch == 'main' && 'prod' || 'dev' }}
+    env:
+      PROJECT: ${{ vars.GCP_PROJECT_ID }}
+      PROJECT_NUMBER: ${{ vars.GCP_PROJECT_NUMBER }}
+      REGION: ${{ vars.GCP_REGION }}
+      SHA: ${{ github.event.workflow_run.head_sha }}
+      BRANCH: ${{ github.event.workflow_run.head_branch }}
+    steps:
+      - name: Checkout the commit CI tested
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+
+      - name: Authenticate to Google Cloud (Workload Identity Federation)
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3.0.0
+        with:
+          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOY_SA }}
+
+      - name: Set up gcloud
+        uses: google-github-actions/setup-gcloud@aa5489c8933f4cc7a4f7d45035b3b1440c9c10db # v3.0.1
+
+      - name: Choose the environment
+        run: |
+          if [ "$BRANCH" = "main" ]; then
+            {
+              echo "APP_ENV=prod"
+              echo "SERVICE=job-engine-prod"
+              echo "RUNTIME_SA=job-pipeline-runner@${PROJECT}.iam.gserviceaccount.com"
+              echo "SECRETS=NOTION_TOKEN=notion-token-prod:latest,TELEGRAM_BOT_TOKEN=telegram-token-prod:latest,TELEGRAM_CHAT_ID=telegram-chat-id:latest,TELEGRAM_WEBHOOK_SECRET=telegram-webhook-secret-prod:latest,ANTHROPIC_API_KEY=anthropic-key-prod:latest,GMAIL_ALERTS_TOKEN_JSON=gmail-m02-token:latest,GMAIL_SENDER_TOKEN_JSON=gmail-main-token:latest,ADZUNA_APP_ID=adzuna-app-id:latest,ADZUNA_APP_KEY=adzuna-app-key:latest,APOLLO_API_KEY=apollo-api-key:latest,HUNTER_API_KEY=hunter-api-key:latest,SNOV_CLIENT_ID=snov-client-id:latest,SNOV_CLIENT_SECRET=snov-client-secret:latest"
+            } >> "$GITHUB_ENV"
+          else
+            {
+              echo "APP_ENV=dev"
+              echo "SERVICE=job-engine-dev"
+              echo "RUNTIME_SA=job-engine-dev-runner@${PROJECT}.iam.gserviceaccount.com"
+              echo "SECRETS=NOTION_TOKEN=notion-token-dev:latest,TELEGRAM_BOT_TOKEN=telegram-token-dev:latest,TELEGRAM_CHAT_ID=telegram-chat-id:latest,TELEGRAM_WEBHOOK_SECRET=telegram-webhook-secret-dev:latest,ANTHROPIC_API_KEY=anthropic-key-dev:latest,GMAIL_ALERTS_TOKEN_JSON=gmail-m02-token:latest,GMAIL_SENDER_TOKEN_JSON=gmail-m02-token:latest,ADZUNA_APP_ID=adzuna-app-id:latest,ADZUNA_APP_KEY=adzuna-app-key:latest"
+            } >> "$GITHUB_ENV"
+          fi
+
+      - name: Build and push the image
+        run: |
+          IMAGE="${REGION}-docker.pkg.dev/${PROJECT}/job-engine/job-engine:${SHA}"
+          echo "IMAGE=${IMAGE}" >> "$GITHUB_ENV"
+          gcloud auth configure-docker "${REGION}-docker.pkg.dev" --quiet
+          docker build --pull -t "${IMAGE}" .
+          docker push "${IMAGE}"
+
+      - name: Deploy to Cloud Run
+        run: |
+          # The service URL is fixed by name, project number and region, so the first
+          # revision already starts with the right OIDC audience.
+          SERVICE_URL="https://${SERVICE}-${PROJECT_NUMBER}.${REGION}.run.app"
+          gcloud run deploy "${SERVICE}" \
+            --project "${PROJECT}" \
+            --region "${REGION}" \
+            --image "${IMAGE}" \
+            --service-account "${RUNTIME_SA}" \
+            --set-secrets "${SECRETS}" \
+            --update-env-vars "APP_ENV=${APP_ENV},BOT_MODE=webhook,SERVICE_URL=${SERVICE_URL},SCHEDULER_SA_EMAIL=job-engine-scheduler@${PROJECT}.iam.gserviceaccount.com" \
+            --no-cpu-throttling \
+            --min-instances 0 \
+            --max-instances 1 \
+            --concurrency 4 \
+            --memory 1Gi \
+            --cpu 1 \
+            --timeout 900 \
+            --allow-unauthenticated \
+            --quiet
+
+      - name: Health check
+        run: |
+          URL="$(gcloud run services describe "${SERVICE}" --project "${PROJECT}" \
+            --region "${REGION}" --format='value(status.url)')"
+          test "$(curl -fsS "${URL}/healthz")" = "ok"
+          echo "Deployed ${SERVICE} ${SHA} at ${URL}"

@@ -255,3 +255,34 @@ def test_dockerfile_bakes_in_no_secrets():
             assert not re.search(r"TOKEN|KEY|SECRET", line, re.I), line
     assert "DRY_RUN" not in text  # it stays at its safe default (true)
     assert 'CMD ["python", "-m", "jobengine.web"]' in text
+
+
+def test_deploy_workflow_uses_wif_and_never_turns_dry_run_off():
+    import yaml
+
+    text = (ROOT / ".github" / "workflows" / "deploy.yml").read_text()
+    flow = yaml.safe_load(text)
+    assert "credentials_json" not in text
+    assert "DRY_RUN=false" not in text
+    code = [line for line in text.splitlines() if not line.strip().startswith("#")]
+    assert not any("DRY_RUN" in line for line in code)
+    assert "--set-env-vars" not in text and "--update-env-vars" in text
+    assert "workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}" in text
+    assert "secrets." not in text  # nothing sensitive is needed by the workflow
+    assert flow["permissions"] == {"contents": "read", "id-token": "write"}
+    # "on" is parsed as True by YAML 1.1.
+    trigger = flow.get("on") or flow.get(True)
+    assert trigger["workflow_run"]["workflows"] == ["CI"]
+    # Every action is pinned to a full commit SHA.
+    uses = re.findall(r"uses:\s*([^\s#]+)", text)
+    assert uses and all(re.search(r"@[0-9a-f]{40}$", u) for u in uses), uses
+
+
+def test_dev_service_gets_no_prod_only_secrets():
+    text = (ROOT / ".github" / "workflows" / "deploy.yml").read_text()
+    dev_line = next(line for line in text.splitlines()
+                    if "SECRETS=" in line and "notion-token-dev" in line)
+    for prod_only in ("gmail-main-token", "apollo-api-key", "hunter-api-key", "snov-client",
+                      "notion-token-prod", "telegram-token-prod", "anthropic-key-prod",
+                      "telegram-webhook-secret-prod"):
+        assert prod_only not in dev_line, prod_only
