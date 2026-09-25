@@ -20,6 +20,11 @@ from jobengine.settings import Settings, get_settings
 
 log = logging.getLogger("jobengine.http")
 
+# httpx and httpcore log every request URL, query string included, at INFO/DEBUG.
+# The Adzuna key travels in the query string, so their logs are kept at WARNING and above.
+for _name in ("httpx", "httpcore"):
+    logging.getLogger(_name).setLevel(logging.WARNING)
+
 TIMEOUT_SECONDS = 20
 MAX_429_RETRIES = 3
 

@@ -40,7 +40,8 @@ def main(argv: list[str] | None = None) -> int:
                         help="print what the Gmail alert parser extracts, write nothing")
     args = parser.parse_args(argv)
 
-    logging.basicConfig(level=logging.WARNING, format="%(levelname)s %(message)s")
+    # Progress lines go to stderr; the summary is printed to stdout at the end.
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s", datefmt="%H:%M:%S")
     try:
         s = get_settings()
         check_startup(s)

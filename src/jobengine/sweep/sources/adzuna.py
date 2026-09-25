@@ -7,6 +7,7 @@ config sweep.adzuna.currency lists.
 
 from __future__ import annotations
 
+import logging
 import re
 from collections.abc import Callable, Mapping
 from datetime import date
@@ -15,6 +16,8 @@ from typing import Any
 from jobengine import http
 from jobengine.settings import Settings
 from jobengine.sweep.models import RawPosting, SourceResult
+
+log = logging.getLogger("jobengine.sweep")
 
 SOURCE = "adzuna"
 BOARD = "Adzuna"
@@ -87,15 +90,14 @@ def fetch(s: Settings, get: Getter | None = None) -> SourceResult:
 
     per_page = int(cfg.get("results_per_page", 50))
     max_calls = int(cfg.get("max_calls_per_run", 6))
-    calls = 0
-    limited = False
-    for cc in cfg.get("countries") or []:
+    countries = list(cfg.get("countries") or [])
+    for cc, budget in zip(countries, split_budget(max_calls, len(countries)), strict=True):
         currency = (cfg.get("currency") or {}).get(cc, "")
         page = 1
         more = True
         while more:
-            if calls >= max_calls:
-                limited = True
+            if page > budget:
+                result.notes.append(f"adzuna {cc}: stopped at its limit of {budget} calls")
                 break
             params = {
                 "app_id": s.adzuna_app_id or "",
@@ -105,16 +107,22 @@ def fetch(s: Settings, get: Getter | None = None) -> SourceResult:
                 "what_or": cfg.get("what_or", ""),
                 "content-type": "application/json",
             }
-            calls += 1
             try:
                 data = get(SEARCH_URL.format(cc=cc, page=page), params)
             except http.HttpError as exc:
                 result.notes.append(f"adzuna {cc}: {exc}")
                 break
             results = data.get("results") or []
+            log.info("adzuna %s page %d: %d postings", cc, page, len(results))
             result.postings.extend(to_posting(item, currency) for item in results)
             more = len(results) >= per_page
             page += 1
-    if limited:
-        result.notes.append(f"adzuna: stopped at the limit of {max_calls} calls")
     return result
+
+
+def split_budget(max_calls: int, countries: int) -> list[int]:
+    """Share max_calls_per_run fairly between countries, so every country gets searched."""
+    if countries <= 0:
+        return []
+    base, extra = divmod(max_calls, countries)
+    return [base + (1 if i < extra else 0) for i in range(countries)]

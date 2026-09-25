@@ -22,6 +22,9 @@ python -m jobengine.sweep --parse-report
 In Telegram, `/fetch` runs the same sweep and replies with the summary. With
 `python -m jobengine.telegram_bot --fake`, `/fetch` uses the fixtures and the in-memory repo.
 
+Progress lines (time, source counts, pages, rows processed) go to stderr while it runs; the
+summary is printed at the end.
+
 `--fake` runs default to `--today 2026-10-01` so the fixture dates and the strategy gate stay
 meaningful. Exit codes: 0 done, 1 could not run (for example `NOTION_TOKEN` missing), 2 blocked
 by the strategy gate.
@@ -51,7 +54,7 @@ source; **Not supported** Target Companies on Workday, Custom or unknown boards.
 | Source | Needs | Notes |
 |---|---|---|
 | Gmail alerts | `GMAIL_ALERTS_TOKEN_JSON` (madeshwaranm02, `gmail.readonly`) | Query `sweep.gmail.query`. Board from the sender domain. Links are read from the email and never requested, tracking links included. Descriptions are never set. |
-| Adzuna | `ADZUNA_APP_ID`, `ADZUNA_APP_KEY` | `pl` and `nl` only, at most `sweep.adzuna.max_calls_per_run` calls. The description is a snippet. Predicted salaries are ignored. |
+| Adzuna | `ADZUNA_APP_ID`, `ADZUNA_APP_KEY` | `pl` and `nl` only, at most `sweep.adzuna.max_calls_per_run` calls, split evenly between the countries (3 each by default) so every country is searched. The description is a snippet. Predicted salaries are ignored. |
 | ATS feeds | nothing | Active Target Companies on Greenhouse, Lever or SmartRecruiters, detected from `Careers URL` or `sweep.ats_boards`. Board is `Company site`. |
 
 A source whose secret is missing is skipped with a line in the summary; the run continues.
@@ -132,6 +135,8 @@ High is never skipped. It is only reported, last in the summary.
   which uses only `users.messages.list` and `users.messages.get`.
 - Notion: `Notion-Version: 2025-09-03`, data source endpoints, about 3 requests per second,
   HTTP 429 retried with `Retry-After`. The sweep never changes a Notion schema.
+- The `httpx` and `httpcore` loggers are kept at WARNING, because they would otherwise log full
+  request URLs, Adzuna key included.
 - Tests and CI never touch the network (`tests/conftest.py` makes any socket connection fail).
 
 ## Fixtures
