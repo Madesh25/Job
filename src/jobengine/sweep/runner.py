@@ -105,7 +105,9 @@ def run_sweep(
     repo = deps.repo
     if repo is None:
         summary.notes.append("DRY RUN: would write to job_opportunities (no rows written)")
+    log.info("loading Job Opportunities index...")
     index: dict[str, IndexRow] = {row.dedupe_key: row for row in repo.load_index()} if repo else {}
+    log.info("index: %d existing rows", len(index))
     companies = deps.companies() if "ats" in sources else []
 
     results: list[SourceResult] = []
@@ -118,17 +120,24 @@ def run_sweep(
         except http.HttpError as exc:
             result = SourceResult(name=name, skipped_reason=f"{name} failed: {exc}")
         summary.sources[name] = len(result.postings)
+        log.info("%s: %d postings collected", name, len(result.postings))
         summary.not_supported += len(result.not_supported)
         if result.skipped_reason:
             summary.notes.append(result.skipped_reason)
         summary.notes.extend(result.notes)
         results.append(result)
 
+    total = sum(len(result.postings) for result in results)
+    log.info("normalising and writing %d postings...", total)
+    done = 0
     touched: dict[str, tuple[str, str]] = {}  # dedupe key -> (label, ghost risk)
     with_body: set[str] = set()
     dry_ids = 0
     for result in results:
         for raw in result.postings:
+            done += 1
+            if done % 25 == 0:
+                log.info("... %d of %d postings processed", done, total)
             outcome = normalize(raw, rules, active)
             if isinstance(outcome, Skipped):
                 summary.skipped += 1

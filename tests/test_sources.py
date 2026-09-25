@@ -190,7 +190,7 @@ def test_adzuna_skipped_without_keys():
     assert result.postings == []
 
 
-def test_adzuna_respects_call_limit_and_params():
+def test_adzuna_splits_call_limit_between_countries():
     calls = []
 
     def get(url, params):
@@ -205,8 +205,35 @@ def test_adzuna_respects_call_limit_and_params():
         "what_or": "devops sre kubernetes platform cloud infrastructure",
         "content-type": "application/json",
     }
-    assert calls[1][0].endswith("/pl/search/2")
-    assert "adzuna: stopped at the limit of 6 calls" in result.notes
+    # Poland no longer uses the whole budget: 3 calls each, so the Netherlands is searched.
+    assert [url.split("/jobs/")[1] for url, _ in calls] == [
+        "pl/search/1", "pl/search/2", "pl/search/3",
+        "nl/search/1", "nl/search/2", "nl/search/3",
+    ]
+    assert result.notes == [
+        "adzuna pl: stopped at its limit of 3 calls",
+        "adzuna nl: stopped at its limit of 3 calls",
+    ]
+
+
+def test_adzuna_short_pages_use_no_more_calls():
+    calls = []
+
+    def get(url, params):
+        calls.append(url)
+        return {"results": [{"id": "1", "title": "SRE"}] * 10}
+
+    s = load_settings("local", {"ADZUNA_APP_ID": "id", "ADZUNA_APP_KEY": "key"})
+    result = adzuna.fetch(s, get=get)
+    assert len(calls) == 2 and result.notes == []
+
+
+@pytest.mark.parametrize(
+    "max_calls, countries, expected",
+    [(6, 2, [3, 3]), (7, 2, [4, 3]), (1, 2, [1, 0]), (6, 0, [])],
+)
+def test_split_budget(max_calls, countries, expected):
+    assert adzuna.split_budget(max_calls, countries) == expected
 
 
 @pytest.mark.parametrize(

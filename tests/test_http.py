@@ -127,3 +127,26 @@ def test_network_error_is_wrapped(monkeypatch):
             http.get_json("https://api.lever.co/v0/postings/acme?mode=json", s=S)
     finally:
         http.set_transport(None)
+
+
+def test_http_library_request_logs_are_silenced():
+    """httpx logs full URLs (with the Adzuna key) at INFO; it must stay at WARNING."""
+    import logging
+
+    for name in ("httpx", "httpcore"):
+        assert logging.getLogger(name).getEffectiveLevel() >= logging.WARNING
+
+
+def test_query_string_never_reaches_logs(transport, caplog):
+    import logging
+
+    logging.getLogger().setLevel(logging.DEBUG)
+    try:
+        with caplog.at_level(logging.DEBUG):
+            http.get_json(
+                "https://api.adzuna.com/v1/api/jobs/pl/search/1",
+                params={"app_key": "super-secret-key"}, s=S,
+            )
+    finally:
+        logging.getLogger().setLevel(logging.WARNING)
+    assert "super-secret-key" not in caplog.text
