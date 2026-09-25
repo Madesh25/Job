@@ -1,0 +1,272 @@
+[
+ {
+  "object": "block",
+  "type": "paragraph",
+  "paragraph": {
+   "rich_text": [
+    {
+     "type": "text",
+     "text": {
+      "content": "Invented test copy of the V16 page. Not the real rules."
+     },
+     "annotations": {
+      "bold": false
+     },
+     "plain_text": "Invented test copy of the V16 page. Not the real rules."
+    }
+   ]
+  }
+ },
+ {
+  "object": "block",
+  "type": "heading_1",
+  "heading_1": {
+   "rich_text": [
+    {
+     "type": "text",
+     "text": {
+      "content": "What changed"
+     },
+     "annotations": {
+      "bold": false
+     },
+     "plain_text": "What changed"
+    }
+   ]
+  }
+ },
+ {
+  "object": "block",
+  "type": "paragraph",
+  "paragraph": {
+   "rich_text": [
+    {
+     "type": "text",
+     "text": {
+      "content": "Invented text."
+     },
+     "annotations": {
+      "bold": false
+     },
+     "plain_text": "Invented text."
+    }
+   ]
+  }
+ },
+ {
+  "object": "block",
+  "type": "heading_1",
+  "heading_1": {
+   "rich_text": [
+    {
+     "type": "text",
+     "text": {
+      "content": "Non-negotiables, hard fails"
+     },
+     "annotations": {
+      "bold": false
+     },
+     "plain_text": "Non-negotiables, hard fails"
+    }
+   ]
+  }
+ },
+ {
+  "object": "block",
+  "type": "bulleted_list_item",
+  "bulleted_list_item": {
+   "rich_text": [
+    {
+     "type": "text",
+     "text": {
+      "content": "Add a term that no Term Map or Skills row backs."
+     },
+     "annotations": {
+      "bold": false
+     },
+     "plain_text": "Add a term that no Term Map or Skills row backs."
+    }
+   ]
+  }
+ },
+ {
+  "object": "block",
+  "type": "bulleted_list_item",
+  "bulleted_list_item": {
+   "rich_text": [
+    {
+     "type": "text",
+     "text": {
+      "content": "Add, remove or reorder resume bullets."
+     },
+     "annotations": {
+      "bold": false
+     },
+     "plain_text": "Add, remove or reorder resume bullets."
+    }
+   ]
+  }
+ },
+ {
+  "object": "block",
+  "type": "bulleted_list_item",
+  "bulleted_list_item": {
+   "rich_text": [
+    {
+     "type": "text",
+     "text": {
+      "content": "Change sections outside the Resume Sections table."
+     },
+     "annotations": {
+      "bold": false
+     },
+     "plain_text": "Change sections outside the Resume Sections table."
+    }
+   ]
+  }
+ },
+ {
+  "object": "block",
+  "type": "bulleted_list_item",
+  "bulleted_list_item": {
+   "rich_text": [
+    {
+     "type": "text",
+     "text": {
+      "content": "Use a long dash anywhere."
+     },
+     "annotations": {
+      "bold": false
+     },
+     "plain_text": "Use a long dash anywhere."
+    }
+   ]
+  }
+ },
+ {
+  "object": "block",
+  "type": "bulleted_list_item",
+  "bulleted_list_item": {
+   "rich_text": [
+    {
+     "type": "text",
+     "text": {
+      "content": "Exceed one page."
+     },
+     "annotations": {
+      "bold": false
+     },
+     "plain_text": "Exceed one page."
+    }
+   ]
+  }
+ },
+ {
+  "object": "block",
+  "type": "bulleted_list_item",
+  "bulleted_list_item": {
+   "rich_text": [
+    {
+     "type": "text",
+     "text": {
+      "content": "Inject a missing keyword to match a job description."
+     },
+     "annotations": {
+      "bold": false
+     },
+     "plain_text": "Inject a missing keyword to match a job description."
+    }
+   ]
+  }
+ },
+ {
+  "object": "block",
+  "type": "bulleted_list_item",
+  "bulleted_list_item": {
+   "rich_text": [
+    {
+     "type": "text",
+     "text": {
+      "content": "Invent a metric, date, salary or contact."
+     },
+     "annotations": {
+      "bold": false
+     },
+     "plain_text": "Invent a metric, date, salary or contact."
+    }
+   ]
+  }
+ },
+ {
+  "object": "block",
+  "type": "bulleted_list_item",
+  "bulleted_list_item": {
+   "rich_text": [
+    {
+     "type": "text",
+     "text": {
+      "content": "Deliver a resume for a Skip row."
+     },
+     "annotations": {
+      "bold": false
+     },
+     "plain_text": "Deliver a resume for a Skip row."
+    }
+   ]
+  }
+ },
+ {
+  "object": "block",
+  "type": "bulleted_list_item",
+  "bulleted_list_item": {
+   "rich_text": [
+    {
+     "type": "text",
+     "text": {
+      "content": "A ninth invented rule that /rules does not show."
+     },
+     "annotations": {
+      "bold": false
+     },
+     "plain_text": "A ninth invented rule that /rules does not show."
+    }
+   ]
+  }
+ },
+ {
+  "object": "block",
+  "type": "heading_1",
+  "heading_1": {
+   "rich_text": [
+    {
+     "type": "text",
+     "text": {
+      "content": "1. Locked facts"
+     },
+     "annotations": {
+      "bold": false
+     },
+     "plain_text": "1. Locked facts"
+    }
+   ]
+  }
+ },
+ {
+  "object": "block",
+  "type": "bulleted_list_item",
+  "bulleted_list_item": {
+   "rich_text": [
+    {
+     "type": "text",
+     "text": {
+      "content": "Not a non-negotiable."
+     },
+     "annotations": {
+      "bold": false
+     },
+     "plain_text": "Not a non-negotiable."
+    }
+   ]
+  }
+ }
+]

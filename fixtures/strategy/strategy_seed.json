@@ -1,0 +1,29 @@
+[
+ {
+  "page_id": "st-seed-1",
+  "Tip / rule": "Ask a peer engineer for a referral before you apply through the job portal.",
+  "Category": "Outreach",
+  "Status": "Adopted",
+  "Source": "https://www.example.org/outreach/referrals-work",
+  "Date added": "2026-09-01",
+  "Notes": "invented seed row"
+ },
+ {
+  "page_id": "st-seed-2",
+  "Tip / rule": "Keep the resume to one page for roles with under five years of experience.",
+  "Category": "Resume",
+  "Status": "Adopted",
+  "Source": "https://guides.example.com/one-page",
+  "Date added": "2026-09-01",
+  "Notes": "invented seed row"
+ },
+ {
+  "page_id": "st-seed-3",
+  "Tip / rule": "Put a photo on the resume for Polish applications.",
+  "Category": "Resume",
+  "Status": "Rejected",
+  "Source": "https://guides.example.com/photos",
+  "Date added": "2026-09-01",
+  "Notes": "invented seed row"
+ }
+]
