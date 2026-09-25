@@ -117,7 +117,7 @@ def run_sweep(
 
     sources = [name for name in SOURCES if name in set(sources)]
     config = deps.config()
-    blocked = strategy_gate(config, today)
+    blocked = strategy_gate(config, today, state, s)
     if blocked:
         return SweepSummary(blocked=blocked)
 

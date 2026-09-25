@@ -88,6 +88,28 @@ tracking:
                        teamtailor.com, recruitee.com, personio.de, successfactors.com, icims.com]
   opt_out_phrases: ["do not contact", "remove me", "unsubscribe", "not interested, please stop",
                     "nie kontaktuj"]
+strategy:
+  # Defaults; Notion Config strategy.max_tips and strategy.max_searches win.
+  max_tips: 8
+  max_searches: 8
+  # Myths that are logged as Rejected automatically (case-insensitive substring or regex).
+  reject_patterns:
+    - keyword stuffing
+    - stuff (the )?(resume|cv) with keywords
+    - (white|hidden|invisible) text
+    - ats score
+    - ats (checker|scanner|scoring tool)
+    - resume score
+    - (copy|paste|mirror)(ing)? the (whole|entire|full) job (description|posting|ad)
+    - fake experience
+    - (invent|fabricat|exaggerat)\w* (your |a )?(experience|skills?|titles?|metrics?)
+    - mass (apply|applying|applications?)
+    - same (cv|resume|mail|email|message) to (every|all|hundreds)
+    - tracking pixels?
+    - (email|mail) tracking
+    - read receipts?
+  # Similar tip text at or above this rapidfuzz ratio is a duplicate.
+  duplicate_ratio: 85
 drive:
   resume_folder: Job Engine Resumes
 mail:

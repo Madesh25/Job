@@ -218,3 +218,21 @@ def test_contact_fixtures_use_invented_addresses_only():
         for domain in email.findall(path.read_text(encoding="utf-8")):
             ok = domain.endswith(allowed) or domain == "gmail.com"  # the personal-address case
             assert ok, f"{path.name}: {domain}"
+
+
+def test_protected_notion_pages_are_only_linked_never_targeted():
+    """Module 08: the V16 page, Build Spec and templates are edited by hand. Their IDs may
+    appear in src/ only as a link (https://app.notion.com/p/...), never as a request target.
+    NotionClient also refuses any write to them at runtime (check_page_write)."""
+    import yaml
+
+    pages = yaml.safe_load((ROOT / "config" / "base.yaml").read_text())["notion"]["pages"]
+    ids = {pid.replace("-", "").lower() for pid in pages.values()}
+    offenders = []
+    for p in src_files():
+        for line in p.read_text(encoding="utf-8").splitlines():
+            flat = line.replace("-", "").lower()
+            for pid in ids:
+                if pid in flat and "app.notion.com/p/" not in line:
+                    offenders.append(f"{p.relative_to(ROOT).as_posix()}: {line.strip()}")
+    assert offenders == []

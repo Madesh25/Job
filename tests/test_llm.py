@@ -118,3 +118,57 @@ def test_fake_llm_reads_fixtures_and_records_calls(tmp_path):
     assert fake.calls[0]["key"] == "job1"
     with pytest.raises(LLMError, match="no fixture"):
         fake.complete_json("score", "s", "u", key="missing")
+
+
+# ---------------------------------------------------------------- web search (Module 08)
+
+
+def search_reply(text, stop="end_turn"):
+    blocks = [
+        {"type": "server_tool_use", "id": "srv1", "name": "web_search",
+         "input": {"query": "devops ats"}},
+        {"type": "web_search_tool_result", "tool_use_id": "srv1", "content": [
+            {"type": "web_search_result", "url": "https://a.example.com/x", "title": "A"},
+            {"type": "web_search_result", "url": "https://b.example.org/y", "title": "B"}]},
+        {"type": "text", "text": text, "citations": [
+            {"type": "web_search_result_location", "url": "https://c.example.com/z"}]},
+    ]
+    return SimpleNamespace(content=blocks, stop_reason=stop, usage=SimpleNamespace(
+        input_tokens=10, output_tokens=5, server_tool_use=SimpleNamespace(
+            web_search_requests=1)))
+
+
+def test_search_call_enables_the_tool_and_returns_the_urls():
+    sdk = FakeSDK([search_reply('{"tips": []}')])
+    llm = AnthropicLLM(settings("prod"), CONFIG, client=sdk)
+    data, urls = llm.complete_json_with_search("strategy", "rules", "go", max_uses=3)
+    assert data == {"tips": []}
+    assert urls == ["https://a.example.com/x", "https://b.example.org/y",
+                    "https://c.example.com/z"]
+    call = sdk.calls[0]
+    assert call["tools"] == [{"type": "web_search_20250305", "name": "web_search",
+                              "max_uses": 3}]
+    assert call["model"] == "claude-sonnet-5"
+
+
+def test_search_continues_after_pause_turn():
+    paused = search_reply("", stop="pause_turn")
+    sdk = FakeSDK([paused, reply('{"tips": [1]}')])
+    llm = AnthropicLLM(settings("dev"), CONFIG, client=sdk)
+    data, urls = llm.complete_json_with_search("strategy", "rules", "go")
+    assert data == {"tips": [1]} and "https://a.example.com/x" in urls
+    assert sdk.calls[1]["messages"][-1]["role"] == "assistant"
+
+
+def test_search_is_only_for_the_strategy_stage():
+    llm = AnthropicLLM(settings("dev"), CONFIG, client=FakeSDK([]))
+    with pytest.raises(LLMError, match="not allowed"):
+        llm.complete_json_with_search("score", "rules", "go")
+    with pytest.raises(LLMError, match="not allowed"):
+        FakeLLM().complete_json_with_search("tailor", "rules", "go", key="x")
+
+
+def test_complete_json_never_sends_tools():
+    sdk = FakeSDK([reply('{"ok": true}')])
+    AnthropicLLM(settings("dev"), CONFIG, client=sdk).complete_json("score", "r", "u")
+    assert "tools" not in sdk.calls[0]

@@ -57,12 +57,20 @@ def main(argv: list[str] | None = None) -> int:
     sources = SOURCES if args.source == "all" else (args.source,)
     try:
         deps = fake_deps(s) if args.fake else real_deps(s)
-        summary = run_sweep(s, deps, today, sources)
+        summary = run_sweep(s, deps, today, sources, state=None if args.fake else _state(s))
     except (SweepError, http.HttpError) as exc:
         print(f"Job Engine sweep failed: {exc}", file=sys.stderr)
         return 1
     print(summary.text())
     return 2 if summary.blocked else 0
+
+
+def _state(s):
+    """bot_state (local and dev: /update stamps the strategy gate there), or None."""
+    from jobengine.bot_state import bot_state_for
+    from jobengine.notion_repo import NotionClient
+
+    return bot_state_for(s, NotionClient(s.notion_token, s)) if s.notion_token else None
 
 
 if __name__ == "__main__":

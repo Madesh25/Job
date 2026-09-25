@@ -105,6 +105,15 @@ python -m jobengine.track daily --fake --now 2026-10-15T08:00:00+05:30
 Detects sent drafts, replies, bounces, drafts one follow-up after 7 days and sends a daily
 report (`/today` in Telegram). See [docs/tracking.md](docs/tracking.md).
 
+## Strategy review and IND refresh
+
+```bash
+python -m jobengine.strategy update --fake --today 2026-10-01
+```
+
+`/update` researches current practice for your review; `/fetch` opens again when every tip is
+decided. See [docs/strategy.md](docs/strategy.md).
+
 ## Run tests
 
 ```bash
@@ -122,3 +131,4 @@ pytest
 - [Contact finder](docs/contacts.md)
 - [Gmail drafts](docs/gmail.md)
 - [Tracking and digest](docs/tracking.md)
+- [Strategy gate](docs/strategy.md)

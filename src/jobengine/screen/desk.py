@@ -41,6 +41,8 @@ from jobengine.screen.runner import (
 )
 from jobengine.screen.tiering import rank_key
 from jobengine.settings import ROOT_DIR, Settings
+from jobengine.strategy import runner as strategy_runner
+from jobengine.strategy.runner import StrategyDeps
 from jobengine.sweep.normalize import dedupe_key
 from jobengine.track import commands as track_commands
 from jobengine.track import runner as track_runner
@@ -105,6 +107,7 @@ class Desk:
         mail: MailDeps | None = None,
         track: TrackDeps | None = None,
         track_now: Callable[[], datetime] | None = None,
+        strategy: StrategyDeps | None = None,
     ):
         self.s = s
         self.deps = deps
@@ -113,6 +116,7 @@ class Desk:
         self.mail = mail
         self.track = track
         self._track_now = track_now
+        self.strategy = strategy
         self.state = state
         # Set by the bot for each update: sends a reply at once (before a long build).
         self.notify: Callable[[Reply], None] | None = None
@@ -196,6 +200,8 @@ class Desk:
             return self.resume_tap(action, arg)
         if action in ("rc", "lk", "rd") and arg:
             return self.track_tap(action, data)
+        if action in ("sa", "sr", "sc") and arg:
+            return self.strategy_tap(action, arg)
         if action not in ("ap", "sk") or not arg:
             return [Reply("That button is no longer valid. Send /pending.")]
         before = self.ranked()
@@ -445,6 +451,45 @@ class Desk:
     def status_lines(self) -> str | None:
         return track_commands.status_lines(self.track) if self.track is not None else None
 
+    # ------------------------------------------------------------ strategy (Module 08)
+
+    def update_command(self, args: str) -> list[Reply]:
+        """/update: research for your review; /update new forces a new run."""
+        if self.strategy is None:
+            return [Reply("/update is not available in this bot.")]
+        force = args.strip().lower() == "new"
+        if force or not strategy_runner.open_review(self.strategy):
+            self.say(Reply(strategy_runner.STARTED))
+        result = strategy_runner.run_update(self.strategy, force=force)
+        return [*(Reply(m[:MAX_TEXT]) for m in result.messages),
+                *(Reply(c.text, c.buttons) for c in result.cards)]
+
+    def strategy_tap(self, action: str, arg: str) -> list[Reply]:
+        if self.strategy is None:
+            return [Reply("/update is not available in this bot.")]
+        if action == "sc":
+            messages = strategy_runner.confirm_review(self.strategy, arg)
+        else:
+            messages = strategy_runner.decide(self.strategy, arg, adopt=action == "sa")
+        return [Reply(m[:MAX_TEXT]) for m in messages]
+
+    def strategy_note(self, replied_to: str, text: str) -> list[Reply] | None:
+        """A reply to a tip card (Ref ST-...) is stored in that tip's Notes."""
+        if self.strategy is None or "Ref ST-" not in replied_to:
+            return None
+        saved = strategy_runner.add_note(self.strategy, replied_to, text)
+        return [Reply(saved)] if saved else None
+
+    def rules_command(self) -> list[Reply]:
+        from jobengine.strategy.rules_view import rules_text
+
+        if self.strategy is None:
+            return [Reply("/rules is not available in this bot.")]
+        d = self.strategy
+        text = rules_text(d.config(), d.v16_blocks(), d.existing(), d.today(), d.state, self.s,
+                          self.s.resume)
+        return [Reply(text[:MAX_TEXT])]
+
     # ------------------------------------------------------------ /screen and /fetch
 
     def _summary_text(self, summary: ScreenSummary) -> str:
@@ -632,8 +677,12 @@ def fake_desk(s: Settings, today: date, now: Callable[[], datetime] | None = Non
     from jobengine.track.fakes import FAKE_NOW
 
     track = track_runner.fake_deps(s, state=state)
+    strategy = strategy_runner.fake_deps(s, state=state)
+    strategy.today = lambda: today
+    strategy.ind_deps.today = lambda: today  # type: ignore[attr-defined]
     return Desk(s, deps, state, today=lambda: today, now=clock, resume=resume,
-                contacts=contacts, mail=mail, track=track, track_now=lambda: FAKE_NOW)
+                contacts=contacts, mail=mail, track=track, track_now=lambda: FAKE_NOW,
+                strategy=strategy)
 
 
 def real_desk(s: Settings) -> Desk | None:
@@ -670,5 +719,10 @@ def real_desk(s: Settings) -> Desk | None:
     except Exception as exc:  # the bot still works without tracking
         log.warning("tracking not available: %s", exc)
         track = None
+    try:
+        strategy = strategy_runner.real_deps(s, state)
+    except Exception as exc:  # the bot still works without /update
+        log.warning("strategy update not available: %s", exc)
+        strategy = None
     return Desk(s, real_deps(s), state, resume=resume, contacts=contacts, mail=mail,
-                track=track)
+                track=track, strategy=strategy)

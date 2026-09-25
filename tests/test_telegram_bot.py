@@ -775,3 +775,44 @@ def test_stats_followups_health_sources_digest(desk):
 def test_help_lists_tracking_commands():
     for command in ("/today", "/followups", "/stats", "/sources", "/health", "/digest"):
         assert command in tb.HELP_TEXT
+
+
+# ---------------------------------------------------------------- Module 08: strategy
+
+
+def reply_to(update_id, replied_text, text):
+    return {"update_id": update_id, "message": {
+        "chat": {"id": int(CHAT_ID)}, "text": text,
+        "reply_to_message": {"message_id": 1, "text": replied_text}}}
+
+
+def test_update_cards_notes_and_gate(desk):
+    fake = talk(desk, "/update")
+    sent = texts(fake)
+    assert sent[0] == "[LOCAL] Researching current practice. This takes a minute."
+    assert sent[1].startswith("[LOCAL] Research done: 3 tips to review, 3 rejected")
+    assert sent[2].startswith("[LOCAL] IND register: 4 NL companies checked, 2 changed")
+    cards = [t for t in sent if "Ref ST-" in t]
+    assert len(cards) == 3 and cards[0].startswith("[LOCAL] Tip 1/3 (ATS, All)")
+    buttons = [row for row in fake.buttons if row]
+    assert buttons[0][0].startswith("sa:") and buttons[0][1].startswith("sr:")
+    # A reply to a card is stored as a note.
+    note = talk(desk, reply_to(9, cards[0].removeprefix("[LOCAL] "), "Worth trying"))
+    assert note.sent[-1][1] == "[LOCAL] Note saved on the tip."
+    # /update again re-sends the undecided cards, without a new research call.
+    again = texts(talk(desk, "/update"))
+    assert again[0].startswith("[LOCAL] You still have 3 to review")
+    assert not any("Researching" in t for t in again)
+    # Deciding every tip stamps the gate (bot_state outside prod).
+    for i, row in enumerate(buttons, 1):
+        fake = talk(desk, tap(10 + i, row[0] if i != 2 else row[1]))
+    assert "Strategy updated. /fetch is open until 2026-10-31." in fake.sent[-1][1]
+    assert desk.state.get("last_strategy_update") == {"date": "2026-10-01"}
+
+
+def test_rules_command(desk):
+    text = talk(desk, "/rules").sent[0][1]
+    assert "V16 rules: https://app.notion.com/p/3e36edc2b0d481348577f84b2c39d066" in text
+    assert "- Exceed one page." in text
+    assert "/fetch is open until" in text
+    assert "/update" in tb.HELP_TEXT and "/rules" in tb.HELP_TEXT

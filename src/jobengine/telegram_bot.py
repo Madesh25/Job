@@ -59,10 +59,12 @@ HELP_TEXT = (
     "/sources - sweep sources, their secrets and the last sweep counts\n"
     "/health - Notion, Gmail tokens, Anthropic key, last runs\n"
     "/digest - the weekly digest now\n"
+    "/update - monthly strategy research for your review (opens /fetch); /update new again\n"
+    "/rules - V16 non-negotiables, thresholds, adopted tips and the /fetch gate\n"
     "/help - show this list"
 )
 DESK_COMMANDS = ("pending", "jd", "done", "screen", "contacts", "credits", "drafts", "today",
-                 "followups", "stats", "sources", "health", "digest")
+                 "followups", "stats", "sources", "health", "digest", "update", "rules")
 
 # (method, payload, http_timeout) -> decoded JSON response
 Transport = Callable[[str, dict[str, Any], float], dict[str, Any]]
@@ -157,7 +159,7 @@ def console_transport(
                          else path).as_posix()
                 print(f"bot [message {message_id}, document {where}]> {text}", file=stdout,
                       flush=True)
-            elif "Ref JOB-" in text:  # a question you answer with `reply <n> <text>`
+            elif "Ref JOB-" in text or "Ref ST-" in text:  # answer with `reply <n> <text>`
                 print(f"bot [message {message_id}]> {text}", file=stdout, flush=True)
             else:
                 print(f"bot> {text}", file=stdout, flush=True)
@@ -429,6 +431,9 @@ def desk_replies(update: dict[str, Any], s: Settings, desk: Desk | None) -> list
         replies = _guarded("Domain", lambda: desk.domain_answer(ref_text, text) or [])
         if replies:
             return replies
+        replies = _guarded("Note", lambda: desk.strategy_note(ref_text, text) or [])
+        if replies:
+            return replies
     if command == "pending":
         return _guarded("/pending", desk.pending)
     if command == "contacts":
@@ -444,6 +449,10 @@ def desk_replies(update: dict[str, Any], s: Settings, desk: Desk | None) -> list
                 "health": desk.health_command, "digest": desk.digest_command}
     if command in tracking:
         return _guarded(f"/{command}", tracking[command])
+    if command == "update":
+        return _guarded("/update", lambda: desk.update_command(args))
+    if command == "rules":
+        return _guarded("/rules", desk.rules_command)
     if command == "jd":
         return _guarded("/jd", lambda: desk.jd(args))
     if command == "done":
