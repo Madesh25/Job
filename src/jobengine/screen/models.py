@@ -156,3 +156,4 @@ class JobRow:
     sponsorship: str | None = None  # Stated yes | Stated no | Not mentioned
     contract_type: str | None = None
     gaps: str | None = None
+    swept_date: date | None = None

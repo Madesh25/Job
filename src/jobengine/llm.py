@@ -139,8 +139,10 @@ class AnthropicLLM:
 class FakeLLM:
     """Returns fixtures/llm/<stage>/<key>.json and records every call."""
 
-    def __init__(self, base: Path = FIXTURES):
+    def __init__(self, base: Path = FIXTURES, default: dict[str, Any] | None = None):
+        """`default` answers keys without a fixture (the fake bot uses {}: nothing stated)."""
         self.base = base
+        self.default = default
         self.calls: list[dict[str, Any]] = []
 
     def complete_json(
@@ -152,6 +154,8 @@ class FakeLLM:
         if not key:
             raise LLMError(f"FakeLLM needs a fixture key for stage {stage}")
         path = self.base / stage / f"{key}.json"
+        if not path.exists() and self.default is not None:
+            return json.loads(json.dumps(self.default))
         if not path.exists():
             raise LLMError(f"FakeLLM has no fixture {stage}/{key}.json")
         return json.loads(path.read_text(encoding="utf-8"))

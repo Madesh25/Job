@@ -52,10 +52,12 @@ class SweepDeps:
     ats: Callable[[list[TargetCompany], Prefilter], SourceResult]
 
 
-def fake_deps(s: Settings) -> SweepDeps:
-    """Fixtures for every source and an in-memory Job Opportunities. No network."""
+def fake_deps(s: Settings, repo: JobsRepo | None = None) -> SweepDeps:
+    """Fixtures for every source and an in-memory Job Opportunities. No network.
+    `repo` lets the fake bot share one in-memory Job Opportunities with screening."""
     get = fakes.FixtureHttp(s)
-    repo = fakes.jobs_repo() if notion_write_target("job_opportunities", s) else None
+    if repo is None and notion_write_target("job_opportunities", s):
+        repo = fakes.jobs_repo()
     if repo is None:
         log.warning("DRY RUN: would write to job_opportunities")
     return SweepDeps(

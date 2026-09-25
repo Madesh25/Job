@@ -13,6 +13,12 @@ from jobengine.settings import load_settings
 BOT_STATE_DEV = "41fca14e-5236-4b78-8f74-0fe9d8199a41"
 
 
+def value_text(value):
+    items = value["rich_text"]
+    assert all(len(item["text"]["content"]) <= 2000 for item in items)
+    return "".join(item["text"]["content"] for item in items)
+
+
 class FakeNotionState:
     def __init__(self):
         self.pages = {}
@@ -27,7 +33,8 @@ class FakeNotionState:
             results = [
                 {"id": pid, "properties": {
                     "Key": {"type": "title", "title": [{"plain_text": k}]},
-                    "Value": {"type": "rich_text", "rich_text": [{"plain_text": v}]},
+                    "Value": {"type": "rich_text", "rich_text": [
+                        {"plain_text": v[i:i + 2000]} for i in range(0, len(v), 2000)]},
                 }}
                 for pid, (k, v) in self.pages.items() if k == key
             ]
@@ -36,7 +43,7 @@ class FakeNotionState:
             pid = f"p{len(self.pages) + 1}"
             props = body["properties"]
             self.pages[pid] = (props["Key"]["title"][0]["text"]["content"],
-                               props["Value"]["rich_text"][0]["text"]["content"])
+                               value_text(props["Value"]))
             return httpx.Response(200, json={"id": pid})
         if request.method == "PATCH":
             pid = path.rsplit("/", 1)[1]
@@ -44,8 +51,7 @@ class FakeNotionState:
                 self.pages.pop(pid, None)
             else:
                 key = self.pages[pid][0]
-                self.pages[pid] = (key, body["properties"]["Value"]["rich_text"][0]["text"]
-                                   ["content"])
+                self.pages[pid] = (key, value_text(body["properties"]["Value"]))
             return httpx.Response(200, json={"id": pid})
         return httpx.Response(404, json={})
 
@@ -92,3 +98,13 @@ def test_fake_bot_state_copies_values():
     state.delete("k")
     state.delete("k")
     assert state.get("k") is None
+
+
+def test_long_values_are_split_into_2000_character_items(notion):
+    s = load_settings("dev", {})
+    state = bot_state_for(s, NotionClient("t", s, sleep=lambda _: None))
+    parts = ["x" * 3000, "y" * 3000]
+    state.set("jd_capture", {"parts": parts})
+    assert state.get("jd_capture") == {"parts": parts}
+    with pytest.raises(ValueError, match="too long"):
+        state.set("jd_capture", {"parts": ["z" * 200_001]})

@@ -16,6 +16,9 @@ from jobengine.notion_repo import NotionClient, notion_value, page_values
 from jobengine.safety import notion_write_target
 from jobengine.settings import Settings
 
+TEXT_ITEM_CHARS = 2000
+MAX_TEXT_ITEMS = 100
+
 log = logging.getLogger("jobengine.bot_state")
 
 
@@ -53,7 +56,7 @@ class NotionBotState:
 
     def set(self, key: str, value: dict[str, Any]) -> None:
         props = {
-            "Value": notion_value("rich_text", json.dumps(value, sort_keys=True)),
+            "Value": _long_text(json.dumps(value, sort_keys=True, ensure_ascii=False)),
             "Updated": notion_value("date", self._today()),
         }
         page = self._find(key)
@@ -70,6 +73,14 @@ class NotionBotState:
         page = self._find(key)
         if page is not None:
             self.client.request("PATCH", f"/pages/{page['id']}", {"in_trash": True})
+
+
+def _long_text(text: str) -> dict[str, Any]:
+    """A rich text value longer than 2000 characters: Notion takes up to 100 items of 2000."""
+    items = [text[i:i + TEXT_ITEM_CHARS] for i in range(0, len(text), TEXT_ITEM_CHARS)]
+    if len(items) > MAX_TEXT_ITEMS:
+        raise ValueError(f"bot_state value too long ({len(text)} characters)")
+    return {"rich_text": [{"type": "text", "text": {"content": item}} for item in items]}
 
 
 class FakeBotState:

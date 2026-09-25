@@ -131,6 +131,7 @@ def job_row(page_id: str, values: dict[str, Any]) -> JobRow:
         sponsorship=values.get("Sponsorship"),
         contract_type=values.get("Contract type"),
         gaps=values.get("Gaps"),
+        swept_date=values.get("Swept date"),
     )
 
 
