@@ -35,7 +35,7 @@ def split_terms(value: str | None) -> list[str]:
     return [part.strip() for part in re.split(r"[,;]", value or "") if part.strip()]
 
 
-def _company_key(name: str | None) -> str:
+def company_key(name: str | None) -> str:
     # "HubSpot (IE)" and "HubSpot" are the same company for matching.
     return canon_company(re.sub(r"\([^)]*\)", " ", name or ""))
 
@@ -108,7 +108,7 @@ class Reference:
                 # An Active backing row wins over a gap or review row for the same term.
                 if key and (key not in self._terms or row.backs):
                     self._terms[key] = row
-        self._companies = {_company_key(c.name): c for c in self.companies}
+        self._companies = {company_key(c.name): c for c in self.companies}
 
     # ------------------------------------------------------------ builders
 
@@ -205,4 +205,4 @@ class Reference:
         return bool(row and row.is_gap)
 
     def company(self, name: str | None) -> Company | None:
-        return self._companies.get(_company_key(name)) if name else None
+        return self._companies.get(company_key(name)) if name else None
