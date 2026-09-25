@@ -22,6 +22,15 @@ safety:
     - api.lever.co
     - api.eu.lever.co
     - api.smartrecruiters.com
+    - ind.nl
+screening:
+  # A description shorter than this (or marked "(snippet only)") is a snippet (spec section 3).
+  full_min_chars: 600
+  # /jd collects pasted messages for this long before the capture is discarded.
+  jd_capture_minutes: 20
+  # /jd writes the pasted text in blocks of this size, at most this many blocks.
+  block_chars: 2000
+  max_blocks: 90
 sweep:
   # Title filters (section 4). Matched as whole words on the canonical (lowercase ASCII) title.
   title_include:

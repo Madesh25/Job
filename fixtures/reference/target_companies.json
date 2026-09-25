@@ -1,0 +1,72 @@
+[
+  {
+    "id": "tc-vistula",
+    "Company": "Vistula Cloud",
+    "Region": "Poland",
+    "Tier": "Tier 2 - Tech/Cloud",
+    "IND sponsor": "N/A",
+    "Active": true,
+    "Careers URL": "https://vistulacloud.example.com/careers",
+    "Hub / City": "Kraków"
+  },
+  {
+    "id": "tc-odra",
+    "Company": "Odra Systems S.A.",
+    "Region": "Poland",
+    "Tier": "Tier 5 - Polish product",
+    "IND sponsor": "N/A",
+    "Active": true,
+    "Careers URL": "https://odra.example.com/jobs",
+    "Hub / City": "Wrocław"
+  },
+  {
+    "id": "tc-tulip",
+    "Company": "Tulip Data B.V.",
+    "Region": "Netherlands",
+    "Tier": "Tier 2 - Tech/Cloud",
+    "IND sponsor": "Verified",
+    "Active": true,
+    "Careers URL": "https://jobs.eu.lever.co/tulipdata",
+    "Hub / City": "Den Haag"
+  },
+  {
+    "id": "tc-polder",
+    "Company": "Polder Logistics",
+    "Region": "Netherlands",
+    "Tier": "Tier 6 - Automotive/Industrial",
+    "IND sponsor": "Not listed",
+    "Active": true,
+    "Careers URL": "https://polder.example.com/careers",
+    "Hub / City": "Rotterdam"
+  },
+  {
+    "id": "tc-northwind",
+    "Company": "Northwind Cloud",
+    "Region": "Ireland",
+    "Tier": "Tier 2 - Tech/Cloud",
+    "IND sponsor": "N/A",
+    "Active": true,
+    "Careers URL": "https://boards.greenhouse.io/northwindcloud",
+    "Hub / City": "Dublin"
+  },
+  {
+    "id": "tc-baltic",
+    "Company": "Baltic Bank",
+    "Region": "Poland",
+    "Tier": "Tier 3 - Banks/Fintech",
+    "IND sponsor": "N/A",
+    "Active": true,
+    "Careers URL": "https://balticbank.wd3.myworkdayjobs.com/careers",
+    "Hub / City": "Gdańsk"
+  },
+  {
+    "id": "tc-hubspot",
+    "Company": "Harbour Soft (IE)",
+    "Region": "Ireland",
+    "Tier": "Tier 2 - Tech/Cloud",
+    "IND sponsor": "N/A",
+    "Active": true,
+    "Careers URL": "https://harboursoft.example.com/careers",
+    "Hub / City": "Dublin"
+  }
+]

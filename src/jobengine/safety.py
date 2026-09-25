@@ -66,6 +66,13 @@ def notion_write_target(name: str, s: Settings) -> str | None:
     return ds_id
 
 
+def llm_allowed(s: Settings) -> bool:
+    """LLM calls need ANTHROPIC_API_KEY. DRY_RUN does not block them: they cost cents and
+    nothing can be tested without them. DRY_RUN blocks Gmail writes, Drive writes and paid
+    contact APIs, not the LLM."""
+    return bool(s.anthropic_api_key)
+
+
 def resolve_model(requested: str, s: Settings) -> str:
     return s.force_model or requested
 

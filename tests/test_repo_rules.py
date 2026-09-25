@@ -130,3 +130,16 @@ def test_no_request_to_linkedin_in_src():
         if LINKEDIN_URL.search(p.read_text(encoding="utf-8"))
     ]
     assert offenders == []
+
+
+ANTHROPIC_IMPORT = re.compile(r"^\s*(?:import|from)\s+anthropic\b", re.M)
+
+
+def test_anthropic_imported_only_in_llm_module():
+    offenders = [
+        p.relative_to(ROOT).as_posix()
+        for p in src_files()
+        if ANTHROPIC_IMPORT.search(p.read_text(encoding="utf-8"))
+        and p.relative_to(ROOT).as_posix() != "src/jobengine/llm.py"
+    ]
+    assert offenders == []

@@ -1,0 +1,63 @@
+[
+  {
+    "Key": "last_strategy_update",
+    "Value": "2026-09-23 (initial setup)",
+    "Type": "Marker"
+  },
+  {
+    "Key": "strategy_refresh_days",
+    "Value": "30",
+    "Type": "Setting"
+  },
+  {
+    "Key": "countries.active",
+    "Value": "Poland, Netherlands, Ireland",
+    "Type": "Setting"
+  },
+  {
+    "Key": "ghost_job.rules",
+    "Value": "Medium: 2x/30d or >45d old, High: 3x/60d",
+    "Type": "Setting"
+  },
+  {
+    "Key": "model.fetch",
+    "Value": "claude-haiku-4-5",
+    "Type": "Model"
+  },
+  {
+    "Key": "model.score",
+    "Value": "claude-haiku-4-5",
+    "Type": "Model"
+  },
+  {
+    "Key": "model.tailor",
+    "Value": "claude-sonnet-5",
+    "Type": "Model"
+  },
+  {
+    "Key": "model.email",
+    "Value": "claude-haiku-4-5",
+    "Type": "Model"
+  },
+  {
+    "Key": "model.strategy",
+    "Value": "claude-sonnet-5 + web search",
+    "Type": "Model"
+  },
+  {
+    "Key": "employer.size_rules",
+    "Value": "see Notes",
+    "Type": "Setting",
+    "Notes": "large: Target Companies Tier 1, 2, 3, 4 or 6, or On IND register. weak: not a target company and no sponsorship stated, Agency posting (IE), or Not on IND register. Otherwise normal."
+  },
+  {
+    "Key": "ind_register.url",
+    "Value": "https://ind.nl/en/public-register-recognised-sponsors/public-register-work",
+    "Type": "Setting"
+  },
+  {
+    "Key": "ireland.agency_names",
+    "Value": "Harbour Talent Partners, Liffey Recruitment",
+    "Type": "Setting"
+  }
+]

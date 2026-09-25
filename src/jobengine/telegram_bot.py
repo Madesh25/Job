@@ -1,11 +1,13 @@
-"""Minimal Telegram bot: /start, /status and /help, answering only the configured chat.
+"""Telegram bot: /start, /status, /help, /fetch, /pending, /jd, /done and /screen, answering
+only the configured chat (messages and button presses alike).
 
 Run with `python -m jobengine.telegram_bot`. It long-polls the Telegram Bot API using the
 standard library only. Every outgoing message goes through safety.telegram_text so local and
 dev messages carry their [LOCAL] or [DEV] prefix.
 
 Run with `--fake` to use a dummy Telegram in the terminal instead: each line you type is a
-message from your chat and the replies are printed. No token and no network are needed.
+message from your chat and the replies are printed. `tap <data>` presses a button, for
+example `tap ap:pl-clean`. No token and no network are needed.
 """
 
 from __future__ import annotations
@@ -23,6 +25,7 @@ from typing import Any, TextIO
 
 from jobengine.main import banner
 from jobengine.safety import SafetyError, check_startup, telegram_text
+from jobengine.screen.desk import Desk, Reply, fake_desk, real_desk
 from jobengine.settings import Settings, get_settings
 from jobengine.sweep import fakes
 from jobengine.sweep.runner import fake_deps, real_deps, run_sweep
@@ -37,9 +40,15 @@ HELP_TEXT = (
     "Job Engine commands:\n"
     "/start - check that the bot is alive\n"
     "/status - show environment and safety settings\n"
-    "/fetch - run the job sweep and report what it found\n"
+    "/fetch - search for new jobs, then screen them\n"
+    "/pending - review screened jobs one at a time (Approve, Skip, Next)\n"
+    "/jd <url> - paste a job description (for LinkedIn jobs), then /done\n"
+    "/jd - list jobs waiting for a description\n"
+    "/screen - screen jobs that are not screened yet\n"
+    "/screen <url or id> - screen one job again\n"
     "/help - show this list"
 )
+DESK_COMMANDS = ("pending", "jd", "done", "screen")
 
 # (method, payload, http_timeout) -> decoded JSON response
 Transport = Callable[[str, dict[str, Any], float], dict[str, Any]]
@@ -95,8 +104,14 @@ def console_transport(chat_id: str, stdin: TextIO, stdout: TextIO) -> Transport:
         nonlocal next_id
         if method == "sendMessage":
             print(f"bot> {payload['text']}", file=stdout, flush=True)
+            rows = (payload.get("reply_markup") or {}).get("inline_keyboard") or []
+            keys = [f"[{b['text']}: tap {b['callback_data']}]" for row in rows for b in row]
+            if keys:
+                print("     " + " ".join(keys), file=stdout, flush=True)
             next_id += 1
             return {"ok": True, "result": {"message_id": next_id}}
+        if method == "answerCallbackQuery":
+            return {"ok": True, "result": True}
         if method == "editMessageText":
             print(f"bot (updated)> {payload['text']}", file=stdout, flush=True)
             return {"ok": True, "result": {}}
@@ -110,7 +125,13 @@ def console_transport(chat_id: str, stdin: TextIO, stdout: TextIO) -> Transport:
                 # Piped input is not echoed by the terminal, so show it.
                 print(line.rstrip("\n"), file=stdout, flush=True)
             next_id += 1
-            message = {"chat": {"id": chat_id}, "text": line.rstrip("\n")}
+            text = line.rstrip("\n")
+            if text.startswith("tap "):
+                # A button press: "tap ap:<page id>".
+                query = {"id": str(next_id), "from": {"id": chat_id},
+                         "message": {"chat": {"id": chat_id}}, "data": text[4:].strip()}
+                return {"ok": True, "result": [{"update_id": next_id, "callback_query": query}]}
+            message = {"chat": {"id": chat_id}, "text": text}
             return {"ok": True, "result": [{"update_id": next_id, "message": message}]}
         return {"ok": False, "description": f"{method} is not supported by the fake"}
 
@@ -128,15 +149,28 @@ class TelegramClient:
         return data.get("result")
 
     def get_updates(self, offset: int | None, timeout: int = POLL_TIMEOUT) -> list[dict[str, Any]]:
-        payload: dict[str, Any] = {"timeout": timeout, "allowed_updates": ["message"]}
+        payload: dict[str, Any] = {
+            "timeout": timeout, "allowed_updates": ["message", "callback_query"],
+        }
         if offset is not None:
             payload["offset"] = offset
         return self._call("getUpdates", payload, timeout=timeout + 10) or []
 
-    def send_message(self, chat_id: str, text: str) -> int | None:
-        """Send a message and return its message_id (None if Telegram did not say)."""
-        result = self._call("sendMessage", {"chat_id": chat_id, "text": text})
+    def send_message(
+        self, chat_id: str, text: str, buttons: list[tuple[str, str]] | None = None
+    ) -> int | None:
+        """Send a message and return its message_id (None if Telegram did not say).
+        `buttons` are (label, callback data) pairs shown in one row under the message."""
+        payload: dict[str, Any] = {"chat_id": chat_id, "text": text}
+        if buttons:
+            payload["reply_markup"] = {"inline_keyboard": [
+                [{"text": label, "callback_data": data} for label, data in buttons]
+            ]}
+        result = self._call("sendMessage", payload)
         return (result or {}).get("message_id") if isinstance(result, dict) else None
+
+    def answer_callback(self, callback_id: str) -> None:
+        self._call("answerCallbackQuery", {"callback_query_id": callback_id})
 
     def edit_message(self, chat_id: str, message_id: int, text: str) -> None:
         self._call(
@@ -249,18 +283,86 @@ def handle_update(
 
 
 def poll_once(
-    client: TelegramClient, s: Settings, offset: int | None, fetch: Fetcher | None = None
+    client: TelegramClient,
+    s: Settings,
+    offset: int | None,
+    fetch: Fetcher | None = None,
+    desk: Desk | None = None,
 ) -> int | None:
     """Fetch one batch of updates, answer them, and return the next offset."""
     for update in client.get_updates(offset):
         offset = update["update_id"] + 1
+        if "callback_query" in update:
+            handle_callback(client, s, update["callback_query"], desk)
+            continue
         if fetch is not None and _is_fetch(update, s):
             run_fetch(client, s, str(s.telegram_chat_id), fetch)
+            continue
+        replies = desk_replies(update, s, desk)
+        if replies is not None:
+            send_replies(client, s, str(s.telegram_chat_id), replies)
             continue
         out = handle_update(update, s, fetch)
         if out is not None:
             client.send_message(*out)
     return offset
+
+
+def send_replies(client: TelegramClient, s: Settings, chat_id: str, replies: list[Reply]) -> None:
+    for reply in replies:
+        client.send_message(chat_id, telegram_text(reply.text, s), reply.buttons or None)
+
+
+def _guarded(name: str, action: Callable[[], list[Reply]]) -> list[Reply]:
+    try:
+        return action()
+    except Exception as exc:  # report the failure instead of stopping the bot
+        log.exception("%s failed", name)
+        return [Reply(f"{name} failed: {exc}")]
+
+
+def desk_replies(update: dict[str, Any], s: Settings, desk: Desk | None) -> list[Reply] | None:
+    """Replies for /pending, /jd, /done, /screen and pasted text, or None when the message
+    is not for the desk (other commands, other chats, or plain text without a /jd paste)."""
+    if desk is None:
+        return None
+    message = update.get("message") or {}
+    chat_id = str((message.get("chat") or {}).get("id", ""))
+    text = message.get("text")
+    if text is None or chat_id != str(s.telegram_chat_id):
+        return None
+    command = parse_command(text)
+    args = text.split(maxsplit=1)[1] if len(text.split(maxsplit=1)) > 1 else ""
+    if command == "pending":
+        return _guarded("/pending", desk.pending)
+    if command == "jd":
+        return _guarded("/jd", lambda: desk.jd(args))
+    if command == "done":
+        return _guarded("/done", desk.done)
+    if command == "screen":
+        return _guarded("/screen", lambda: [Reply(desk.screen(args))])
+    if command is None:
+        return _guarded("Saving the pasted text", lambda: desk.text(text) or []) or None
+    return None
+
+
+def handle_callback(
+    client: TelegramClient, s: Settings, query: dict[str, Any], desk: Desk | None
+) -> None:
+    """A button press. Only presses from the configured chat are acted on."""
+    sender = str((query.get("from") or {}).get("id", ""))
+    if sender != str(s.telegram_chat_id):
+        log.warning("Ignoring button press from unknown user %s", sender)
+        return
+    try:
+        client.answer_callback(str(query.get("id", "")))
+    except TelegramError as exc:
+        log.warning("answerCallbackQuery failed: %s", exc)
+    if desk is None:
+        replies = [Reply("Buttons are not available in this bot.")]
+    else:
+        replies = _guarded("Button", lambda: desk.tap(str(query.get("data") or "")))
+    send_replies(client, s, sender, replies)
 
 
 def _is_fetch(update: dict[str, Any], s: Settings) -> bool:
@@ -312,6 +414,7 @@ def run(
     max_polls: int | None = None,
     sleep: Callable[[float], None] = time.sleep,
     fetch: Fetcher | None = None,
+    desk: Desk | None = None,
 ) -> None:
     """Announce startup, then poll forever (or max_polls times, for tests)."""
     client.send_message(str(s.telegram_chat_id), telegram_text("Job Engine bot started.", s))
@@ -320,21 +423,27 @@ def run(
     while max_polls is None or polls < max_polls:
         polls += 1
         try:
-            offset = poll_once(client, s, offset, fetch)
+            offset = poll_once(client, s, offset, fetch, desk)
         except TelegramError as exc:
             log.error("%s, retrying in 5s", exc)
             sleep(5)
 
 
-def make_fetcher(s: Settings, fake: bool) -> Fetcher:
-    """/fetch runs the sweep: fixtures and an in-memory Notion with --fake, real otherwise."""
+def make_fetcher(s: Settings, fake: bool, desk: Desk | None = None) -> Fetcher:
+    """/fetch runs the sweep (fixtures and an in-memory Notion with --fake, real otherwise),
+    then screens the new jobs when a desk is given."""
 
     def fetch(progress: Progress) -> str:
         if fake:
-            summary = run_sweep(s, fake_deps(s), fakes.FAKE_TODAY, progress=progress)
+            repo = desk.repo if desk is not None else None
+            summary = run_sweep(s, fake_deps(s, repo=repo), fakes.FAKE_TODAY, progress=progress)
         else:
             summary = run_sweep(s, real_deps(s), date.today(), progress=progress)
-        return summary.friendly_text()
+        text = summary.friendly_text()
+        if desk is None or summary.blocked:
+            return text
+        progress("Screening the new jobs...")
+        return f"{text}\n\n{desk.screen(progress=progress)}"
 
     return fetch
 
@@ -362,8 +471,9 @@ def main(argv: list[str] | None = None) -> int:
     else:
         client = TelegramClient(http_transport(s.telegram_bot_token))
 
+    desk = fake_desk(s, fakes.FAKE_TODAY) if args.fake else real_desk(s)
     try:
-        run(s, client, fetch=make_fetcher(s, args.fake))
+        run(s, client, fetch=make_fetcher(s, args.fake, desk), desk=desk)
     except TelegramError as exc:
         print(f"Job Engine bot stopped: {exc}", file=sys.stderr)
         return 1

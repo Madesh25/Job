@@ -182,7 +182,9 @@ def test_reader_config_and_target_companies_are_read_only(notion):
         "ATS platform": {"type": "select", "select": {"name": "Greenhouse"}},
         "Active": {"type": "checkbox", "checkbox": True},
     }}]}]
-    assert reader.config() == {"strategy_refresh_days": "30"}
+    from jobengine.config_store import ConfigStore
+
+    assert ConfigStore.load(reader.client, s).all() == {"strategy_refresh_days": "30"}
     companies = reader.target_companies()
     assert companies[0].name == "Acme" and companies[0].ats_platform == "Greenhouse"
     methods = {method for method, *_ in notion.requests}
@@ -211,3 +213,36 @@ def test_fake_repo_records_writes():
     repo.append_body("p1", ["x"])
     assert [w[0] for w in repo.writes] == ["create", "update", "append_body"]
     assert repo.rows["p1"]["Status"] == "Applied"
+
+
+def test_multi_select_values_drop_commas_and_duplicates():
+    props = job_properties({"Tech stack": ["AWS", "Go, Golang", "AWS"], "Visa flags": []})
+    assert props["Tech stack"] == {"multi_select": [{"name": "AWS"}, {"name": "Go  Golang"}]}
+    assert props["Visa flags"] == {"multi_select": []}
+
+
+def test_read_body_reads_text_blocks(notion):
+    s = load_settings("dev", environ={})
+    notion.children["p1"] = [
+        {"type": "paragraph",
+         "paragraph": {"rich_text": [{"plain_text": "Description source: x"}]}},
+        {"type": "image", "image": {}},
+        {"type": "bulleted_list_item",
+         "bulleted_list_item": {"rich_text": [{"plain_text": "Kubernetes"}]}},
+    ]
+    repo = jobs_repo_for(s, client_for(s))
+    assert repo.read_body("p1") == ["Description source: x", "Kubernetes"]
+
+
+def test_query_rows_sends_the_filter(notion):
+    s = load_settings("dev", environ={})
+    repo = jobs_repo_for(s, client_for(s))
+    notion.query_pages = [{"results": [{"id": "p1", "properties": {
+        "Company": {"type": "title", "title": [{"plain_text": "Vistula Cloud"}]},
+        "Visa flags": {"type": "multi_select", "multi_select": [{"name": "On IND register"}]},
+    }}]}]
+    where = {"property": "Screen verdict", "select": {"equals": "Unscreened"}}
+    rows = repo.query_rows(where)
+    assert rows == [("p1", {"Company": "Vistula Cloud", "Visa flags": ["On IND register"]})]
+    body = [b for m, p, _, b in notion.requests if p.endswith("/query")][0]
+    assert body["filter"] == where

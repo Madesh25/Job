@@ -1,0 +1,60 @@
+{
+  "years_required_min": {
+    "value": 3,
+    "quote": "3 years of experience"
+  },
+  "seniority_title_flag": {
+    "value": "none",
+    "quote": null
+  },
+  "languages": [],
+  "contract_types": [
+    {
+      "value": "permanent",
+      "quote": "Permanent contract"
+    }
+  ],
+  "mandatory_requirements": [
+    {
+      "text": "AWS, Terraform and Kubernetes",
+      "terms": [
+        "AWS",
+        "Terraform",
+        "Kubernetes"
+      ],
+      "kind": "tool",
+      "quote": "AWS, Terraform and Kubernetes"
+    }
+  ],
+  "nice_to_have": [
+    {
+      "text": "Java services",
+      "terms": [
+        "Java"
+      ],
+      "kind": "tool",
+      "quote": "Experience with Java services is an advantage"
+    }
+  ],
+  "sponsorship": {
+    "value": "stated_yes",
+    "quote": "We offer visa sponsorship"
+  },
+  "work_mode": {
+    "value": "Hybrid",
+    "quote": "Hybrid in Utrecht"
+  },
+  "salary_text": {
+    "value": null,
+    "quote": null
+  },
+  "expires": {
+    "value": null,
+    "quote": null
+  },
+  "agency_posting": {
+    "value": null,
+    "quote": null
+  },
+  "specific_details": []
+}

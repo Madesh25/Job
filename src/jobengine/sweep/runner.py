@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from datetime import date
 
 from jobengine import http
+from jobengine.config_store import ConfigStore
 from jobengine.notion_repo import JobsRepo, NotionClient, NotionReader, jobs_repo_for
 from jobengine.safety import notion_write_target
 from jobengine.settings import Settings
@@ -43,7 +44,7 @@ class SweepError(Exception):
 class SweepDeps:
     """Everything a sweep reads from or writes to. Real and fake versions below."""
 
-    config: Callable[[], Mapping[str, str]]
+    config: Callable[[], ConfigStore]
     companies: Callable[[], list[TargetCompany]]
     repo: JobsRepo | None  # None means no write target: DRY RUN, nothing is written
     gmail: Callable[[], SourceResult]
@@ -51,10 +52,12 @@ class SweepDeps:
     ats: Callable[[list[TargetCompany], Prefilter], SourceResult]
 
 
-def fake_deps(s: Settings) -> SweepDeps:
-    """Fixtures for every source and an in-memory Job Opportunities. No network."""
+def fake_deps(s: Settings, repo: JobsRepo | None = None) -> SweepDeps:
+    """Fixtures for every source and an in-memory Job Opportunities. No network.
+    `repo` lets the fake bot share one in-memory Job Opportunities with screening."""
     get = fakes.FixtureHttp(s)
-    repo = fakes.jobs_repo() if notion_write_target("job_opportunities", s) else None
+    if repo is None and notion_write_target("job_opportunities", s):
+        repo = fakes.jobs_repo()
     if repo is None:
         log.warning("DRY RUN: would write to job_opportunities")
     return SweepDeps(
@@ -74,7 +77,7 @@ def real_deps(s: Settings) -> SweepDeps:
     client = NotionClient(s.notion_token, s)
     reader = NotionReader(client, s)
     return SweepDeps(
-        config=reader.config,
+        config=lambda: ConfigStore.load(client, s),
         companies=reader.target_companies,
         repo=jobs_repo_for(s, client),
         gmail=lambda: gmail_alerts.fetch(s),

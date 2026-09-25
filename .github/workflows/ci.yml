@@ -35,3 +35,11 @@ jobs:
 
       - name: Sweep smoke test (fake sources, no network)
         run: APP_ENV=local python -m jobengine.sweep --fake --today 2026-10-01
+
+      - name: Screening smoke test (fake LLM, fake IND register, no network)
+        run: APP_ENV=local python -m jobengine.screen --fake --today 2026-10-01
+
+      - name: Telegram screening smoke test (fake bot session)
+        run: |
+          printf '/fetch\n/pending\ntap ap:nl-sponsor-yes\n/jd https://www.linkedin.com/jobs/view/4012345678\nWe run Kubernetes and Terraform on AWS.\n/done\n' \
+            | APP_ENV=local python -m jobengine.telegram_bot --fake

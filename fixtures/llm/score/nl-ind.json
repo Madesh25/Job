@@ -1,0 +1,62 @@
+{
+  "years_required_min": {
+    "value": 3,
+    "quote": "3+ years of experience"
+  },
+  "seniority_title_flag": {
+    "value": "none",
+    "quote": null
+  },
+  "languages": [],
+  "contract_types": [
+    {
+      "value": "permanent",
+      "quote": "This is a permanent position"
+    }
+  ],
+  "mandatory_requirements": [
+    {
+      "text": "Kubernetes and Terraform on AWS",
+      "terms": [
+        "Kubernetes",
+        "Terraform",
+        "AWS"
+      ],
+      "kind": "tool",
+      "quote": "running Kubernetes and Terraform on AWS"
+    }
+  ],
+  "nice_to_have": [
+    {
+      "text": "Grafana",
+      "terms": [
+        "Grafana"
+      ],
+      "kind": "tool",
+      "quote": "Experience with Grafana dashboards is welcome"
+    }
+  ],
+  "sponsorship": {
+    "value": "not_mentioned",
+    "quote": null
+  },
+  "work_mode": {
+    "value": "Hybrid",
+    "quote": "Hybrid in Amsterdam"
+  },
+  "salary_text": {
+    "value": "EUR 62,000 - 74,000 per year",
+    "quote": "EUR 62,000 - 74,000 per year"
+  },
+  "expires": {
+    "value": null,
+    "quote": null
+  },
+  "agency_posting": {
+    "value": null,
+    "quote": null
+  },
+  "specific_details": [
+    "improving the availability of the payment gateway"
+  ]
+}

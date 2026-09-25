@@ -339,3 +339,203 @@ def test_poll_once_routes_fetch_to_run_fetch():
     texts = [text for _, text in fake.sent]
     assert texts[0].startswith("[LOCAL] \U0001F50E Searching for jobs")
     assert texts[-1] == "[LOCAL] Sweep done"
+
+
+# ---------------------------------------------------------------- Module 03: screening desk
+
+from datetime import datetime, timedelta  # noqa: E402
+
+from jobengine.screen.desk import APPROVED_TEXT, fake_desk  # noqa: E402
+from jobengine.sweep.fakes import FAKE_TODAY  # noqa: E402
+
+
+class ButtonTelegram(FakeTelegram):
+    """FakeTelegram that also records buttons and answers callback queries."""
+
+    def __init__(self, batches=None):
+        super().__init__(batches)
+        self.buttons = []
+
+    def __call__(self, method, payload, timeout):
+        if method == "answerCallbackQuery":
+            self.calls.append((method, payload))
+            return {"ok": True, "result": True}
+        if method == "sendMessage":
+            rows = (payload.get("reply_markup") or {}).get("inline_keyboard") or []
+            self.buttons.append([b["callback_data"] for row in rows for b in row])
+        return super().__call__(method, payload, timeout)
+
+
+def tap(update_id, data, user=CHAT_ID):
+    return {"update_id": update_id, "callback_query": {
+        "id": f"cb{update_id}", "from": {"id": int(user)},
+        "message": {"chat": {"id": int(user)}}, "data": data}}
+
+
+class Clock:
+    def __init__(self):
+        self.now = datetime(2026, 10, 1, 9, 0)
+
+    def __call__(self):
+        return self.now
+
+
+@pytest.fixture
+def desk():
+    s = settings()
+    d = fake_desk(s, FAKE_TODAY, now=Clock())
+    d.screen()  # screen the fixture rows first
+    return d
+
+
+def talk(desk, *items):
+    fake = ButtonTelegram([[item if isinstance(item, dict) else update(i, item)]
+                           for i, item in enumerate(items, 1)])
+    client = tb.TelegramClient(fake)
+    offset = None
+    for _ in items:
+        offset = tb.poll_once(client, settings(), offset, desk=desk)
+    return fake
+
+
+def test_pending_shows_one_card_in_rank_order(desk):
+    fake = talk(desk, "/pending")
+    assert len(fake.sent) == 1
+    text = fake.sent[0][1]
+    assert text.startswith("[LOCAL] [1/")
+    assert "Apply high\nTulip Data B.V., Cloud Engineer" in text
+    assert "Match: 1 strong, 0 transferable, 1 gaps" in text
+    assert "1 LinkedIn job needs the JD: /jd" in text
+    assert fake.buttons[0] == ["ap:nl-sponsor-yes", "sk:nl-sponsor-yes", "nx:1"]
+    order = [r.page_id for r in desk.ranked()]
+    assert order.index("pl-clean") < order.index("ie-5-years")  # exactly 5 years ranks lower
+    assert order.index("ie-5-years") < order.index("pl-polish-plus")  # tier first
+    assert order.index("nl-not-register") > order.index("pl-polish-plus")
+
+
+def test_next_approve_skip_and_double_tap(desk):
+    fake = talk(desk, tap(1, "nx:1"), tap(2, "ap:pl-clean"), tap(3, "ap:pl-clean"),
+                tap(4, "sk:nl-ind"))
+    texts = [t for _, t in fake.sent]
+    assert "Vistula Cloud, DevOps Engineer" in texts[0]
+    assert texts[1] == f"[LOCAL] {APPROVED_TEXT}"
+    assert texts[3] == "[LOCAL] Already handled"
+    assert desk.repo.rows["pl-clean"]["Status"] == "Approved"
+    assert desk.repo.rows["nl-ind"]["Status"] == "Declined"
+    assert [m for m, _ in fake.calls if m == "answerCallbackQuery"] == ["answerCallbackQuery"] * 4
+
+
+def test_buttons_from_other_users_are_ignored(desk):
+    fake = talk(desk, tap(1, "ap:pl-clean", user="999"))
+    assert fake.sent == []
+    assert desk.repo.rows["pl-clean"]["Status"] == "Screened"
+
+
+def test_jd_two_messages_then_done_screens_the_row(desk):
+    fake = talk(desk, "/jd https://www.linkedin.com/jobs/view/4012345678",
+                "Northwind Cloud is hiring a Platform Engineer in Cork.",
+                "You run Kubernetes and Terraform on AWS.", "/done")
+    texts = [t for _, t in fake.sent]
+    assert "Collecting the job description for Northwind Cloud, Platform Engineer" in texts[0]
+    assert "characters so far" in texts[1]
+    body = desk.repo.rows["li-no-jd"]["body"]
+    assert body[0] == "Description source: pasted (full)"
+    assert body[1] == ("Northwind Cloud is hiring a Platform Engineer in Cork.\n"
+                       "You run Kubernetes and Terraform on AWS.")
+    assert desk.repo.rows["li-no-jd"]["Screen verdict"] == "Needs review"  # short paste
+    assert any(t.startswith("[LOCAL] Screening done: 1 screened") for t in texts)
+    assert desk.captures.get() is None
+
+
+def test_jd_for_a_new_url_creates_the_row(desk):
+    talk(desk, "/jd https://www.irishjobs.ie/job/77\nCompany: Harbour Soft\nRole: SRE",
+         "We run Kubernetes.", "/done")
+    url = "https://www.irishjobs.ie/job/77"
+    created = [r for r in desk.repo.rows.values() if r.get("URL") == url]
+    assert len(created) == 1
+    row = created[0]
+    assert (row["Company"], row["Role"], row["Board"]) == ("Harbour Soft", "SRE", "IrishJobs.ie")
+    assert (row["Status"], row["Times seen"], row["First seen"]) == ("Screened", 1, FAKE_TODAY)
+
+
+def test_jd_asks_for_company_and_role(desk):
+    fake = talk(desk, "/jd https://jobs.example.com/unknown", "We run Kubernetes.",
+                "Company: Acme Cloud\nRole: DevOps Engineer", "/done")
+    texts = [t for _, t in fake.sent]
+    assert "Send the company and role first" in texts[0]
+    assert "Still need the company and role" in texts[1]
+    assert any("Acme Cloud" == r.get("Company") for r in desk.repo.rows.values())
+
+
+def test_old_capture_is_discarded(desk):
+    talk(desk, "/jd https://www.linkedin.com/jobs/view/4012345678")
+    desk.now.now += timedelta(minutes=21)
+    fake = talk(desk, "pasted text")
+    assert "older than 20 minutes and was discarded" in fake.sent[0][1]
+    assert desk.captures.get() is None
+    assert "body" not in desk.repo.rows["li-no-jd"] or not desk.repo.rows["li-no-jd"]["body"]
+
+
+def test_jd_without_url_lists_waiting_rows(desk):
+    fake = talk(desk, "/jd")
+    assert "1 job waits for a description" in fake.sent[0][1]
+    assert "https://www.linkedin.com/jobs/view/4012345678" in fake.sent[0][1]
+
+
+def test_plain_text_without_capture_gets_the_usual_answer(desk):
+    fake = talk(desk, "hello")
+    assert fake.sent[0][1] == "[LOCAL] I only understand commands for now. Send /help to see them."
+
+
+def test_screen_command(desk):
+    fake = talk(desk, "/screen", "/screen pl-clean")
+    assert fake.sent[0][1].startswith("[LOCAL] Screening done: 0 screened")
+    assert fake.sent[1][1].startswith("[LOCAL] Screening done: 1 screened (1 high")
+    assert "ready to review: /pending" in fake.sent[1][1]
+
+
+def test_fetch_chains_screening():
+    s = settings()
+    d = fake_desk(s, FAKE_TODAY)
+    text = tb.make_fetcher(s, True, d)(lambda line: None)
+    assert "New jobs added to Notion: 8" in text
+    assert "Screening done: 20 screened" in text
+    assert text.endswith("ready to review: /pending")
+
+
+def test_desk_failures_are_reported_not_raised(desk):
+    def boom(index=0):
+        raise RuntimeError("notion down")
+
+    desk.pending = boom
+    fake = talk(desk, "/pending")
+    assert fake.sent[0][1] == "[LOCAL] /pending failed: notion down"
+
+
+def test_fake_harness_taps(monkeypatch, capsys):
+    monkeypatch.setattr(tb, "get_settings", lambda: load_settings("local", {}))
+    monkeypatch.setattr(sys, "stdin", io.StringIO("/screen\n/pending\ntap ap:nl-sponsor-yes\n"))
+    assert tb.main(["--fake"]) == 0
+    out = capsys.readouterr().out
+    assert "[Approve: tap ap:nl-sponsor-yes]" in out
+    assert f"bot> [LOCAL] {APPROVED_TEXT}" in out
+
+
+def test_help_lists_screening_commands():
+    for command in ("/pending", "/jd", "/done", "/screen"):
+        assert command in tb.HELP_TEXT
+
+
+def test_missing_llm_key_is_a_clear_reply(desk):
+    from jobengine.llm import LLMError
+
+    def no_key(config):
+        raise LLMError("ANTHROPIC_API_KEY is not set, so LLM screening cannot run")
+
+    desk.deps.llm = no_key
+    desk.repo.rows["pl-clean"]["Screen verdict"] = "Unscreened"
+    fake = talk(desk, "/screen")
+    assert fake.sent[0][1] == (
+        "[LOCAL] Screening could not run: ANTHROPIC_API_KEY is not set, so LLM screening "
+        "cannot run"
+    )

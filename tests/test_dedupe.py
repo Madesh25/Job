@@ -67,12 +67,20 @@ def test_same_posting_next_day_does_not_increment():
     assert result.props == {"Swept date": TODAY, "Ghost job risk": "Unknown"}
 
 
-def test_new_posting_id_increments_and_appends():
+def test_cross_source_sighting_adds_id_without_incrementing():
     result = update_plan(row(), job(source="gmail", posting_ref="gmail:9"), TODAY)
-    assert result.repost is True
-    assert result.props["Times seen"] == 2
+    assert result.repost is False
+    assert "Times seen" not in result.props
+    assert result.row.times_seen == 1
     assert result.props["Posting IDs"] == "adzuna:1, gmail:9"
     assert result.props["Swept date"] == TODAY
+
+
+def test_same_source_new_id_is_a_repost():
+    result = update_plan(row(), job(posting_ref="adzuna:2"), TODAY)
+    assert result.repost is True
+    assert result.props["Times seen"] == 2
+    assert result.props["Posting IDs"] == "adzuna:1, adzuna:2"
 
 
 def test_update_fills_empty_fields_only():
@@ -96,17 +104,17 @@ def test_update_never_touches_status_screen_verdict_or_first_seen():
 
 def test_update_recomputes_ghost_risk():
     old = row(times_seen=2, first_seen=date(2026, 7, 1), posting_ids=["adzuna:1", "gmail:1"])
-    result = update_plan(old, job(posting_ref="ats:5"), TODAY)
+    result = update_plan(old, job(posting_ref="adzuna:5"), TODAY)
     assert result.props["Times seen"] == 3
     assert result.props["Ghost job risk"] == "High"
 
 
 def test_posting_ids_keep_last_fifty():
     ids = [f"adzuna:{n}" for n in range(MAX_POSTING_IDS)]
-    result = update_plan(row(posting_ids=ids, times_seen=50), job(posting_ref="gmail:new"), TODAY)
+    result = update_plan(row(posting_ids=ids, times_seen=50), job(posting_ref="adzuna:new"), TODAY)
     kept = parse_posting_ids(result.props["Posting IDs"])
     assert len(kept) == MAX_POSTING_IDS
-    assert kept[-1] == "gmail:new" and "adzuna:0" not in kept
+    assert kept[-1] == "adzuna:new" and "adzuna:0" not in kept
     assert format_posting_ids(["a", "b"]) == "a, b"
 
 

@@ -48,7 +48,41 @@ JOB_PROPERTY_TYPES = {
     "Status": "select",
     "Screen verdict": "select",
     "Ghost job risk": "select",
+    # Written by screening (Module 03).
+    "Skip reason": "select",
+    "Language required": "select",
+    "Contract type": "select",
+    "Sponsorship": "select",
+    "Work mode": "select",
+    "Expires": "date",
+    "Visa flags": "multi_select",
+    "Tech stack": "multi_select",
+    "Gaps": "rich_text",
 }
+
+# Properties screening and /pending read.
+ROW_PROPERTIES = (
+    "Company",
+    "Role",
+    "City",
+    "Country",
+    "Board",
+    "URL",
+    "Dedupe key",
+    "Posting IDs",
+    "Status",
+    "Screen verdict",
+    "Years required",
+    "Expires",
+    "Posted date",
+    "Ghost job risk",
+    "Salary",
+    "Visa flags",
+    "Contract type",
+    "Sponsorship",
+    "Gaps",
+    "Swept date",
+)
 
 # Properties read when building the dedupe index.
 INDEX_PROPERTIES = (
@@ -77,6 +111,12 @@ class JobsRepo(Protocol):
 
     def append_body(self, page_id: str, blocks: list[str]) -> None: ...
 
+    def query_rows(self, where: dict[str, Any] | None = None) -> list[tuple[str, dict]]: ...
+
+    def get_values(self, page_id: str) -> dict[str, Any] | None: ...
+
+    def read_body(self, page_id: str) -> list[str]: ...
+
 
 # ---------------------------------------------------------------- value conversion
 
@@ -97,6 +137,8 @@ def plain_value(prop: dict[str, Any]) -> Any:
     if kind == "date":
         start = (value or {}).get("start")
         return date.fromisoformat(start[:10]) if start else None
+    if kind == "multi_select":
+        return [item.get("name") for item in value or [] if item.get("name")]
     if kind in ("number", "url", "checkbox"):
         return value
     return None
@@ -114,6 +156,10 @@ def notion_value(kind: str, value: Any) -> dict[str, Any]:
         return {"number": value}
     if kind == "url":
         return {"url": value}
+    if kind == "multi_select":
+        # Option names cannot contain commas; new options are created by the API.
+        names = [str(v).replace(",", " ").strip()[:100] for v in value or []]
+        return {"multi_select": [{"name": n} for n in dict.fromkeys(names) if n]}
     raise ValueError(f"unsupported property type {kind}")
 
 
@@ -130,6 +176,39 @@ def paragraph_blocks(texts: list[str]) -> list[dict[str, Any]]:
         }
         for text in texts
     ]
+
+
+def select_filter(prop: str, *values: str) -> dict[str, Any]:
+    """Notion filter: select `prop` equals any of `values`."""
+    conditions = [{"property": prop, "select": {"equals": v}} for v in values]
+    return conditions[0] if len(conditions) == 1 else {"or": conditions}
+
+
+def matches(values: dict[str, Any], flt: dict[str, Any] | None) -> bool:
+    """Evaluate the subset of Notion filters used here against plain values (for fakes)."""
+    if not flt:
+        return True
+    if "and" in flt:
+        return all(matches(values, f) for f in flt["and"])
+    if "or" in flt:
+        return any(matches(values, f) for f in flt["or"])
+    value = values.get(flt["property"])
+    for kind in ("select", "rich_text", "url", "title"):
+        if kind in flt:
+            cond = flt[kind]
+            if "equals" in cond:
+                return value == cond["equals"]
+            if "contains" in cond:
+                return cond["contains"] in (value or "")
+    raise ValueError(f"unsupported filter {flt}")
+
+
+def block_text(block: dict[str, Any]) -> str | None:
+    """Plain text of a block that holds rich text (paragraph, heading, list item...)."""
+    body = block.get(block.get("type") or "") or {}
+    if isinstance(body, dict) and "rich_text" in body:
+        return _text(body["rich_text"])
+    return None
 
 
 def index_row(page_id: str, values: dict[str, Any]) -> IndexRow | None:
@@ -270,20 +349,45 @@ class NotionJobsRepo:
         )
 
 
+    def query_rows(self, where: dict[str, Any] | None = None) -> list[tuple[str, dict]]:
+        body = {"filter": where} if where else None
+        return [(page["id"], page_values(page))
+                for page in self.client.query(self.data_source_id, body, ROW_PROPERTIES)]
+
+    def get_values(self, page_id: str) -> dict[str, Any] | None:
+        try:
+            page = self.client.request("GET", f"/pages/{page_id}")
+        except http.HttpError as exc:
+            if exc.status == 404:
+                return None
+            raise
+        if page.get("in_trash") or page.get("archived"):
+            return None
+        return page_values(page)
+
+    def read_body(self, page_id: str) -> list[str]:
+        texts: list[str] = []
+        cursor = None
+        while True:
+            params: list[tuple[str, Any]] = [("page_size", 100)]
+            if cursor:
+                params.append(("start_cursor", cursor))
+            data = self.client.request("GET", f"/blocks/{page_id}/children", params=params)
+            for block in data.get("results") or []:
+                text = block_text(block)
+                if text is not None:
+                    texts.append(text)
+            if not data.get("has_more"):
+                return texts
+            cursor = data.get("next_cursor")
+
+
 class NotionReader:
     """Read-only access to the reference data sources (notion_read)."""
 
     def __init__(self, client: NotionClient, s: Settings):
         self.client = client
         self.s = s
-
-    def config(self) -> dict[str, str]:
-        values = {}
-        for page in self.client.query(self.s.notion_read["config"], properties=("Key", "Value")):
-            row = page_values(page)
-            if row.get("Key"):
-                values[row["Key"]] = row.get("Value") or ""
-        return values
 
     def target_companies(self) -> list[TargetCompany]:
         body = {"filter": {"property": "Active", "checkbox": {"equals": True}}}
@@ -334,7 +438,7 @@ class FakeJobsRepo:
     def from_fixture(cls, path: Path) -> FakeJobsRepo:
         rows = json.loads(path.read_text(encoding="utf-8"))
         for row in rows:
-            for key in ("First seen", "Posted date", "Swept date"):
+            for key in ("First seen", "Posted date", "Swept date", "Expires"):
                 if row.get(key):
                     row[key] = date.fromisoformat(row[key])
         return cls(rows)
@@ -364,3 +468,14 @@ class FakeJobsRepo:
     def append_body(self, page_id: str, blocks: list[str]) -> None:
         self.rows[page_id].setdefault("body", []).extend(blocks)
         self.writes.append(("append_body", page_id, list(blocks)))
+
+    def query_rows(self, where: dict[str, Any] | None = None) -> list[tuple[str, dict]]:
+        return [(pid, {k: v for k, v in row.items() if k != "body"})
+                for pid, row in self.rows.items() if matches(row, where)]
+
+    def get_values(self, page_id: str) -> dict[str, Any] | None:
+        row = self.rows.get(page_id)
+        return {k: v for k, v in row.items() if k != "body"} if row else None
+
+    def read_body(self, page_id: str) -> list[str]:
+        return list(self.rows[page_id].get("body") or [])
