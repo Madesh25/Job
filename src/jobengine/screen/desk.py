@@ -19,6 +19,8 @@ from jobengine.bot_state import BotState, FakeBotState
 from jobengine.contacts import finder as contact_finder
 from jobengine.contacts.finder import ContactDeps
 from jobengine.llm import LLMError
+from jobengine.mail import drafter as mail_drafter
+from jobengine.mail.drafter import MailDeps
 from jobengine.notion_repo import FakeJobsRepo, JobsRepo
 from jobengine.reference import Reference
 from jobengine.resume import builder as resume_builder
@@ -50,6 +52,7 @@ MATRIX_LINE = re.compile(r"^(Strong|Transferable|Gap) \| ")
 MAX_WAITING_LIST = 10
 REFERENCE_TTL_SECONDS = 600
 NO_TARGET = "DRY RUN: no Job Opportunities target in this environment, nothing to show."
+MAX_TEXT = 4000  # Telegram allows 4096 characters per message
 
 
 @dataclass
@@ -57,6 +60,10 @@ class Reply:
     text: str
     buttons: list[tuple[str, str]] = field(default_factory=list)  # (label, callback data)
     document: tuple[str, bytes] | None = None  # (filename, PDF bytes); text is the caption
+
+
+def _contact_ids(contacts: list[Any]) -> list[str]:
+    return [c.page_id for c in contacts if getattr(c, "page_id", None)]
 
 
 def short_id(page_id: str) -> str:
@@ -91,11 +98,13 @@ class Desk:
         now: Callable[[], datetime] = datetime.now,
         resume: ResumeDeps | None = None,
         contacts: ContactDeps | None = None,
+        mail: MailDeps | None = None,
     ):
         self.s = s
         self.deps = deps
         self.resume = resume
         self.contacts = contacts
+        self.mail = mail
         self.state = state
         # Set by the bot for each update: sends a reply at once (before a long build).
         self.notify: Callable[[Reply], None] | None = None
@@ -257,8 +266,15 @@ class Desk:
         self.say(Reply(f"Finding contacts for {values.get('Company') or 'this job'}..."))
         result = contact_finder.find_contacts(self.contacts, job_id)
         if result.status == "done":
-            contact_finder.on_contacts_ready(job_id, result.contacts)
+            return self._then_drafts(Reply(result.message), job_id, result.contacts)
         return [Reply(result.message)]
+
+    def _then_drafts(self, first: Reply, job_id: str, contacts: list[Any]) -> list[Reply]:
+        """The contacts summary, then the drafts (sent at once when the bot can)."""
+        if self.notify is None or self.mail is None or not _contact_ids(contacts):
+            return [first, *self.on_contacts_ready(job_id, contacts)]
+        self.say(first)
+        return self.on_contacts_ready(job_id, contacts)
 
     def contacts_command(self, args: str) -> list[Reply]:
         if self.contacts is None or self.repo is None:
@@ -306,8 +322,35 @@ class Desk:
         if isinstance(answer, str):
             return [Reply(answer)]
         if answer.status == "done":
-            contact_finder.on_contacts_ready(answer.job_id, answer.contacts)
+            return self._then_drafts(Reply(answer.message), answer.job_id, answer.contacts)
         return [Reply(answer.message)]
+
+    # ------------------------------------------------------------ drafts (Module 06)
+
+    def on_contacts_ready(self, job_id: str, contacts: list[Any]) -> list[Reply]:
+        """Gmail drafts for the contacts just found (never sent)."""
+        contact_finder.on_contacts_ready(job_id, contacts)
+        ids = _contact_ids(contacts)
+        if self.mail is None or not ids:
+            return []
+        self.say(Reply(f"Writing Gmail drafts for {len(ids)} contacts..."))
+        return self.drafts(job_id, ids)
+
+    def drafts(self, job_id: str, ids: list[str] | None = None) -> list[Reply]:
+        assert self.mail is not None
+        result = mail_drafter.create_drafts(self.mail, job_id, ids)
+        return [Reply(result.message[:MAX_TEXT])]
+
+    def drafts_command(self, args: str) -> list[Reply]:
+        """/drafts <job>: retry drafting for a job (drafts already made are skipped)."""
+        if self.mail is None or self.repo is None:
+            return [Reply("Gmail drafts are not available in this bot.")]
+        if not args.strip():
+            return [Reply("Send /drafts <job URL or page id>.")]
+        row = find_row(self.repo, args.strip())
+        if row is None:
+            return [Reply(f"No Job Opportunities row found for {args.strip()}")]
+        return self.drafts(row.page_id)
 
     def correction(self, replied_to: str, text: str) -> list[Reply] | None:
         """A reply to a preview ("Ref RL-xxxxxxxx" in it) builds the next revision. None when
@@ -501,8 +544,11 @@ def fake_desk(s: Settings, today: date, now: Callable[[], datetime] | None = Non
     state = FakeBotState()
     contacts = contact_finder.fake_deps(s, jobs=deps.repo, state=state)
     contacts.today = lambda: today
+    mail = mail_drafter.fake_deps(s, jobs=deps.repo, contacts=contacts.contacts,
+                                  resume_log=resume.resume_log, drive=resume.drive())
+    mail.today = lambda: today
     return Desk(s, deps, state, today=lambda: today, now=clock, resume=resume,
-                contacts=contacts)
+                contacts=contacts, mail=mail)
 
 
 def real_desk(s: Settings) -> Desk | None:
@@ -529,4 +575,9 @@ def real_desk(s: Settings) -> Desk | None:
     except Exception as exc:  # the bot still works without the contact finder
         log.warning("contact finder not available: %s", exc)
         contacts = None
-    return Desk(s, real_deps(s), state, resume=resume, contacts=contacts)
+    try:
+        mail = mail_drafter.real_deps(s)
+    except Exception as exc:  # the bot still works without Gmail drafts
+        log.warning("gmail drafts not available: %s", exc)
+        mail = None
+    return Desk(s, real_deps(s), state, resume=resume, contacts=contacts, mail=mail)

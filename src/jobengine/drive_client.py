@@ -1,10 +1,10 @@
 """Google Drive upload for approved resumes, with the `drive.file` scope only.
 
-Only files.list (find the folder or a name clash), files.create (folder and PDF) and files.get
-(metadata) are used. Nothing is deleted, overwritten, shared or given new permissions. The
-app can only see the files and folders it created, which is what `drive.file` allows. Like
-gmail_reader.py, this module talks to Google through the Google API client, the allowed
-exception to jobengine.http.
+Only files.list (find the folder or a name clash), files.create (folder and PDF), files.get
+(metadata) and files.get_media (download the approved PDF for a mail attachment) are used.
+Nothing is deleted, overwritten, shared or given new permissions. The app can only see the
+files and folders it created, which is what `drive.file` allows. Like gmail_reader.py, this
+module talks to Google through the Google API client, the allowed exception to jobengine.http.
 """
 
 from __future__ import annotations
@@ -32,6 +32,19 @@ class Drive(Protocol):
     def upload_pdf(self, name: str, data: bytes) -> str:
         """Upload into the resume folder and return the web view link."""
         ...
+
+    def download(self, link: str) -> bytes:
+        """The bytes of a file this app created, from its web view link."""
+        ...
+
+
+def file_id(link: str) -> str:
+    """The Drive file ID in a link like https://drive.google.com/file/d/<id>/view."""
+    match = re.search(r"/d/([A-Za-z0-9_-]{10,})", link) or re.search(
+        r"[?&]id=([A-Za-z0-9_-]{10,})", link)
+    if not match:
+        raise DriveError(f"not a Drive file link: {link}")
+    return match.group(1)
 
 
 def folder_name(s: Settings, configured: str | None = None) -> str:
@@ -113,6 +126,9 @@ class GoogleDrive:
         meta = self.service.files().get(fileId=created["id"], fields="webViewLink").execute()
         return meta["webViewLink"]
 
+    def download(self, link: str) -> bytes:
+        return self.service.files().get_media(fileId=file_id(link)).execute()
+
 
 @dataclass
 class FakeDrive:
@@ -127,3 +143,9 @@ class FakeDrive:
         self.files[name] = data
         self.calls.append(name)
         return f"https://drive.example.com/{len(self.files)}/{name}"
+
+    def download(self, link: str) -> bytes:
+        name = link.rsplit("/", 1)[-1]
+        if name not in self.files:
+            raise DriveError(f"no such file in the fake Drive: {link}")
+        return self.files[name]

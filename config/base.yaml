@@ -72,6 +72,10 @@ contacts:
     recruiter: [Recruiter, Talent Acquisition, Technical Recruiter]
 drive:
   resume_folder: Job Engine Resumes
+mail:
+  # Defaults; Notion Config keys mail.same_person_cooldown_days and mail.max_attachment_kb win.
+  same_person_cooldown_days: 30
+  max_attachment_kb: 250
 sweep:
   # Title filters (section 4). Matched as whole words on the canonical (lowercase ASCII) title.
   title_include:

@@ -81,6 +81,9 @@ CONTACT_PROPERTY_TYPES = {
     "Date found": "date",
     "Related jobs": "relation",
     "Notes": "rich_text",
+    "Gmail draft ID": "rich_text",
+    "Gmail thread ID": "rich_text",
+    "Last contacted": "date",
 }
 
 # Resume Log property name -> Notion property type.
@@ -177,10 +180,6 @@ def plain_value(prop: dict[str, Any]) -> Any:
     if kind == "date":
         start = (value or {}).get("start")
         return date.fromisoformat(start[:10]) if start else None
-    if kind == "relation":
-        return {"relation": [{"id": str(v)} for v in value or []]}
-    if kind == "checkbox":
-        return {"checkbox": bool(value)}
     if kind == "multi_select":
         return [item.get("name") for item in value or [] if item.get("name")]
     if kind in ("number", "url", "checkbox", "email"):
@@ -204,6 +203,10 @@ def notion_value(kind: str, value: Any) -> dict[str, Any]:
         return {"url": value}
     if kind == "email":
         return {"email": value}
+    if kind == "relation":
+        return {"relation": [{"id": str(v)} for v in value or []]}
+    if kind == "checkbox":
+        return {"checkbox": bool(value)}
     if kind == "multi_select":
         # Option names cannot contain commas; new options are created by the API.
         names = [str(v).replace(",", " ").strip()[:100] for v in value or []]
@@ -685,6 +688,8 @@ class ContactsRepo(Protocol):
 
     def add_job(self, page_id: str, job_id: str) -> None: ...
 
+    def update(self, page_id: str, props: dict[str, Any]) -> None: ...
+
 
 def contact_properties(props: dict[str, Any]) -> dict[str, Any]:
     return {name: notion_value(CONTACT_PROPERTY_TYPES[name], value)
@@ -717,6 +722,11 @@ class NotionContactsRepo:
         self.client.request("PATCH", f"/pages/{page_id}", {"properties": contact_properties(
             {"Related jobs": [*related, job_id]})})
 
+    def update(self, page_id: str, props: dict[str, Any]) -> None:
+        """Gmail draft ID, Gmail thread ID, Status and Notes after a draft (Module 06)."""
+        self.client.request("PATCH", f"/pages/{page_id}",
+                            {"properties": contact_properties(props)})
+
 
 class FakeContactsRepo:
     def __init__(self, rows: list[dict[str, Any]] | None = None):
@@ -746,6 +756,10 @@ class FakeContactsRepo:
         if job_id not in related:
             related.append(job_id)
             self.writes.append(("add_job", page_id, job_id))
+
+    def update(self, page_id: str, props: dict[str, Any]) -> None:
+        self.rows[page_id].update(props)
+        self.writes.append(("update", page_id, dict(props)))
 
 
 def contacts_repo_for(s: Settings, client: NotionClient) -> NotionContactsRepo | None:

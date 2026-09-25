@@ -313,7 +313,8 @@ def _write(deps: ContactDeps, job_id: str, values: dict[str, Any], chosen: list[
 
 
 def on_contacts_ready(job_id: str, contacts: list[Chosen]) -> None:
-    """Hook for Module 06 (Gmail drafts). Nothing yet."""
+    """Contacts are ready for a job. The bot's desk then writes the Gmail drafts (Module 06,
+    jobengine.mail.drafter); this only logs."""
     log.info("contacts ready for %s: %d", job_id, len(contacts))
 
 

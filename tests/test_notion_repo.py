@@ -13,6 +13,8 @@ from jobengine.notion_repo import (
     NotionReader,
     job_properties,
     jobs_repo_for,
+    notion_value,
+    plain_value,
 )
 from jobengine.settings import load_settings
 
@@ -246,3 +248,10 @@ def test_query_rows_sends_the_filter(notion):
     assert rows == [("p1", {"Company": "Vistula Cloud", "Visa flags": ["On IND register"]})]
     body = [b for m, p, _, b in notion.requests if p.endswith("/query")][0]
     assert body["filter"] == where
+
+
+def test_relation_and_checkbox_round_trip():
+    assert notion_value("relation", ["a-1", "b-2"]) == {"relation": [{"id": "a-1"}, {"id": "b-2"}]}
+    assert notion_value("checkbox", 1) == {"checkbox": True}
+    assert plain_value({"type": "relation", "relation": [{"id": "a-1"}]}) == ["a-1"]
+    assert plain_value({"type": "checkbox", "checkbox": True}) is True

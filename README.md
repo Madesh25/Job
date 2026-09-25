@@ -87,6 +87,15 @@ python -m jobengine.contacts --fake --job fixture-clean-pl   # fixture people, n
 After you approve a resume in Telegram the bot finds 4 contacts at the company (cache first,
 then Apollo, Hunter, Snov). See [docs/contacts.md](docs/contacts.md).
 
+## Write Gmail drafts
+
+```bash
+python -m jobengine.mail --fake --job fixture-clean-pl --no-write   # print the mails
+```
+
+After contacts are found the bot writes one draft per contact into Gmail Drafts (never
+sends). See [docs/gmail.md](docs/gmail.md), including how to make a token with gmail.modify.
+
 ## Run tests
 
 ```bash
@@ -102,3 +111,4 @@ pytest
 - [Screening](docs/screening.md)
 - [Resume builder](docs/resume-builder.md)
 - [Contact finder](docs/contacts.md)
+- [Gmail drafts](docs/gmail.md)

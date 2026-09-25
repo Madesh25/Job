@@ -2,7 +2,8 @@
 
 When you approve a resume, the bot looks for at least 4 people at that company in the job's
 country (2 peer engineers, 1 hiring manager, 1 recruiter or TA), saves them in Contacts, links
-them to the job, and lists them in Telegram. It writes no mail (Module 06).
+them to the job, and lists them in Telegram. Module 06 then writes Gmail drafts
+([gmail.md](gmail.md)).
 
 ## Rules
 

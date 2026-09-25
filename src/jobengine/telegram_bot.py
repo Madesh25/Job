@@ -52,9 +52,10 @@ HELP_TEXT = (
     "/screen <url or id> - screen one job again\n"
     "/contacts <url or id> - find contacts for a job (cache first, then Apollo, Hunter, Snov)\n"
     "/credits - show the contact providers' credit counters\n"
+    "/drafts <url or id> - write Gmail drafts for a job's contacts again (never sends)\n"
     "/help - show this list"
 )
-DESK_COMMANDS = ("pending", "jd", "done", "screen", "contacts", "credits")
+DESK_COMMANDS = ("pending", "jd", "done", "screen", "contacts", "credits", "drafts")
 
 # (method, payload, http_timeout) -> decoded JSON response
 Transport = Callable[[str, dict[str, Any], float], dict[str, Any]]
@@ -427,6 +428,8 @@ def desk_replies(update: dict[str, Any], s: Settings, desk: Desk | None) -> list
         return _guarded("/contacts", lambda: desk.contacts_command(args))
     if command == "credits":
         return _guarded("/credits", desk.credits)
+    if command == "drafts":
+        return _guarded("/drafts", lambda: desk.drafts_command(args))
     if command == "jd":
         return _guarded("/jd", lambda: desk.jd(args))
     if command == "done":

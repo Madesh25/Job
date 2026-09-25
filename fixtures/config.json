@@ -157,5 +157,45 @@
     "Value": "0 / 50 per month",
     "Type": "Credit counter",
     "Updated": "2026-08-20"
+  },
+  {
+    "Key": "mail.signature",
+    "Value": "Thanks,\n{profile.name}\n{profile.phone} | <a href=\"{profile.linkedin_url}\">LinkedIn</a>\n<a href=\"{profile.website_url}\">{profile.website}</a>",
+    "Type": "Setting"
+  },
+  {
+    "Key": "mail.attach_resume",
+    "Value": "yes",
+    "Type": "Setting"
+  },
+  {
+    "Key": "mail.daily_send_cap",
+    "Value": "15",
+    "Type": "Setting"
+  },
+  {
+    "Key": "mail.permit_word.poland",
+    "Value": "a Polish work permit",
+    "Type": "Setting"
+  },
+  {
+    "Key": "mail.permit_word.netherlands",
+    "Value": "a Dutch work permit (highly skilled migrant)",
+    "Type": "Setting"
+  },
+  {
+    "Key": "mail.permit_word.ireland",
+    "Value": "an Irish employment permit",
+    "Type": "Setting"
+  },
+  {
+    "Key": "mail.max_attachment_kb",
+    "Value": "250",
+    "Type": "Setting"
+  },
+  {
+    "Key": "mail.same_person_cooldown_days",
+    "Value": "30",
+    "Type": "Setting"
   }
 ]
