@@ -66,6 +66,8 @@ JOB_PROPERTY_TYPES = {
     "Contacts": "relation",
     "Contact source": "select",
     "Contact person": "rich_text",
+    # Written by tracking (Module 07).
+    "Gmail thread ID": "rich_text",
 }
 
 # Contacts property name -> Notion property type.
@@ -84,6 +86,7 @@ CONTACT_PROPERTY_TYPES = {
     "Gmail draft ID": "rich_text",
     "Gmail thread ID": "rich_text",
     "Last contacted": "date",
+    "Follow-up draft ID": "rich_text",
 }
 
 # Resume Log property name -> Notion property type.
@@ -125,6 +128,11 @@ ROW_PROPERTIES = (
     "Sponsorship",
     "Gaps",
     "Swept date",
+    # Tracking (Module 07).
+    "Applied date",
+    "Last activity date",
+    "Gmail thread ID",
+    "Contacts",
 )
 
 # Properties read when building the dedupe index.
@@ -507,7 +515,8 @@ class FakeJobsRepo:
     def from_fixture(cls, path: Path) -> FakeJobsRepo:
         rows = json.loads(path.read_text(encoding="utf-8"))
         for row in rows:
-            for key in ("First seen", "Posted date", "Swept date", "Expires"):
+            for key in ("First seen", "Posted date", "Swept date", "Expires", "Applied date",
+                        "Last activity date"):
                 if row.get(key):
                     row[key] = date.fromisoformat(row[key])
         return cls(rows)
@@ -530,6 +539,10 @@ class FakeJobsRepo:
     def update(self, page_id: str, props: dict[str, Any]) -> None:
         self.rows[page_id].update(props)
         self.writes.append(("update", page_id, dict(props)))
+
+    def archive(self, page_id: str) -> None:
+        self.rows.pop(page_id, None)
+        self.writes.append(("archive", page_id, None))
 
     def has_body(self, page_id: str) -> bool:
         return bool(self.rows[page_id].get("body"))
@@ -690,10 +703,24 @@ class ContactsRepo(Protocol):
 
     def update(self, page_id: str, props: dict[str, Any]) -> None: ...
 
+    def archive(self, page_id: str) -> None: ...
+
 
 def contact_properties(props: dict[str, Any]) -> dict[str, Any]:
     return {name: notion_value(CONTACT_PROPERTY_TYPES[name], value)
             for name, value in props.items() if value not in (None, "")}
+
+
+def cleared_or_value(kind: str, value: Any) -> dict[str, Any]:
+    """Like notion_value, but "" or None clears the property (for updates)."""
+    if value in (None, ""):
+        return {"date": None} if kind == "date" else {kind: []}
+    return notion_value(kind, value)
+
+
+def contact_update_properties(props: dict[str, Any]) -> dict[str, Any]:
+    return {name: cleared_or_value(CONTACT_PROPERTY_TYPES[name], value)
+            for name, value in props.items()}
 
 
 class NotionContactsRepo:
@@ -723,9 +750,13 @@ class NotionContactsRepo:
             {"Related jobs": [*related, job_id]})})
 
     def update(self, page_id: str, props: dict[str, Any]) -> None:
-        """Gmail draft ID, Gmail thread ID, Status and Notes after a draft (Module 06)."""
+        """Gmail IDs, Status, Notes, Last contacted (Modules 06 and 07). "" clears a field."""
         self.client.request("PATCH", f"/pages/{page_id}",
-                            {"properties": contact_properties(props)})
+                            {"properties": contact_update_properties(props)})
+
+    def archive(self, page_id: str) -> None:
+        """Move a contact to the Notion trash (retention, after your tap, prod only)."""
+        self.client.request("PATCH", f"/pages/{page_id}", {"in_trash": True})
 
 
 class FakeContactsRepo:
@@ -734,8 +765,9 @@ class FakeContactsRepo:
         self.writes: list[tuple[str, str, Any]] = []
         for row in rows or []:
             row = dict(row)
-            if row.get("Date found"):
-                row["Date found"] = date.fromisoformat(row["Date found"])
+            for key in ("Date found", "Last contacted"):
+                if isinstance(row.get(key), str):
+                    row[key] = date.fromisoformat(row[key])
             self.rows[row.pop("page_id")] = row
 
     @classmethod
@@ -760,6 +792,10 @@ class FakeContactsRepo:
     def update(self, page_id: str, props: dict[str, Any]) -> None:
         self.rows[page_id].update(props)
         self.writes.append(("update", page_id, dict(props)))
+
+    def archive(self, page_id: str) -> None:
+        self.rows.pop(page_id, None)
+        self.writes.append(("archive", page_id, None))
 
 
 def contacts_repo_for(s: Settings, client: NotionClient) -> NotionContactsRepo | None:

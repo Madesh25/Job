@@ -96,6 +96,15 @@ python -m jobengine.mail --fake --job fixture-clean-pl --no-write   # print the 
 After contacts are found the bot writes one draft per contact into Gmail Drafts (never
 sends). See [docs/gmail.md](docs/gmail.md), including how to make a token with gmail.modify.
 
+## Daily tracking and digest
+
+```bash
+python -m jobengine.track daily --fake --now 2026-10-15T08:00:00+05:30
+```
+
+Detects sent drafts, replies, bounces, drafts one follow-up after 7 days and sends a daily
+report (`/today` in Telegram). See [docs/tracking.md](docs/tracking.md).
+
 ## Run tests
 
 ```bash
@@ -112,3 +121,4 @@ pytest
 - [Resume builder](docs/resume-builder.md)
 - [Contact finder](docs/contacts.md)
 - [Gmail drafts](docs/gmail.md)
+- [Tracking and digest](docs/tracking.md)

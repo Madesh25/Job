@@ -70,6 +70,24 @@ contacts:
     peer: [DevOps Engineer, Site Reliability Engineer, Platform Engineer, Cloud Engineer]
     hiring: [Engineering Manager, Head of Platform, Head of DevOps, Infrastructure Manager]
     recruiter: [Recruiter, Talent Acquisition, Technical Recruiter]
+tracking:
+  # Gmail label names (Module 07). Labels are applied, never created: make them in Gmail.
+  labels:
+    replies: JobSearch/Replies
+    applications: JobSearch/Applications
+    interviews: JobSearch/Interviews
+  # Defaults; Notion Config tracking.min_confidence, followup.days, ghosted.days and
+  # contacts.retention_months win when set.
+  min_confidence: 0.8
+  followup_days: 7
+  ghosted_days: 14
+  retention_months: 12
+  first_run_days: 14
+  overlap_days: 1
+  ats_sender_domains: [greenhouse.io, lever.co, smartrecruiters.com, myworkday.com, workday.com,
+                       teamtailor.com, recruitee.com, personio.de, successfactors.com, icims.com]
+  opt_out_phrases: ["do not contact", "remove me", "unsubscribe", "not interested, please stop",
+                    "nie kontaktuj"]
 drive:
   resume_folder: Job Engine Resumes
 mail:

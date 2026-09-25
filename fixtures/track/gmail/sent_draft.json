@@ -1,0 +1,19 @@
+{
+ "thread_id": "t-anna",
+ "messages": [
+  {
+   "id": "m-anna-1",
+   "when": "2026-10-06T09:00:00+00:00",
+   "from": "madeshwaranm02@gmail.com",
+   "subject": "[DEV] to anna.example@vistula.example.com | DevOps Engineer role at Vistula Cloud Poland",
+   "text": "Hi Anna, invented cold mail text.",
+   "labels": [
+    "SENT"
+   ],
+   "headers": {
+    "message-id": "<m-anna-1@mail.example.com>",
+    "to": "madeshwaranm02@gmail.com"
+   }
+  }
+ ]
+}

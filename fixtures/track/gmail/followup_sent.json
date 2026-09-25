@@ -1,0 +1,33 @@
+{
+ "thread_id": "t-zofia",
+ "messages": [
+  {
+   "id": "m-zofia-1",
+   "when": "2026-10-01T08:00:00+00:00",
+   "from": "madeshwaranm02@gmail.com",
+   "subject": "DevOps Engineer role at Vistula Cloud Poland",
+   "text": "Hi Zofia, invented cold mail text.",
+   "labels": [
+    "SENT"
+   ],
+   "headers": {
+    "message-id": "<m-zofia-1@mail.example.com>",
+    "to": "zofia.example@vistula.example.com"
+   }
+  },
+  {
+   "id": "m-zofia-2",
+   "when": "2026-10-12T08:00:00+00:00",
+   "from": "madeshwaranm02@gmail.com",
+   "subject": "Re: DevOps Engineer role at Vistula Cloud Poland",
+   "text": "Hi Zofia, just following up.",
+   "labels": [
+    "SENT"
+   ],
+   "headers": {
+    "message-id": "<m-zofia-2@mail.example.com>",
+    "to": "zofia.example@vistula.example.com"
+   }
+  }
+ ]
+}
