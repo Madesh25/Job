@@ -47,7 +47,7 @@ jobs:
 
       - name: Telegram screening smoke test (fake bot session)
         run: |
-          printf '/fetch\n/pending\ntap ap:nl-sponsor-yes\n/jd https://www.linkedin.com/jobs/view/4012345678\nWe run Kubernetes and Terraform on AWS.\n/done\ntap ap:pl-clean\ntap ra:00000002000040008000000000000002\ntap ia:pl-clean\n/credits\n/contacts https://jobs.example.com/nl-ind\n/drafts pl-clean\n' \
+          printf '/fetch\n/pending\ntap ap:nl-sponsor-yes\n/jd https://www.linkedin.com/jobs/view/4012345678\nWe run Kubernetes and Terraform on AWS.\n/done\ntap ap:pl-clean\ntap ra:00000002000040008000000000000002\ntap ia:pl-clean\n/credits\n/contacts https://jobs.example.com/nl-ind\n/drafts pl-clean\n/today\ntap rc:c:cmarek:positive\n/stats\n/followups\n/health\n/sources\n/digest\n' \
             | APP_ENV=local python -m jobengine.telegram_bot --fake
 
       - name: Resume builder smoke test (fake Golden Master, fake LLM)
@@ -58,3 +58,8 @@ jobs:
 
       - name: Gmail drafts smoke test (fixture contacts, fake Gmail, no network)
         run: APP_ENV=local python -m jobengine.mail --fake --job fixture-clean-pl
+
+      - name: Tracking smoke test (fixture Gmail threads, no network)
+        run: |
+          APP_ENV=local python -m jobengine.track daily --fake --now 2026-10-15T08:00:00+05:30
+          APP_ENV=local python -m jobengine.track digest --fake

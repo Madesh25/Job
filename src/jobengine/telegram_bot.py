@@ -43,7 +43,7 @@ POLL_TIMEOUT = 30
 HELP_TEXT = (
     "Job Engine commands:\n"
     "/start - check that the bot is alive\n"
-    "/status - show environment and safety settings\n"
+    "/status - environment, safety settings, job and contact counts\n"
     "/fetch - search for new jobs, then screen them\n"
     "/pending - review screened jobs one at a time (Approve, Skip, Next)\n"
     "/jd <url> - paste a job description (for LinkedIn jobs), then /done\n"
