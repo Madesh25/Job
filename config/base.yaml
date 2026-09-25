@@ -27,6 +27,9 @@ safety:
     - api.eu.lever.co
     - api.smartrecruiters.com
     - ind.nl
+    - api.apollo.io
+    - api.hunter.io
+    - api.snov.io
 screening:
   # A description shorter than this (or marked "(snippet only)") is a snippet (spec section 3).
   full_min_chars: 600
@@ -48,6 +51,25 @@ resume:
   connector_words: "and with using for on in the a an via to of across including through into by
     its their"
   out_dir: out
+contacts:
+  # Title patterns (lowercase regex), checked in this order. Anything else is Other.
+  title_patterns:
+    recruiter: "recruit|talent acquisition|sourcer|talent partner|people partner|hr business partner|rekrut"
+    hiring: "engineering manager|head of (devops|platform|infrastructure|cloud|sre|engineering)|director of (engineering|infrastructure|platform)|(devops|platform|infrastructure|sre|cloud) (team )?(lead|manager)|tech lead|team lead"
+    peer: "devops|site reliability|sre|platform engineer|cloud engineer|infrastructure engineer|systems engineer|kubernetes|release engineer|build engineer"
+  # Used when Config contacts.mix is missing or cannot be read.
+  default_mix: {peer: 2, hiring: 1, recruiter: 1}
+  cache_months: 6
+  personal_domains: [gmail.com, outlook.com, yahoo.com, hotmail.com, icloud.com, proton.me]
+  generic_mailboxes: [careers, jobs, hr, recruitment, talent, praca, rekrutacja]
+  # Never used as a company's email domain.
+  ats_hosts: [greenhouse.io, lever.co, smartrecruiters.com, myworkdayjobs.com, workday.com,
+              teamtailor.com, recruitee.com, personio.de]
+  # Title keywords sent to providers per slot type.
+  search_titles:
+    peer: [DevOps Engineer, Site Reliability Engineer, Platform Engineer, Cloud Engineer]
+    hiring: [Engineering Manager, Head of Platform, Head of DevOps, Infrastructure Manager]
+    recruiter: [Recruiter, Talent Acquisition, Technical Recruiter]
 drive:
   resume_folder: Job Engine Resumes
 sweep:

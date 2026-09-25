@@ -29,6 +29,7 @@ class ConfigRow:
     notes: str = ""
     type: str | None = None
     updated: date | None = None
+    page_id: str | None = None
 
 
 class ConfigStore:
@@ -52,6 +53,7 @@ class ConfigStore:
                     notes=values.get("Notes") or "",
                     type=values.get("Type"),
                     updated=values.get("Updated"),
+                    page_id=page.get("id"),
                 )
         return cls(rows)
 
@@ -97,6 +99,14 @@ class ConfigStore:
             return date.fromisoformat(match.group(1))
         except ValueError:
             return None
+
+    def page_id(self, key: str) -> str | None:
+        row = self._rows.get(key)
+        return row.page_id if row else None
+
+    def updated(self, key: str) -> date | None:
+        row = self._rows.get(key)
+        return row.updated if row else None
 
     def notes(self, key: str) -> str:
         row = self._rows.get(key)
