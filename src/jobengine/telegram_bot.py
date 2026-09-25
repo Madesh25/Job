@@ -128,15 +128,16 @@ def console_transport(
     (for resume corrections). Documents are saved to out/fake/. getUpdates raises EOFError
     when the input ends, which stops the bot.
     """
-    next_id = 0
+    next_id = 0  # update ids
+    message_id = 0  # bot message numbers, shown with documents for `reply <n> <text>`
     sent: dict[int, str] = {}  # message number -> text or caption, for replies
 
     def call(method: str, payload: dict[str, Any], timeout: float) -> dict[str, Any]:
-        nonlocal next_id
+        nonlocal next_id, message_id
         if method in ("sendMessage", "sendDocument"):
-            next_id += 1
+            message_id += 1
             text = payload.get("text") or payload.get("caption") or ""
-            sent[next_id] = text
+            sent[message_id] = text
             if method == "sendDocument":
                 name, data = payload["_document"]
                 files_dir.mkdir(parents=True, exist_ok=True)
@@ -144,7 +145,7 @@ def console_transport(
                 path = files_dir / name
                 where = (path.relative_to(ROOT_DIR) if path.is_relative_to(ROOT_DIR)
                          else path).as_posix()
-                print(f"bot [message {next_id}, document {where}]> {text}", file=stdout,
+                print(f"bot [message {message_id}, document {where}]> {text}", file=stdout,
                       flush=True)
             else:
                 print(f"bot> {text}", file=stdout, flush=True)
@@ -152,7 +153,7 @@ def console_transport(
             keys = [f"[{b['text']}: tap {b['callback_data']}]" for row in rows for b in row]
             if keys:
                 print("     " + " ".join(keys), file=stdout, flush=True)
-            return {"ok": True, "result": {"message_id": next_id}}
+            return {"ok": True, "result": {"message_id": message_id}}
         if method == "answerCallbackQuery":
             return {"ok": True, "result": True}
         if method == "editMessageText":
