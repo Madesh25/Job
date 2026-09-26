@@ -1,7 +1,9 @@
+import inspect
 import logging
 from types import SimpleNamespace
 
 import pytest
+from anthropic.resources.messages import Messages
 
 from jobengine.config_store import ConfigStore
 from jobengine.llm import (
@@ -34,6 +36,8 @@ class FakeSDK:
         self.messages = self
 
     def create(self, **kwargs):
+        # Fail like the real SDK on a keyword it does not accept.
+        inspect.signature(Messages.create).bind(None, **kwargs)
         self.calls.append(kwargs)
         return self.replies.pop(0)
 
@@ -48,7 +52,7 @@ def test_dev_forces_haiku_even_when_config_says_sonnet():
     assert llm.complete_json("score", "rules", "job text") == {"ok": True}
     call = sdk.calls[0]
     assert call["model"] == "claude-haiku-4-5"
-    assert call["temperature"] == 0
+    assert call["extra_body"] == {"temperature": 0}
     assert call["system"][0]["cache_control"] == {"type": "ephemeral"}
     assert call["messages"] == [{"role": "user", "content": "job text"}]
 
@@ -57,7 +61,7 @@ def test_prod_uses_config_model_without_temperature_for_new_models():
     sdk = FakeSDK([reply('{"ok": 1}')])
     AnthropicLLM(settings("prod"), CONFIG, client=sdk).complete_json("strategy", "s", "u")
     assert sdk.calls[0]["model"] == "claude-sonnet-5"
-    assert "temperature" not in sdk.calls[0]
+    assert "extra_body" not in sdk.calls[0]
     assert model_for("score", ConfigStore.from_values({}), settings("prod")) == "claude-haiku-4-5"
     assert supports_temperature("claude-haiku-4-5")
     assert not supports_temperature("claude-opus-5")
