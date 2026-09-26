@@ -171,7 +171,13 @@ def _summary(result: ContactsResult, generic: list[Chosen], credits: str) -> str
     return "\n".join(lines)
 
 
-def find_contacts(deps: ContactDeps, job_id: str) -> ContactsResult:
+APPLY_ONLY_NOTE = ("Apply only: no paid lookup for this job (outreach budget). Tap Find "
+                   "contacts anyway to spend credits on it.")
+
+
+def find_contacts(deps: ContactDeps, job_id: str, paid: bool = True) -> ContactsResult:
+    """`paid` False (an apply-only job, Module 10): only the free sources, the Contacts cache
+    and emails in the job description; no domain question and no provider calls."""
     today = deps.today()
     values = deps.jobs.get_values(job_id) if deps.jobs else None
     if not values:
@@ -231,7 +237,9 @@ def find_contacts(deps: ContactDeps, job_id: str) -> ContactsResult:
 
     # 3. Domain and the paid waterfall, only for slots still open.
     book = CreditBook(config, today, deps.config_writer(config))
-    if open_slots():
+    if open_slots() and not paid:
+        result.notes.append(APPLY_ONLY_NOTE)
+    elif open_slots():
         domain = find_domain(company, deps.reference(), config, deps.state)
         if domain is None:
             result.status = "waiting_domain"

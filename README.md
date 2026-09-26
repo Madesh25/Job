@@ -85,7 +85,9 @@ python -m jobengine.contacts --fake --job fixture-clean-pl   # fixture people, n
 ```
 
 After you approve a resume in Telegram the bot finds 4 contacts at the company (cache first,
-then Apollo, Hunter, Snov). See [docs/contacts.md](docs/contacts.md).
+then Apollo, Hunter, Snov). See [docs/contacts.md](docs/contacts.md). Paid lookups go only to
+the best-ranked jobs the month's credits cover; the rest are apply-only (see
+[docs/outreach.md](docs/outreach.md), `/outreach`).
 
 ## Write Gmail drafts
 
@@ -142,6 +144,7 @@ pytest
 - [Screening](docs/screening.md)
 - [Resume builder](docs/resume-builder.md)
 - [Contact finder](docs/contacts.md)
+- [Outreach budget](docs/outreach.md)
 - [Gmail drafts](docs/gmail.md)
 - [Tracking and digest](docs/tracking.md)
 - [Strategy gate](docs/strategy.md)

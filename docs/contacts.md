@@ -2,7 +2,9 @@
 
 When you approve a resume, the bot looks for at least 4 people at that company in the job's
 country (2 peer engineers, 1 hiring manager, 1 recruiter or TA), saves them in Contacts, links
-them to the job, and lists them in Telegram. Module 06 then writes Gmail drafts
+them to the job, and lists them in Telegram. Since Module 10 the paid part (domain question and
+provider waterfall) runs only for jobs within the outreach budget
+([outreach.md](outreach.md)); apply-only jobs use the cache and the job description only. Module 06 then writes Gmail drafts
 ([gmail.md](gmail.md)).
 
 ## Rules
