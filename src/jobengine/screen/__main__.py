@@ -1,4 +1,5 @@
-"""CLI: python -m jobengine.screen [--fake] [--today YYYY-MM-DD] [--row <ref>] [--no-write]"""
+"""CLI: python -m jobengine.screen [--fake] [--today YYYY-MM-DD] [--row <ref>] [--limit N]
+[--no-write]"""
 
 from __future__ import annotations
 
@@ -29,6 +30,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--today", type=date.fromisoformat,
                         help="run as if today were this date (YYYY-MM-DD)")
     parser.add_argument("--row", help="re-screen one row: page ID, URL or posting ID")
+    parser.add_argument("--limit", type=int,
+                        help="screen at most N jobs this run (default: what is left of "
+                             "screening.daily_limit today)")
     parser.add_argument("--no-write", action="store_true",
                         help="print the verdicts without writing anything")
     args = parser.parse_args(argv)
@@ -49,7 +53,7 @@ def main(argv: list[str] | None = None) -> int:
         if args.row:
             summary = screen_one(s, deps, today, args.row)
         else:
-            summary = screen_pending(s, deps, today)
+            summary = screen_pending(s, deps, today, limit=args.limit)
     except (ScreenError, http.HttpError) as exc:
         print(f"Job Engine screening failed: {exc}", file=sys.stderr)
         return 1

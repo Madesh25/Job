@@ -33,6 +33,9 @@ safety:
 screening:
   # A description shorter than this (or marked "(snippet only)") is a snippet (spec section 3).
   full_min_chars: 600
+  # At most this many jobs go to the LLM per day (all runs together; newest posting first).
+  # Rows without a description do not count. /screen <url> and /jd always run and count.
+  daily_limit: 30
   # /jd collects pasted messages for this long before the capture is discarded.
   jd_capture_minutes: 20
   # /jd writes the pasted text in blocks of this size, at most this many blocks.

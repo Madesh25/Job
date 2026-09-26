@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from jobengine import http
+from jobengine.bot_state import BotState, FakeBotState, bot_state_for
 from jobengine.config_store import ConfigStore
 from jobengine.ind_register import IndRegister, load_register
 from jobengine.llm import AnthropicLLM, FakeLLM, LLMClient, LLMError
@@ -22,7 +23,7 @@ from jobengine.notion_repo import (
 )
 from jobengine.reference import Reference
 from jobengine.safety import notion_write_target
-from jobengine.screen import visa
+from jobengine.screen import daily, visa
 from jobengine.screen.extract import extract
 from jobengine.screen.gates import APPLIED_STATUSES, run_gates
 from jobengine.screen.models import Extraction, JobRow, ScreenResult, ScreenSummary
@@ -61,6 +62,7 @@ class ScreenDeps:
     get_text: Callable[[str], str]  # for the IND register page
     write: bool = True
     notes: list[str] = field(default_factory=list)
+    state: BotState | None = None  # holds the daily screening count
 
 
 def fake_deps(s: Settings, base: Path = FIXTURES, write: bool = True) -> ScreenDeps:
@@ -84,6 +86,7 @@ def fake_deps(s: Settings, base: Path = FIXTURES, write: bool = True) -> ScreenD
         llm=lambda config: FakeLLM(),
         get_text=get_text,
         write=write,
+        state=FakeBotState(),
     )
 
 
@@ -98,6 +101,7 @@ def real_deps(s: Settings, write: bool = True) -> ScreenDeps:
         llm=lambda config: AnthropicLLM(s, config),
         get_text=lambda url: http.get_text(url, s=s),
         write=write,
+        state=bot_state_for(s, client),
     )
 
 
@@ -325,27 +329,49 @@ def _label(row: JobRow) -> str:
 
 def screen_pending(
     s: Settings, deps: ScreenDeps, today: date, progress: Callable[[str], None] | None = None,
+    limit: int | None = None,
 ) -> ScreenSummary:
-    """Screen every row whose Screen verdict is Unscreened."""
+    """Screen Unscreened rows, newest posting first, up to the daily limit.
+
+    `limit` (the CLI --limit) caps this run instead of what is left of today's limit."""
     summary = ScreenSummary()
     if deps.repo is None:
         summary.errors.append("DRY RUN: no Job Opportunities target here, nothing screened")
         return summary
-    run = _start(s, deps, today)
+    used = daily.used_today(deps.state, today)
+    room = limit if limit is not None else max(0, daily.daily_limit(s) - used)
     rows = [job_row(pid, v) for pid, v in
             deps.repo.query_rows(select_filter("Screen verdict", "Unscreened"))]
-    log.info("screening %d Unscreened rows", len(rows))
-    for i, row in enumerate(rows, 1):
-        if progress and i % 10 == 0:
-            progress(f"Screening: {i} of {len(rows)} jobs checked")
-        try:
-            result = run.screen(row, ("New",))
-        except (LLMError, http.HttpError) as exc:
-            summary.errors.append(f"Could not screen {_label(row)}: {exc}")
-            continue
-        if result.verdict == "Unscreened":
-            summary.waiting_for_jd += 1
-        summary.add(result)
+    rows.sort(key=lambda r: r.posted_date or date.min, reverse=True)
+    log.info("%d Unscreened rows, screening at most %d", len(rows), room)
+    if room <= 0:
+        summary.errors.append(_limit_note(s, used, len(rows), limit))
+        return summary
+    run = _start(s, deps, today)
+    sent = 0  # rows that went to the LLM
+    done = 0
+    try:
+        for row in rows:
+            if sent >= room:
+                break
+            done += 1
+            if progress and done % 10 == 0:
+                progress(f"Screening: {done} of {min(len(rows), room)} jobs checked")
+            try:
+                result = run.screen(row, ("New",))
+            except (LLMError, http.HttpError) as exc:
+                summary.errors.append(f"Could not screen {_label(row)}: {exc}")
+                continue
+            if result.description_kind != "none":
+                sent += 1
+            if result.verdict == "Unscreened":
+                summary.waiting_for_jd += 1
+            summary.add(result)
+    finally:
+        if deps.write and sent:
+            daily.record(deps.state, today, used + sent)
+    if done < len(rows):
+        summary.errors.append(_limit_note(s, used + sent, len(rows) - done, limit))
     summary.errors.extend(dict.fromkeys(run.notes))
     if not deps.write:
         summary.errors.append("--no-write: nothing was written")
@@ -368,6 +394,12 @@ def find_row(repo: JobsRepo, ref: str) -> JobRow | None:
     return None
 
 
+def _limit_note(s: Settings, used: int, left: int, limit: int | None) -> str:
+    cap = f"--limit {limit}" if limit is not None else f"daily limit {daily.daily_limit(s)}"
+    return (f"{cap} reached ({used} screened today): {left} Unscreened rows wait for the "
+            "next run. /screen <url> screens one job now.")
+
+
 def screen_one(s: Settings, deps: ScreenDeps, today: date, ref: str) -> ScreenSummary:
     """Re-screen one row whatever its verdict. Status becomes Screened only from New or
     Screened, so a row past Screened never moves backwards."""
@@ -385,6 +417,8 @@ def screen_one(s: Settings, deps: ScreenDeps, today: date, ref: str) -> ScreenSu
     except (LLMError, http.HttpError) as exc:
         summary.errors.append(f"Could not screen {_label(row)}: {exc}")
         return summary
+    if deps.write and result.description_kind != "none":  # your ask: counted, never blocked
+        daily.record(deps.state, today, daily.used_today(deps.state, today) + 1)
     if result.verdict == "Unscreened":
         summary.waiting_for_jd += 1
     summary.add(result)

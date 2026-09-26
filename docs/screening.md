@@ -21,6 +21,21 @@ python -m jobengine.screen --no-write
 python -m jobengine.screen --row https://jobs.example.com/123
 ```
 
+## Daily limit
+
+At most `screening.daily_limit` jobs (30, in `config/base.yaml`) go to the LLM per day,
+counting every run that day together (CLI, `/fetch`, `/screen`, the daily job). The newest
+postings go first; the rest stay `Unscreened` and are picked up by the next day's runs.
+
+- The count is in Bot State, key `screen.day` (`{"date": ..., "count": ...}`).
+- Rows without a description never reach the LLM and do not count.
+- `--no-write` runs are capped too but do not use up the day.
+- `--row` / `/screen <url>` / `/jd` always run (your explicit ask) and count toward the day.
+- `--limit N` caps one CLI run at N instead of what is left of today.
+
+When the limit is reached the summary says so:
+`daily limit 30 reached (30 screened today): 99 Unscreened rows wait for the next run.`
+
 On your laptop use `APP_ENV=local` (the default): only `local` reads `.env`, and it still
 writes to the DEV Sandbox. On Windows cmd: `set APP_ENV=local`. A real run needs
 `NOTION_TOKEN` and `ANTHROPIC_API_KEY` in `.env`, and the `job-engine-dev` integration

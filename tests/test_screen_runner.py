@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, timedelta
 
 import pytest
 
@@ -259,3 +259,59 @@ def test_fixtures_are_invented():
     text = "".join(p.read_text(encoding="utf-8")
                    for p in (runner.FIXTURES / "descriptions").glob("*.txt"))
     assert "@" not in text
+
+
+# ---------------------------------------------------------------- daily limit
+
+
+def llm_sent(summary):
+    return [r for r in summary.results if r.description_kind != "none"]
+
+
+def test_daily_limit_caps_the_run_and_is_shared_by_later_runs(s, deps):
+    s.screening["daily_limit"] = 5
+    first = run(s, deps)
+    assert len(llm_sent(first)) == 5
+    assert deps.state.get("screen.day") == {"date": TODAY.isoformat(), "count": 5}
+    assert any("daily limit 5 reached (5 screened today)" in e for e in first.errors)
+
+    second = run(s, deps)
+    assert second.results == []
+    assert any("daily limit 5 reached" in e for e in second.errors)
+
+    tomorrow = screen_pending(s, deps, TODAY + timedelta(days=1))
+    assert len(llm_sent(tomorrow)) == 5
+    assert deps.state.get("screen.day")["count"] == 5
+
+
+def test_newest_posting_is_screened_first(s, deps):
+    s.screening["daily_limit"] = 1
+    with_jd = [row.get("Posted date") or date.min for row in deps.repo.rows.values()
+               if row.get("Screen verdict") == "Unscreened"
+               and any(b.startswith("Description source:") for b in row.get("body") or [])]
+    picked = llm_sent(run(s, deps))[0].page_id
+    assert (deps.repo.rows[picked].get("Posted date") or date.min) == max(with_jd)
+    assert len({d for d in with_jd}) > 1  # the order is actually tested
+
+
+def test_cli_limit_overrides_what_is_left_today(s, deps):
+    s.screening["daily_limit"] = 2
+    run(s, deps)
+    summary = screen_pending(s, deps, TODAY, limit=3)
+    assert len(llm_sent(summary)) == 3
+    assert deps.state.get("screen.day")["count"] == 5
+
+
+def test_no_write_does_not_use_up_the_day(s):
+    s.screening["daily_limit"] = 3
+    deps = fake_deps(s, write=False)
+    assert len(llm_sent(run(s, deps))) == 3
+    assert deps.state.get("screen.day") is None
+
+
+def test_screen_one_counts_but_is_never_blocked(s, deps):
+    s.screening["daily_limit"] = 1
+    run(s, deps)
+    summary = screen_one(s, deps, TODAY, "pl-clean")
+    assert summary.screened == 1
+    assert deps.state.get("screen.day")["count"] == 2
