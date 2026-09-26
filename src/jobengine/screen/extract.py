@@ -24,42 +24,44 @@ STOPWORDS = frozenset(
     "you your will using use".split()
 )
 
+MAX_REQUIREMENTS = 10
+MAX_NICE = 6
+MAX_OUTPUT_TOKENS = 1500
+
 SYSTEM_PROMPT = """You extract facts from a job description for a job search assistant.
-Return one JSON object only, with exactly these keys:
+Return one compact JSON object (no indentation, no line breaks). Leave out every key whose
+value is not stated in the description. Keys:
 
-{
-  "years_required_min": {"value": <integer or null>, "quote": <string or null>},
-  "seniority_title_flag": {"value": "lead" | "principal" | "none", "quote": <string or null>},
-  "languages": [{"language": <string>, "level": "mandatory" | "preferred", "quote": <string>}],
-  "contract_types": [{"value": <contract>, "quote": <string>}],
-  "mandatory_requirements": [<requirement>],
-  "nice_to_have": [<requirement>],
-  "sponsorship": {"value": "stated_yes" | "stated_no" | "not_mentioned", "quote": <string or null>},
-  "work_mode": {"value": "Remote" | "Hybrid" | "Office" | "unknown", "quote": <string or null>},
-  "salary_text": {"value": <string or null>, "quote": <string or null>},
-  "expires": {"value": <"YYYY-MM-DD" or null>, "quote": <string or null>},
-  "agency_posting": {"value": true | false | null, "quote": <string or null>},
-  "specific_details": [<string>]
-}
+{"years_required_min":{"value":<integer>,"quote":<q>},
+"seniority_title_flag":{"value":"lead"|"principal","quote":<q>},
+"languages":[{"language":<string>,"level":"mandatory"|"preferred","quote":<q>}],
+"contract_types":[{"value":"UoP"|"B2B"|"permanent"|"contract","quote":<q>}],
+"mandatory_requirements":[<requirement>],
+"nice_to_have":[<requirement>],
+"sponsorship":{"value":"stated_yes"|"stated_no","quote":<q>},
+"work_mode":{"value":"Remote"|"Hybrid"|"Office","quote":<q>},
+"salary_text":{"value":<string>,"quote":<q>},
+"expires":{"value":"YYYY-MM-DD","quote":<q>},
+"agency_posting":{"value":true,"quote":<q>},
+"specific_details":[<string>]}
 
-<contract> is one of "UoP", "B2B", "permanent", "contract", "unknown".
-<requirement> is {"text": <string>, "terms": [<string>], "kind": <kind>, "quote": <string>}
-with <kind> one of "tool", "practice", "education", "certification", "other".
+<requirement> is {"terms":[<string>],"kind":<kind>,"quote":<q>} with <kind> one of
+"tool", "practice", "education", "certification", "other".
+<q> is a verbatim copy of the words in the description that state the value, at most
+12 words. Copy the words exactly; never paraphrase inside a quote.
 
 Rules:
 - Extract only what is written. Never guess, never infer, never use outside knowledge.
-- When something is not stated use null, "none", "not_mentioned" or "unknown".
-- Every non-null value needs "quote": a short verbatim copy of the words in the description
-  that state it. Copy the words exactly; do not paraphrase inside a quote.
 - "preferred", "nice to have", "a plus", "an advantage" or "bonus" mean level "preferred" and
   belong in nice_to_have, never in mandatory_requirements.
-- "terms" are the concrete technology or skill names in a requirement, for example
-  ["Kubernetes"] or ["AWS", "Terraform"]. Kind "tool" is a named technology or product.
+- At most 10 mandatory_requirements and 6 nice_to_have, the most important first.
+- "terms" are the concrete technology or skill names, for example ["Kubernetes"] or
+  ["AWS", "Terraform"]. Kind "tool" is a named technology or product.
 - years_required_min is the smallest number of years of experience the description requires.
 - Salary, sponsorship and dates only when the description states them explicitly.
 - sponsorship: "stated_yes" only when visa sponsorship or relocation with a work permit is
   offered; "stated_no" only when the description says there is no sponsorship.
-- agency_posting: true only when the description says it is posted by a recruitment agency on
+- agency_posting: only when the description says it is posted by a recruitment agency on
   behalf of a client.
 - specific_details: up to 3 short phrases (at most 8 words each) about concrete work in this
   role that could follow "the part about" in a message, using the description's own words.
@@ -99,7 +101,8 @@ def _quoted(raw: Any, jd: str, empty: Any, dropped: list[str], name: str) -> Quo
         item = Quoted.model_validate(raw) if isinstance(raw, dict) else Quoted(value=None)
     except ValidationError:
         item = Quoted(value=None)
-    if item.value in (None, "", empty, "unknown", "not_mentioned", "none"):
+    if item.value is False or item.value in (None, "", empty, "unknown", "not_mentioned",
+                                             "none"):
         return Quoted(value=empty)
     if not quote_found(item.quote, jd):
         dropped.append(name)
@@ -107,9 +110,15 @@ def _quoted(raw: Any, jd: str, empty: Any, dropped: list[str], name: str) -> Quo
     return item
 
 
-def _items(raw: Any, model: type, jd: str, dropped: list[str], name: str) -> list:
+def _items(raw: Any, model: type, jd: str, dropped: list[str], name: str,
+           limit: int | None = None) -> list:
     out = []
     for i, entry in enumerate(raw if isinstance(raw, list) else []):
+        if isinstance(entry, dict) and entry.get("value") in ("unknown", None, "") \
+                and "value" in entry:
+            continue  # "not stated" written out as an item: nothing to keep or drop
+        if model is Requirement and isinstance(entry, dict) and not entry.get("text"):
+            entry = {**entry, "text": entry.get("quote") or ", ".join(entry.get("terms") or [])}
         try:
             item = model.model_validate(entry)
         except ValidationError:
@@ -119,7 +128,7 @@ def _items(raw: Any, model: type, jd: str, dropped: list[str], name: str) -> lis
             dropped.append(f"{name}[{i}]")
             continue
         out.append(item)
-    return out
+    return out[:limit] if limit is not None else out
 
 
 def check_quotes(raw: dict[str, Any], jd: str) -> tuple[Extraction, list[str]]:
@@ -144,8 +153,9 @@ def check_quotes(raw: dict[str, Any], jd: str) -> tuple[Extraction, list[str]]:
         languages=_items(raw.get("languages"), Language, jd, dropped, "languages"),
         contract_types=_items(raw.get("contract_types"), Quoted, jd, dropped, "contract_types"),
         mandatory_requirements=_items(raw.get("mandatory_requirements"), Requirement, jd,
-                                      dropped, "mandatory_requirements"),
-        nice_to_have=_items(raw.get("nice_to_have"), Requirement, jd, dropped, "nice_to_have"),
+                                      dropped, "mandatory_requirements", MAX_REQUIREMENTS),
+        nice_to_have=_items(raw.get("nice_to_have"), Requirement, jd, dropped, "nice_to_have",
+                            MAX_NICE),
         sponsorship=_quoted(raw.get("sponsorship"), jd, "not_mentioned", dropped, "sponsorship"),
         work_mode=_quoted(raw.get("work_mode"), jd, "unknown", dropped, "work_mode"),
         salary_text=_quoted(raw.get("salary_text"), jd, None, dropped, "salary_text"),
@@ -166,6 +176,7 @@ def extract(
     """One LLM call per job, then the quote check. The LLM gets only the job text: never
     contacts, emails or phone numbers."""
     raw = llm.complete_json(
-        STAGE, SYSTEM_PROMPT, user_prompt(title, company, country, jd), key=key
+        STAGE, SYSTEM_PROMPT, user_prompt(title, company, country, jd), key=key,
+        max_tokens=MAX_OUTPUT_TOKENS,
     )
     return check_quotes(raw, jd)

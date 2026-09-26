@@ -121,3 +121,35 @@ def test_extract_uses_score_stage_and_only_job_text(tmp_path):
 
 def test_system_prompt_has_no_long_dashes():
     assert not {chr(0x2013), chr(0x2014)} & set(SYSTEM_PROMPT)
+
+
+def test_not_stated_values_are_not_counted_as_dropped():
+    ext, dropped = check_quotes(raw(
+        agency_posting={"value": False, "quote": None},
+        contract_types=[{"value": "unknown", "quote": None}],
+    ), JD)
+    assert dropped == []
+    assert ext.agency_posting.value is None
+    assert ext.contract_values == set()
+
+
+def test_requirement_text_defaults_to_the_quote_and_lists_are_capped():
+    req = {"terms": ["Kubernetes"], "kind": "tool", "quote": "Kubernetes in production"}
+    ext, dropped = check_quotes(raw(mandatory_requirements=[req] * 12, nice_to_have=[req] * 9), JD)
+    assert dropped == []
+    assert ext.mandatory_requirements[0].text == "Kubernetes in production"
+    assert len(ext.mandatory_requirements) == 10
+    assert len(ext.nice_to_have) == 6
+
+
+def test_missing_keys_mean_not_stated():
+    ext, dropped = check_quotes({}, JD)
+    assert dropped == []
+    assert ext.years is None
+    assert ext.mandatory_requirements == []
+    assert ext.sponsorship.value == "not_mentioned"
+
+
+def test_prompt_asks_for_a_short_reply():
+    assert "compact JSON" in SYSTEM_PROMPT
+    assert "Leave out every key whose" in SYSTEM_PROMPT
