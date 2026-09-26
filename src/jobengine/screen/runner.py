@@ -389,6 +389,8 @@ def screen_one(s: Settings, deps: ScreenDeps, today: date, ref: str) -> ScreenSu
         summary.waiting_for_jd += 1
     summary.add(result)
     summary.errors.extend(dict.fromkeys(run.notes))
+    if not deps.write:
+        summary.errors.append("--no-write: nothing was written")
     return summary
 
 
