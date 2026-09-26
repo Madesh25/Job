@@ -120,6 +120,9 @@ mail:
   same_person_cooldown_days: 30
   max_attachment_kb: 250
 sweep:
+  # At most this many NEW jobs are saved per day (all sweeps together). New postings are
+  # ranked by a free match score (sweep/rank.py, no LLM) and only the best are saved.
+  daily_new_limit: 30
   # Title filters (section 4). Matched as whole words on the canonical (lowercase ASCII) title.
   title_include:
     - devops
