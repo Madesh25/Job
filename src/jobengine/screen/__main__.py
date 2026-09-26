@@ -56,12 +56,13 @@ def main(argv: list[str] | None = None) -> int:
 
     print(summary.text())
     ref = deps.reference()
-    rows = {r.page_id: r for r in _rows(deps)}
-    results = [r for r in summary.results if r.page_id in rows]
-    results.sort(key=lambda r: rank_key(rows[r.page_id], ref, today, verdict=r.verdict,
-                                        bottom=r.bottom, ext=r.extraction), reverse=True)
+    rows = {page_key(r.page_id): r for r in _rows(deps)}
+    results = [r for r in summary.results if page_key(r.page_id) in rows]
+    results.sort(key=lambda r: rank_key(rows[page_key(r.page_id)], ref, today,
+                                        verdict=r.verdict, bottom=r.bottom, ext=r.extraction),
+                 reverse=True)
     for r in results:
-        row = rows[r.page_id]
+        row = rows[page_key(r.page_id)]
         reason = f" ({r.skip_reason})" if r.skip_reason else ""
         flags = f" | visa: {', '.join(r.visa_flags)}" if r.visa_flags else ""
         bottom = " | bottom" if r.bottom else ""
@@ -71,6 +72,11 @@ def main(argv: list[str] | None = None) -> int:
         print(f"- {r.verdict}{reason}: {row.company}, {row.role} ({row.city or row.country})"
               f"{match}{flags}{bottom}")
     return 0
+
+
+def page_key(page_id: str) -> str:
+    """--row takes a page ID with or without dashes; Notion returns it with dashes."""
+    return page_id.replace("-", "").lower()
 
 
 def _rows(deps):

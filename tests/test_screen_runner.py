@@ -170,6 +170,22 @@ def test_no_write_writes_nothing(s):
     assert "--no-write" in summary.text()
 
 
+def test_screen_one_no_write_says_so(s):
+    deps = fake_deps(s, write=False)
+    summary = screen_one(s, deps, TODAY, "pl-clean")
+    assert summary.screened == 1
+    assert deps.repo.writes == []
+    assert "--no-write" in summary.text()
+
+
+def test_cli_lists_a_row_given_without_dashes():
+    from jobengine.screen.__main__ import page_key
+
+    dashed = "3e66edc2-b0d4-811b-866f-d341365c7753"
+    assert page_key(dashed) == page_key("3e66edc2b0d4811b866fd341365c7753")
+    assert page_key("3E66EDC2B0D4811B866FD341365C7753") == page_key(dashed)
+
+
 def test_llm_failure_is_reported_and_row_left_alone(s, deps, tmp_path):
     (tmp_path / "score").mkdir()
     from jobengine.llm import FakeLLM
