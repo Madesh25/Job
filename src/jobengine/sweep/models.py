@@ -87,6 +87,7 @@ class SweepSummary:
     countries: list[str] = field(default_factory=list)  # Config countries.active, in order
     new_by_country: dict[str, int] = field(default_factory=dict)
     not_checked: list[str] = field(default_factory=list)  # plain-language source problems
+    not_kept: int = 0  # new jobs below today's best-match cut (sweep.daily_new_limit)
 
     def text(self) -> str:
         if self.blocked:
@@ -118,6 +119,7 @@ class SweepSummary:
             lines.append(f"{flag} {country}: {self.new_by_country.get(country, 0)}".strip())
         lines += [
             "",
+            f"\U0001F4C9 Weaker matches not saved (daily limit): {self.not_kept}",
             f"\U0001F501 Already in Notion, seen again: {self.updated + self.reposts}",
             f"\U0001F6AB Not a match (skipped): {self.skipped}",
         ]

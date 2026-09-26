@@ -44,7 +44,9 @@ by the strategy gate.
    posting IDs).
 3. **Collect** from each source: Gmail alerts, Adzuna, ATS feeds.
 4. **Normalise and scope.** Title filters, country and city, seniority, years required.
-5. **Dedupe and write.** Create new rows, update existing ones.
+5. **Dedupe and write.** Update the rows already in Notion. New jobs are ranked by a free
+   match score and only the best `sweep.daily_new_limit` (30) per day are created; see
+   "Best matches only" below.
 6. **Ghost risk** for every row touched.
 7. **Summary**, for example:
    `Sweep done: 8 new, 4 updated, 2 reposts, 3 skipped (out of scope), 1 high ghost risk. Sources: gmail 6, adzuna 7, ats 4. Not supported: 2 companies.`
@@ -153,3 +155,29 @@ High is never skipped. It is only reported, last in the summary.
 Lever and SmartRecruiters responses, five Target Companies, Config, and three seeded Job
 Opportunities rows (a repost, a posting seen again, and an old row that becomes High ghost
 risk). All companies are invented and all email addresses are at `example.com`.
+
+## Best matches only (daily limit)
+
+A sweep can find hundreds of postings, but only the best 30 new ones per day are saved
+(`sweep.daily_new_limit` in `config/base.yaml`, counted across all sweeps that day in Bot
+State key `sweep.day`). Screening (the paid LLM step) then only ever sees those.
+
+The ranking is free (no LLM, `src/jobengine/sweep/rank.py`) and uses your Skills Inventory,
+Term Map and Target Companies:
+
+| Signal | Points |
+|---|---|
+| each skill you own named in the title or description (Production +4, Hands-on or Active Term Map +3, at most 8) | +3 / +4 |
+| each known gap named (Term Map `(none)` row) | -2 |
+| Target Companies tier 1 to 4 or 6 / other listed company | +6 / +3 |
+| seniority Mid / Unknown / Senior | +3 / +1 / -2 |
+| years required 2 to 4 / more than 5 | +2 / -8 |
+| Polish or Dutch stated as required | -6 |
+| posted in the last 3 days / 7 days / older than 21 days | +2 / +1 / -2 |
+| full description (not a snippet) | +1 |
+
+Ties go to the newest posting. Jobs already in Notion are always updated (seen again,
+reposts), whatever the limit. Jobs below the cut are not saved; if they are still posted,
+a later sweep can pick them up. The summary says how many were left out, for example
+`Kept the best 30 of 142 new jobs (daily limit 30, 0 already added today). 112 weaker
+matches were not saved.`
