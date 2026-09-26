@@ -143,7 +143,8 @@ class AnthropicLLM:
             "system": [{"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}],
         }
         if supports_temperature(model):
-            kwargs["temperature"] = 0
+            # SDK 1.x removed the temperature keyword; the API still takes it for these models.
+            kwargs["extra_body"] = {"temperature": 0}
         for attempt in (1, 2):
             response = self._create(messages=messages, **kwargs)
             usage = getattr(response, "usage", None)

@@ -21,8 +21,10 @@ python -m jobengine.screen --no-write
 python -m jobengine.screen --row https://jobs.example.com/123
 ```
 
-On Windows cmd set the environment first: `set APP_ENV=dev`, run the command, then
-`set APP_ENV=` to clear it. A real run needs `NOTION_TOKEN` and `ANTHROPIC_API_KEY`.
+On your laptop use `APP_ENV=local` (the default): only `local` reads `.env`, and it still
+writes to the DEV Sandbox. On Windows cmd: `set APP_ENV=local`. A real run needs
+`NOTION_TOKEN` and `ANTHROPIC_API_KEY` in `.env`, and the `job-engine-dev` integration
+connected to every reference database (a 404 "Could not find database" means one is not).
 `DRY_RUN` does not block LLM calls. Outside prod the model is always `claude-haiku-4-5`.
 
 Fake output:
@@ -154,7 +156,7 @@ in-memory Job Opportunities; rows without an LLM fixture are screened as "nothin
 ## Checking it on your laptop
 
 1. `python -m jobengine.screen --fake --today 2026-10-01` prints the summary above.
-2. With `APP_ENV=dev`, `NOTION_TOKEN` and `ANTHROPIC_API_KEY` set:
+2. With `APP_ENV=local` and `NOTION_TOKEN` and `ANTHROPIC_API_KEY` in `.env`:
    `python -m jobengine.screen --no-write` shows what real screening would decide.
 3. Then `python -m jobengine.screen` writes the results to Job Opportunities (DEV).
 4. In Telegram: `/pending`, tap the buttons, and try `/jd` with a LinkedIn job.
