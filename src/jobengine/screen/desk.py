@@ -202,6 +202,8 @@ class Desk:
             return self.track_tap(action, data)
         if action in ("sa", "sr", "sc") and arg:
             return self.strategy_tap(action, arg)
+        if action == "oc" and arg:
+            return self.outreach_tap(arg)
         if action not in ("ap", "sk") or not arg:
             return [Reply("That button is no longer valid. Send /pending.")]
         before = self.ranked()
@@ -269,18 +271,65 @@ class Desk:
             if self.contacts is None or self.notify is None:
                 return [first, *self.find_contacts(result.job_id)]
             self.say(first)  # before the (slower) contact lookup
-            return self.find_contacts(result.job_id)
+            return self.outreach_or_apply_only(result.job_id)
         return [Reply(result.message)]
+
+    # ------------------------------------------------------------ outreach budget (Module 10)
+
+    def outreach_or_apply_only(self, job_id: str) -> list[Reply]:
+        """After a resume is approved: paid contact lookup and cold mails for the best-ranked
+        jobs within this week's credit budget; free contacts only for the rest."""
+        if self.contacts is None:
+            return []
+        from jobengine.outreach import planner
+
+        values = (self.repo.get_values(job_id) if self.repo else None) or {}
+        c = self.contacts
+        decision = planner.plan(c.state, c.config(), c.reference(), values, job_id, c.today())
+        company = values.get("Company") or "this job"
+        if decision.outreach:
+            line = Reply(f"Outreach for {company}: yes ({decision.reason}; "
+                         f"{max(decision.left - 1, 0)} of {decision.allowance} left this week).")
+        else:
+            line = Reply(f"Apply only for {company}: {decision.reason}. Free contacts (job "
+                         "posting, Contacts cache) are still used; no credits are spent.",
+                         [("Find contacts anyway", f"oc:{short_id(job_id)}")])
+        if self.notify is None:
+            return [line, *self.find_contacts(job_id, paid=decision.outreach)]
+        self.say(line)
+        return self.find_contacts(job_id, paid=decision.outreach)
+
+    def outreach_tap(self, arg: str) -> list[Reply]:
+        """oc:<job>: Find contacts anyway (counts against this week's budget)."""
+        if self.contacts is None:
+            return [Reply("Contact lookup is not available in this bot.")]
+        from jobengine.outreach import planner
+        from jobengine.resume.builder import notion_id
+
+        job_id = notion_id(arg)
+        c = self.contacts
+        planner.force(c.state, c.config(), job_id, c.today())
+        return self.find_contacts(job_id)
+
+    def outreach_command(self) -> list[Reply]:
+        if self.contacts is None:
+            return [Reply("Contact lookup is not available in this bot.")]
+        from jobengine.outreach import planner
+
+        c = self.contacts
+        return [Reply(planner.status_text(c.state, c.config(), c.today()))]
 
     # ------------------------------------------------------------ contacts (Module 05)
 
-    def find_contacts(self, job_id: str) -> list[Reply]:
-        """Contact lookup after a resume is approved, and for /contacts."""
+    def find_contacts(self, job_id: str, paid: bool = True) -> list[Reply]:
+        """Contact lookup after a resume is approved, and for /contacts. `paid` False: free
+        sources only (an apply-only job)."""
         if self.contacts is None:
             return []
         values = (self.repo.get_values(job_id) if self.repo else None) or {}
-        self.say(Reply(f"Finding contacts for {values.get('Company') or 'this job'}..."))
-        result = contact_finder.find_contacts(self.contacts, job_id)
+        what = "Finding contacts" if paid else "Checking free contacts"
+        self.say(Reply(f"{what} for {values.get('Company') or 'this job'}..."))
+        result = contact_finder.find_contacts(self.contacts, job_id, paid=paid)
         if result.status == "done":
             return self._then_drafts(Reply(result.message), job_id, result.contacts)
         return [Reply(result.message)]
@@ -300,7 +349,7 @@ class Desk:
         row = find_row(self.repo, args.strip())
         if row is None:
             return [Reply(f"No Job Opportunities row found for {args.strip()}")]
-        return self.find_contacts(row.page_id)
+        return self.outreach_tap(row.page_id)  # your explicit ask: paid lookup, counted
 
     def credits(self) -> list[Reply]:
         """/credits: each provider's counter, when it was updated, and whether its key is set."""

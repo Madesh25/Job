@@ -52,6 +52,7 @@ HELP_TEXT = (
     "/screen <url or id> - screen one job again\n"
     "/contacts <url or id> - find contacts for a job (cache first, then Apollo, Hunter, Snov)\n"
     "/credits - show the contact providers' credit counters\n"
+    "/outreach - this week's outreach budget (which approved jobs get contacts and cold mails)\n"
     "/drafts <url or id> - write Gmail drafts for a job's contacts again (never sends)\n"
     "/today - run the daily check now (sent mails, replies, bounces, follow-ups)\n"
     "/followups - follow-up drafts waiting to be sent, and follow-ups due soon\n"
@@ -63,7 +64,8 @@ HELP_TEXT = (
     "/rules - V16 non-negotiables, thresholds, adopted tips and the /fetch gate\n"
     "/help - show this list"
 )
-DESK_COMMANDS = ("pending", "jd", "done", "screen", "contacts", "credits", "drafts", "today",
+DESK_COMMANDS = ("pending", "jd", "done", "screen", "contacts", "credits", "outreach", "drafts",
+                 "today",
                  "followups", "stats", "sources", "health", "digest", "update", "rules")
 
 # (method, payload, http_timeout) -> decoded JSON response
@@ -452,6 +454,8 @@ def desk_replies(update: dict[str, Any], s: Settings, desk: Desk | None) -> list
         return _guarded("/contacts", lambda: desk.contacts_command(args))
     if command == "credits":
         return _guarded("/credits", desk.credits)
+    if command == "outreach":
+        return _guarded("/outreach", desk.outreach_command)
     if command == "drafts":
         return _guarded("/drafts", lambda: desk.drafts_command(args))
     if command == "status" and desk.track is not None:

@@ -656,15 +656,18 @@ def test_resume_approval_runs_the_contact_lookup(desk):
     fake = talk(desk, tap(1, "ra:00000001000040008000000000000001"))
     texts = [t for _, t in fake.sent]
     assert texts[0].startswith("[LOCAL] Resume approved and saved.")
-    assert texts[1] == "[LOCAL] Finding contacts for Vistula Cloud..."
-    summary = texts[2]
+    # Module 10: an Apply high job at a large target company gets outreach.
+    assert texts[1] == ("[LOCAL] Outreach for Vistula Cloud: yes (priority A; 10 of 11 left "
+                        "this week).")
+    assert texts[2] == "[LOCAL] Finding contacts for Vistula Cloud..."
+    summary = texts[3]
     assert summary.startswith("[LOCAL] Contacts for Vistula Cloud, DevOps Engineer (Poland)")
     assert "Peer engineer: Kasia Example (Platform Engineer) [cache]" in summary
     assert "found. Credits: Apollo" in summary
     assert desk.repo.rows["pl-clean"]["Contacts"]
     # Module 06: then the Gmail drafts (DRY_RUN here: nothing created, a preview instead).
-    assert texts[3].startswith("[LOCAL] Writing Gmail drafts for 4 contacts")
-    drafts = texts[4]
+    assert texts[4].startswith("[LOCAL] Writing Gmail drafts for 4 contacts")
+    drafts = texts[5]
     assert drafts.startswith("[LOCAL] Drafts for Vistula Cloud, DevOps Engineer")
     assert "DRY RUN: 4 drafts not created." in drafts
     assert "Subject: [LOCAL] to piotr.example@vistula.example.com | " in drafts
@@ -816,3 +819,38 @@ def test_rules_command(desk):
     assert "- Exceed one page." in text
     assert "/fetch is open until" in text
     assert "/update" in tb.HELP_TEXT and "/rules" in tb.HELP_TEXT
+
+
+
+# ---------------------------------------------------------------- Module 10: outreach budget
+
+
+def test_apply_only_when_the_week_is_used_up_then_find_contacts_anyway(desk):
+    from jobengine.outreach.budget import week_key
+
+    week = week_key(FAKE_TODAY)
+    desk.state.set("outreach.week", {"week": week, "allowance": 2, "jobs": ["a", "b"]})
+    talk(desk, tap(1, "ap:pl-clean"))
+    fake = talk(desk, tap(1, "ra:00000001000040008000000000000001"))
+    texts = [t for _, t in fake.sent]
+    assert texts[1].startswith("[LOCAL] Apply only for Vistula Cloud: this week's outreach "
+                               "budget is used up.")
+    assert ["oc:pl-clean"] in fake.buttons
+    assert texts[2] == "[LOCAL] Checking free contacts for Vistula Cloud..."
+    summary = texts[3]
+    assert "Kasia Example (Platform Engineer) [cache]" in summary  # free: the cache
+    assert "Apply only: no paid lookup for this job" in summary
+    assert "[Apollo" not in summary  # no provider was searched
+    fake = talk(desk, tap(2, "oc:pl-clean"))
+    texts = [t for _, t in fake.sent]
+    assert texts[0] == "[LOCAL] Finding contacts for Vistula Cloud..."
+    assert "4 of 4 found" in texts[1]
+    assert "pl-clean" in desk.state.get("outreach.week")["jobs"]
+
+
+def test_outreach_command(desk):
+    text = talk(desk, "/outreach").sent[0][1]
+    assert text.startswith("[LOCAL] Outreach budget, week ")
+    assert "0 of 11 jobs used, 11 left." in text
+    assert "About 55 more jobs this month (5 week(s) left" in text
+    assert "/outreach" in tb.HELP_TEXT
