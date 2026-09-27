@@ -330,6 +330,15 @@ def check_page_write(method: str, path: str, s: Settings) -> None:
                           "by hand only")
 
 
+def not_shared_hint(path: str) -> str:
+    """What to do about a 404: almost always a page or database not shared with the
+    integration this env's NOTION_TOKEN belongs to."""
+    match = re.search(r"[0-9a-f]{8}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{12}", path)
+    target = f"https://www.notion.so/{match.group(0).replace('-', '')}" if match else "it"
+    return (f"Fix: open {target} in Notion, then ... > Connections > Connect to, and pick the "
+            "integration of this env's NOTION_TOKEN (job-engine-dev for local and dev).")
+
+
 class NotionClient:
     """Thin Notion API client: auth headers, pacing and pagination."""
 
@@ -362,10 +371,15 @@ class NotionClient:
         if wait > 0:
             self._sleep(wait)
         self._last = self._clock()
-        return http.request_json(
-            method, f"{NOTION_API}{path}", params=params, headers=self._headers,
-            json=json_body, s=self._s,
-        )
+        try:
+            return http.request_json(
+                method, f"{NOTION_API}{path}", params=params, headers=self._headers,
+                json=json_body, s=self._s,
+            )
+        except http.HttpError as exc:
+            if exc.status != 404:
+                raise
+            raise http.HttpError(f"{exc}\n{not_shared_hint(path)}", 404) from None
 
     def property_ids(self, data_source_id: str, names: tuple[str, ...]) -> list[str]:
         schema = self.request("GET", f"/data_sources/{data_source_id}")

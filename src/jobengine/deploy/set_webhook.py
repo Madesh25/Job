@@ -15,7 +15,7 @@ from collections.abc import Callable
 from typing import Any
 
 from jobengine.settings import Settings, get_settings
-from jobengine.telegram_bot import Transport, http_transport
+from jobengine.telegram_bot import Transport, bot_commands, http_transport
 
 WEBHOOK_PATH = "/telegram/webhook"
 ALLOWED_UPDATES = ["message", "callback_query"]
@@ -65,6 +65,8 @@ def main(argv: list[str] | None = None, settings: Callable[[], Settings] = get_s
             result = delete_webhook(call)
         else:
             result = set_webhook(call, args.url, s.telegram_webhook_secret or "")
+            menu = call("setMyCommands", {"commands": bot_commands()}, 30)
+            print(f"setMyCommands: {menu.get('description') or menu.get('ok')}")
     except ValueError as exc:
         print(str(exc), file=sys.stderr)
         return 1

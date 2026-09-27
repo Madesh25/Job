@@ -265,3 +265,11 @@ def test_contact_update_clears_empty_values():
     assert props["Gmail draft ID"] == {"rich_text": []}
     assert props["Last contacted"] == {"date": None}
     assert props["Status"] == {"select": {"name": "Contacted"}}
+
+
+def test_not_shared_hint_names_the_page_and_the_fix():
+    from jobengine.notion_repo import not_shared_hint
+
+    hint = not_shared_hint("/blocks/3e46edc2-b0d4-812b-82ea-d1766061390d/children")
+    assert "https://www.notion.so/3e46edc2b0d4812b82ead1766061390d" in hint
+    assert "Connections" in hint and "job-engine-dev" in hint

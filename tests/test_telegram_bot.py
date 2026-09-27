@@ -358,7 +358,7 @@ class ButtonTelegram(FakeTelegram):
         self.documents = []
 
     def __call__(self, method, payload, timeout):
-        if method == "answerCallbackQuery":
+        if method in ("answerCallbackQuery", "sendChatAction"):
             self.calls.append((method, payload))
             return {"ok": True, "result": True}
         if method in ("sendMessage", "sendDocument"):
@@ -854,3 +854,42 @@ def test_outreach_command(desk):
     assert "0 of 11 jobs used, 11 left." in text
     assert "About 55 more jobs this month (5 week(s) left" in text
     assert "/outreach" in tb.HELP_TEXT
+
+
+def test_bot_commands_menu_lists_every_help_command_once():
+    commands = tb.bot_commands()
+    names = [c["command"] for c in commands]
+    assert names[:4] == ["start", "status", "fetch", "pending"]
+    assert names.count("jd") == 1 and names.count("screen") == 1
+    assert "help" in names
+    assert all(c["description"] and len(c["description"]) <= 256 for c in commands)
+    assert all(n == n.lower() and n.isascii() for n in names)
+
+
+def test_run_registers_the_menu_before_announcing():
+    fake = FakeTelegram(fail_with=None)
+    tb.run(settings(), tb.TelegramClient(fake), max_polls=0)
+    methods = [m for m, _ in fake.calls]
+    assert methods[:2] == ["setMyCommands", "sendMessage"]
+    assert fake.calls[0][1]["commands"] == tb.bot_commands()
+
+
+def test_tap_answers_at_once_with_a_note_and_typing(desk):
+    fake = talk(desk, tap(1, "sk:pl-clean"))
+    answer = next(p for m, p in fake.calls if m == "answerCallbackQuery")
+    assert answer["text"] == "Skipping..."
+    methods = [m for m, _ in fake.calls]
+    assert methods.index("answerCallbackQuery") < methods.index("sendChatAction") \
+        < methods.index("sendMessage")
+
+
+def test_skip_from_the_list_does_not_read_the_page_again(desk):
+    reads = []
+    real = desk.repo.get_values
+    desk.repo.get_values = lambda pid: reads.append(pid) or real(pid)
+    fake = talk(desk, tap(1, "sk:pl-clean"))
+    assert reads == []
+    assert desk.repo.rows["pl-clean"]["Status"] == "Declined"
+    texts = [t for _, t in fake.sent]
+    assert texts[0] == "[LOCAL] Skipped: Vistula Cloud, DevOps Engineer"
+    assert texts[1].startswith("[LOCAL] [2/10]")  # the next card, from the same list
