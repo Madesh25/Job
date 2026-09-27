@@ -143,6 +143,7 @@ def test_refused_correction_builds_nothing(deps):
     out = build_resume(deps, JOB, correction="add Istio", force=True)  # r3 fixture refuses
     assert out.status == "correction_refused"
     assert out.message.startswith("Correction not applied: Istio is not in Skills Inventory")
+    assert out.message.endswith("then send the instruction again.")
     assert len(deps.resume_log.rows) == 2
 
 

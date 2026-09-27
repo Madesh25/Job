@@ -903,7 +903,7 @@ def test_rebuild_asks_what_to_change_and_a_reply_is_the_correction(desk):
     log = "00000001000040008000000000000001"
     fake = talk(desk, tap(1, f"rq:{log}"))
     ask = fake.sent[0][1]
-    assert ask.startswith("[LOCAL] What should change? Reply to this message")
+    assert ask.startswith("[LOCAL] What should change? Send your instructions as your next")
     assert ask.endswith("Ref RL-00000001")
     assert fake.buttons[0] == ["rb:pl-clean"]
     reply = {"update_id": 9, "message": {
@@ -926,3 +926,21 @@ def test_gaps_lists_the_most_common_gaps_first(desk):
     assert any(line.endswith("1 job (" + desk.repo.rows["ie-agency"]["Company"] + ")")
                for line in lines)
     assert lines[-1].startswith("Learned one? Add it to Skills Inventory")
+
+
+def test_after_rebuild_the_next_plain_message_is_the_correction(desk):
+    talk(desk, tap(1, "ap:pl-clean"))
+    talk(desk, tap(1, "rq:00000001000040008000000000000001"))
+    fake = talk(desk, "drop Oracle")  # a normal message, not a Telegram reply
+    assert any("(version 2)" in t for _, t in fake.sent)
+    assert desk.state.get("resume.rebuild_ask") is None
+    fake = talk(desk, "hello")  # only the one message after Rebuild counts
+    assert "I only understand commands" in fake.sent[0][1]
+
+
+def test_rebuild_ask_expires_after_30_minutes(desk):
+    talk(desk, tap(1, "ap:pl-clean"))
+    talk(desk, tap(1, "rq:00000001000040008000000000000001"))
+    desk.now = lambda: datetime(2026, 10, 1, 12, 0)
+    fake = talk(desk, "drop Oracle")
+    assert "I only understand commands" in fake.sent[0][1]
