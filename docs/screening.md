@@ -154,6 +154,10 @@ sets `Status` to `Screened` only if it is `New` or `Screened`, so a row never mo
 - Typing `/` shows the command menu. The bot registers it with Telegram (`setMyCommands`)
   each time it starts, and `python -m jobengine.deploy.set_webhook` does the same for
   Cloud Run.
+- Every command and button shows "typing..." until the reply is ready (sent again every 4
+  seconds, since Telegram clears it after about 5).
+- `/screen` without a job keeps one progress message updated ("Screening: 10 of 24 jobs
+  checked"), like `/fetch`.
 - A button tap is answered at once with a short note ("Skipping...", "Approving, building
   your resume...") and "typing...", then the reply follows. Skip reuses the review list it
   already read, so it needs 2 Notion requests instead of 4.

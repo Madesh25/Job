@@ -519,9 +519,10 @@ def test_plain_text_without_capture_gets_the_usual_answer(desk):
 
 def test_screen_command(desk):
     fake = talk(desk, "/screen", "/screen pl-clean")
-    assert fake.sent[0][1].startswith("[LOCAL] Screening done: 0 screened")
-    assert fake.sent[1][1].startswith("[LOCAL] Screening done: 1 screened (1 high")
-    assert "ready to review: /pending" in fake.sent[1][1]
+    assert fake.sent[0][1].startswith("[LOCAL] \U0001F50E Screening new jobs (started ")
+    assert fake.sent[1][1].startswith("[LOCAL] Screening done: 0 screened")
+    assert fake.sent[2][1].startswith("[LOCAL] Screening done: 1 screened (1 high")
+    assert "ready to review: /pending" in fake.sent[2][1]
 
 
 def test_fetch_chains_screening():
@@ -566,7 +567,7 @@ def test_missing_llm_key_is_a_clear_reply(desk):
     desk.deps.llm = no_key
     desk.repo.rows["pl-clean"]["Screen verdict"] = "Unscreened"
     fake = talk(desk, "/screen")
-    assert fake.sent[0][1] == (
+    assert fake.sent[1][1] == (
         "[LOCAL] Screening could not run: ANTHROPIC_API_KEY is not set, so LLM screening "
         "cannot run"
     )
@@ -982,3 +983,33 @@ def test_requested_terms_from_plain_instructions():
     assert requested_terms("add powershell") == ["powershell"]
     assert requested_terms("please add Go and Istio to the skills") == ["Go", "Istio"]
     assert requested_terms("drop Oracle") == []
+
+
+def test_commands_show_typing_until_the_reply(desk):
+    fake = talk(desk, "/gaps")
+    methods = [m for m, _ in fake.calls]
+    assert methods.index("sendChatAction") < methods.index("sendMessage")
+
+
+def test_typing_is_sent_again_while_the_work_runs():
+    import threading as th
+
+    calls = []
+    done = th.Event()
+
+    def transport(method, payload, timeout):
+        calls.append(method)
+        if calls.count("sendChatAction") >= 3:
+            done.set()
+        return {"ok": True, "result": True}
+
+    with tb.Typing(tb.TelegramClient(transport), CHAT_ID, every=0.01):
+        assert done.wait(2)
+    assert calls.count("sendChatAction") >= 3
+
+
+def test_forced_skill_is_saved_to_gaps(desk):
+    talk(desk, tap(1, "ap:pl-clean"))
+    assert "PowerShell" not in (desk.repo.rows["pl-clean"].get("Gaps") or "")
+    talk(desk, tap(1, "fg:pl-clean:PowerShell"))  # the plan does not report it as a gap
+    assert "PowerShell" in desk.repo.rows["pl-clean"]["Gaps"]

@@ -17,6 +17,7 @@ import json
 import logging
 import re
 import sys
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -298,17 +299,20 @@ class ProgressMessage:
         chat_id: str,
         s: Settings,
         clock: Callable[[], float] = time.monotonic,
+        name: str = "Job search",
+        first: str = "Searching for jobs",
     ):
         self.client = client
         self.chat_id = chat_id
         self.s = s
         self.clock = clock
+        self.name = name
         self.status = "Starting..."
         self.started = time.strftime("%H:%M")
         self.started_at = clock()
         self.message_id = client.send_message(
             chat_id,
-            telegram_text(f"\U0001F50E Searching for jobs (started {self.started})...", s),
+            telegram_text(f"\U0001F50E {first} (started {self.started})...", s),
         )
         self.last_edit = clock()
 
@@ -324,7 +328,7 @@ class ProgressMessage:
     def update(self, status: str) -> None:
         self.status = status
         if self.clock() - self.last_edit >= PROGRESS_EDIT_SECONDS:
-            self._edit(f"\U0001F50E Job search running (started {self.started})\n{status}")
+            self._edit(f"\U0001F50E {self.name} running (started {self.started})\n{status}")
 
     def elapsed(self) -> str:
         minutes = int((self.clock() - self.started_at) // 60)
@@ -332,9 +336,9 @@ class ProgressMessage:
 
     def finish(self, ok: bool) -> None:
         if ok:
-            self._edit(f"\u2705 Job search done in {self.elapsed()}. Summary below.")
+            self._edit(f"\u2705 {self.name} done in {self.elapsed()}. Summary below.")
         else:
-            self._edit(f"\u274C Job search stopped after {self.elapsed()}: {self.status}")
+            self._edit(f"\u274C {self.name} stopped after {self.elapsed()}: {self.status}")
 
 
 def parse_command(text: str) -> str | None:
@@ -419,12 +423,23 @@ def handle_one(
     if fetch is not None and _is_fetch(update, s):
         run_fetch(client, s, str(s.telegram_chat_id), fetch)
         return
-    replies = desk_replies(update, s, desk)
-    if replies is not None:
-        send_replies(client, s, str(s.telegram_chat_id), replies)
+    chat = str(s.telegram_chat_id)
+    message = update.get("message") or {}
+    if str((message.get("chat") or {}).get("id", "")) != chat:
+        out = handle_update(update, s, fetch)  # logs and ignores other chats
+        if out is not None:
+            client.send_message(*out)
         return
-    out = handle_update(update, s, fetch)
-    if out is not None:
+    text = message.get("text") or ""
+    if desk is not None and parse_command(text) == "screen" and len(text.split()) == 1:
+        run_screen(client, s, chat, desk)
+        return
+    with Typing(client, chat):
+        replies = desk_replies(update, s, desk)
+        out = None if replies is not None else handle_update(update, s, fetch)
+    if replies is not None:
+        send_replies(client, s, chat, replies)
+    elif out is not None:
         client.send_message(*out)
 
 
@@ -524,14 +539,11 @@ def handle_callback(
         client.answer_callback(str(query.get("id", "")), TAP_TOASTS.get(data.partition(":")[0]))
     except TelegramError as exc:
         log.warning("answerCallbackQuery failed: %s", exc)
-    try:
-        client.typing(sender)
-    except TelegramError as exc:  # only a hint: never stop the tap over it
-        log.warning("sendChatAction failed: %s", exc)
-    if desk is None:
-        replies = [Reply("Buttons are not available in this bot.")]
-    else:
-        replies = _guarded("Button", lambda: desk.tap(data))
+    with Typing(client, sender):
+        if desk is None:
+            replies = [Reply("Buttons are not available in this bot.")]
+        else:
+            replies = _guarded("Button", lambda: desk.tap(data))
     send_replies(client, s, sender, replies)
 
 
@@ -560,6 +572,55 @@ def run_fetch(
         return
     progress.finish(ok=True)
     client.send_message(chat_id, telegram_text(summary, s))
+
+
+def run_screen(
+    client: TelegramClient, s: Settings, chat_id: str, desk: Desk,
+    clock: Callable[[], float] = time.monotonic,
+) -> None:
+    """/screen without a job: it can take minutes, so show one progress message like /fetch."""
+    progress = ProgressMessage(client, chat_id, s, clock=clock, name="Screening",
+                               first="Screening new jobs")
+    try:
+        text = desk.screen("", progress.update)
+    except Exception as exc:  # report the failure instead of stopping the bot
+        log.exception("/screen failed")
+        progress.finish(ok=False)
+        client.send_message(chat_id, telegram_text(f"/screen failed: {exc}", s))
+        return
+    progress.finish(ok=True)
+    client.send_message(chat_id, telegram_text(text, s))
+
+
+class Typing:
+    """Shows "typing..." until the reply is ready: Telegram clears it after about 5 seconds,
+    so it is sent again every TYPING_EVERY seconds from a small background thread."""
+
+    def __init__(self, client: TelegramClient, chat_id: str, every: float = 4.0):
+        self.client, self.chat_id, self.every = client, chat_id, every
+        self._stop = threading.Event()
+        self._thread: threading.Thread | None = None
+
+    def _send(self) -> None:
+        try:
+            self.client.typing(self.chat_id)
+        except TelegramError as exc:  # only a hint: never stop the reply over it
+            log.warning("sendChatAction failed: %s", exc)
+
+    def _loop(self) -> None:
+        while not self._stop.wait(self.every):
+            self._send()
+
+    def __enter__(self) -> Typing:
+        self._send()
+        self._thread = threading.Thread(target=self._loop, daemon=True)
+        self._thread.start()
+        return self
+
+    def __exit__(self, *exc: object) -> None:
+        self._stop.set()
+        if self._thread is not None:
+            self._thread.join(timeout=1)
 
 
 def check_bot_settings(s: Settings, fake: bool = False) -> None:
