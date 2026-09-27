@@ -50,6 +50,7 @@ HELP_TEXT = (
     "/jd - list jobs waiting for a description\n"
     "/screen - screen jobs that are not screened yet\n"
     "/screen <url or id> - screen one job again\n"
+    "/gaps - skills jobs ask for that you do not have yet (what to learn next)\n"
     "/contacts <url or id> - find contacts for a job (cache first, then Apollo, Hunter, Snov)\n"
     "/credits - show the contact providers' credit counters\n"
     "/outreach - this week's outreach budget (which approved jobs get contacts and cold mails)\n"
@@ -80,8 +81,8 @@ def bot_commands() -> list[dict[str, str]]:
 TAP_TOASTS = {"ap": "Approving, building your resume...", "sk": "Skipping...",
               "nx": "Next job..."}
 
-DESK_COMMANDS = ("pending", "jd", "done", "screen", "contacts", "credits", "outreach", "drafts",
-                 "today",
+DESK_COMMANDS = ("pending", "jd", "done", "screen", "gaps", "contacts", "credits", "outreach",
+                 "drafts", "today",
                  "followups", "stats", "sources", "health", "digest", "update", "rules")
 
 # (method, payload, http_timeout) -> decoded JSON response
@@ -476,6 +477,8 @@ def desk_replies(update: dict[str, Any], s: Settings, desk: Desk | None) -> list
             return replies
     if command == "pending":
         return _guarded("/pending", desk.pending)
+    if command == "gaps":
+        return _guarded("/gaps", desk.gaps_command)
     if command == "contacts":
         return _guarded("/contacts", lambda: desk.contacts_command(args))
     if command == "credits":

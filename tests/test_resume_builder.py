@@ -73,14 +73,49 @@ def test_build_writes_resume_log_row_and_updates_job(deps):
 
 def test_caption(deps):
     out = build_resume(deps, JOB)
-    lines = out.caption.splitlines()
-    assert lines[0] == "Resume r1 for Vistula Cloud, DevOps Engineer"
-    assert lines[1].startswith("Fill 91.0% | +8 words in 3 bullets | skills: -MS SQL")
-    assert "CI/CD -> CI/CD Pipelines" in lines[1]
-    assert lines[2] == "Gaps not added: Istio"
-    assert lines[3] == "Ref RL-00000001"
-    assert lines[4] == "Reply to this message with a correction, or tap a button."
-    assert len(out.caption) <= 1024
+    assert out.caption == "\n".join([
+        "Resume for Vistula Cloud, DevOps Engineer (version 1)",
+        "One page, 91.0% full (the target is 88 to 96%)",
+        "",
+        "Skills",
+        "- Removed: MS SQL",
+        "- Added: GitHub Actions",
+        "- Renamed: CI/CD -> CI/CD Pipelines",
+        "- Moved: GitOps & Registry row to main table; Cloud (GCP) row to Also worked with",
+        "",
+        "Experience: 8 words added in 3 bullets",
+        '- EXAMPLE CORP bullet 1: "cloud" -> "Kubernetes"; added "on AWS,"',
+        '- EXAMPLE CORP bullet 4: added "Kubernetes"; added "GitLab CI"',
+        '- SAMPLE SYSTEMS bullet 2: added "with EKS,"',
+        "",
+        "Not in your skills (saved to the job's Gaps, see /gaps): Istio",
+        "Ref RL-00000001",
+        "Reply to this message to change something, or tap a button.",
+    ])
+    # The reported gap is saved on the job for /gaps.
+    assert "Istio" in deps.jobs.rows[JOB]["Gaps"]
+
+
+def test_caption_is_cut_to_telegram_limit():
+    from types import SimpleNamespace as NS
+
+    from jobengine.resume import gate as g
+    from jobengine.resume.builder import caption
+
+    notes = [f"COMPANY bullet {i}: added \"{'x' * 40}\"" for i in range(30)]
+    changes = g.Changes(words=40, bullets=30, skills=["-A"], bullet_notes=notes)
+    text = caption(1, {"Company": "C", "Role": "R"}, 90.0, changes, NS(gaps_reported=[]), "a" * 32)
+    assert len(text) <= 1024
+    assert "- ... (full list in Resume Log)" in text
+    assert text.endswith("Reply to this message to change something, or tap a button.")
+
+
+def test_merge_gaps_adds_each_gap_once():
+    from jobengine.resume.builder import merge_gaps
+
+    assert merge_gaps("Istio, Go", ["go", "PowerShell"]) == "Istio, Go, PowerShell"
+    assert merge_gaps(None, ["PowerShell"]) == "PowerShell"
+    assert merge_gaps("", []) == ""
 
 
 def test_second_approve_shows_existing_build(deps):
@@ -96,7 +131,7 @@ def test_correction_builds_revision_two(deps):
     build_resume(deps, JOB)
     out = build_resume(deps, JOB, correction="drop Oracle", force=True)
     assert out.status == "built" and out.revision == 2
-    assert "-Oracle" in out.caption
+    assert "Oracle" in out.caption.split("- Removed: ")[1].splitlines()[0]
     prompt = llm.calls[-1]["user"]
     assert "drop Oracle" in prompt and "previous_plan" in prompt
     assert deps.jobs.rows[JOB]["Resume"] == [f"{n:08x}-0000-4000-8000-{n:012x}" for n in (1, 2)]
