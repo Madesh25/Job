@@ -441,11 +441,13 @@ def test_next_approve_builds_resume_and_second_tap_shows_it_again(desk):
     assert "Vistula Cloud, DevOps Engineer" in texts[0]
     assert texts[1] == "[LOCAL] " + APPROVED_TEXT.format(job="Vistula Cloud, DevOps Engineer")
     assert texts[2] == "[LOCAL] Building resume for Vistula Cloud..."
-    assert texts[3].startswith("[LOCAL] Resume r1 for Vistula Cloud, DevOps Engineer\nFill 91.0%")
-    assert fake.documents[0] == ("Alex_Devops_VistulaCloud_r1.pdf", b"%PDF-fake")
-    assert fake.buttons[3] == ["ra:00000001000040008000000000000001", "rb:pl-clean"]
+    assert texts[3].startswith("[LOCAL] Resume for Vistula Cloud, DevOps Engineer (version 1)\n"
+                               "One page, 91.0% full")
+    assert fake.documents[0] == ("Alex_Devops_VistulaCloud.pdf", b"%PDF-fake")
+    assert fake.buttons[3] == ["ra:00000001000040008000000000000001",
+                               "rq:00000001000040008000000000000001"]
     # Second Approve tap: the same preview again, no second build.
-    assert texts[6].startswith("[LOCAL] Resume r1 for Vistula Cloud")
+    assert texts[6].startswith("[LOCAL] Resume for Vistula Cloud, DevOps Engineer (version 1)")
     assert len(desk.resume.resume_log.rows) == 1
     assert desk.repo.rows["pl-clean"]["Status"] == "Resume built"
     assert desk.repo.rows["nl-ind"]["Status"] == "Declined"
@@ -586,9 +588,10 @@ def test_reply_to_preview_builds_revision_two(desk):
     fake = talk(desk, reply)
     texts = [t for _, t in fake.sent]
     assert texts[0] == "[LOCAL] Building resume for Vistula Cloud..."
-    assert texts[1].startswith("[LOCAL] Resume r2 for Vistula Cloud")
-    assert "-Oracle" in texts[1] and "Ref RL-00000002" in texts[1]
-    assert fake.documents[0][0] == "Alex_Devops_VistulaCloud_r2.pdf"
+    assert texts[1].startswith("[LOCAL] Resume for Vistula Cloud, DevOps Engineer (version 2)")
+    assert "Oracle" in texts[1].split("- Removed: ")[1].splitlines()[0]
+    assert "Ref RL-00000002" in texts[1]
+    assert fake.documents[0][0] == "Alex_Devops_VistulaCloud.pdf"
 
 
 def test_reply_to_unrelated_message_is_not_a_correction(desk):
@@ -604,11 +607,11 @@ def test_reply_to_unrelated_message_is_not_a_correction(desk):
 def test_approve_resume_old_revision_rebuild_and_i_applied(desk):
     talk(desk, tap(1, "ap:pl-clean"))
     fake = talk(desk, tap(1, "rb:pl-clean"))
-    assert fake.sent[1][1].startswith("[LOCAL] Resume r2 for Vistula Cloud")
+    assert "Vistula Cloud, DevOps Engineer (version 2)" in fake.sent[1][1]
     old, new = "00000001000040008000000000000001", "00000002000040008000000000000002"
     fake = talk(desk, tap(1, f"ra:{old}"))
     assert fake.sent[0][1] == "[LOCAL] A newer revision exists"
-    assert fake.sent[1][1].startswith("[LOCAL] Resume r2")
+    assert "(version 2)" in fake.sent[1][1]
     fake = talk(desk, tap(1, f"ra:{new}"))
     assert fake.sent[0][1] == ("[LOCAL] Resume approved and saved. Apply here: "
                                "https://jobs.example.com/pl-clean")
@@ -893,3 +896,33 @@ def test_skip_from_the_list_does_not_read_the_page_again(desk):
     texts = [t for _, t in fake.sent]
     assert texts[0] == "[LOCAL] Skipped: Vistula Cloud, DevOps Engineer"
     assert texts[1].startswith("[LOCAL] [2/10]")  # the next card, from the same list
+
+
+def test_rebuild_asks_what_to_change_and_a_reply_is_the_correction(desk):
+    talk(desk, tap(1, "ap:pl-clean"))
+    log = "00000001000040008000000000000001"
+    fake = talk(desk, tap(1, f"rq:{log}"))
+    ask = fake.sent[0][1]
+    assert ask.startswith("[LOCAL] What should change? Reply to this message")
+    assert ask.endswith("Ref RL-00000001")
+    assert fake.buttons[0] == ["rb:pl-clean"]
+    reply = {"update_id": 9, "message": {
+        "chat": {"id": int(CHAT_ID)}, "text": "drop Oracle",
+        "reply_to_message": {"message_id": 5, "text": ask.removeprefix("[LOCAL] ")}}}
+    fake = talk(desk, reply)
+    assert any("(version 2)" in t for _, t in fake.sent)
+
+
+def test_gaps_lists_the_most_common_gaps_first(desk):
+    for row in desk.repo.rows.values():
+        row.pop("Gaps", None)
+    for pid, gaps in (("pl-clean", "PowerShell, Istio"), ("nl-ind", "powershell"),
+                      ("ie-agency", "Go")):
+        desk.repo.rows[pid]["Gaps"] = gaps
+    fake = talk(desk, "/gaps")
+    lines = fake.sent[0][1].removeprefix("[LOCAL] ").splitlines()
+    assert lines[0].startswith("Skill gaps across ")
+    assert lines[1].startswith("1. PowerShell: 2 jobs (")
+    assert any(line.endswith("1 job (" + desk.repo.rows["ie-agency"]["Company"] + ")")
+               for line in lines)
+    assert lines[-1].startswith("Learned one? Add it to Skills Inventory")

@@ -36,6 +36,7 @@ Approve in /pending
   -> render, measure, fit (one page, fill 88 to 96 percent)
   -> Resume Log row (one per revision, plan JSON in its body), Job Status "Resume built"
   -> PDF preview with [Approve resume] [Rebuild]
+Rebuild -> "What should change?" (reply to it with instructions) [Rebuild as it is]
 Reply to the preview with a correction ("drop Oracle") -> next revision
 Approve resume -> re-render from the stored plan, save to Drive (or out/), tick Approved
   -> "Resume approved and saved. Apply here: <URL>" [I applied]
@@ -43,6 +44,11 @@ I applied -> Status "Applied", Applied date and Last activity date today
 ```
 
 - A second Approve tap shows the latest preview; it does not build again.
+- The preview file is named like the final one (`Madeshwaran_Devops_<Company>.pdf`); the
+  caption says the version. It lists the page fill against the 88 to 96% target, the skills
+  removed, added, renamed and moved, and each edited bullet as old words -> new words.
+- Gaps the resume could not cover are added to the job's Gaps column; `/gaps` lists the most
+  common gaps across all jobs (what to learn next).
 - Skills Inventory entries that combine names also back their parts:
   `Kubernetes (AKS)` backs Kubernetes and AKS, `GCP Compute Engine / Cloud Storage` backs
   GCP Compute Engine, Compute Engine and Cloud Storage, `AWS EC2` backs EC2. A provider is

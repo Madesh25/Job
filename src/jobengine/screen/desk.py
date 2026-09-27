@@ -53,6 +53,14 @@ log = logging.getLogger("jobengine.screen.desk")
 
 APPROVED_TEXT = "Approved: {job}."
 NO_RESUME = "Resume building is not available in this bot."
+REBUILD_ASK = (
+    "What should change? Reply to this message with your instructions, for example:\n"
+    "- put Terraform first in the skills\n"
+    "- drop Oracle\n"
+    "- use the word observability in the monitoring bullet\n"
+    "Only skills you have (Skills Inventory, Term Map) can be added.\n"
+    "Ref {ref}"
+)
 UUID_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
 MATRIX_LINE = re.compile(r"^(Strong|Transferable|Gap) \| ")
 MAX_WAITING_LIST = 10
@@ -197,7 +205,7 @@ class Desk:
         action, _, arg = data.partition(":")
         if action == "nx":
             return self.pending(int(arg) if arg.isdigit() else 0)
-        if action in ("ra", "rb", "ia") and arg:
+        if action in ("ra", "rb", "rq", "ia") and arg:
             return self.resume_tap(action, arg)
         if action in ("rc", "lk", "rd") and arg:
             return self.track_tap(action, data)
@@ -255,12 +263,12 @@ class Desk:
     def preview(self, outcome: BuildOutcome) -> Reply:
         if not outcome.ok or outcome.pdf is None:
             return Reply(outcome.message)
-        stem = (outcome.filename or "resume.pdf").removesuffix(".pdf")
+        name = outcome.filename or "resume.pdf"
         buttons = [("Rebuild", f"rb:{short_id(outcome.job_id)}")]
         if outcome.log_id:
-            buttons.insert(0, ("Approve resume", f"ra:{outcome.log_id.replace('-', '')}"))
-        return Reply(outcome.caption or "", buttons,
-                     document=(f"{stem}_r{outcome.revision}.pdf", outcome.pdf))
+            log = outcome.log_id.replace("-", "")
+            buttons = [("Approve resume", f"ra:{log}"), ("Rebuild", f"rq:{log}")]
+        return Reply(outcome.caption or "", buttons, document=(name, outcome.pdf))
 
     def resume_tap(self, action: str, arg: str) -> list[Reply]:
         if self.resume is None:
@@ -268,6 +276,13 @@ class Desk:
         if action == "rb":
             values = (self.repo.get_values(arg) if self.repo else None) or {}
             return self.on_job_approved(arg, values, force=True)
+        if action == "rq":
+            # Ask what to change: a reply to this message (it carries the Ref) is a correction.
+            job_id = resume_builder.job_for_log(self.resume, arg)
+            if not job_id:
+                return [Reply("That resume preview is no longer in Resume Log.")]
+            return [Reply(REBUILD_ASK.format(ref=resume_builder.short_ref(arg)),
+                          [("Rebuild as it is", f"rb:{short_id(job_id)}")])]
         if action == "ia":
             return [Reply(resume_builder.mark_applied(self.resume, arg))]
         result = resume_builder.finalise(self.resume, arg)
@@ -424,6 +439,37 @@ class Desk:
         if row is None:
             return [Reply(f"No Job Opportunities row found for {args.strip()}")]
         return self.drafts(row.page_id)
+
+    def gaps_command(self, limit: int = 15) -> list[Reply]:
+        """Skills jobs asked for that you do not have yet, most common first (from the
+        Gaps column that screening and resume building fill)."""
+        if self.repo is None:
+            return [Reply(NO_TARGET)]
+        counts: dict[str, list[str]] = {}
+        names: dict[str, str] = {}
+        rows = 0
+        for _pid, values in self.repo.query_rows():
+            gaps = [g.strip() for g in str(values.get("Gaps") or "").split(",") if g.strip()]
+            if not gaps:
+                continue
+            rows += 1
+            company = values.get("Company") or "?"
+            for gap in dict.fromkeys(g.casefold() for g in gaps):
+                names.setdefault(gap, next(g for g in gaps if g.casefold() == gap))
+                counts.setdefault(gap, []).append(company)
+        if not counts:
+            return [Reply("No gaps recorded yet. Screening and resume building add them.")]
+        ranked = sorted(counts.items(), key=lambda kv: (-len(kv[1]), kv[0]))[:limit]
+        lines = [f"Skill gaps across {rows} jobs (most common first):"]
+        for i, (key, companies) in enumerate(ranked, 1):
+            shown = ", ".join(dict.fromkeys(companies[:3]))
+            more = f" +{len(companies) - 3}" if len(companies) > 3 else ""
+            jobs = f"{len(companies)} job{'s' if len(companies) != 1 else ''}"
+            lines.append(f"{i}. {names[key]}: {jobs} ({shown}{more})")
+        lines.append("")
+        lines.append("Learned one? Add it to Skills Inventory as Hands-on or Production: "
+                     "screening and resumes then count it as yours.")
+        return [Reply("\n".join(lines)[:MAX_TEXT])]
 
     def correction(self, replied_to: str, text: str) -> list[Reply] | None:
         """A reply to a preview ("Ref RL-xxxxxxxx" in it) builds the next revision. None when

@@ -240,27 +240,67 @@ def _file_name(deps: ResumeDeps, config: ConfigStore, job_id: str, values: dict[
     return filename(template, company)
 
 
+def _skill_lines(skills: list[str]) -> list[str]:
+    removed = [s[1:] for s in skills if s.startswith("-")]
+    added = [s[1:] for s in skills if s.startswith("+")]
+    renamed = [s for s in skills if " -> " in s]
+    moved = [s for s in skills if s not in renamed and (s.endswith(" to main table")
+                                                       or s.endswith(" to Also worked with"))]
+    lines = []
+    for name, items, sep in (("Removed", removed, ", "), ("Added", added, ", "),
+                             ("Renamed", renamed, "; "), ("Moved", moved, "; ")):
+        if items:
+            lines.append(f"- {name}: {sep.join(items)}")
+    return lines
+
+
+def merge_gaps(existing: str | None, new: list[str]) -> str:
+    """The job's Gaps text with the resume's reported gaps added once (case-insensitive)."""
+    items = [g.strip() for g in (existing or "").split(",") if g.strip()]
+    seen = {g.casefold() for g in items}
+    for gap in new:
+        if gap.strip() and gap.strip().casefold() not in seen:
+            items.append(gap.strip())
+            seen.add(gap.strip().casefold())
+    return ", ".join(items)
+
+
 def caption(
     revision: int, values: dict[str, Any], fill: float, changes: gate.Changes, plan: Plan,
-    log_id: str | None,
+    log_id: str | None, fill_min: float = 88, fill_max: float = 96,
 ) -> str:
-    skills = ", ".join(changes.skills) or "unchanged"
-    lines = [
-        f"Resume r{revision} for {values.get('Company')}, {values.get('Role')}",
-        f"Fill {fill:.1f}% | +{changes.words} words in {changes.bullets} bullets | "
-        f"skills: {skills}",
+    """The preview caption in plain sections (Telegram allows 1024 characters)."""
+    head = [
+        f"Resume for {values.get('Company')}, {values.get('Role')} (version {revision})",
+        f"One page, {fill:.1f}% full (the target is {fill_min:g} to {fill_max:g}%)",
     ]
+    skills = _skill_lines(changes.skills) or ["- no changes"]
+    words = ("no words added" if not changes.words else
+             f"{changes.words} word{'s' if changes.words != 1 else ''} added in "
+             f"{changes.bullets} bullet{'s' if changes.bullets != 1 else ''}")
+    bullets = [f"- {note}" for note in changes.bullet_notes]
+    tail = []
     if plan.gaps_reported:
-        lines.append(f"Gaps not added: {', '.join(plan.gaps_reported)}")
+        tail.append("Not in your skills (saved to the job's Gaps, see /gaps): "
+                    + ", ".join(plan.gaps_reported))
+    tail += [line for line in changes.lines if line.startswith("Left out")]
     if log_id:
-        lines.append(f"Ref {short_ref(log_id)}")
-    lines.append("Reply to this message with a correction, or tap a button.")
-    text = "\n".join(lines)
-    if len(text) > CAPTION_MAX:
-        cut = len(text) - CAPTION_MAX + 3
-        lines[1] = lines[1][: max(len(lines[1]) - cut, 20)] + "..."
-        text = "\n".join(lines)
-    return text
+        tail.append(f"Ref {short_ref(log_id)}")
+    tail.append("Reply to this message to change something, or tap a button.")
+
+    def text(detail: list[str], cut: bool) -> str:
+        more = ["- ... (full list in Resume Log)"] if cut else []
+        return "\n".join([*head, "", "Skills", *skills, "", f"Experience: {words}", *detail,
+                          *more, "", *tail])
+
+    out = text(bullets, False)
+    while len(out) > CAPTION_MAX and bullets:
+        bullets = bullets[:-1]
+        out = text(bullets, True)
+    if len(out) > CAPTION_MAX:
+        skills = skills[:2]
+        out = text(bullets, True)
+    return out[:CAPTION_MAX]
 
 
 def body_blocks(plan: Plan, changes: gate.Changes) -> list[tuple[str, ...]]:
@@ -370,7 +410,8 @@ def preview_existing(deps: ResumeDeps, job_id: str) -> BuildOutcome | None:
         status="existing", message="Latest resume preview.", job_id=job_id,
         company=values.get("Company") or "", role=values.get("Role") or "", revision=revision,
         log_id=log_id, pdf=pdf, filename=name, plan=plan, fill=fill, changes=changes.lines,
-        caption=caption(revision, values, fill, changes, plan, log_id),
+        caption=caption(revision, values, fill, changes, plan, log_id, ctx.fill_min,
+                        ctx.fill_max),
     )
 
 
@@ -491,6 +532,9 @@ def build_resume(
             "Revision": revision,
         }, body_blocks(plan, changes))
         update: dict[str, Any] = {"Resume": [*(values.get("Resume") or []), log_id]}
+        gaps = merge_gaps(values.get("Gaps"), plan.gaps_reported)
+        if gaps != (values.get("Gaps") or ""):
+            update["Gaps"] = gaps  # so /gaps can list what to learn next
         if values.get("Status") in BUILDABLE_STATUSES:
             update["Status"] = "Resume built"
         assert deps.jobs is not None
@@ -501,7 +545,9 @@ def build_resume(
     return BuildOutcome(
         status="built", message="Resume built.", job_id=job_id, company=company, role=role,
         revision=revision, log_id=log_id, pdf=pdf, filename=name, plan=plan, fill=fill,
-        changes=changes.lines, caption=caption(revision, values, fill, changes, plan, log_id),
+        changes=changes.lines,
+        caption=caption(revision, values, fill, changes, plan, log_id, ctx.fill_min,
+                        ctx.fill_max),
     )
 
 

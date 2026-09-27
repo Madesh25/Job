@@ -244,6 +244,8 @@ class Changes:
     bullets: int = 0
     skills: list[str] = field(default_factory=list)
     lines: list[str] = field(default_factory=list)
+    # One line per edited bullet for people: 'XERAGO bullet 2: "cloud" -> "AWS cloud"'.
+    bullet_notes: list[str] = field(default_factory=list)
 
     @property
     def diff_score(self) -> str:
@@ -295,4 +297,25 @@ def summarise(master: MasterResume, plan: Plan) -> Changes:
             out.words += diff.inserted
             added = " ".join(" ".join(c.words) for c in diff.chunks)
             out.lines.append(f"{edit.id}: +{diff.inserted} words \"{added}\"")
+            number = int(edit.id.rpartition("b")[2]) + 1
+            out.bullet_notes.append(
+                f"{bullet.company} bullet {number}: {word_changes(bullet.text, edit.text)}")
     return out
+
+
+def word_changes(original: str, new: str) -> str:
+    """The edits in plain words: 'added "Kubernetes"; "cloud" -> "AWS cloud"'."""
+    a, b = original.split(), new.split()
+    keys_a = [_clean(w).casefold() or w for w in a]
+    keys_b = [_clean(w).casefold() or w for w in b]
+    parts: list[str] = []
+    matcher = difflib.SequenceMatcher(None, keys_a, keys_b, autojunk=False)
+    for op, i1, i2, j1, j2 in matcher.get_opcodes():
+        old, added = " ".join(a[i1:i2]), " ".join(b[j1:j2])
+        if op == "insert":
+            parts.append(f'added "{added}"')
+        elif op == "replace":
+            parts.append(f'"{old}" -> "{added}"')
+        elif op == "delete":
+            parts.append(f'removed "{old}"')
+    return "; ".join(parts) or "wording only"
