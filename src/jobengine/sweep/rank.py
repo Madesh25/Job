@@ -38,8 +38,8 @@ class Ranker:
 
     def __init__(self, ref: Reference):
         self.ref = ref
-        production = {canon_term(s.name) for s in ref.skills if s.level == "Production"}
-        owned = {canon_term(s.name) for s in ref.skills if s.level in OWNED_LEVELS}
+        production = ref.skill_terms(("Production",))
+        owned = ref.skill_terms(OWNED_LEVELS)
         for row in ref.term_map:
             if row.backs:
                 owned.update(canon_term(t) for t in row.jd_terms)

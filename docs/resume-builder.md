@@ -31,6 +31,8 @@ repo; tests use a synthetic resume for Alex Example.
 Approve in /pending
   -> "Building resume for <Company>..."
   -> plan (LLM stage tailor) -> integrity gate (up to 2 retries with the errors)
+  -> still failing: leave out only what broke a rule (master skills tables, or the
+     broken bullet edits, or all bullet edits) and say so in the caption
   -> render, measure, fit (one page, fill 88 to 96 percent)
   -> Resume Log row (one per revision, plan JSON in its body), Job Status "Resume built"
   -> PDF preview with [Approve resume] [Rebuild]
@@ -41,6 +43,10 @@ I applied -> Status "Applied", Applied date and Last activity date today
 ```
 
 - A second Approve tap shows the latest preview; it does not build again.
+- Skills Inventory entries that combine names also back their parts:
+  `Kubernetes (AKS)` backs Kubernetes and AKS, `GCP Compute Engine / Cloud Storage` backs
+  GCP Compute Engine, Compute Engine and Cloud Storage, `AWS EC2` backs EC2. A provider is
+  never dropped down to a generic word (`GCP Monitoring` does not back "Monitoring").
 - Approving an older revision answers "A newer revision exists" and shows the latest.
 - A correction the rules do not allow ("add Istio") is answered with the reason, nothing is
   built.

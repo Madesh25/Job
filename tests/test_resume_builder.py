@@ -1,6 +1,7 @@
 import dataclasses
 import json
 import os
+from types import SimpleNamespace
 
 import pytest
 
@@ -121,7 +122,7 @@ def test_skip_and_unapproved_jobs_are_refused(deps, job, text):
     assert deps.resume_log.rows == {}
 
 
-def test_gate_failure_retries_then_reports(deps, tmp_path):
+def test_gate_failure_retries_then_leaves_out_the_broken_parts(deps, tmp_path):
     (tmp_path / "llm" / "tailor").mkdir(parents=True)
     bad = (TAILOR / "plan_unbacked_skill.json").read_text()
     for key in (f"{JOB}-r1", f"{JOB}-r1-a1", f"{JOB}-r1-a2"):
@@ -129,13 +130,41 @@ def test_gate_failure_retries_then_reports(deps, tmp_path):
     llm = FakeLLM(tmp_path / "llm")
     deps.llm = lambda config: llm
     out = build_resume(deps, JOB)
-    assert out.status == "failed"
-    assert out.message.startswith("Resume could not be built within the rules: skills: 'Istio'")
-    assert out.message.endswith("The job stays Approved; tap Rebuild or reply with a correction.")
     assert len(llm.calls) == 3
     assert "gate_errors_to_fix" in llm.calls[1]["user"]
-    assert deps.jobs.rows[JOB]["Status"] == "Approved"
-    assert deps.resume_log.rows == {}
+    # The unbacked skill (Istio) is left out: the master's skills tables are used as they are.
+    assert out.status == "built"
+    assert "Istio" not in str(out.plan.skills_main + out.plan.skills_also)
+    assert any(line.startswith("Left out (broke a rule): skills changes") for line in out.changes)
+    assert deps.jobs.rows[JOB]["Status"] == "Resume built"
+
+
+def test_salvage_drops_only_the_broken_bullet_edits():
+    from jobengine.resume.builder import salvage
+    from jobengine.resume.models import BulletEdit, Plan, PlanRow
+
+    master = SimpleNamespace()
+    plan = Plan(skills_main=[PlanRow(label="A", items=["x"])], skills_also=[],
+                bullet_edits=[BulletEdit(id="j0b0", text="bad"), BulletEdit(id="j0b1", text="ok")])
+    fixed, remaining, left_out = salvage(
+        plan, ["j0b0: inserted word 'Foo' is not a backed term or a connector word"], master,
+        lambda p: [])
+    assert [e.id for e in fixed.bullet_edits] == ["j0b1"]
+    assert fixed.skills_main == plan.skills_main  # skills passed: untouched
+    assert remaining == [] and left_out == ["edits to j0b0"]
+
+
+def test_salvage_drops_all_bullet_edits_when_the_total_is_too_high():
+    from jobengine.resume.builder import salvage
+    from jobengine.resume.models import BulletEdit, Plan
+
+    plan = Plan(skills_main=[], skills_also=[],
+                bullet_edits=[BulletEdit(id="j0b0", text="a"), BulletEdit(id="j0b1", text="b")])
+    fixed, remaining, left_out = salvage(
+        plan, ["experience: +30 words in total, at most 25"], SimpleNamespace(),
+        lambda p: ["experience: +30 words in total, at most 25"] if p.bullet_edits else [])
+    assert fixed.bullet_edits == [] and remaining == []
+    assert left_out == ["all bullet edits"]
 
 
 def test_finalise_in_dry_run_writes_out_dir_not_drive(tmp_path):

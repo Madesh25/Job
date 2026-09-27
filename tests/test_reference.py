@@ -48,3 +48,27 @@ def test_company_lookup_uses_canonical_names():
     assert REF.company("Tulip Data").ind_sponsor == "Verified"
     assert REF.company("Unknown Corp") is None
     assert REF.company(None) is None
+
+
+def test_combined_skill_names_back_their_parts():
+    from jobengine.reference import Reference, Skill, skill_aliases
+
+    assert skill_aliases("Kubernetes (AKS)") == ["Kubernetes", "AKS", "Kubernetes AKS"]
+    assert skill_aliases("GCP Compute Engine / Cloud Storage") == [
+        "GCP Compute Engine", "Cloud Storage", "Compute Engine"]
+    assert skill_aliases("AWS EC2") == ["EC2"]
+    assert skill_aliases("GCP Monitoring") == []  # never the bare word "Monitoring"
+    ref = Reference(skills=[
+        Skill("1", "Kubernetes (EKS)", "Hands-on"),
+        Skill("2", "Kubernetes (kubeadm)", "Production"),
+        Skill("3", "GCP Compute Engine / Cloud Storage", "Production"),
+        Skill("4", "Kubernetes", "Learning"),
+    ])
+    assert ref.skill_level("Kubernetes") == "Learning"  # a full name always wins
+    assert ref.lookup("GCP Compute Engine") is not None
+    assert ref.lookup("Compute Engine") is not None
+    assert ref.lookup("kubeadm").level == "Production"
+    ref2 = Reference(skills=[Skill("1", "Kubernetes (EKS)", "Hands-on"),
+                             Skill("2", "Kubernetes (kubeadm)", "Production")])
+    assert ref2.lookup("Kubernetes").level == "Production"  # the higher level wins
+    assert "kubernetes" in ref2.skill_terms()
