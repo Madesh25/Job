@@ -64,6 +64,22 @@ HELP_TEXT = (
     "/rules - V16 non-negotiables, thresholds, adopted tips and the /fetch gate\n"
     "/help - show this list"
 )
+
+
+def bot_commands() -> list[dict[str, str]]:
+    """The / menu Telegram shows while typing: one entry per command in HELP_TEXT."""
+    out: dict[str, str] = {}
+    for line in HELP_TEXT.splitlines()[1:]:
+        head, _, description = line.partition(" - ")
+        name = head.split()[0].lstrip("/")
+        out.setdefault(name, description[:256])
+    return [{"command": name, "description": text} for name, text in out.items()]
+
+
+# Shown at once on a button tap (Telegram's small popup) while the work runs.
+TAP_TOASTS = {"ap": "Approving, building your resume...", "sk": "Skipping...",
+              "nx": "Next job..."}
+
 DESK_COMMANDS = ("pending", "jd", "done", "screen", "contacts", "credits", "outreach", "drafts",
                  "today",
                  "followups", "stats", "sources", "health", "digest", "update", "rules")
@@ -170,7 +186,7 @@ def console_transport(
             if keys:
                 print("     " + " ".join(keys), file=stdout, flush=True)
             return {"ok": True, "result": {"message_id": message_id}}
-        if method == "answerCallbackQuery":
+        if method in ("answerCallbackQuery", "sendChatAction", "setMyCommands"):
             return {"ok": True, "result": True}
         if method == "editMessageText":
             print(f"bot (updated)> {payload['text']}", file=stdout, flush=True)
@@ -248,8 +264,18 @@ class TelegramClient:
         result = self._call("sendDocument", payload, timeout=60)
         return (result or {}).get("message_id") if isinstance(result, dict) else None
 
-    def answer_callback(self, callback_id: str) -> None:
-        self._call("answerCallbackQuery", {"callback_query_id": callback_id})
+    def answer_callback(self, callback_id: str, text: str | None = None) -> None:
+        payload: dict[str, Any] = {"callback_query_id": callback_id}
+        if text:
+            payload["text"] = text
+        self._call("answerCallbackQuery", payload)
+
+    def typing(self, chat_id: str) -> None:
+        """Show "typing..." in the chat (Telegram clears it after about 5 seconds)."""
+        self._call("sendChatAction", {"chat_id": chat_id, "action": "typing"})
+
+    def set_commands(self, commands: list[dict[str, str]]) -> None:
+        self._call("setMyCommands", {"commands": commands})
 
     def edit_message(self, chat_id: str, message_id: int, text: str) -> None:
         self._call(
@@ -488,14 +514,20 @@ def handle_callback(
     if sender != str(s.telegram_chat_id):
         log.warning("Ignoring button press from unknown user %s", sender)
         return
+    data = str(query.get("data") or "")
     try:
-        client.answer_callback(str(query.get("id", "")))
+        # Answer at once so the button stops spinning, with a short note of what is happening.
+        client.answer_callback(str(query.get("id", "")), TAP_TOASTS.get(data.partition(":")[0]))
     except TelegramError as exc:
         log.warning("answerCallbackQuery failed: %s", exc)
+    try:
+        client.typing(sender)
+    except TelegramError as exc:  # only a hint: never stop the tap over it
+        log.warning("sendChatAction failed: %s", exc)
     if desk is None:
         replies = [Reply("Buttons are not available in this bot.")]
     else:
-        replies = _guarded("Button", lambda: desk.tap(str(query.get("data") or "")))
+        replies = _guarded("Button", lambda: desk.tap(data))
     send_replies(client, s, sender, replies)
 
 
@@ -550,7 +582,11 @@ def run(
     fetch: Fetcher | None = None,
     desk: Desk | None = None,
 ) -> None:
-    """Announce startup, then poll forever (or max_polls times, for tests)."""
+    """Register the / menu, announce startup, then poll forever (or max_polls times)."""
+    try:
+        client.set_commands(bot_commands())
+    except TelegramError as exc:  # the menu is a convenience: never stop the bot over it
+        log.warning("could not set the / menu: %s", exc)
     client.send_message(str(s.telegram_chat_id), telegram_text("Job Engine bot started.", s))
     offset: int | None = None
     polls = 0

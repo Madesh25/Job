@@ -151,6 +151,12 @@ sets `Status` to `Screened` only if it is `New` or `Screened`, so a row never mo
 
 ## Telegram
 
+- Typing `/` shows the command menu. The bot registers it with Telegram (`setMyCommands`)
+  each time it starts, and `python -m jobengine.deploy.set_webhook` does the same for
+  Cloud Run.
+- A button tap is answered at once with a short note ("Skipping...", "Approving, building
+  your resume...") and "typing...", then the reply follows. Skip reuses the review list it
+  already read, so it needs 2 Notion requests instead of 4.
 - `/fetch` runs the sweep, then screening, and ends with `N ready to review: /pending`.
 - `/pending` shows one card at a time, best first, with `Approve`, `Skip` and `Next`.
   Approve sets `Status` = `Approved` and builds the resume (see `docs/resume-builder.md`),

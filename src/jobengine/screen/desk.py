@@ -175,10 +175,11 @@ class Desk:
             return None
         return f"{count} LinkedIn job{'s need' if count > 1 else ' needs'} the JD: /jd"
 
-    def pending(self, index: int = 0) -> list[Reply]:
+    def pending(self, index: int = 0, rows: list[JobRow] | None = None) -> list[Reply]:
+        """The card at `index`. `rows` reuses a ranking already read (a button tap)."""
         if self.repo is None:
             return [Reply(NO_TARGET)]
-        rows = self.ranked()
+        rows = self.ranked() if rows is None else rows
         waiting = self.waiting_line()
         if not rows:
             text = "Nothing to review right now."
@@ -208,6 +209,13 @@ class Desk:
             return [Reply("That button is no longer valid. Send /pending.")]
         before = self.ranked()
         position = next((i for i, r in enumerate(before) if same_page(r.page_id, arg)), 0)
+        listed = next((r for r in before if same_page(r.page_id, arg)), None)
+        rest = [r for r in before if r is not listed]
+        if action == "sk" and listed is not None:
+            # Still in the review list, so still Screened: skip without reading the page again.
+            job = f"{listed.company}, {listed.role}"
+            self.repo.update(listed.page_id, {"Status": "Declined"})
+            return [Reply(f"Skipped: {job}"), *self.pending(position, rest)]
         values = self.repo.get_values(arg)
         status = (values or {}).get("Status")
         if action == "ap" and self.resume and status in resume_builder.BUILDABLE_STATUSES:
@@ -224,7 +232,7 @@ class Desk:
         else:
             self.repo.update(page_id, {"Status": "Declined"})
             replies = [Reply(f"Skipped: {job}")]
-        return [*replies, *self.pending(position)]
+        return [*replies, *self.pending(position, rest)]
 
     # ------------------------------------------------------------ resumes (Module 04)
 
