@@ -101,6 +101,9 @@ class Plan(BaseModel):
     focus: Focus = Field(default_factory=Focus)
     gaps_reported: list[str] = Field(default_factory=list)
     correction_refused: str | None = None
+    # Skills you asked to list although Skills Inventory does not back them ("Add anyway").
+    # Set only by the builder from your request, never taken from the LLM answer.
+    forced_skills: list[str] = Field(default_factory=list)
 
     @classmethod
     def unchanged(cls, master: MasterResume) -> Plan:

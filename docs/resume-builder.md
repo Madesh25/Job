@@ -48,6 +48,12 @@ I applied -> Status "Applied", Applied date and Last activity date today
 - The preview file is named like the final one (`Madeshwaran_Devops_<Company>.pdf`); the
   caption says the version. It lists the page fill against the 88 to 96% target, the skills
   removed, added, renamed and moved, and each edited bullet as old words -> new words.
+- "Add anyway": each gap on a preview has an `Add <skill>` button, and a refused instruction
+  ("add PowerShell") has `Add anyway (I'll learn it)`. The next revision lists that skill in
+  the Technical Skills tables only (never in the experience bullets), the caption says
+  "Added at your request (learn it before the interview)", the plan stores it as
+  `forced_skills`, and the skill stays in the job's Gaps. Only your own tap can force a skill;
+  a `forced_skills` value in the LLM answer is ignored.
 - Gaps the resume could not cover are added to the job's Gaps column; `/gaps` lists the most
   common gaps across all jobs (what to learn next).
 - Skills Inventory entries that combine names also back their parts:

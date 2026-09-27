@@ -104,7 +104,8 @@ def test_caption_is_cut_to_telegram_limit():
 
     notes = [f"COMPANY bullet {i}: added \"{'x' * 40}\"" for i in range(30)]
     changes = g.Changes(words=40, bullets=30, skills=["-A"], bullet_notes=notes)
-    text = caption(1, {"Company": "C", "Role": "R"}, 90.0, changes, NS(gaps_reported=[]), "a" * 32)
+    plan = NS(gaps_reported=[], forced_skills=[])
+    text = caption(1, {"Company": "C", "Role": "R"}, 90.0, changes, plan, "a" * 32)
     assert len(text) <= 1024
     assert "- ... (full list in Resume Log)" in text
     assert text.endswith("Reply to this message to change something, or tap a button.")
@@ -143,7 +144,7 @@ def test_refused_correction_builds_nothing(deps):
     out = build_resume(deps, JOB, correction="add Istio", force=True)  # r3 fixture refuses
     assert out.status == "correction_refused"
     assert out.message.startswith("Correction not applied: Istio is not in Skills Inventory")
-    assert out.message.endswith("then send the instruction again.")
+    assert out.message.endswith("learn it before the interview.")
     assert len(deps.resume_log.rows) == 2
 
 
@@ -326,3 +327,28 @@ def test_notion_ids_from_buttons():
     assert builder.notion_id("0123456789abcdef0123456789abcdef") == (
         "01234567-89ab-cdef-0123-456789abcdef")
     assert builder.notion_id("pl-clean") == "pl-clean"
+
+
+def test_force_skills_marks_only_requested_unbacked_items():
+    from jobengine.reference import Reference, Skill
+    from jobengine.resume.builder import force_skills
+    from jobengine.resume.models import Plan, PlanRow
+
+    master = SimpleNamespace(all_items=lambda: ["Bash"])
+    ref = Reference(skills=[Skill("1", "Python", "Production")])
+    plan = Plan(skills_main=[PlanRow(label="Scripting", items=["Bash", "Python", "Go"])],
+                skills_also=[])
+    force_skills(plan, master, ref, "add PowerShell and Go please", ["PowerShell"])
+    assert plan.skills_main[0].items == ["Bash", "Python", "Go", "PowerShell"]
+    assert plan.forced_skills == ["Go", "PowerShell"]  # Python is backed, Bash is in master
+
+
+def test_the_llm_cannot_force_a_skill(tmp_path):
+    from jobengine.llm import FakeLLM
+    from jobengine.resume.plan import make_plan
+
+    llm = FakeLLM(default={"forced_skills": ["Istio"]})
+    deps, _ = make(tmp_path)
+    ctx = builder._context(deps, JOB, deps.jobs.get_values(JOB))
+    job = builder._job_context(JOB, deps.jobs.get_values(JOB), deps.jobs.read_body(JOB))
+    assert make_plan(llm, ctx.master, job, ctx.reference, key="x").forced_skills == []

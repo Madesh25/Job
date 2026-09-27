@@ -445,7 +445,7 @@ def test_next_approve_builds_resume_and_second_tap_shows_it_again(desk):
                                "One page, 91.0% full")
     assert fake.documents[0] == ("Alex_Devops_VistulaCloud.pdf", b"%PDF-fake")
     assert fake.buttons[3] == ["ra:00000001000040008000000000000001",
-                               "rq:00000001000040008000000000000001"]
+                               "rq:00000001000040008000000000000001", "fg:pl-clean:Istio"]
     # Second Approve tap: the same preview again, no second build.
     assert texts[6].startswith("[LOCAL] Resume for Vistula Cloud, DevOps Engineer (version 1)")
     assert len(desk.resume.resume_log.rows) == 1
@@ -944,3 +944,41 @@ def test_rebuild_ask_expires_after_30_minutes(desk):
     desk.now = lambda: datetime(2026, 10, 1, 12, 0)
     fake = talk(desk, "drop Oracle")
     assert "I only understand commands" in fake.sent[0][1]
+
+
+def test_add_gap_button_lists_it_in_the_skills_and_says_so(desk):
+    talk(desk, tap(1, "ap:pl-clean"))
+    fake = talk(desk, tap(1, "fg:pl-clean:Istio"))
+    preview = next(t for _, t in fake.sent if "(version 2)" in t)
+    assert "Added at your request (learn it before the interview): Istio" in preview
+    assert "Not in your skills" not in preview
+    assert "fg:pl-clean:Istio" not in fake.buttons[-1]
+
+
+def test_refused_instruction_offers_add_anyway(desk, tmp_path):
+    from jobengine.llm import FakeLLM
+
+    (tmp_path / "tailor").mkdir()
+    (tmp_path / "tailor" / "pl-clean-r2.json").write_text(
+        '{"correction_refused": "Istio is not in Skills Inventory or Term Map."}')
+    desk.resume.llm = lambda config: FakeLLM(tmp_path, default={})
+    talk(desk, tap(1, "ap:pl-clean"))
+    talk(desk, tap(1, "rq:00000001000040008000000000000001"))
+    fake = talk(desk, "add Istio")
+    assert fake.sent[-1][1].startswith("[LOCAL] Correction not applied")
+    assert fake.buttons[-1] == ["fc:pl-clean"]
+    fake = talk(desk, tap(1, "fc:pl-clean"))
+    assert any("Added at your request (learn it before the interview): Istio" in t
+               for _, t in fake.sent)
+    fake = talk(desk, tap(1, "fc:pl-clean"))  # used once only
+    assert fake.sent[0][1] == "[LOCAL] That request is no longer open. Send the instruction again."
+
+
+def test_requested_terms_from_plain_instructions():
+    from jobengine.screen.desk import requested_terms
+
+    assert requested_terms("Add that powershell in that resume", "Istio, PowerShell") == [
+        "PowerShell"]
+    assert requested_terms("add powershell") == ["powershell"]
+    assert requested_terms("please add Go and Istio to the skills") == ["Go", "Istio"]
+    assert requested_terms("drop Oracle") == []

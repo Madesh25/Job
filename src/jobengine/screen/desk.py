@@ -55,6 +55,8 @@ APPROVED_TEXT = "Approved: {job}."
 NO_RESUME = "Resume building is not available in this bot."
 REBUILD_KEY = "resume.rebuild_ask"  # bot_state: {"log": <Resume Log id>, "at": <iso time>}
 REBUILD_ASK_MINUTES = 30
+FORCE_KEY = "resume.force_ask"  # bot_state: {"job": <page id>, "text": <refused instruction>}
+MAX_GAP_BUTTONS = 2
 REBUILD_ASK = (
     "What should change? Send your instructions as your next message, for example:\n"
     "- put Terraform first in the skills\n"
@@ -85,6 +87,29 @@ def _contact_ids(contacts: list[Any]) -> list[str]:
 def short_id(page_id: str) -> str:
     """Page ID for callback data: a Notion UUID without hyphens (32 characters)."""
     return page_id.replace("-", "") if UUID_RE.match(page_id) else page_id
+
+
+REQUEST_RE = re.compile(
+    r"^\s*(?:please\s+)?(?:add|include|put|list|mention)\s+(.+?)"
+    r"(?:\s+(?:to|in|into|on|under)\s+(?:the\s+|that\s+|my\s+)?"
+    r"(?:skills?|resume|cv|table|list|section|it)\b.*)?\s*[.!]?\s*$", re.IGNORECASE)
+FILLER = {"that", "the", "this", "a", "an", "my", "also"}
+
+
+def requested_terms(text: str, known: str | None = None) -> list[str]:
+    """Skill names from an instruction like "add that powershell in that resume", spelled as
+    in `known` (the job's Gaps) when they match: ["PowerShell"]."""
+    match = REQUEST_RE.match(text or "")
+    if not match:
+        return []
+    spelled = {g.strip().casefold(): g.strip() for g in (known or "").split(",") if g.strip()}
+    terms = []
+    for part in re.split(r",|\band\b|&", match.group(1)):
+        words = [w for w in part.split() if w.casefold() not in FILLER]
+        term = " ".join(words).strip(" .")
+        if term:
+            terms.append(spelled.get(term.casefold(), term))
+    return terms
 
 
 def same_page(a: str, b: str) -> bool:
@@ -207,7 +232,7 @@ class Desk:
         action, _, arg = data.partition(":")
         if action == "nx":
             return self.pending(int(arg) if arg.isdigit() else 0)
-        if action in ("ra", "rb", "rq", "ia") and arg:
+        if action in ("ra", "rb", "rq", "ia", "fg", "fc") and arg:
             return self.resume_tap(action, arg)
         if action in ("rc", "lk", "rd") and arg:
             return self.track_tap(action, data)
@@ -252,14 +277,19 @@ class Desk:
 
     def on_job_approved(
         self, page_id: str, values: dict[str, Any], *, correction: str | None = None,
-        force: bool = False,
+        force: bool = False, force_terms: list[str] | None = None,
     ) -> list[Reply]:
         """Build (or show) the resume for an approved job."""
         if self.resume is None:
             return [Reply(NO_RESUME)]
         self.say(Reply(f"Building resume for {values.get('Company')}..."))
         outcome = resume_builder.build_resume(
-            self.resume, page_id, correction=correction, force=force)
+            self.resume, page_id, correction=correction, force=force, force_terms=force_terms)
+        if outcome.status == "correction_refused" and correction:
+            # "Add anyway": list it in the skills section; you learn it before the interview.
+            self.state.set(FORCE_KEY, {"job": page_id, "text": correction})
+            return [Reply(outcome.message,
+                          [("Add anyway (I'll learn it)", f"fc:{short_id(page_id)}")])]
         return [self.preview(outcome)]
 
     def preview(self, outcome: BuildOutcome) -> Reply:
@@ -270,6 +300,13 @@ class Desk:
         if outcome.log_id:
             log = outcome.log_id.replace("-", "")
             buttons = [("Approve resume", f"ra:{log}"), ("Rebuild", f"rq:{log}")]
+        plan = outcome.plan
+        forced = {f.casefold() for f in (plan.forced_skills if plan else [])}
+        gaps = [g for g in (plan.gaps_reported if plan else []) if g.casefold() not in forced]
+        for gap in gaps[:MAX_GAP_BUTTONS]:
+            data = f"fg:{short_id(outcome.job_id)}:{gap}"
+            if len(data.encode()) <= 64:  # Telegram's limit for button data
+                buttons.append((f"Add {gap}", data))
         return Reply(outcome.caption or "", buttons, document=(name, outcome.pdf))
 
     def resume_tap(self, action: str, arg: str) -> list[Reply]:
@@ -279,6 +316,20 @@ class Desk:
             self.state.delete(REBUILD_KEY)
             values = (self.repo.get_values(arg) if self.repo else None) or {}
             return self.on_job_approved(arg, values, force=True)
+        if action == "fg":  # "Add <gap>" under a preview
+            job_id, _, term = arg.partition(":")
+            values = (self.repo.get_values(job_id) if self.repo else None) or {}
+            return self.on_job_approved(job_id, values, correction=f"add {term} to the skills",
+                                        force=True, force_terms=[term])
+        if action == "fc":  # "Add anyway" under a refused instruction
+            ask = self.state.get(FORCE_KEY) or {}
+            if not ask.get("text") or not same_page(str(ask.get("job")), arg):
+                return [Reply("That request is no longer open. Send the instruction again.")]
+            self.state.delete(FORCE_KEY)
+            values = (self.repo.get_values(arg) if self.repo else None) or {}
+            terms = requested_terms(ask["text"], values.get("Gaps"))
+            return self.on_job_approved(arg, values, correction=ask["text"], force=True,
+                                        force_terms=terms)
         if action == "rq":
             # Ask what to change: a reply to this message (it carries the Ref) is a correction.
             job_id = resume_builder.job_for_log(self.resume, arg)
