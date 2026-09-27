@@ -56,7 +56,7 @@ from jobengine.resume.sections import SectionError, SectionPlan, SectionRow, fak
 from jobengine.safety import drive_write_allowed
 from jobengine.screen.runner import description
 from jobengine.settings import ROOT_DIR, Settings
-from jobengine.sweep.normalize import canon_company
+from jobengine.sweep.normalize import canon, canon_company
 
 log = logging.getLogger("jobengine.resume")
 
@@ -65,7 +65,12 @@ BUILDABLE_VERDICTS = ("Apply high", "Apply normal", "Apply low", "Needs review")
 BUILDABLE_STATUSES = ("Approved", "Resume built")
 CAPTION_MAX = 1024
 REFUSED_HINT = ("If you do have it, add it to Skills Inventory (Hands-on or Production) or as an "
-                "Active Term Map row, then send the instruction again.")
+                "Active Term Map row, then send the instruction again. Or tap Add anyway to list "
+                "it in the skills section and learn it before the interview.")
+FORCE_NOTE = (" (The candidate confirms: list the skills named in this request in the most "
+              "fitting Technical Skills row even though Skills Inventory and Term Map do not back "
+              "them yet; they will learn them before the interview. Never put them in the "
+              "experience bullets. Do not refuse this.)")
 RULES_FAILED = (
     "Resume could not be built within the rules: {errors}. The job stays Approved; tap "
     "Rebuild or reply with a correction."
@@ -282,9 +287,13 @@ def caption(
              f"{changes.bullets} bullet{'s' if changes.bullets != 1 else ''}")
     bullets = [f"- {note}" for note in changes.bullet_notes]
     tail = []
-    if plan.gaps_reported:
-        tail.append("Not in your skills (saved to the job's Gaps, see /gaps): "
-                    + ", ".join(plan.gaps_reported))
+    forced = {f.casefold() for f in plan.forced_skills}
+    if plan.forced_skills:
+        tail.append("Added at your request (learn it before the interview): "
+                    + ", ".join(plan.forced_skills))
+    gaps = [g for g in plan.gaps_reported if g.casefold() not in forced]
+    if gaps:
+        tail.append("Not in your skills (saved to the job's Gaps, see /gaps): " + ", ".join(gaps))
     tail += [line for line in changes.lines if line.startswith("Left out")]
     if log_id:
         tail.append(f"Ref {short_ref(log_id)}")
@@ -423,9 +432,14 @@ def build_resume(
     *,
     correction: str | None = None,
     force: bool = False,
+    force_terms: list[str] | None = None,
 ) -> BuildOutcome:
     """Build the next revision. Without `force` (the first Approve), an existing build is
-    shown again instead of building another one."""
+    shown again instead of building another one.
+
+    `force_terms` is your "Add anyway": [] lists the skills named in `correction` although
+    they are not backed; named terms are also added to the skills table if the plan left them
+    out. Forced skills go in the skills tables only, never in the experience bullets."""
     job_id = notion_id(job_id)
     values, refused = _load_job(deps, job_id)
     if values is None:
@@ -478,10 +492,15 @@ def build_resume(
     for attempt in range(retries + 1):
         key = f"{job_id}-r{revision}" + (f"-a{attempt}" if attempt else "")
         try:
-            plan = make_plan(llm, ctx.master, job, ctx.reference, correction=correction,
+            plan = make_plan(llm, ctx.master, job, ctx.reference,
+                             correction=(correction or "") + FORCE_NOTE
+                             if force_terms is not None else correction,
                              previous=plan or previous, errors=errors or None, key=key)
         except (LLMError, PlanError) as exc:
             return failed(str(exc))
+        if force_terms is not None:
+            plan.correction_refused = None
+            force_skills(plan, ctx.master, ctx.reference, correction or "", force_terms)
         if plan.correction_refused:
             return BuildOutcome(status="correction_refused", job_id=job_id, company=company,
                                 role=role, message=f"Correction not applied: "
@@ -493,7 +512,14 @@ def build_resume(
     left_out: list[str] = []
     if errors and plan is not None:
         # Keep what passed, leave out only what broke a rule (no extra LLM call).
-        plan, errors, left_out = salvage(plan, errors, ctx.master, lambda p: _gate(deps, ctx, p))
+        forced = list(plan.forced_skills)
+
+        def keep_forced(p: Plan) -> list[str]:
+            if forced:  # the master's skills tables are back: list the forced skills again
+                force_skills(p, ctx.master, ctx.reference, correction or "", forced)
+            return _gate(deps, ctx, p)
+
+        plan, errors, left_out = salvage(plan, errors, ctx.master, keep_forced)
         if not errors:
             log.info("resume built without the edits that broke a rule: %s", left_out)
     if errors or plan is None:
@@ -551,6 +577,35 @@ def build_resume(
         caption=caption(revision, values, fill, changes, plan, log_id, ctx.fill_min,
                         ctx.fill_max),
     )
+
+
+# ---------------------------------------------------------------- forced skills
+
+
+def force_skills(
+    plan: Plan, master: MasterResume, reference: Reference, request: str, terms: list[str],
+) -> None:
+    """Mark as forced the new, unbacked skills items you named in `request`, and add each of
+    `terms` that the plan left out to the last main skills row."""
+    master_items = {gate.item_key(i) for i in master.all_items()}
+    wanted = f" {canon(request)} "
+    forced: list[str] = [
+        item for row in plan.skills_main + plan.skills_also for item in row.items
+        if gate.item_key(item) not in master_items and not reference.lookup(item)
+        and f" {canon(item)} " in wanted
+    ]
+    for term in terms:
+        term = term.strip()
+        if not term:
+            continue
+        present = [i for r in plan.skills_main + plan.skills_also for i in r.items
+                   if gate.item_key(i) == gate.item_key(term)]
+        if not present and plan.skills_main:
+            plan.skills_main[-1].items.append(term)
+            present = [term]
+        forced += [i for i in present if gate.item_key(i) not in master_items
+                   and not reference.lookup(i)]
+    plan.forced_skills = list(dict.fromkeys(forced))
 
 
 # ---------------------------------------------------------------- salvage

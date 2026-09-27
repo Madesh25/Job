@@ -79,7 +79,8 @@ def bot_commands() -> list[dict[str, str]]:
 
 # Shown at once on a button tap (Telegram's small popup) while the work runs.
 TAP_TOASTS = {"ap": "Approving, building your resume...", "sk": "Skipping...",
-              "nx": "Next job..."}
+              "nx": "Next job...", "fg": "Adding it and rebuilding...",
+              "fc": "Adding it and rebuilding..."}
 
 DESK_COMMANDS = ("pending", "jd", "done", "screen", "gaps", "contacts", "credits", "outreach",
                  "drafts", "today",

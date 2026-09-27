@@ -134,6 +134,7 @@ def skill_errors(master: MasterResume, plan: Plan, reference: Reference) -> list
     originals = master.skills_main + master.skills_also
     original_labels = {r.label.casefold() for r in originals}
     master_items = {item_key(i) for i in master.all_items()}
+    forced = {item_key(f) for f in plan.forced_skills}  # skills table only, never bullets
     # An item may appear as often as in the master (some masters list CloudWatch twice), and
     # a new item once.
     allowed = Counter(item_key(i) for i in master.all_items())
@@ -156,7 +157,7 @@ def skill_errors(master: MasterResume, plan: Plan, reference: Reference) -> list
                               f"{original.label!r}")
         for item in row.items:
             key = item_key(item)
-            if key in master_items:
+            if key in master_items or key in forced:
                 continue
             if reference.is_known_gap(item):
                 errors.append(f"skills: {item!r} is a known gap in Term Map ((none))")

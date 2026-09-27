@@ -149,4 +149,6 @@ def make_plan(
         user_prompt(master, job, reference, correction, previous, errors),
         max_tokens=MAX_TOKENS, key=key,
     )
-    return parse_plan(raw, master)
+    plan = parse_plan(raw, master)
+    plan.forced_skills = []  # only the candidate's own "Add anyway" can force a skill
+    return plan
