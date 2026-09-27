@@ -53,8 +53,10 @@ log = logging.getLogger("jobengine.screen.desk")
 
 APPROVED_TEXT = "Approved: {job}."
 NO_RESUME = "Resume building is not available in this bot."
+REBUILD_KEY = "resume.rebuild_ask"  # bot_state: {"log": <Resume Log id>, "at": <iso time>}
+REBUILD_ASK_MINUTES = 30
 REBUILD_ASK = (
-    "What should change? Reply to this message with your instructions, for example:\n"
+    "What should change? Send your instructions as your next message, for example:\n"
     "- put Terraform first in the skills\n"
     "- drop Oracle\n"
     "- use the word observability in the monitoring bullet\n"
@@ -274,6 +276,7 @@ class Desk:
         if self.resume is None:
             return [Reply(NO_RESUME)]
         if action == "rb":
+            self.state.delete(REBUILD_KEY)
             values = (self.repo.get_values(arg) if self.repo else None) or {}
             return self.on_job_approved(arg, values, force=True)
         if action == "rq":
@@ -281,6 +284,8 @@ class Desk:
             job_id = resume_builder.job_for_log(self.resume, arg)
             if not job_id:
                 return [Reply("That resume preview is no longer in Resume Log.")]
+            # The next plain message (within 30 minutes) is the correction; a reply works too.
+            self.state.set(REBUILD_KEY, {"log": arg, "at": self.now().isoformat()})
             return [Reply(REBUILD_ASK.format(ref=resume_builder.short_ref(arg)),
                           [("Rebuild as it is", f"rb:{short_id(job_id)}")])]
         if action == "ia":
@@ -476,6 +481,7 @@ class Desk:
         the replied-to message is not a preview."""
         if self.resume is None or "Ref RL-" not in replied_to:
             return None
+        self.state.delete(REBUILD_KEY)
         log_id = resume_builder.find_log_by_ref(self.resume, replied_to)
         job_id = resume_builder.job_for_log(self.resume, log_id) if log_id else None
         if not job_id:
@@ -705,7 +711,7 @@ class Desk:
         """A plain text message. None when no capture is active (the bot answers as usual)."""
         capture = self.captures.get()
         if capture is None:
-            return None
+            return self._rebuild_answer(message)
         if self.captures.expired(capture, self.now()):
             return [self._discarded(capture)]
         capture = self.captures.add(capture, message)
@@ -713,6 +719,20 @@ class Desk:
             return [Reply("Still need the company and role as two lines:\n"
                           "Company: <name>\nRole: <title>")]
         return [Reply(f"Got it ({capture.chars} characters so far). Send /done when finished.")]
+
+    def _rebuild_answer(self, message: str) -> list[Reply] | None:
+        """The message right after a Rebuild tap is the correction for that resume."""
+        ask = self.state.get(REBUILD_KEY)
+        if not ask or not ask.get("log"):
+            return None
+        try:
+            asked = datetime.fromisoformat(str(ask.get("at")))
+        except ValueError:
+            asked = None
+        if asked is None or self.now() - asked > timedelta(minutes=REBUILD_ASK_MINUTES):
+            self.state.delete(REBUILD_KEY)
+            return None
+        return self.correction(f"Ref {resume_builder.short_ref(ask['log'])}", message)
 
     def done(self) -> list[Reply]:
         if self.repo is None:

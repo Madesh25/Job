@@ -64,6 +64,8 @@ FIXTURES = ROOT_DIR / "fixtures" / "resume"
 BUILDABLE_VERDICTS = ("Apply high", "Apply normal", "Apply low", "Needs review")
 BUILDABLE_STATUSES = ("Approved", "Resume built")
 CAPTION_MAX = 1024
+REFUSED_HINT = ("If you do have it, add it to Skills Inventory (Hands-on or Production) or as an "
+                "Active Term Map row, then send the instruction again.")
 RULES_FAILED = (
     "Resume could not be built within the rules: {errors}. The job stays Approved; tap "
     "Rebuild or reply with a correction."
@@ -483,7 +485,7 @@ def build_resume(
         if plan.correction_refused:
             return BuildOutcome(status="correction_refused", job_id=job_id, company=company,
                                 role=role, message=f"Correction not applied: "
-                                                   f"{plan.correction_refused}")
+                                                   f"{plan.correction_refused}\n{REFUSED_HINT}")
         errors = _gate(deps, ctx, plan)
         if not errors:
             break

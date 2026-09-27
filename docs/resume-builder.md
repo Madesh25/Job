@@ -36,7 +36,8 @@ Approve in /pending
   -> render, measure, fit (one page, fill 88 to 96 percent)
   -> Resume Log row (one per revision, plan JSON in its body), Job Status "Resume built"
   -> PDF preview with [Approve resume] [Rebuild]
-Rebuild -> "What should change?" (reply to it with instructions) [Rebuild as it is]
+Rebuild -> "What should change?" (your next message, within 30 minutes, or a reply to it,
+  is the instruction) [Rebuild as it is]
 Reply to the preview with a correction ("drop Oracle") -> next revision
 Approve resume -> re-render from the stored plan, save to Drive (or out/), tick Approved
   -> "Resume approved and saved. Apply here: <URL>" [I applied]
