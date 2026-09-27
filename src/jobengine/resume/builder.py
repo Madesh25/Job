@@ -447,6 +447,12 @@ def build_resume(
         if not errors:
             break
         log.info("gate errors (attempt %d): %s", attempt + 1, errors)
+    left_out: list[str] = []
+    if errors and plan is not None:
+        # Keep what passed, leave out only what broke a rule (no extra LLM call).
+        plan, errors, left_out = salvage(plan, errors, ctx.master, lambda p: _gate(deps, ctx, p))
+        if not errors:
+            log.info("resume built without the edits that broke a rule: %s", left_out)
     if errors or plan is None:
         return failed(RULES_FAILED.format(errors="; ".join(errors)))
 
@@ -463,6 +469,8 @@ def build_resume(
         return failed(str(exc))
 
     changes = gate.summarise(ctx.master, plan)
+    if left_out:
+        changes.lines.append("Left out (broke a rule): " + "; ".join(left_out))
     name = _file_name(deps, ctx.config, job_id, values)
     log_id = None
     if deps.write and deps.resume_log is not None:
@@ -495,6 +503,38 @@ def build_resume(
         revision=revision, log_id=log_id, pdf=pdf, filename=name, plan=plan, fill=fill,
         changes=changes.lines, caption=caption(revision, values, fill, changes, plan, log_id),
     )
+
+
+# ---------------------------------------------------------------- salvage
+
+BULLET_ERROR = re.compile(r"^(j\d+b\d+):")
+
+
+def salvage(
+    plan: Plan, errors: list[str], master: MasterResume, check: Callable[[Plan], list[str]],
+) -> tuple[Plan, list[str], list[str]]:
+    """After the retries: drop only the parts of the plan that broke a rule.
+
+    1. Skills errors: use the master's skills tables as they are.
+    2. Bullet errors: drop the edits of those bullets; keep the others.
+    3. Still failing (for example too many words in total): drop every bullet edit.
+    Returns the plan, its remaining errors and what was left out."""
+    left_out: list[str] = []
+    fixed = plan.model_copy(deep=True)
+    if any(e.startswith("skills:") for e in errors):
+        unchanged = Plan.unchanged(master)
+        fixed.skills_main, fixed.skills_also = unchanged.skills_main, unchanged.skills_also
+        left_out.append("skills changes")
+    bad = {m.group(1) for e in errors if (m := BULLET_ERROR.match(e))}
+    if bad:
+        fixed.bullet_edits = [e for e in fixed.bullet_edits if e.id not in bad]
+        left_out.append("edits to " + ", ".join(sorted(bad)))
+    remaining = check(fixed)
+    if remaining and fixed.bullet_edits:
+        fixed.bullet_edits = []
+        left_out.append("all bullet edits")
+        remaining = check(fixed)
+    return fixed, remaining, left_out
 
 
 # ---------------------------------------------------------------- finalise and applied

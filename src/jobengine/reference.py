@@ -35,6 +35,36 @@ def split_terms(value: str | None) -> list[str]:
     return [part.strip() for part in re.split(r"[,;]", value or "") if part.strip()]
 
 
+LEVEL_RANK = {"Production": 3, "Hands-on": 2, "Learning": 1}
+PROVIDERS = ("aws", "gcp", "azure")
+
+
+def skill_aliases(name: str) -> list[str]:
+    """Other names a Skills Inventory entry answers to, besides its full name:
+    "Kubernetes (AKS)" -> Kubernetes, AKS, Kubernetes AKS;
+    "GCP Compute Engine / Cloud Storage" -> GCP Compute Engine, Compute Engine, Cloud Storage;
+    "AWS EC2" -> EC2. A provider is only dropped when what is left is still specific (two
+    words, or a code like EC2 or S3), so "GCP Monitoring" never becomes "Monitoring"."""
+    out: list[str] = []
+    for part in (p.strip() for p in re.split(r"\s*/\s*", name) if p.strip()):
+        match = re.fullmatch(r"(.*?)\s*\((.*)\)", part)
+        if not match:
+            out.append(part)
+            continue
+        base, inner = match.group(1).strip(), match.group(2)
+        out.append(base)
+        for item in (i.strip() for i in re.split(r"[,;]", inner) if i.strip()):
+            out.append(item)
+            if not item.casefold().startswith(base.casefold()):
+                out.append(f"{base} {item}")
+    for alias in list(out):
+        first, _, rest = alias.partition(" ")
+        if first.casefold() in PROVIDERS and rest and (
+                " " in rest or rest.isupper() or any(ch.isdigit() for ch in rest)):
+            out.append(rest)
+    return [a for a in dict.fromkeys(out) if a != name]
+
+
 def company_key(name: str | None) -> str:
     # "HubSpot (IE)" and "HubSpot" are the same company for matching.
     return canon_company(re.sub(r"\([^)]*\)", " ", name or ""))
@@ -103,6 +133,18 @@ class Reference:
 
     def __post_init__(self) -> None:
         self._skills = {canon_term(s.name): s for s in self.skills}
+        # Parts of combined names ("Kubernetes (AKS)" also backs "Kubernetes"); a full name
+        # always wins, and between aliases the higher level wins.
+        aliases: dict[str, Skill] = {}
+        for skill in self.skills:
+            for alias in skill_aliases(skill.name):
+                key = canon_term(alias)
+                known = aliases.get(key)
+                if key and (known is None or LEVEL_RANK.get(skill.level or "", 0)
+                            > LEVEL_RANK.get(known.level or "", 0)):
+                    aliases[key] = skill
+        for key, skill in aliases.items():
+            self._skills.setdefault(key, skill)
         self._terms: dict[str, TermRow] = {}
         for row in self.term_map:
             for term in (*row.jd_terms, row.truthful_equivalent):
@@ -186,11 +228,16 @@ class Reference:
         """Lowercase terms that count as owned: Production and Hands-on skills, plus JD terms
         and truthful equivalents of Active Term Map rows. "(none)" rows are known gaps."""
         owned = {s.name.lower() for s in self.skills if s.level in OWNED_LEVELS}
+        owned.update(key for key, s in self._skills.items() if s.level in OWNED_LEVELS)
         for row in self.term_map:
             if row.backs:
                 owned.update(t.lower() for t in row.jd_terms)
                 owned.add(row.truthful_equivalent.lower())
         return owned
+
+    def skill_terms(self, levels: tuple[str, ...] = OWNED_LEVELS) -> set[str]:
+        """Canonical skill terms (full names and their parts) at the given levels."""
+        return {key for key, s in self._skills.items() if s.level in levels}
 
     def lookup(self, term: str) -> Backing | None:
         key = canon_term(term)
