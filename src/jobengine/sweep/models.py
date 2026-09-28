@@ -53,6 +53,7 @@ class Job:
     # Where a full description came from when it is not the source's own feed,
     # for example "full page, careers.example.com" (sweep/fulltext.py).
     description_origin: str = ""
+    experience: str | None = None  # as posted: "2-3 years", "5+ years"
 
 
 @dataclass(frozen=True)
@@ -95,6 +96,7 @@ class SweepSummary:
     not_checked: list[str] = field(default_factory=list)  # plain-language source problems
     not_kept: int = 0  # new jobs below today's best-match cut (sweep.daily_new_limit)
     other_cities: int = 0  # new postings of a job already saved, in another city
+    too_senior: int = 0  # asked for more years than screening.max_years_required
     full_read: int = 0  # job pages that gave a full description (sweep/fulltext.py)
     blocked_sites: list[str] = field(default_factory=list)  # "Name (HTTP 403)"
     no_board_sites: list[str] = field(default_factory=list)
@@ -132,6 +134,9 @@ class SweepSummary:
             "",
             f"\U0001F4C9 Weaker matches not saved (daily limit): {self.not_kept}",
         ]
+        if self.too_senior:
+            lines.append(f"\U0001F6B7 Asked for more experience than you have (not saved): "
+                         f"{self.too_senior}")
         if self.other_cities:
             lines.append(f"\U0001F4CD Same job in another city (not saved again): "
                          f"{self.other_cities}")

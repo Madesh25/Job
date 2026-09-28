@@ -94,6 +94,7 @@ class ScreenResult:
     extraction: Extraction | None = None
     employer: str | None = None  # large | normal | weak
     description_kind: str = "none"  # full | snippet | none
+    llm_used: bool = True  # False when a free check skipped the row before the LLM
 
     @property
     def counts(self) -> dict[str, int]:

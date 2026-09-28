@@ -47,10 +47,22 @@ def test_seniority_flag_from_description():
     assert hit.reason == "Seniority"
 
 
-def test_years_over_five_skip_exactly_five_passes():
+def test_years_over_the_limit_skip_the_limit_passes():
     assert gate(e=ext(years_required_min=Quoted(value=6, quote="q"))).reason == "Experience >5 yrs"
     assert gate(row(years_required=7)).reason == "Experience >5 yrs"
-    assert gate(e=ext(years_required_min=Quoted(value=5, quote="q"))) is None
+    assert gate(e=ext(years_required_min=Quoted(value=5, quote="q"))).reason == "Seniority"
+    assert gate(e=ext(years_required_min=Quoted(value=4, quote="q"))) is None
+
+
+def test_pre_gate_needs_no_llm():
+    from jobengine.screen.gates import pre_gate
+
+    assert pre_gate(row(years_required=5), None).detail == "5 years required, your limit is 4"
+    assert pre_gate(row(), 6).reason == "Experience >5 yrs"  # from the description text
+    assert pre_gate(row(), 3) is None
+    assert pre_gate(row(role="Senior DevOps Engineer"), None).reason == "Seniority"
+    assert pre_gate(row(role="Senior DevOps Engineer"), 3) is None  # senior but in range
+    assert pre_gate(row(role="Lead DevOps Engineer"), 2).detail == "title says lead"
 
 
 def test_mandatory_polish_or_dutch_skips_preferred_does_not():

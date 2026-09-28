@@ -25,11 +25,12 @@ from jobengine.reference import Reference
 from jobengine.safety import notion_write_target
 from jobengine.screen import daily, visa
 from jobengine.screen.extract import extract
-from jobengine.screen.gates import APPLIED_STATUSES, run_gates
+from jobengine.screen.gates import APPLIED_STATUSES, MAX_YEARS, pre_gate, run_gates
 from jobengine.screen.models import Extraction, JobRow, ScreenResult, ScreenSummary
 from jobengine.screen.tiering import build_matrix, contract_type, tier
 from jobengine.settings import ROOT_DIR, Settings
 from jobengine.sweep.dedupe import parse_posting_ids
+from jobengine.sweep.normalize import years_required
 
 log = logging.getLogger("jobengine.screen")
 
@@ -278,6 +279,18 @@ class _Run:
         jd, kind = description(repo.read_body(row.page_id), full_min)
         if kind == "none":
             return ScreenResult(page_id=row.page_id, verdict="Unscreened", description_kind=kind)
+        limit = int(self.s.screening.get("max_years_required", MAX_YEARS))
+        early = pre_gate(row, years_required(jd), limit)
+        if early:  # too senior: skipped for free, no tokens spent
+            result = ScreenResult(page_id=row.page_id, verdict="Skip", skip_reason=early.reason,
+                                  description_kind=kind, llm_used=False,
+                                  notes=[f"gate {early.gate}: {early.detail} (no AI used)"])
+            if self.deps.write:
+                props = {key: value for key, value in plan_props(result, row, status_from).items()
+                         if key in ("Screen verdict", "Status", "Skip reason")}
+                repo.update(row.page_id, props)
+                repo.append_body(row.page_id, body_section(result, self.today))
+            return result
 
         ext, dropped = extract(self.llm, title=row.role, company=row.company,
                                country=row.country or "", jd=jd, key=row.page_id)
@@ -288,7 +301,7 @@ class _Run:
         result = ScreenResult(page_id=row.page_id, verdict="Skip", matrix=matrix,
                               extraction=ext, description_kind=kind,
                               tech_terms=tool_terms(ext))
-        hit = run_gates(row, ext, self.ref, self.applied, self.today)
+        hit = run_gates(row, ext, self.ref, self.applied, self.today, limit)
         if hit:
             result.skip_reason = hit.reason
             result.gaps = list(hit.gaps) or [m.text for m in matrix if m.strength == "Gap"]
@@ -367,7 +380,7 @@ def screen_pending(
             except (LLMError, http.HttpError) as exc:
                 summary.errors.append(f"Could not screen {_label(row)}: {exc}")
                 continue
-            if result.description_kind != "none":
+            if result.description_kind != "none" and result.llm_used:
                 sent += 1
             if result.verdict == "Unscreened":
                 summary.waiting_for_jd += 1
@@ -422,7 +435,8 @@ def screen_one(s: Settings, deps: ScreenDeps, today: date, ref: str) -> ScreenSu
     except (LLMError, http.HttpError) as exc:
         summary.errors.append(f"Could not screen {_label(row)}: {exc}")
         return summary
-    if deps.write and result.description_kind != "none":  # your ask: counted, never blocked
+    # Your ask: counted, never blocked.
+    if deps.write and result.description_kind != "none" and result.llm_used:
         daily.record(deps.state, today, daily.used_today(deps.state, today) + 1)
     if result.verdict == "Unscreened":
         summary.waiting_for_jd += 1

@@ -10,3 +10,6 @@ gmail:
   sender: "madeshwaranm02@gmail.com"
 llm:
   force_model: "claude-haiku-4-5"
+sweep:
+  # Job Opportunities (DEV) has the Experience text column ("2-3 years").
+  experience_column: true

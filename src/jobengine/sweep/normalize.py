@@ -117,6 +117,37 @@ def seniority(title: str) -> str:
     return "Unknown"
 
 
+_RANGE = re.compile(rf"(\d{{1,2}})\s*{_DASH}\s*(\d{{1,2}})\s*(?:years?|yrs?|lat[a]?)\b")
+_PLUS = (
+    re.compile(r"(\d{1,2})\s*\+\s*(?:years?|yrs?|lat[a]?)\b"),
+    re.compile(r"at\s+least\s+(\d{1,2})\s*(?:years?|yrs?)\b"),
+    re.compile(r"minimum(?:\s+of)?\s+(\d{1,2})\s*(?:years?|yrs?)\b"),
+    re.compile(r"min\.?\s*(\d{1,2})\s*(?:lat[a]?|years?|yrs?)\b"),
+)
+
+
+def experience(description: str | None) -> str | None:
+    """The experience asked for, as the posting says it: "2-3 years", "5+ years" or
+    "3 years" (the lowest requirement when several are stated)."""
+    if not description:
+        return None
+    text = description.lower()
+    options: list[tuple[int, int, str]] = []  # (low, order, label)
+    for m in _RANGE.finditer(text):
+        low, high = int(m.group(1)), int(m.group(2))
+        if 0 < low < high <= 20:
+            options.append((low, 0, f"{low}-{high} years"))
+    for pattern in _PLUS:
+        for m in pattern.finditer(text):
+            low = int(m.group(1))
+            if 0 < low <= 20:
+                options.append((low, 1, f"{low}+ years"))
+    if not options:
+        low = years_required(description)
+        return f"{low} years" if low is not None else None
+    return min(options)[2]
+
+
 def years_required(description: str | None) -> int | None:
     """Smallest explicit years-of-experience number, or None."""
     if not description:
@@ -219,6 +250,7 @@ def normalize(
         posting_ref=f"{raw.source}:{raw.posting_id}",
         description=raw.description or None,
         description_is_snippet=raw.description_is_snippet,
+        experience=experience(raw.description),
     )
 
 

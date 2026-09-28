@@ -128,6 +128,22 @@ A source whose secret is missing is skipped with a line in the summary; the run 
       Baltic Bank: {ats: workday, token: balticbank, host: balticbank.wd3.myworkdayjobs.com, site: careers}
   ```
 
+## Only jobs that fit your experience
+
+`screening.max_years_required` (4) is the most years a saved job may ask for. The years come
+from the description: `2-3 years`, `3+ years`, `at least 4 years`, `min. 3 lata` and so on;
+the lowest one stated counts. A job asking for more, or a Senior title with no years at or
+under the limit, is not saved: the summary counts it as `Asked for more experience than you
+have (not saved)`. Snippets rarely state the years, so the sweep reads the job pages in rounds
+from the top of the list: after each round the jobs that ask for too much drop out and the
+next ones are read, until 30 fitting jobs (plus the lookahead) are found or
+`sweep.fulltext.max_pages` pages were read.
+
+`Years required` (a number) keeps the lowest years for sorting and filters. The optional
+`Experience` text column shows it as posted (`2-3 years`, `5+ years`); it is written only when
+`sweep.experience_column` is true (local and dev, where Job Opportunities (DEV) has the
+column). Add a text column `Experience` to the prod database, then set it for prod too.
+
 ## One row per job
 
 A company often lists one opening in several cities (the same "Senior DevOps Engineer" in

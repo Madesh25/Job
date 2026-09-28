@@ -127,7 +127,7 @@ def test_missing_write_target_means_dry_run(caplog):
     assert deps.repo is None
     assert "DRY RUN: would write to job_opportunities" in caplog.text
     summary = run_sweep(s, deps, TODAY)
-    assert summary.new == 13  # no index without a repo: the 3 seeded jobs count as new
+    assert summary.new == 11  # no index: the seeded jobs count as new (2 ask for too much)
     assert "DRY RUN: would write to job_opportunities (no rows written)" in summary.notes
 
 

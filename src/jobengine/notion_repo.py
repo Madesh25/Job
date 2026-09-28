@@ -41,6 +41,8 @@ JOB_PROPERTY_TYPES = {
     "Salary": "rich_text",
     "Seniority": "select",
     "Years required": "number",
+    # Optional text column ("2-3 years"); written only when sweep.experience_column is true.
+    "Experience": "rich_text",
     "Dedupe key": "rich_text",
     "Posting IDs": "rich_text",
     "First seen": "date",
@@ -149,6 +151,7 @@ INDEX_PROPERTIES = (
     "URL",
     "Salary",
     "Years required",
+    "Experience",
 )
 
 
@@ -304,6 +307,7 @@ def index_row(page_id: str, values: dict[str, Any]) -> IndexRow | None:
         url=values.get("URL"),
         salary=values.get("Salary"),
         years_required=int(years) if years is not None else None,
+        experience=values.get("Experience") or None,
         company=values.get("Company") or "",
         role=values.get("Role") or "",
         city=values.get("City"),

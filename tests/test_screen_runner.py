@@ -41,7 +41,7 @@ def verdicts(summary):
 def test_fake_run_summary(s, deps):
     summary = run(s, deps)
     assert summary.text() == (
-        "Screening done: 14 screened (5 high, 1 normal, 2 low, 1 needs review, 5 skipped), "
+        "Screening done: 14 screened (4 high, 1 normal, 2 low, 1 needs review, 6 skipped), "
         "1 waiting for JD."
     )
 
@@ -57,7 +57,7 @@ def test_fixture_verdicts(s, deps):
         "nl-not-register": ("Apply low", None),
         "ie-agency": ("Apply low", None),
         "pl-7-years": ("Skip", "Experience >5 yrs"),
-        "ie-5-years": ("Apply high", None),
+        "ie-5-years": ("Skip", "Seniority"),  # 5 years: over the 4-year limit
         "pl-learning-go": ("Skip", "Tech mismatch"),
         "nl-sponsor-yes": ("Apply high", None),
         "pl-snippet": ("Needs review", None),
@@ -192,11 +192,13 @@ def test_llm_failure_is_reported_and_row_left_alone(s, deps, tmp_path):
 
     deps.llm = lambda config: FakeLLM(tmp_path)
     summary = run(s, deps)
-    assert summary.screened == 0
+    free = {r.page_id for r in summary.results if not r.llm_used}
+    assert summary.screened == len(free)  # only the free seniority skips
     assert "Could not screen Vistula Cloud, DevOps Engineer: FakeLLM has no fixture" in (
         summary.text()
     )
-    assert deps.repo.writes == []
+    assert {w[1] for w in deps.repo.writes} == free
+    deps.repo.writes.clear()
 
 
 def test_refused_key_stops_screening_after_the_first_job(s, deps):
@@ -215,7 +217,7 @@ def test_refused_key_stops_screening_after_the_first_job(s, deps):
     text = summary.text()
     assert "Screening stopped: Anthropic refused ANTHROPIC_API_KEY (HTTP 401)." in text
     assert "reached" not in text  # not reported as the daily limit
-    assert deps.repo.writes == []
+    assert all("no AI used" in str(w) or "Skip reason" in str(w) for w in deps.repo.writes)
 
 
 def test_missing_key_is_a_clear_error(s, deps):
@@ -232,8 +234,8 @@ def test_prompts_carry_only_job_text(s, deps):
 
     llm = FakeLLM()
     deps.llm = lambda config: llm
-    run(s, deps)
-    assert len(llm.calls) == 14
+    summary = run(s, deps)
+    assert len(llm.calls) == 14 - sum(1 for r in summary.results if not r.llm_used) == 12
     for call in llm.calls:
         assert "@" not in call["user"] and "+48" not in call["user"]
 
@@ -284,7 +286,7 @@ def test_fixtures_are_invented():
 
 
 def llm_sent(summary):
-    return [r for r in summary.results if r.description_kind != "none"]
+    return [r for r in summary.results if r.description_kind != "none" and r.llm_used]
 
 
 def test_daily_limit_caps_the_run_and_is_shared_by_later_runs(s, deps):
@@ -308,8 +310,12 @@ def test_newest_posting_is_screened_first(s, deps):
     with_jd = [row.get("Posted date") or date.min for row in deps.repo.rows.values()
                if row.get("Screen verdict") == "Unscreened"
                and any(b.startswith("Description source:") for b in row.get("body") or [])]
-    picked = llm_sent(run(s, deps))[0].page_id
-    assert (deps.repo.rows[picked].get("Posted date") or date.min) == max(with_jd)
+    summary = run(s, deps)
+    picked = llm_sent(summary)[0].page_id
+    free = [deps.repo.rows[r.page_id].get("Posted date") or date.min
+            for r in summary.results if not r.llm_used]
+    newest = max(d for d in with_jd if d not in free or with_jd.count(d) > free.count(d))
+    assert (deps.repo.rows[picked].get("Posted date") or date.min) == newest
     assert len({d for d in with_jd}) > 1  # the order is actually tested
 
 

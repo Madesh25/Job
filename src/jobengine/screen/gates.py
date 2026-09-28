@@ -11,8 +11,9 @@ from jobengine.reference import Reference
 from jobengine.screen.models import Extraction, JobRow
 from jobengine.sweep.normalize import canon, canon_company, canon_title
 
-MAX_YEARS = 5
+MAX_YEARS = 4  # screening.max_years_required overrides it
 SENIOR_TITLE = re.compile(r"\b(lead|principal|head of|staff)\b")
+SENIOR_WORD = re.compile(r"\b(senior|sr)\b")
 SKIP_LANGUAGES = {
     "polish": "Polish required",
     "polski": "Polish required",
@@ -32,7 +33,27 @@ class GateHit:
     gaps: tuple[str, ...] = ()
 
 
-def gate_seniority(row: JobRow, ext: Extraction) -> GateHit | None:
+def _years_hit(years: int, limit: int) -> GateHit:
+    reason = "Experience >5 yrs" if years > 5 else "Seniority"
+    return GateHit(1, reason, f"{years} years required, your limit is {limit}")
+
+
+def pre_gate(row: JobRow, jd_years: int | None, limit: int = MAX_YEARS) -> GateHit | None:
+    """The seniority checks that need no LLM: the title, and the years in Notion or in the
+    description text. A row that fails them is skipped without spending tokens."""
+    title = canon(row.role)
+    match = SENIOR_TITLE.search(title)
+    if match:
+        return GateHit(1, "Seniority", f"title says {match.group(1)}")
+    years = row.years_required if row.years_required is not None else jd_years
+    if years is not None and years > limit:
+        return _years_hit(years, limit)
+    if years is None and SENIOR_WORD.search(title):
+        return GateHit(1, "Seniority", "Senior title and no years stated")
+    return None
+
+
+def gate_seniority(row: JobRow, ext: Extraction, limit: int = MAX_YEARS) -> GateHit | None:
     flag = ext.seniority_title_flag.value
     if flag in ("lead", "principal"):
         return GateHit(1, "Seniority", f"description says {flag}")
@@ -40,8 +61,8 @@ def gate_seniority(row: JobRow, ext: Extraction) -> GateHit | None:
     if match:
         return GateHit(1, "Seniority", f"title says {match.group(1)}")
     for years in (row.years_required, ext.years):
-        if years is not None and years > MAX_YEARS:
-            return GateHit(1, "Experience >5 yrs", f"{years} years required")
+        if years is not None and years > limit:
+            return _years_hit(years, limit)
     return None
 
 
@@ -101,10 +122,11 @@ def gate_expired(row: JobRow, ext: Extraction, today: date) -> GateHit | None:
 
 def run_gates(
     row: JobRow, ext: Extraction, ref: Reference, others: Iterable[JobRow], today: date,
+    max_years: int = MAX_YEARS,
 ) -> GateHit | None:
     """The first gate that fires, in V16 order, or None when the row survives."""
     return (
-        gate_seniority(row, ext)
+        gate_seniority(row, ext, max_years)
         or gate_language(ext)
         or gate_b2b_only(row, ext)
         or gate_tech(ext, ref)

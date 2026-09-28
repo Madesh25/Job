@@ -451,8 +451,8 @@ def test_pending_shows_one_card_in_rank_order(desk):
     assert "1 LinkedIn job needs the JD: /jd" in text
     assert fake.buttons[0] == ["ap:nl-sponsor-yes", "sk:nl-sponsor-yes", "nx:1"]
     order = [r.page_id for r in desk.ranked()]
-    assert order.index("pl-clean") < order.index("ie-5-years")  # exactly 5 years ranks lower
-    assert order.index("ie-5-years") < order.index("pl-polish-plus")  # tier first
+    assert "ie-5-years" not in order  # 5 years: over the 4-year limit, skipped with no AI
+    assert order.index("pl-clean") < order.index("pl-polish-plus")  # tier first
     assert order.index("nl-not-register") > order.index("pl-polish-plus")
 
 
@@ -932,7 +932,7 @@ def test_skip_from_the_list_does_not_read_the_page_again(desk):
     assert desk.repo.rows["pl-clean"]["Status"] == "Declined"
     texts = [t for _, t in fake.sent]
     assert texts[0] == "[LOCAL] Skipped: Vistula Cloud, DevOps Engineer"
-    assert texts[1].startswith("[LOCAL] [2/10]")  # the next card, from the same list
+    assert texts[1].startswith("[LOCAL] [2/9]")  # the next card, from the same list
 
 
 def test_rebuild_asks_what_to_change_and_a_reply_is_the_correction(desk):
