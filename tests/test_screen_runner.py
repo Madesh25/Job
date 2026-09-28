@@ -107,7 +107,8 @@ def test_skip_rows_record_reason_and_gaps(s, deps):
     go = deps.repo.rows["pl-learning-go"]
     assert (go["Screen verdict"], go["Skip reason"], go["Gaps"]) == ("Skip", "Tech mismatch", "Go")
     assert go["Contract type"] == "Both"
-    assert deps.repo.rows["pl-polish-required"]["Language required"] == "Polish"
+    polish = deps.repo.rows["pl-polish-required"]  # "Fluent Polish is required": no AI used
+    assert (polish["Screen verdict"], polish["Skip reason"]) == ("Skip", "Polish required")
     assert deps.repo.rows["pl-polish-plus"]["Language required"] == "Polish preferred"
     assert deps.repo.rows["pl-polish-plus"]["Gaps"] == "Java"
 
@@ -115,7 +116,7 @@ def test_skip_rows_record_reason_and_gaps(s, deps):
 def test_fabricated_quotes_are_not_written(s, deps):
     run(s, deps)
     row = deps.repo.rows["pl-fabricated"]
-    assert "Years required" not in row
+    assert row["Years required"] == "3 years"  # read from the description, not the AI
     assert row["Sponsorship"] == "Not mentioned"
     assert "Java" not in row["Tech stack"]
 
@@ -235,7 +236,9 @@ def test_prompts_carry_only_job_text(s, deps):
     llm = FakeLLM()
     deps.llm = lambda config: llm
     summary = run(s, deps)
-    assert len(llm.calls) == 14 - sum(1 for r in summary.results if not r.llm_used) == 12
+    free = [r.page_id for r in summary.results if not r.llm_used]
+    assert sorted(free) == ["ie-5-years", "pl-7-years", "pl-b2b", "pl-polish-required"]
+    assert len(llm.calls) == 14 - len(free) == 10
     for call in llm.calls:
         assert "@" not in call["user"] and "+48" not in call["user"]
 
@@ -370,3 +373,14 @@ def test_screening_runs_several_jobs_at_once_after_the_first(s, deps):
     summary = run(s, deps)
     assert summary.screened == 14  # the same result as one at a time
     assert 1 < peak[0] <= 4
+
+
+def test_years_cell_is_raised_to_what_the_description_asks():
+    from jobengine.screen.models import JobRow
+    from jobengine.screen.runner import years_update
+
+    jd = "IT: 5 lat doswiadczenia; w podobnej roli: 2 lata doswiadczenia"
+    row = JobRow(page_id="p", company="Vistula Cloud", role="Cloud Engineer", years_required=2)
+    assert years_update(row, jd) == {"Years required": "5 years"}
+    assert years_update(JobRow(page_id="p", company="c", role="r", years_required=5), jd) == {}
+    assert years_update(row, "Kubernetes and Terraform") == {}

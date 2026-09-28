@@ -30,6 +30,50 @@ def canon_term(term: str | None) -> str:
     return " ".join(t for t in tokens if not re.fullmatch(r"v?\d+", t))
 
 
+# Words a posting puts around a tool name that do not change the tool: "MS Azure", "Linux
+# OS", "Apache Kafka", "HashiCorp Vault". Only dropped when a word is left.
+FILLER_WORDS = frozenset({"ms", "microsoft", "os", "operating", "system", "systems", "apache",
+                          "hashicorp", "amazon"})
+# Other names of the same thing, in canonical form.
+SYNONYMS = {
+    "amazon web services": "aws",
+    "google cloud": "gcp",
+    "google cloud platform": "gcp",
+    "k8s": "kubernetes",
+    "golang": "go",
+}
+# A requirement made only of these words names no tool ("build tooling", "artifact
+# repositories", "DevOps tooling", "CI/CD pipelines") and never fails the tech check.
+GENERAL_WORDS = frozenset("""
+    artifact artifacts repository repositories repo repos build builds tooling tool tools
+    pipeline pipelines ci cd devops automation automated scripting scripts script
+    monitoring observability logging alerting infrastructure iac as code cloud services
+    service platform platforms networking network security testing tests deployment
+    deployments release releases management configuration version versioning control
+    container containers containerization containerisation orchestration technologies
+    technology practices principles concepts solutions environments environment modern
+    public private hybrid native based operating system systems os and or of the in with for
+""".split())
+
+
+def term_keys(term: str | None) -> list[str]:
+    """The canonical keys a requirement term is looked up by: as written, then without
+    filler words, then its synonym."""
+    key = canon_term(term)
+    keys = [key] if key else []
+    words = [w for w in key.split() if w not in FILLER_WORDS]
+    if words and len(words) < len(key.split()):
+        keys.append(" ".join(words))
+    keys.extend(SYNONYMS[k] for k in list(keys) if k in SYNONYMS)
+    return list(dict.fromkeys(keys))
+
+
+def is_general(term: str | None) -> bool:
+    """True when the term is only general words, no tool name."""
+    words = canon_term(term).split()
+    return bool(words) and all(w in GENERAL_WORDS for w in words)
+
+
 def split_terms(value: str | None) -> list[str]:
     """A Term Map "JD term" cell may hold several terms: "Go, Golang"."""
     return [part.strip() for part in re.split(r"[,;]", value or "") if part.strip()]
@@ -240,16 +284,15 @@ class Reference:
         return {key for key, s in self._skills.items() if s.level in levels}
 
     def lookup(self, term: str) -> Backing | None:
-        key = canon_term(term)
-        if not key:
-            return None
-        skill = self._skills.get(key)
-        if skill and skill.level in OWNED_LEVELS:
-            return Backing(kind="skill", level=skill.level, row_id=skill.row_id, name=skill.name)
-        row = self._terms.get(key)
-        if row and row.backs:
-            return Backing(kind="term_map", level=None, row_id=row.row_id,
-                           name=row.truthful_equivalent)
+        for key in term_keys(term):
+            skill = self._skills.get(key)
+            if skill and skill.level in OWNED_LEVELS:
+                return Backing(kind="skill", level=skill.level, row_id=skill.row_id,
+                               name=skill.name)
+            row = self._terms.get(key)
+            if row and row.backs:
+                return Backing(kind="term_map", level=None, row_id=row.row_id,
+                               name=row.truthful_equivalent)
         return None
 
     def is_known_gap(self, term: str) -> bool:

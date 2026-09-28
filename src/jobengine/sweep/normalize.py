@@ -44,17 +44,7 @@ _SENIORITY = (
     ("Senior", re.compile(r"\b(senior|sr)\b")),
 )
 
-# Years of experience. The first group is always the lower bound.
 _DASH = r"[-\u2013\u2014]"
-_YEARS = (
-    re.compile(rf"(\d{{1,2}})\s*{_DASH}\s*\d{{1,2}}\s*(?:years?|yrs?|lat[a]?)\b"),
-    re.compile(r"(\d{1,2})\s*\+\s*(?:years?|yrs?|lat[a]?)\b"),
-    re.compile(r"at\s+least\s+(\d{1,2})\s*(?:years?|yrs?)\b"),
-    re.compile(r"minimum(?:\s+of)?\s+(\d{1,2})\s*(?:years?|yrs?)\b"),
-    re.compile(r"min\.?\s*(\d{1,2})\s*(?:lat[a]?|years?|yrs?)\b"),
-    re.compile(r"\b(\d{1,2})\s+lat[a]?\b"),
-    re.compile(r"\b(\d{1,2})\s+years?\s+(?:of\s+)?(?:experience|exp)\b"),
-)
 
 
 def canon(text: str | None) -> str:
@@ -124,28 +114,66 @@ _PLUS = (
     re.compile(r"minimum(?:\s+of)?\s+(\d{1,2})\s*(?:years?|yrs?)\b"),
     re.compile(r"min\.?\s*(\d{1,2})\s*(?:lat[a]?|years?|yrs?)\b"),
 )
+MAX_STATED_YEARS = 15  # "since 18 years", "25+ years of history" are about the company
+# A requirement is one line or sentence of the description ("min. 4 lat" is not a sentence).
+_SEGMENT = re.compile(
+    r"\n|<br\s*/?>|;|\u2022|(?<=[a-z0-9)])(?<!\bmin)(?<!\bnp)(?<!\bca)(?<!\bapprox)\.\s"
+)
+
+
+def segments(text: str) -> list[str]:
+    """The lines and sentences of a description, lowercase."""
+    return _SEGMENT.split(text.lower())
+_OPTIONAL = re.compile(
+    r"nice[\s-]to[\s-]have|\ba plus\b|\bpreferred\b|\bpreferabl|\bideally\b|\badvantage"
+    r"|\bbonus\b|\bdesirable\b|mile widziane|\batut|pluspunt|\been pr[eé]\b"
+)
+_EXPERIENCE_WORD = re.compile(r"experience|\bexp\b|do[sś]wiadcz|ervaring")
+_YEARS_OF = re.compile(r"\b(\d{1,2})\s+years?\s+(?:of\s+)?(?:experience|exp)\b")
+_BARE_LAT = re.compile(r"\b(\d{1,2})\s+lat[a]?\b")  # "5 lat" alone is often "for 5 years"
+
+
+def _year_options(description: str | None) -> list[tuple[int, str]]:
+    """(lowest years, as posted) for each experience requirement in the description.
+
+    Requirements in "nice to have" or "preferred" lines only count when nothing else is
+    stated. A bare "5 lat" only counts on a line about experience (doswiadczenie)."""
+    if not description:
+        return []
+    required: list[tuple[int, str]] = []
+    optional: list[tuple[int, str]] = []
+    for segment in segments(description):
+        found: list[tuple[int, str]] = []
+        for m in _RANGE.finditer(segment):
+            low, high = int(m.group(1)), int(m.group(2))
+            if 0 < low < high <= 20:
+                found.append((low, f"{low}-{high} years"))
+        for pattern in _PLUS:
+            found.extend((int(m.group(1)), f"{int(m.group(1))}+ years")
+                         for m in pattern.finditer(segment))
+        if not found:
+            patterns = [_YEARS_OF]
+            if _EXPERIENCE_WORD.search(segment):
+                patterns.append(_BARE_LAT)
+            found.extend((int(m.group(1)), f"{int(m.group(1))} years")
+                         for pattern in patterns for m in pattern.finditer(segment))
+        found = [(low, label) for low, label in found if 0 < low <= MAX_STATED_YEARS]
+        (optional if _OPTIONAL.search(segment) else required).extend(found)
+    return required or optional
 
 
 def experience(description: str | None) -> str | None:
     """The experience asked for, as the posting says it: "2-3 years", "5+ years" or
-    "3 years" (the lowest requirement when several are stated)."""
-    if not description:
-        return None
-    text = description.lower()
-    options: list[tuple[int, int, str]] = []  # (low, order, label)
-    for m in _RANGE.finditer(text):
-        low, high = int(m.group(1)), int(m.group(2))
-        if 0 < low < high <= 20:
-            options.append((low, 0, f"{low}-{high} years"))
-    for pattern in _PLUS:
-        for m in pattern.finditer(text):
-            low = int(m.group(1))
-            if 0 < low <= 20:
-                options.append((low, 1, f"{low}+ years"))
+    "3 years". When several requirements are stated, the one asking for the most years
+    ("5 years in IT, 2 years in a similar role" is 5 years), so the cell shows the real bar.
+    """
+    options = _year_options(description)
     if not options:
-        low = years_required(description)
-        return f"{low} years" if low is not None else None
-    return min(options)[2]
+        return None
+    top = max(low for low, _ in options)
+    labels = [label for low, label in options if low == top]
+    # "3-5 years" says more than "3+ years" for the same lowest number.
+    return next((label for label in labels if "-" in label), labels[0])
 
 
 NOT_STATED = "Not stated"
@@ -166,7 +194,7 @@ def senior_in_text(description: str | None) -> bool:
 
 
 def years_text(years: int | None, posted: str | None, full: bool = False) -> str | None:
-    """The Years required cell: as posted ("2-3 years"), else the lowest number, else "Not
+    """The Years required cell: as posted ("2-3 years"), else the number, else "Not
     stated" when the full description was read and names no years, else empty."""
     if posted:
         return posted
@@ -186,13 +214,10 @@ def years_low(value: Any) -> int | None:
 
 
 def years_required(description: str | None) -> int | None:
-    """Smallest explicit years-of-experience number, or None."""
-    if not description:
-        return None
-    text = description.lower()
-    found = [int(m.group(1)) for pattern in _YEARS for m in pattern.finditer(text)]
-    found = [n for n in found if 0 < n <= 20]
-    return min(found) if found else None
+    """The years of experience the description requires: the highest of its requirements
+    (each counted by its lowest number, "3-5 years" is 3), or None."""
+    options = _year_options(description)
+    return max(low for low, _ in options) if options else None
 
 
 @dataclass(frozen=True)

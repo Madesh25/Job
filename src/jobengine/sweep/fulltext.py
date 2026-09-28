@@ -197,10 +197,14 @@ def read(job: Job, get_page: PageGetter) -> Job | None:
     if not text or len(text) <= len(job.description or ""):
         return replace(job, url=final_url) if moved else None
     host = (urlsplit(final_url).hostname or "").lower()
-    years = job.years_required if job.years_required is not None else years_required(text)
+    # The full text states every requirement; the snippet may show only the smaller one.
+    years = years_required(text)
+    posted = experience(text)
+    if years is None:
+        years, posted = job.years_required, job.experience
     return replace(job, description=text, description_is_snippet=False,
                    description_origin=f"full page, {host}", years_required=years,
-                   experience=job.experience or experience(text),
+                   experience=posted,
                    url=final_url if moved else job.url)
 
 

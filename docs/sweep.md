@@ -128,27 +128,45 @@ A source whose secret is missing is skipped with a line in the summary; the run 
       Baltic Bank: {ats: workday, token: balticbank, host: balticbank.wd3.myworkdayjobs.com, site: careers}
   ```
 
-## Only jobs that fit your experience
+## Only jobs you can take
 
-`screening.max_years_required` (4) is the most years a saved job may ask for. The years come
-from the description: `2-3 years`, `3+ years`, `at least 4 years`, `min. 3 lata` and so on;
-the lowest one stated counts. A job asking for more, or a Senior title with no years at or
-under the limit, is not saved: the summary counts it as `Asked for more experience than you
-have (not saved)`. Without any years stated, a description that calls the role itself senior
-("a hands-on senior engineering role", "we are looking for a Senior DevOps Engineer",
-"senior-level") counts as too senior too; mentions of senior colleagues do not. Titles with
-`VP` or `Vice President` are out of scope (`sweep.title_exclude`). Snippets rarely state the years, so the sweep reads the job pages in rounds
-from the top of the list: after each round the jobs that ask for too much drop out and the
-next ones are read, until 30 fitting jobs (plus the lookahead) are found or
-`sweep.fulltext.max_pages` pages were read.
+The daily 30 are filled only with jobs that pass these free checks, so screening does not
+spend its places (or tokens) on jobs it would skip anyway:
+
+- **Experience.** `screening.max_years_required` (4) is the most years a saved job may ask
+  for. The years come from the description: `2-3 years`, `3+ years`, `at least 4 years`,
+  `min. 3 lata`, `5 lat doswiadczenia` and so on. A range counts by its lower number (`3-5
+  years` is 3). When several requirements are stated, the largest counts ("5 years in IT, 2
+  years in a similar role" is 5). Lines that only wish for years ("5+ years preferred", "a
+  plus") count only when nothing else is stated, numbers above 15 are ignored ("25+ years of
+  history") and a bare `18 lat` only counts on a line about experience. A job asking for
+  more, or a Senior title with no years at or under the limit, is not saved: the summary
+  counts it as `Asked for more experience than you have (not saved)`. Without any years
+  stated, a description that calls the role itself senior ("a hands-on senior engineering
+  role", "senior-level") counts as too senior too; mentions of senior colleagues do not.
+  Titles with `VP` or `Vice President` are out of scope (`sweep.title_exclude`).
+- **Language** (`sweep/fit.py`). Polish or Dutch is required ("Fluent Polish", "Polish
+  (C1)", "znajomosc jezyka polskiego", "vloeiend Nederlands"), or the posting is written in
+  Polish or Dutch and does not ask for English. "Polish is a plus", "nice to have" and
+  "Polish clients" never count. Summary: `Needs Polish or Dutch (not saved)`.
+- **Contract** (`sweep/fit.py`). A job in Poland that states B2B (or a `+ VAT` rate) and no
+  employment contract (`umowa o prace`, `UoP`, "B2B or UoP"). Summary: `B2B contract only
+  (not saved)`.
+
+Snippets rarely state these, so the sweep reads the job pages in rounds from the top of the
+list: after each round the jobs that do not fit drop out and the next ones are read, until
+30 fitting jobs (plus the lookahead) are found or `sweep.fulltext.max_pages` pages were read.
+The checks only fire on clear wording; anything unclear is left for the AI screening.
 
 `Years required` is a text column that shows the experience as posted: `2-3 years`,
 `5+ years`, `3 years`, or `Not stated` when the full description was read and names no
-years. Empty means only a snippet was available, so the years were not checked yet. Screening and ranking read the lowest number from it. The code checks
-the column type once per run: while a database still has `Years required` as a number column
-(prod until it is converted), the lowest number is written there instead, so nothing breaks.
-To convert prod: open Job Opportunities, click the `Years required` header, Edit property,
-Type: Text. The numbers stay as text ("5").
+years. When the full page is read, its years replace the snippet's. Empty means only a
+snippet was available, so the years were not checked yet. Screening and ranking read the
+lower number from it, and screening raises the cell when the description asks for more.
+The code checks the column type once per run: while a database still has `Years required`
+as a number column (prod until it is converted), the number is written there instead, so
+nothing breaks. To convert prod: open Job Opportunities, click the `Years required` header,
+Edit property, Type: Text. The numbers stay as text ("5").
 
 ## Speed
 
@@ -259,9 +277,9 @@ asks for the description with `/jd`. To read their pages too, add `gmail` to
   Staff, Manager and similar are dropped.
 - Seniority: Junior (`junior`, `jr`), Mid (`mid`, `regular`, `medior`), Senior (`senior`, `sr`),
   else Unknown.
-- Years required: as posted, from the lowest requirement in the description (`2-3 years`,
-  `3+ years`); the lowest number counts for the limit and ranking (`3+ years`, `at least 4
-  years`, `minimum 3 years`, `3-5 years`, `3 lata`, `min. 4 lat`). Empty otherwise.
+- Years required: as posted, from the largest requirement in the description (`2-3 years`,
+  `3+ years`); a range counts by its lower number for the limit and ranking (`3+ years`, `at
+  least 4 years`, `minimum 3 years`, `3-5 years`, `3 lata`, `min. 4 lat`). Empty otherwise.
 - Country and city come from `sweep.locations`. Adzuna `location.area` is tried first. A
   country with no city but "remote" in the location gives city `Remote`. A country missing
   from Config `countries.active`, or a location that cannot be placed, is out of scope.

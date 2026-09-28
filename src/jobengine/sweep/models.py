@@ -97,6 +97,8 @@ class SweepSummary:
     not_kept: int = 0  # new jobs below today's best-match cut (sweep.daily_new_limit)
     other_cities: int = 0  # new postings of a job already saved, in another city
     too_senior: int = 0  # asked for more years than screening.max_years_required
+    needs_language: int = 0  # needs Polish or Dutch (sweep/fit.py)
+    b2b_only: int = 0  # Poland, B2B contract only (sweep/fit.py)
     full_read: int = 0  # job pages that gave a full description (sweep/fulltext.py)
     blocked_sites: list[str] = field(default_factory=list)  # "Name (HTTP 403)"
     no_board_sites: list[str] = field(default_factory=list)
@@ -137,6 +139,10 @@ class SweepSummary:
         if self.too_senior:
             lines.append(f"\U0001F6B7 Asked for more experience than you have (not saved): "
                          f"{self.too_senior}")
+        if self.needs_language:
+            lines.append(f"\U0001F5E3 Needs Polish or Dutch (not saved): {self.needs_language}")
+        if self.b2b_only:
+            lines.append(f"\U0001F4DD B2B contract only (not saved): {self.b2b_only}")
         if self.other_cities:
             lines.append(f"\U0001F4CD Same job in another city (not saved again): "
                          f"{self.other_cities}")

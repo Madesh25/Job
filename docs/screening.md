@@ -52,15 +52,24 @@ Screening done: 14 screened (5 high, 1 normal, 2 low, 1 needs review, 5 skipped)
 - Skip (Tech mismatch): Odra Systems S.A., Platform Engineer (Poznań) | ...
 ```
 
-## Free seniority check before the AI
+## Free checks before the AI
 
-Before a job goes to the LLM, the title and the years are checked for free: a Lead,
-Principal, Staff, Head of, VP or Vice President title, `Years required` (or the years in the description text)
-over `screening.max_years_required` (4), or, with no years stated, a Senior title or a
-description that calls the role senior. Such a job is
-skipped at once (`Skip`, reason `Seniority`, or `Experience >5 yrs` above 5 years) with the
-note `(no AI used)`; it does not count toward the daily 30. The same limit applies after the
-LLM reads the years.
+Before a job goes to the LLM it is checked for free, with the same rules the sweep uses
+(docs/sweep.md, "Only jobs you can take"):
+
+- a Lead, Principal, Staff, Head of, VP or Vice President title;
+- the years, the higher of `Years required` and the years in the description text, over
+  `screening.max_years_required` (4); with no years stated, a Senior title or a description
+  that calls the role senior;
+- Polish or Dutch required, or a posting written in Polish or Dutch that does not ask for
+  English (`Polish required` / `Dutch required`);
+- a job in Poland with a B2B contract only (`B2B only`).
+
+Such a job is skipped at once (`Skip`, reason `Seniority`, `Experience >5 yrs` above 5
+years, or the language or contract reason) with the note `(no AI used)`; it does not count
+toward the daily 30. When the description asks for more years than the `Years required`
+cell says, the cell is raised (`2 years` becomes `5 years`). The same limit applies after
+the LLM reads the years.
 
 ## Several jobs at once
 
@@ -103,10 +112,10 @@ description: never contacts, emails or phone numbers.
 
 | # | Gate | Fires when | Skip reason |
 |---|---|---|---|
-| 1 | Seniority / years | lead or principal in the text, `lead`, `principal`, `head of` or `staff` in the title, or more than 5 years required | `Seniority` / `Experience >5 yrs` |
+| 1 | Seniority / years | `lead`, `principal`, `head of`, `staff`, `vp` in the title; more years required than the limit; lead or principal in the text only when no years are stated ("3+ years" and "lead technical projects" passes) | `Seniority` / `Experience >5 yrs` |
 | 2 | Language | Polish or Dutch is mandatory ("a plus" or "preferred" never skips) | `Polish required` / `Dutch required` |
 | 3 | B2B only | Poland and B2B is the only contract stated | `B2B only` |
-| 4 | Tech mismatch | a mandatory tool has no term backed by a Production or Hands-on skill or an Active Term Map row (`Learning` skills and `(none)` rows do not back) | `Tech mismatch`, unbacked terms in `Gaps` |
+| 4 | Tech mismatch | a mandatory tool has no term backed by a Production or Hands-on skill or an Active Term Map row (`Learning` skills and `(none)` rows do not back). Terms match without extra words (`MS Azure` is Azure, `Linux OS` is Linux, `Apache Kafka` is Kafka) and by other names (`Amazon Web Services` is AWS, `K8s` is Kubernetes). General phrases with no tool name (`build tooling`, `artifact repositories`, `CI/CD pipelines`) never fail it | `Tech mismatch`, unbacked terms in `Gaps` |
 | 5 | Already applied | another row with the same Dedupe key, or the same company and role, is Applied or later | `Already applied` |
 | 6 | Expired | Expires is before today | `Expired` |
 
@@ -158,7 +167,8 @@ risk High -5, Medium -2; posted in the last 7 days +1.
 
 `Screen verdict`, `Skip reason` (Skip only), `Status` = `Screened` (only from `New`),
 `Language required`, `Contract type` (Poland; others `Unknown`), `Sponsorship`, `Work mode`
-and `Expires` (only if stated), `Salary` and `Years required` (only if empty, as `3+ years`),
+and `Expires` (only if stated), `Salary` and `Years required` (only if empty, as `3+ years`, or raised when the description
+asks for more),
 `Visa flags`
 (merged, never removed), `Tech stack`, `Gaps`, and a body section:
 

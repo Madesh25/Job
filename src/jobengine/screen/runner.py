@@ -32,7 +32,7 @@ from jobengine.screen.models import Extraction, JobRow, ScreenResult, ScreenSumm
 from jobengine.screen.tiering import build_matrix, contract_type, tier
 from jobengine.settings import ROOT_DIR, Settings
 from jobengine.sweep.dedupe import parse_posting_ids
-from jobengine.sweep.normalize import years_low, years_required
+from jobengine.sweep.normalize import experience, years_low, years_required
 
 log = logging.getLogger("jobengine.screen")
 
@@ -206,6 +206,15 @@ def body_section(result: ScreenResult, today: date) -> list[str]:
     return lines
 
 
+def years_update(row: JobRow, jd: str) -> dict[str, Any]:
+    """{"Years required": ...} when the description asks for more years than the cell says
+    (the cell may come from a snippet that showed only the smaller requirement)."""
+    years = years_required(jd)
+    if years is None or (row.years_required is not None and years <= row.years_required):
+        return {}
+    return {"Years required": experience(jd) or f"{years} years"}
+
+
 def plan_props(
     result: ScreenResult, row: JobRow, status_from: tuple[str, ...] = ("New",)
 ) -> dict[str, Any]:
@@ -226,7 +235,7 @@ def plan_props(
     if not row.salary and ext.salary_text.value:
         props["Salary"] = str(ext.salary_text.value)
     if row.years_required is None and ext.years is not None:
-        props["Years required"] = f"{ext.years}+ years"  # the LLM gives the lowest years
+        props["Years required"] = f"{ext.years}+ years"  # the minimum the LLM read
     merged = list(row.visa_flags) + [f for f in result.visa_flags if f not in row.visa_flags]
     if merged != list(row.visa_flags):
         props["Visa flags"] = merged
@@ -288,6 +297,7 @@ class _Run:
         if kind == "none":
             return ScreenResult(page_id=row.page_id, verdict="Unscreened", description_kind=kind)
         limit = int(self.s.screening.get("max_years_required", MAX_YEARS))
+        years_fix = years_update(row, jd)
         early = pre_gate(row, years_required(jd), limit, jd)
         if early:  # too senior: skipped for free, no tokens spent
             result = ScreenResult(page_id=row.page_id, verdict="Skip", skip_reason=early.reason,
@@ -295,7 +305,7 @@ class _Run:
                                   notes=[f"gate {early.gate}: {early.detail} (no AI used)"])
             if self.deps.write:
                 props = {key: value for key, value in plan_props(result, row, status_from).items()
-                         if key in ("Screen verdict", "Status", "Skip reason")}
+                         if key in ("Screen verdict", "Status", "Skip reason")} | years_fix
                 repo.update(row.page_id, props)
                 repo.append_body(row.page_id, body_section(result, self.today))
             return result
@@ -327,7 +337,7 @@ class _Run:
             result.notes.extend(checks.notes)
             result.notes.extend(tiering.notes)
         if self.deps.write:
-            repo.update(row.page_id, plan_props(result, row, status_from))
+            repo.update(row.page_id, plan_props(result, row, status_from) | years_fix)
             repo.append_body(row.page_id, body_section(result, self.today))
         return result
 

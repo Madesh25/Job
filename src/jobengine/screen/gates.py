@@ -7,8 +7,9 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import date
 
-from jobengine.reference import Reference
+from jobengine.reference import Reference, is_general
 from jobengine.screen.models import Extraction, JobRow
+from jobengine.sweep import fit
 from jobengine.sweep.normalize import canon, canon_company, canon_title, senior_in_text
 
 MAX_YEARS = 4  # screening.max_years_required overrides it
@@ -38,34 +39,47 @@ def _years_hit(years: int, limit: int) -> GateHit:
     return GateHit(1, reason, f"{years} years required, your limit is {limit}")
 
 
+def _stated_years(*values: int | None) -> int | None:
+    found = [v for v in values if v is not None]
+    return max(found) if found else None
+
+
 def pre_gate(row: JobRow, jd_years: int | None, limit: int = MAX_YEARS,
              jd: str | None = None) -> GateHit | None:
-    """The seniority checks that need no LLM: the title, and the years in Notion or in the
-    description text. A row that fails them is skipped without spending tokens."""
+    """The checks that need no LLM: the title, the years in Notion or in the description
+    text, and the language and contract checks the sweep uses (sweep/fit.py). A row that
+    fails them is skipped without spending tokens."""
     title = canon(row.role)
     match = SENIOR_TITLE.search(title)
     if match:
         return GateHit(1, "Seniority", f"title says {match.group(1)}")
-    years = row.years_required if row.years_required is not None else jd_years
+    years = _stated_years(row.years_required, jd_years)
     if years is not None and years > limit:
         return _years_hit(years, limit)
     if years is None and SENIOR_WORD.search(title):
         return GateHit(1, "Seniority", "Senior title and no years stated")
     if years is None and senior_in_text(jd):
         return GateHit(1, "Seniority", "the description calls the role senior, no years stated")
+    lang = fit.language_block(jd)
+    if lang:
+        return GateHit(2, f"{lang} required", f"the description needs {lang}")
+    if fit.b2b_only(row.country, jd, row.salary):
+        return GateHit(3, "B2B only", "the description offers only a B2B contract")
     return None
 
 
 def gate_seniority(row: JobRow, ext: Extraction, limit: int = MAX_YEARS) -> GateHit | None:
-    flag = ext.seniority_title_flag.value
-    if flag in ("lead", "principal"):
-        return GateHit(1, "Seniority", f"description says {flag}")
     match = SENIOR_TITLE.search(canon(row.role))
     if match:
         return GateHit(1, "Seniority", f"title says {match.group(1)}")
-    for years in (row.years_required, ext.years):
-        if years is not None and years > limit:
-            return _years_hit(years, limit)
+    years = _stated_years(row.years_required, ext.years)
+    if years is not None and years > limit:
+        return _years_hit(years, limit)
+    # The AI's lead or principal reading only decides when the posting states no years:
+    # "3+ years" and "lead technical projects" is a job in your range.
+    flag = ext.seniority_title_flag.value
+    if years is None and flag in ("lead", "principal"):
+        return GateHit(1, "Seniority", f"description says {flag}")
     return None
 
 
@@ -86,12 +100,15 @@ def gate_b2b_only(row: JobRow, ext: Extraction) -> GateHit | None:
 
 
 def unbacked_tools(ext: Extraction, ref: Reference) -> list[str]:
-    """Terms of mandatory tool requirements where no term is backed by the reference data."""
+    """Terms of mandatory tool requirements where no term is backed by the reference data.
+    General phrases ("build tooling", "CI/CD pipelines") name no tool and never count."""
     missing: list[str] = []
     for req in ext.mandatory_requirements:
         if req.kind != "tool":
             continue
-        terms = req.terms or [req.text]
+        terms = [t for t in (req.terms or [req.text]) if not is_general(t)]
+        if not terms:
+            continue
         if not any(ref.lookup(term) for term in terms):
             missing.extend(t for t in terms if t not in missing)
     return missing

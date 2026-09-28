@@ -122,7 +122,8 @@ def test_experience_as_posted():
 
     assert experience("We need 2-3 years of DevOps work.") == "2-3 years"
     assert experience("5+ years with Kubernetes") == "5+ years"
-    assert experience("At least 3 years in cloud, 2+ years Terraform") == "2+ years"
+    assert experience("At least 3 years in cloud, 2+ years Terraform") == "3+ years"
+    assert experience("IT: 5 lat doswiadczenia; w roli: 2 lata doswiadczenia") == "5 years"
     assert experience("min. 4 lata doswiadczenia") == "4+ years"
     assert experience("3 years of experience") == "3 years"
     assert experience("Kubernetes and Terraform") is None

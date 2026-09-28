@@ -56,8 +56,11 @@ Rules:
   belong in nice_to_have, never in mandatory_requirements.
 - At most 10 mandatory_requirements and 6 nice_to_have, the most important first.
 - "terms" are the concrete technology or skill names, for example ["Kubernetes"] or
-  ["AWS", "Terraform"]. Kind "tool" is a named technology or product.
-- years_required_min is the smallest number of years of experience the description requires.
+  ["AWS", "Terraform"]. Kind "tool" is a named technology or product, never a general
+  phrase like "build tooling" or "CI/CD pipelines".
+- years_required_min is the minimum years of experience the candidate must have: when
+  several requirements are stated ("5 years in IT, 2 years in a similar role"), the largest
+  one (5); for a range ("3-5 years") its lower number (3). Ignore nice-to-have years.
 - Salary, sponsorship and dates only when the description states them explicitly.
 - sponsorship: "stated_yes" only when visa sponsorship or relocation with a work permit is
   offered; "stated_no" only when the description says there is no sponsorship.
