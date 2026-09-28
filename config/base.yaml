@@ -26,6 +26,7 @@ safety:
     - api.lever.co
     - api.eu.lever.co
     - api.smartrecruiters.com
+    - jooble.org
     - www.amazon.jobs
     - ind.nl
     - api.apollo.io
@@ -249,6 +250,13 @@ sweep:
   # Company name -> {ats, token} for companies whose careers URL is their own domain and whose
   # board is not found automatically. Workday also needs host and site.
   ats_boards: {}
+  # Jooble job search (needs JOOBLE_API_KEY, free): many job boards, Ireland included.
+  # One call per country and term, results_per_page each.
+  jooble:
+    enabled: true
+    countries: [Ireland, Poland, Netherlands]
+    search_terms: [devops engineer, site reliability engineer, platform engineer, cloud engineer]
+    results_per_page: 50
   # Full descriptions (sweep/fulltext.py): the job page is read for new jobs near the top of
   # today's list that only have a snippet or nothing. Plain GET, no login or cookies, public
   # https hosts only, never linkedin, at most 3 MB a page.
@@ -260,4 +268,4 @@ sweep:
     max_pages: 45
     # Email alert links are tracking links and are not read unless gmail is added here.
     # LinkedIn is never read, whatever this says.
-    sources: [adzuna, ats]
+    sources: [adzuna, ats, jooble]

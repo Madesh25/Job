@@ -34,6 +34,10 @@ class LLMError(Exception):
     """An LLM call could not produce a usable JSON object."""
 
 
+class LLMAuthError(LLMError):
+    """The API key was refused (HTTP 401 or 403): every further call would fail too."""
+
+
 class LLMClient(Protocol):
     def complete_json(
         self, stage: str, system: str, user: str, *, max_tokens: int = 2000,
@@ -124,6 +128,12 @@ class AnthropicLLM:
         try:
             return self._client.messages.create(**kwargs)
         except anthropic.APIStatusError as exc:
+            if exc.status_code in (401, 403):
+                raise LLMAuthError(
+                    f"Anthropic refused ANTHROPIC_API_KEY (HTTP {exc.status_code}). Check the "
+                    "key in .env (or Secret Manager): it may be wrong, revoked, or the account "
+                    "may have no credit."
+                ) from None
             raise LLMError(f"LLM call failed: HTTP {exc.status_code}") from None
         except anthropic.APIConnectionError:
             raise LLMError("LLM call failed: connection error") from None

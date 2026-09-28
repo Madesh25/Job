@@ -13,7 +13,7 @@ from jobengine import http
 from jobengine.bot_state import BotState, FakeBotState, bot_state_for
 from jobengine.config_store import ConfigStore
 from jobengine.ind_register import IndRegister, load_register
-from jobengine.llm import AnthropicLLM, FakeLLM, LLMClient, LLMError
+from jobengine.llm import AnthropicLLM, FakeLLM, LLMAuthError, LLMClient, LLMError
 from jobengine.notion_repo import (
     FakeJobsRepo,
     JobsRepo,
@@ -350,6 +350,7 @@ def screen_pending(
     run = _start(s, deps, today)
     sent = 0  # rows that went to the LLM
     done = 0
+    stopped = False
     try:
         for row in rows:
             if sent >= room:
@@ -359,6 +360,10 @@ def screen_pending(
                 progress(f"Screening: {done} of {min(len(rows), room)} jobs checked")
             try:
                 result = run.screen(row, ("New",))
+            except LLMAuthError as exc:  # every other job would fail the same way
+                summary.errors.append(f"Screening stopped: {exc}")
+                stopped = True
+                break
             except (LLMError, http.HttpError) as exc:
                 summary.errors.append(f"Could not screen {_label(row)}: {exc}")
                 continue
@@ -370,7 +375,7 @@ def screen_pending(
     finally:
         if deps.write and sent:
             daily.record(deps.state, today, used + sent)
-    if done < len(rows):
+    if done < len(rows) and not stopped:
         summary.errors.append(_limit_note(s, used + sent, len(rows) - done, limit))
     summary.errors.extend(dict.fromkeys(run.notes))
     if not deps.write:

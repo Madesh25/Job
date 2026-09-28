@@ -176,3 +176,20 @@ def test_complete_json_never_sends_tools():
     sdk = FakeSDK([reply('{"ok": true}')])
     AnthropicLLM(settings("dev"), CONFIG, client=sdk).complete_json("score", "r", "u")
     assert "tools" not in sdk.calls[0]
+
+
+def test_refused_key_is_an_auth_error():
+    import anthropic
+    import httpx
+
+    from jobengine.llm import LLMAuthError
+
+    class Refusing(FakeSDK):
+        def create(self, **kwargs):
+            request = httpx.Request("POST", "https://api.anthropic.com/v1/messages")
+            raise anthropic.AuthenticationError(
+                "invalid x-api-key", response=httpx.Response(401, request=request), body=None)
+
+    llm = AnthropicLLM(settings(), CONFIG, client=Refusing([]))
+    with pytest.raises(LLMAuthError, match="refused ANTHROPIC_API_KEY \\(HTTP 401\\)"):
+        llm.complete_json("score", "system", "job text", key="k")

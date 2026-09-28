@@ -308,7 +308,8 @@ def test_careers_page_detection_is_cached_for_a_week():
     result = ats.fetch(S, [shamrock], keep, get=http_fake, post=http_fake.post, page=page,
                        state=state, today=TODAY)
     assert [p.title for p in result.postings] == ["Platform Engineer"]
-    assert "ats: found the job board of 1 companies on their careers page" in result.notes
+    assert "ats: found the job board of 1 companies on their careers page or by their name" in (
+        result.notes)
     assert state.get(ats.DETECT_KEY)["Shamrock Systems"] == {
         "ats": "lever", "token": "tulipdata", "eu": True, "host": "", "site": "",
         "checked": "2026-10-01"}
@@ -321,16 +322,56 @@ def test_careers_page_detection_is_cached_for_a_week():
     assert len(read) == 2  # a week later it is checked again
 
 
-def test_detection_budget_and_failures_are_not_cached():
+def test_blocked_careers_pages_are_listed_and_checked_weekly():
     companies = [TargetCompany(f"Co {i}", f"https://co{i}.example.com/careers", "Unknown", True)
                  for i in range(3)]
     s = S.model_copy(update={"sweep": {**S.sweep, "ats": {"max_detect_per_run": 2}}})
+    read = []
 
     def page(url):
+        read.append(url)
         raise http.HttpError(f"GET {url} failed: HTTP 403", 403)
 
     state = FakeBotState()
     result = ats.fetch(s, companies, keep, get=fakes.FixtureHttp(s), page=page, state=state,
                        today=TODAY)
     assert result.not_supported == ["Co 0", "Co 1", "Co 2"]
-    assert state.get(ats.DETECT_KEY) is None  # a failed read is tried again next run
+    assert result.blocked == ["Co 0 (HTTP 403)", "Co 1 (HTTP 403)"]  # Co 2: over the budget
+    assert state.get(ats.DETECT_KEY)["Co 0"] == {"ats": None, "checked": "2026-10-01",
+                                                 "problem": "HTTP 403"}
+    again = ats.fetch(s, companies, keep, get=fakes.FixtureHttp(s), page=page, state=state,
+                      today=date(2026, 10, 3))
+    assert again.blocked == ["Co 0 (HTTP 403)", "Co 1 (HTTP 403)", "Co 2 (HTTP 403)"]
+    assert len(read) == 3  # Co 0 and Co 1 are not read again within the week
+
+
+def test_blocked_site_found_by_its_name_on_a_public_ats():
+    intel = TargetCompany("Tulip Data (NL)", "https://www.tulipdata.example.com/careers",
+                          "Workday", True)
+
+    def page(url):
+        raise http.HttpError("GET https://www.tulipdata.example.com/careers failed: HTTP 403",
+                             403)
+
+    http_fake = fakes.FixtureHttp(S)
+    result = ats.fetch(S, [intel], keep, get=http_fake, page=page, state=FakeBotState(),
+                       today=TODAY)
+    assert [p.title for p in result.postings] == ["Platform Engineer"]
+    assert result.blocked == [] and result.not_supported == []
+    assert "https://api.lever.co/v0/postings/tulipdata" in http_fake.requested
+
+
+def test_name_slugs():
+    assert ats.name_slugs("Intel (IE)") == ["intel"]
+    assert ats.name_slugs("Odra Systems S.A.") == ["odrasystems", "odra-systems"]
+    assert ats.name_slugs("Sii Sp. z o.o.") == ["sii"]
+    assert ats.name_slugs("(IE)") == []
+
+
+def test_friendly_summary_lists_sites_to_fix():
+    from jobengine.sweep.models import SweepSummary
+    summary = SweepSummary(blocked_sites=["Intel (IE) (HTTP 403)"],
+                           no_board_sites=[f"Co {i}" for i in range(10)])
+    text = summary.friendly_text()
+    assert "- Blocked us: Intel (IE) (HTTP 403)" in text
+    assert "- No job board found: Co 0, Co 1, Co 2, Co 3, Co 4, Co 5, Co 6, Co 7 and 2 more" in text

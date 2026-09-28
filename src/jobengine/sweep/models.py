@@ -16,7 +16,7 @@ COUNTRY_FLAGS = {
 class RawPosting:
     """One posting as a source reports it, before any normalising."""
 
-    source: str  # gmail, adzuna or ats
+    source: str  # gmail, adzuna, jooble or ats
     board: str  # Board option in Job Opportunities, for example "LinkedIn" or "Company site"
     title: str
     company: str
@@ -71,6 +71,9 @@ class SourceResult:
     postings: list[RawPosting] = field(default_factory=list)
     skipped_reason: str | None = None  # set when the whole source was skipped
     not_supported: list[str] = field(default_factory=list)  # company names (ATS only)
+    # ATS only: careers pages that refused us ("Name (HTTP 403)"), and pages with no known board.
+    blocked: list[str] = field(default_factory=list)
+    no_board: list[str] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
 
 
@@ -92,6 +95,8 @@ class SweepSummary:
     not_checked: list[str] = field(default_factory=list)  # plain-language source problems
     not_kept: int = 0  # new jobs below today's best-match cut (sweep.daily_new_limit)
     full_read: int = 0  # job pages that gave a full description (sweep/fulltext.py)
+    blocked_sites: list[str] = field(default_factory=list)  # "Name (HTTP 403)"
+    no_board_sites: list[str] = field(default_factory=list)
     full_tried: int = 0
 
     def text(self) -> str:
@@ -137,10 +142,24 @@ class SweepSummary:
             lines += ["", f"\u26A0\uFE0F Possible ghost jobs (listed for a long time): "
                           f"{self.high_ghost}"]
             lines.extend(f"- {job}" for job in self.high_ghost_jobs)
+        if self.blocked_sites or self.no_board_sites:
+            lines += ["", "\U0001F3E2 Company sites we could not read:"]
+            if self.blocked_sites:
+                lines.append(f"- Blocked us: {_names(self.blocked_sites)}")
+            if self.no_board_sites:
+                lines.append(f"- No job board found: {_names(self.no_board_sites)}")
+            lines.append("Put their job board link (for example the myworkdayjobs.com or "
+                         "greenhouse.io page) in Careers URL in Target Companies. /sources "
+                         "lists them all.")
         if self.not_checked:
             lines += ["", "\u2139\uFE0F Not checked this time:"]
             lines.extend(f"- {item}" for item in self.not_checked)
         return "\n".join(lines)
+
+
+def _names(items: list[str], limit: int = 8) -> str:
+    shown = ", ".join(items[:limit])
+    return f"{shown} and {len(items) - limit} more" if len(items) > limit else shown
 
 
 @dataclass(frozen=True)

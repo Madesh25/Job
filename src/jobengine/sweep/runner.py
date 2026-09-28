@@ -26,16 +26,17 @@ from jobengine.sweep.normalize import (
     title_scope,
 )
 from jobengine.sweep.rank import Ranker
-from jobengine.sweep.sources import adzuna, ats, gmail_alerts
+from jobengine.sweep.sources import adzuna, ats, gmail_alerts, jooble
 
 log = logging.getLogger("jobengine.sweep")
 
-SOURCES = ("gmail", "adzuna", "ats")
+SOURCES = ("gmail", "adzuna", "jooble", "ats")
 Prefilter = Callable[[str, str], bool]
 Progress = Callable[[str], None]
 
 # Plain names for the Telegram messages.
-SOURCE_LABELS = {"gmail": "Email alerts", "adzuna": "Adzuna", "ats": "Company career sites"}
+SOURCE_LABELS = {"gmail": "Email alerts", "adzuna": "Adzuna", "jooble": "Jooble",
+                 "ats": "Company career sites"}
 PROGRESS_EVERY = 25
 # bot_state key read by /sources and /health (Module 07).
 LAST_SUMMARY = "sweep.last_summary"
@@ -63,6 +64,7 @@ class SweepDeps:
     reference: Callable[[], Reference] | None = None
     # Reads one job page for its full description (url -> (final url, html)).
     page: fulltext.PageGetter | None = None
+    jooble: Callable[[], SourceResult] = lambda: SourceResult(name="jooble")
 
 
 def fake_deps(s: Settings, repo: JobsRepo | None = None) -> SweepDeps:
@@ -84,6 +86,8 @@ def fake_deps(s: Settings, repo: JobsRepo | None = None) -> SweepDeps:
             today=fakes.FAKE_TODAY),
         reference=Reference.fake,
         page=get.page,
+        # Jooble has its own tests; the fake sweep keeps its counts without it.
+        jooble=lambda: SourceResult(name="jooble"),
     )
 
 
@@ -102,6 +106,7 @@ def real_deps(s: Settings) -> SweepDeps:
         ats=lambda companies, keep, state=None: ats.fetch(s, companies, keep, state=state),
         reference=lambda: Reference.load(client, s),
         page=lambda url: http.get_page(url, s=s),
+        jooble=lambda: jooble.fetch(s),
     )
 
 
@@ -227,6 +232,8 @@ def run_sweep(
         summary.sources[name] = len(result.postings)
         log.info("%s: %d postings collected", name, len(result.postings))
         summary.not_supported += len(result.not_supported)
+        summary.blocked_sites.extend(result.blocked)
+        summary.no_board_sites.extend(result.no_board)
         found += len(result.postings)
         if result.skipped_reason:
             summary.notes.append(result.skipped_reason)
@@ -334,7 +341,9 @@ def run_sweep(
         try:
             state.set(LAST_SUMMARY, {"at": today.isoformat(), "new": summary.new,
                                      "updated": summary.updated,
-                                     "sources": dict(summary.sources)})
+                                     "sources": dict(summary.sources),
+                                     "blocked_sites": summary.blocked_sites,
+                                     "no_board_sites": summary.no_board_sites})
         except Exception:  # never fail a sweep over the /sources counters
             log.exception("could not store the sweep summary")
     return summary

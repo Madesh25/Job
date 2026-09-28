@@ -54,6 +54,7 @@ workflow maps them with `--set-secrets`); nothing is baked into the image or the
 | `GMAIL_ALERTS_TOKEN_JSON` | m02 token | `gmail-m02-token` | `gmail-m02-token` | authorised-user JSON from `jobengine.gmail_auth` |
 | `GMAIL_SENDER_TOKEN_JSON` | m02 token | `gmail-m02-token` | `gmail-main-token` | the main account token exists only for prod |
 | `ADZUNA_APP_ID`, `ADZUNA_APP_KEY` | your keys | `adzuna-app-id`, `adzuna-app-key` | same | exist |
+| `JOOBLE_API_KEY` | your key (optional) | not wired yet: create `jooble-api-key` and add it to `deploy.yml` first | same | optional |
 | `APOLLO_API_KEY`, `HUNTER_API_KEY` | not needed | not mounted | `apollo-api-key`, `hunter-api-key` | exist |
 | `SNOV_CLIENT_ID`, `SNOV_CLIENT_SECRET` | not needed | not mounted | `snov-client-id`, `snov-client-secret` | exist |
 
