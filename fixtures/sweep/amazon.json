@@ -1,0 +1,34 @@
+{
+  "hits": 3,
+  "jobs": [
+    {
+      "id_icims": "2900001",
+      "title": "DevOps Engineer, Cloud Infrastructure",
+      "city": "Dublin",
+      "country_code": "IRL",
+      "posted_date": "September 26, 2026",
+      "job_path": "/en/jobs/2900001/devops-engineer-cloud-infrastructure",
+      "description": "<p>Build the deployment tooling used by hundreds of teams.</p>",
+      "basic_qualifications": "- 3+ years of Linux and scripting experience<br/>- Experience with CI/CD",
+      "preferred_qualifications": "- Kubernetes in production"
+    },
+    {
+      "id_icims": "2900002",
+      "title": "Software Development Manager",
+      "city": "Gdansk",
+      "country_code": "POL",
+      "posted_date": "September 25, 2026",
+      "job_path": "/en/jobs/2900002/sdm",
+      "description": "<p>Lead a team.</p>"
+    },
+    {
+      "id_icims": "2900003",
+      "title": "Systems Engineer",
+      "city": "Seattle",
+      "country_code": "USA",
+      "posted_date": "September 25, 2026",
+      "job_path": "/en/jobs/2900003/systems-engineer",
+      "description": "<p>US role.</p>"
+    }
+  ]
+}

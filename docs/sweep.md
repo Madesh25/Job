@@ -42,28 +42,31 @@ by the strategy gate.
    `/fetch is blocked: strategy last updated <date>, older than <n> days. Run /update first.`
 2. **Load.** Target Companies (read only) and the Job Opportunities index (dedupe keys and
    posting IDs).
-3. **Collect** from each source: Gmail alerts, Adzuna, ATS feeds.
+3. **Collect** from each source: Gmail alerts, Adzuna, ATS feeds (Greenhouse, Lever,
+   SmartRecruiters, Workday, amazon.jobs).
 4. **Normalise and scope.** Title filters, country and city, seniority, years required.
 5. **Dedupe and write.** Update the rows already in Notion. New jobs are ranked by a free
    match score and only the best `sweep.daily_new_limit` (30) per day are created; see
-   "Best matches only" below.
+   "Best matches only" below. Before the cut, the full description of the jobs near the top
+   is read from the job page ("Full descriptions" below).
 6. **Ghost risk** for every row touched.
 7. **Summary**, for example:
-   `Sweep done: 8 new, 4 updated, 2 reposts, 3 skipped (out of scope), 1 high ghost risk. Sources: gmail 6, adzuna 7, ats 4. Not supported: 2 companies.`
+   `Sweep done: 10 new, 4 updated, 2 reposts, 3 skipped (out of scope), 1 high ghost risk. Sources: gmail 6, adzuna 7, ats 6. Not supported: 1 companies.`
    Extra lines follow for skipped sources and notes, and the High ghost risk jobs come last.
 
 Counts: **new** rows created; **updated** existing rows seen again, either with a posting ID
 they already had or on another board (a first ID from a new source); **reposts** existing rows
 that got a new posting ID from a source they already had; **skipped** postings dropped as out of scope; **Sources** raw postings per
-source; **Not supported** Target Companies on Workday, Custom or unknown boards.
+source; **Not supported** Target Companies whose job board could not be found (a custom
+careers site that links to no known ATS).
 
 ## Sources
 
 | Source | Needs | Notes |
 |---|---|---|
-| Gmail alerts | `GMAIL_ALERTS_TOKEN_JSON` (madeshwaranm02, `gmail.readonly`) | Query `sweep.gmail.query`. Board from the sender domain. Links are read from the email and never requested, tracking links included. Descriptions are never set. |
-| Adzuna | `ADZUNA_APP_ID`, `ADZUNA_APP_KEY` | `pl` and `nl` only, at most `sweep.adzuna.max_calls_per_run` calls, split evenly between the countries (3 each by default) so every country is searched. The description is a snippet. Predicted salaries are ignored. |
-| ATS feeds | nothing | Active Target Companies on Greenhouse, Lever or SmartRecruiters, detected from `Careers URL` or `sweep.ats_boards`. Board is `Company site`. |
+| Gmail alerts | `GMAIL_ALERTS_TOKEN_JSON` (madeshwaranm02, `gmail.readonly`) | Query `sweep.gmail.query`. Board from the sender domain. Links are read from the email and never requested, tracking links included. Descriptions are never set (see "Email alerts setup"). |
+| Adzuna | `ADZUNA_APP_ID`, `ADZUNA_APP_KEY` | `pl` and `nl` only (Adzuna has no Ireland), at most `sweep.adzuna.max_calls_per_run` calls, split evenly between the countries (3 each by default) so every country is searched. The feed gives a snippet; the full text is read from the job page for jobs that may be saved. Predicted salaries are ignored. |
+| ATS feeds | nothing | Every active Target Company on Greenhouse, Lever, SmartRecruiters, Workday or amazon.jobs. The board comes from `Careers URL`, from the careers page it links to, or from `sweep.ats_boards`. Board is `Company site`. |
 
 A source whose secret is missing is skipped with a line in the summary; the run continues.
 
@@ -75,16 +78,86 @@ A source whose secret is missing is skipped with a line in the summary; the run 
   URLs). Posted date from `createdAt`. An explicit `salaryRange` is stored.
 - SmartRecruiters: `api.smartrecruiters.com/v1/companies/{token}/postings`, then one detail call
   per posting that passed the filters, at most `sweep.ats.max_detail_calls` per run.
+- Workday (`<tenant>.<wdN>.myworkdayjobs.com/<site>`): the JSON search the career site itself
+  uses (`POST /wday/cxs/<tenant>/<site>/jobs`), once per `sweep.ats.search_terms` term, 20
+  results each (`workday_pages_per_term` pages). Then one detail call per kept posting, at
+  most `sweep.ats.workday_detail_calls` per run: full description, start date and location.
+  A posting listed as "3 Locations" is kept only when its detail places it in an active
+  country. Posting ID `workday-<tenant>-<last path part>`. Any `myworkdayjobs.com` subdomain is
+  allowed through `safety.allowed_host_suffixes`.
+- amazon.jobs: `www.amazon.jobs/en/search.json` once per search term, Ireland, Poland and the
+  Netherlands only, 100 newest results. Every result has the full description and
+  qualifications. Searched once per sweep even when Amazon and AWS are both Target Companies.
 - Every feed is filtered by title and location before any detail call. Postings filtered out
   here are reported in one note line and not counted as skipped.
-- For a company whose careers page is on its own domain, add an override in
-  `config/base.yaml`:
+- **Finding the board.** When `Careers URL` is the company's own site, the careers page is
+  read (the same safe page reader as below) and the ATS it redirects to or links to most is
+  used: Greenhouse (including embeds), Lever, SmartRecruiters, Workday or amazon.jobs. The
+  result, also "nothing found", is kept in Bot State `ats.detected` and checked again after
+  `sweep.ats.detect_every_days` (7). At most `sweep.ats.max_detect_per_run` (25) pages are
+  read per sweep, so a long Target Companies list is covered over a few runs. A page that
+  cannot be read is tried again next run. Target Companies itself is never changed.
+- For a company whose board is still not found, add an override in `config/base.yaml`:
 
   ```yaml
   sweep:
     ats_boards:
       Shamrock Systems: {ats: greenhouse, token: shamrocksystems}
+      Baltic Bank: {ats: workday, token: balticbank, host: balticbank.wd3.myworkdayjobs.com, site: careers}
   ```
+
+## Full descriptions
+
+Screening and resumes need the whole job description, not a two-line snippet. For the new
+jobs near the top of today's list (`daily_new_limit` minus what was already added today, plus
+`sweep.fulltext.lookahead` more), the sweep reads the job page when the source gave a snippet,
+nothing, or less than `screening.full_min_chars`:
+
+1. the schema.org `JobPosting` in the page's JSON-LD, which most job boards and ATS pages have
+2. otherwise the largest block that looks like a job description (`main`, `article`, or an
+   element whose id or class names a description), with menus, headers, footers, forms and
+   scripts removed
+3. otherwise the whole visible page text, when it is clearly more than a snippet
+
+Then the jobs are ranked again (a full description often names skills the snippet left out)
+and the best are saved. The page body starts with
+`Description source: adzuna (full page, careers.example.com)`, naming the host the text came
+from. A page that cannot be read, or gives less text than the snippet, keeps the snippet
+(`Description source: adzuna (snippet only)`), and screening then asks for `/jd` as before.
+The summary has one line, for example `Full descriptions: read 24 of 27 job pages`.
+
+The page reader (`http.get_page`) is separate from the API client:
+
+- plain GET with a JobEngine user agent: no login, no cookies (cleared on every hop), no forms
+- https only, public host names only: IP addresses, `localhost` and internal names
+  (`.internal`, `.local` and similar) are refused
+- redirects are followed by hand, at most 5, and every hop is checked again
+- LinkedIn is never read, not even when a redirect points there
+- only HTML or text answers, at most 3 MB
+- only for jobs that may be saved today, at most `sweep.fulltext.max_pages` (45) per sweep
+- email alert links are not read (`sweep.fulltext.sources` is `[adzuna, ats]`): they are
+  tracking links. Rows already in Notion are not re-read.
+
+Set `sweep.fulltext.enabled: false` to switch it off.
+
+## Email alerts setup
+
+The code is ready; only the Gmail side is missing. When you want it:
+
+1. In the madeshwaranm02 Gmail, create job alerts that send email: IrishJobs.ie, Jobs.ie and
+   JobsIreland for Ireland (Adzuna has no Ireland), plus LinkedIn, JustJoin IT, NoFluffJobs,
+   Pracuj.pl or IamExpat if you like. The query in `sweep.gmail.query` already matches all of
+   these senders; `sweep.gmail.sender_boards` sets the Board.
+2. Create the alerts token with `gmail.readonly` (see `docs/gmail.md`) and put the one-line
+   JSON into `.env` as `GMAIL_ALERTS_TOKEN_JSON` (Secret Manager in dev and prod).
+3. Check the parser against the real emails without writing anything:
+   `python -m jobengine.sweep --parse-report`. Each line shows board, title, company and
+   location. A board whose cards come out as `(unknown)` can get a pattern in
+   `sweep.gmail.job_url_patterns`.
+
+Email alerts give title, company and place only. Those jobs are ranked on that and screening
+asks for the description with `/jd`. To read their pages too, add `gmail` to
+`sweep.fulltext.sources` (LinkedIn links are still never read).
 
 ## Scope and normalising
 
@@ -139,8 +212,11 @@ High is never skipped. It is only reported, last in the summary.
 ## Safety
 
 - All HTTP goes through `jobengine/http.py`, which calls `safety.assert_fetch_allowed` first:
-  https only, host on `safety.allowed_hosts`, and any linkedin host refused even if it is added
-  to the allowlist. Query strings (which carry the Adzuna key) are never logged.
+  https only, host on `safety.allowed_hosts` (or a subdomain of `safety.allowed_host_suffixes`,
+  only `myworkdayjobs.com`), and any linkedin host refused even if it is added to the
+  allowlist. Query strings (which carry the Adzuna key) are never logged.
+- Job and careers pages go through `http.get_page` and `safety.assert_page_fetch_allowed`
+  (see "Full descriptions"): public https hosts, never linkedin, every redirect checked.
 - The only other network code is `telegram_bot.py` and the Google client in `gmail_reader.py`,
   which uses only `users.messages.list` and `users.messages.get`.
 - Notion: `Notion-Version: 2025-09-03`, data source endpoints, about 3 requests per second,
@@ -152,7 +228,8 @@ High is never skipped. It is only reported, last in the summary.
 ## Fixtures
 
 `fixtures/sweep/` holds three synthetic alert emails, Adzuna PL and NL responses, Greenhouse,
-Lever and SmartRecruiters responses, five Target Companies, Config, and three seeded Job
+Lever, SmartRecruiters, Workday and amazon.jobs responses, job and careers pages in
+`fixtures/sweep/pages/`, five Target Companies, Config, and three seeded Job
 Opportunities rows (a repost, a posting seen again, and an old row that becomes High ghost
 risk). All companies are invented and all email addresses are at `example.com`.
 

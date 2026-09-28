@@ -128,7 +128,9 @@ def description_blocks(job: Job) -> list[str]:
     if not job.description:
         return []
     header = f"Description source: {job.source}"
-    if job.description_is_snippet:
+    if job.description_origin:
+        header += f" ({job.description_origin})"
+    elif job.description_is_snippet:
         header += " (snippet only)"
     chunks = [header]
     text = job.description.strip()

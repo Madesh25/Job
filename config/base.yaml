@@ -26,10 +26,14 @@ safety:
     - api.lever.co
     - api.eu.lever.co
     - api.smartrecruiters.com
+    - www.amazon.jobs
     - ind.nl
     - api.apollo.io
     - api.hunter.io
     - api.snov.io
+  # Any subdomain of these (Workday boards are <tenant>.<wdN>.myworkdayjobs.com).
+  allowed_host_suffixes:
+    - myworkdayjobs.com
 screening:
   # A description shorter than this (or marked "(snippet only)") is a snippet (spec section 3).
   full_min_chars: 600
@@ -231,6 +235,29 @@ sweep:
     what_or: "devops sre kubernetes platform cloud infrastructure"
     max_calls_per_run: 6
   ats:
+    # SmartRecruiters detail calls per run (each gives one full description).
     max_detail_calls: 20
-  # Company name -> {ats, token} for companies whose careers URL is their own domain.
+    # Workday: one search per term (20 results each), then a detail call per kept posting.
+    workday_detail_calls: 40
+    workday_pages_per_term: 1
+    # Searches for boards too big to read whole (Workday, amazon.jobs).
+    search_terms: [devops, site reliability, sre, platform engineer, cloud engineer, kubernetes]
+    # Companies whose careers URL is their own site: the careers page is read to find the
+    # ATS it links to. Cached in bot_state "ats.detected" and checked again after this long.
+    detect_every_days: 7
+    max_detect_per_run: 25
+  # Company name -> {ats, token} for companies whose careers URL is their own domain and whose
+  # board is not found automatically. Workday also needs host and site.
   ats_boards: {}
+  # Full descriptions (sweep/fulltext.py): the job page is read for new jobs near the top of
+  # today's list that only have a snippet or nothing. Plain GET, no login or cookies, public
+  # https hosts only, never linkedin, at most 3 MB a page.
+  fulltext:
+    enabled: true
+    # Jobs read beyond today's room (daily_new_limit minus jobs already added), so a job whose
+    # full text matches better can still move into the best 30.
+    lookahead: 15
+    max_pages: 45
+    # Email alert links are tracking links and are not read unless gmail is added here.
+    # LinkedIn is never read, whatever this says.
+    sources: [adzuna, ats]

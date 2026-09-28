@@ -61,15 +61,15 @@ def test_sweep_keeps_only_the_best_new_jobs_and_counts_the_day():
     deps = fake_deps(s)
     summary = run_sweep(s, deps, TODAY, state=state)
     assert summary.new == 3
-    assert summary.not_kept == 5
+    assert summary.not_kept == 7
     assert state.get(DAY_KEY) == {"date": TODAY.isoformat(), "count": 3}
-    assert any("Kept the best 3 of 8 new jobs (daily limit 3, 0 already added today)" in n
+    assert any("Kept the best 3 of 10 new jobs (daily limit 3, 0 already added today)" in n
                for n in summary.notes)
-    assert "Weaker matches not saved (daily limit): 5" in summary.friendly_text()
+    assert "Weaker matches not saved (daily limit): 7" in summary.friendly_text()
 
     again = run_sweep(s, deps, TODAY, state=state)  # same day: the limit is used up
     assert again.new == 0
-    assert again.not_kept == 5
+    assert again.not_kept == 7
 
 
 def test_next_day_gets_a_new_allowance():

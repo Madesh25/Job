@@ -92,6 +92,22 @@ def test_card_heuristic_falls_back_to_unknown():
     assert posting.company == "(unknown)" and posting.location_text == ""
 
 
+@pytest.mark.parametrize("sender, board", [
+    ("Jobs.ie <alerts@jobs.ie>", "Jobs.ie"),
+    ("IrishJobs <noreply@mail.irishjobs.ie>", "IrishJobs.ie"),
+    ("JobsIreland <alerts@jobsireland.ie>", "JobsIreland"),
+])
+def test_irish_alert_boards_use_the_card_parser(sender, board):
+    html = ("<table><tr><td><a href='https://track.example.com/c/1?u=job'>Cloud Engineer</a>"
+            "<br>Liffey Analytics<br>Galway</td></tr>"
+            "<tr><td><a href='https://track.example.com/unsub'>Unsubscribe</a></td></tr></table>")
+    message = gmail_reader.GmailMessage(id="m", sender=sender, subject="New jobs", html=html)
+    [posting] = gmail_alerts.parse_alert(message, GMAIL_CFG)
+    assert (posting.board, posting.title, posting.company, posting.location_text) == (
+        board, "Cloud Engineer", "Liffey Analytics", "Galway")
+    assert posting.url == "https://track.example.com/c/1?u=job"  # stored, never requested
+
+
 def test_same_link_across_messages_kept_once():
     message = fakes.gmail_messages()[0]
     postings = gmail_alerts.collect([message, message], GMAIL_CFG)
@@ -274,7 +290,13 @@ def test_detect_board():
     assert ats.detect_board(company("A", "https://careers.smartrecruiters.com/Acme1"), {}) == (
         ats.Board("smartrecruiters", "Acme1")
     )
-    assert ats.detect_board(company("A", "https://acme.wd3.myworkdayjobs.com/x"), {}) is None
+    assert ats.detect_board(
+        company("A", "https://Acme.wd3.myworkdayjobs.com/en-US/Acme_Careers"), {}
+    ) == ats.Board("workday", "acme", host="acme.wd3.myworkdayjobs.com", site="Acme_Careers")
+    assert ats.detect_board(company("A", "https://www.amazon.jobs/en/teams/aws"), {}) == (
+        ats.Board("amazon", "amazon")
+    )
+    assert ats.detect_board(company("A", "https://careers.example.com/jobs"), {}) is None
 
 
 def test_ats_board_override_for_company_domain():
@@ -285,15 +307,17 @@ def test_ats_board_override_for_company_domain():
 
 def test_ats_fetch_with_fixtures():
     http_fake = fakes.FixtureHttp(S)
-    result = ats.fetch(S, fakes.target_companies(), keep, get=http_fake)
+    result = ats.fetch(S, fakes.target_companies(), keep, get=http_fake, post=http_fake.post,
+                       page=http_fake.page, today=date(2026, 10, 1))
     postings = by_title(result.postings)
     assert set(postings) == {
         "Senior DevOps Engineer", "Site Reliability Engineer", "Platform Engineer",
-        "DevOps Engineer",
+        "DevOps Engineer", "Cloud Engineer",
     }
-    assert result.not_supported == ["Baltic Bank", "Shamrock Systems"]
+    # Baltic Bank (Workday) is read now; Shamrock's careers page links to no known board.
+    assert result.not_supported == ["Shamrock Systems"]
     assert all(p.board == "Company site" and p.source == "ats" for p in result.postings)
-    assert "ats: 4 postings outside title or location scope were not fetched" in result.notes
+    assert "ats: 5 postings outside title or location scope were not fetched" in result.notes
     # Detail is requested only for the SmartRecruiters posting that passed the filters.
     details = [u for u in http_fake.requested if "smartrecruiters" in u and "/postings/" in u]
     assert details == [

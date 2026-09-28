@@ -50,6 +50,9 @@ class Job:
     posting_ref: str  # "{source}:{posting_id}"
     description: str | None
     description_is_snippet: bool
+    # Where a full description came from when it is not the source's own feed,
+    # for example "full page, careers.example.com" (sweep/fulltext.py).
+    description_origin: str = ""
 
 
 @dataclass(frozen=True)
@@ -88,6 +91,8 @@ class SweepSummary:
     new_by_country: dict[str, int] = field(default_factory=dict)
     not_checked: list[str] = field(default_factory=list)  # plain-language source problems
     not_kept: int = 0  # new jobs below today's best-match cut (sweep.daily_new_limit)
+    full_read: int = 0  # job pages that gave a full description (sweep/fulltext.py)
+    full_tried: int = 0
 
     def text(self) -> str:
         if self.blocked:
@@ -120,6 +125,11 @@ class SweepSummary:
         lines += [
             "",
             f"\U0001F4C9 Weaker matches not saved (daily limit): {self.not_kept}",
+        ]
+        if self.full_tried:
+            lines.append(f"\U0001F4C4 Full descriptions read from the job page: "
+                         f"{self.full_read} of {self.full_tried}")
+        lines += [
             f"\U0001F501 Already in Notion, seen again: {self.updated + self.reposts}",
             f"\U0001F6AB Not a match (skipped): {self.skipped}",
         ]
