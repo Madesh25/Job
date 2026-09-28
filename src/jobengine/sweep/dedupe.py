@@ -35,6 +35,7 @@ class IndexRow:
     url: str | None = None
     salary: str | None = None
     years_required: int | None = None
+    experience: str | None = None
     company: str = ""
     role: str = ""
     city: str | None = None
@@ -60,6 +61,7 @@ def create_plan(job: Job, today: date) -> dict[str, Any]:
         "Salary": job.salary,
         "Seniority": job.seniority,
         "Years required": job.years_required,
+        "Experience": job.experience,
         "Dedupe key": job.dedupe_key,
         "Posting IDs": format_posting_ids([job.posting_ref]),
         "First seen": today,
@@ -104,6 +106,7 @@ def update_plan(row: IndexRow, job: Job, today: date) -> UpdatePlan:
         "Posted date": ("posted_date", job.posted_date),
         "Salary": ("salary", job.salary),
         "Years required": ("years_required", job.years_required),
+        "Experience": ("experience", job.experience),
     }
     after = IndexRow(**vars(row))
     after.posting_ids = ids

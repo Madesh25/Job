@@ -29,7 +29,7 @@ from bs4 import BeautifulSoup, Tag
 from jobengine import http
 from jobengine.settings import Settings
 from jobengine.sweep.models import Job
-from jobengine.sweep.normalize import years_required
+from jobengine.sweep.normalize import experience, years_required
 
 log = logging.getLogger("jobengine.sweep")
 
@@ -197,6 +197,7 @@ def read(job: Job, get_page: PageGetter) -> Job | None:
     years = job.years_required if job.years_required is not None else years_required(text)
     return replace(job, description=text, description_is_snippet=False,
                    description_origin=f"full page, {host}", years_required=years,
+                   experience=job.experience or experience(text),
                    url=final_url if moved else job.url)
 
 

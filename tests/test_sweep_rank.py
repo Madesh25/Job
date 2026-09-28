@@ -113,3 +113,56 @@ def test_same_job_in_another_city_is_saved_once():
     kept, dropped = _one_per_job(ranked, index)
     assert [g[0].dedupe_key for g in kept] == ["acme|sre|gdansk", "acme|cloud engineer|poznan"]
     assert dropped == 2
+
+
+def test_experience_as_posted():
+    from jobengine.sweep.normalize import experience
+
+    assert experience("We need 2-3 years of DevOps work.") == "2-3 years"
+    assert experience("5+ years with Kubernetes") == "5+ years"
+    assert experience("At least 3 years in cloud, 2+ years Terraform") == "2+ years"
+    assert experience("min. 4 lata doswiadczenia") == "4+ years"
+    assert experience("3 years of experience") == "3 years"
+    assert experience("Kubernetes and Terraform") is None
+    assert experience(None) is None
+
+
+def test_too_senior_uses_years_then_title():
+    from jobengine.sweep.runner import too_senior
+
+    assert too_senior(replace(BASE, years_required=5), 4)
+    assert not too_senior(replace(BASE, years_required=4), 4)
+    assert not too_senior(replace(BASE, years_required=3, seniority="Senior"), 4)
+    assert too_senior(replace(BASE, seniority="Senior"), 4)  # no years: the title decides
+    assert not too_senior(BASE, 4)
+
+
+def test_senior_jobs_are_replaced_by_the_next_ones_down_the_list():
+    from jobengine.sweep.models import SweepSummary
+    from jobengine.sweep.runner import _pick
+
+    s = load_settings("local", {})
+    s.sweep["fulltext"] = {"lookahead": 0}
+    deps = fake_deps(s)
+    long = " ".join(["Kubernetes and Terraform on AWS every day."] * 20)
+    pages = {"https://j.example.com/0": f"<main>{long} 5+ years required.</main>",
+             "https://j.example.com/1": f"<main>{long} 6+ years required.</main>",
+             "https://j.example.com/2": f"<main>{long} 2-3 years required.</main>",
+             "https://j.example.com/3": f"<main>{long} 3+ years required.</main>"}
+    read = []
+    deps.page = lambda url: read.append(url) or (url, pages[url])
+    ranked = [[replace(BASE, dedupe_key=str(i), url=f"https://j.example.com/{i}")]
+              for i in range(4)]
+    summary = SweepSummary()
+    picked = _pick(s, deps, ranked, 2, None, TODAY, summary, lambda line: None)
+    assert [g[0].experience for g in picked] == ["2-3 years", "3+ years"]
+    assert summary.too_senior == 2 and len(read) == 4  # two more read to refill
+
+
+def test_experience_column_only_when_switched_on():
+    from jobengine.sweep.runner import _columns
+
+    s = load_settings("local", {})
+    assert "Experience" in _columns(s, {"Experience": "2-3 years"})
+    s.sweep["experience_column"] = False
+    assert _columns(s, {"Experience": "2-3 years"}) == {}

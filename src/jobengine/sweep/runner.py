@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable, Iterable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date
 from typing import Any
 
@@ -148,6 +148,28 @@ def _rank(deps: SweepDeps, groups: list[list[Job]], today: date) -> list[list[Jo
     return _sort(groups, _ranker(deps) if groups else None, today)
 
 
+DEFAULT_MAX_YEARS = 4
+
+
+def max_years(s: Settings) -> int:
+    """The most years of experience a job may ask for (screening.max_years_required)."""
+    return int(s.screening.get("max_years_required", DEFAULT_MAX_YEARS))
+
+
+def too_senior(job: Job, limit: int) -> bool:
+    """More years than you have, or a Senior title without years at or under the limit."""
+    if job.years_required is not None:
+        return job.years_required > limit
+    return job.seniority in ("Senior", "Lead")
+
+
+def _columns(s: Settings, props: dict[str, Any]) -> dict[str, Any]:
+    """Drop optional columns this Job Opportunities does not have."""
+    if not s.sweep.get("experience_column"):
+        props.pop("Experience", None)
+    return props
+
+
 def _job_key(dedupe_key: str) -> str:
     """company|title without the city: the same job offered in several cities."""
     return "|".join(dedupe_key.split("|")[:2])
@@ -170,7 +192,7 @@ def _one_per_job(
     return out, dropped
 
 
-def _read_full_text(
+def _pick(
     s: Settings,
     deps: SweepDeps,
     ranked: list[list[Job]],
@@ -180,22 +202,46 @@ def _read_full_text(
     summary: SweepSummary,
     say: Progress,
 ) -> list[list[Job]]:
-    """Read the full description of the jobs near the top of today's list, then rank
-    again: a full description often names skills the snippet left out. Only the best
-    `room + lookahead` jobs are read, never the ones that cannot be kept anyway."""
+    """The new jobs that fit your experience, best first; the first `room` are saved.
+
+    Jobs asking for more than screening.max_years_required years (or Senior titles without
+    years in your range) are dropped. The years are often only in the full description, so
+    the job pages are read in rounds from the top of the list: after each round the jobs
+    that ask for too much drop out and the next ones are read, until `room + lookahead`
+    fitting jobs are found or sweep.fulltext.max_pages pages were read. Then the fitting
+    jobs are ranked again (a full description often names skills the snippet left out).
+    """
+    limit = max_years(s)
+    fits: list[list[Job]] = []
+    pending: list[list[Job]] = []
+    for jobs in ranked:  # known from the snippet already: free
+        if too_senior(jobs[0], limit):
+            summary.too_senior += 1
+        else:
+            pending.append(jobs)
     cfg = fulltext.Config.from_settings(s)
-    if not cfg.enabled or deps.page is None or room <= 0 or not ranked:
-        return ranked
-    lookahead = int((s.sweep.get("fulltext") or {}).get("lookahead", 15))
-    window = ranked[:room + lookahead]
-    outcome = fulltext.fill(window, cfg, deps.page, progress=say)
-    summary.full_read, summary.full_tried = outcome.read, outcome.tried
-    if outcome.tried:
+    if not cfg.enabled or deps.page is None or room <= 0 or not pending:
+        return pending
+    want = room + int((s.sweep.get("fulltext") or {}).get("lookahead", 15))
+    budget, i = cfg.max_pages, 0
+    while i < len(pending) and len(fits) < want and budget > 0:
+        chunk = pending[i:i + want - len(fits)]
+        i += len(chunk)
+        outcome = fulltext.fill(chunk, replace(cfg, max_pages=budget), deps.page, progress=say)
+        budget -= outcome.tried
+        summary.full_tried += outcome.tried
+        summary.full_read += outcome.read
+        for jobs in chunk:
+            if too_senior(jobs[0], limit):
+                summary.too_senior += 1
+            else:
+                fits.append(jobs)
+    if summary.full_tried:
         summary.notes.append(
-            f"Full descriptions: read {outcome.read} of {outcome.tried} job pages "
+            f"Full descriptions: read {summary.full_read} of {summary.full_tried} job pages "
             f"(the others kept the short text from their source)."
         )
-    return _sort(window, ranker, today) + ranked[len(window):]
+    return _sort(fits, ranker, today) + pending[i:]
 
 
 def run_sweep(
@@ -274,6 +320,7 @@ def run_sweep(
 
     def update_existing(row: IndexRow, job: Job) -> None:
         plan_update = update_plan(row, job, today)
+        _columns(s, plan_update.props)
         if repo:
             repo.update(row.page_id, plan_update.props)
             if job.description and row.page_id not in with_body:
@@ -294,7 +341,7 @@ def run_sweep(
 
     def create_new(job: Job) -> None:
         nonlocal dry_ids
-        plan = create_plan(job, today)
+        plan = _columns(s, create_plan(job, today))
         blocks = description_blocks(job)
         if repo:
             page_id = repo.create(plan, blocks)
@@ -339,7 +386,7 @@ def run_sweep(
     ranker = _ranker(deps) if candidates else None
     ranked = _sort(list(candidates.values()), ranker, today)
     ranked, summary.other_cities = _one_per_job(ranked, index)
-    ranked = _read_full_text(s, deps, ranked, room, ranker, today, summary, say)
+    ranked = _pick(s, deps, ranked, room, ranker, today, summary, say)
     kept = ranked[:room]
     for jobs in kept:
         create_new(jobs[0])

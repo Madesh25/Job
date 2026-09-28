@@ -36,6 +36,10 @@ safety:
   allowed_host_suffixes:
     - myworkdayjobs.com
 screening:
+  # Your experience window: jobs asking for more years than this are not saved by the sweep
+  # and are skipped by screening before any AI call. Senior titles count as too senior
+  # unless the posting asks for years within this limit.
+  max_years_required: 4
   # A description shorter than this (or marked "(snippet only)") is a snippet (spec section 3).
   full_min_chars: 600
   # At most this many jobs go to the LLM per day (all runs together; newest posting first).
