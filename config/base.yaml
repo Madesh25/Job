@@ -40,6 +40,8 @@ screening:
   # and are skipped by screening before any AI call. Senior titles count as too senior
   # unless the posting asks for years within this limit.
   max_years_required: 4
+  # Jobs sent to the LLM at the same time (after the first one succeeds).
+  workers: 4
   # A description shorter than this (or marked "(snippet only)") is a snippet (spec section 3).
   full_min_chars: 600
   # At most this many jobs go to the LLM per day (all runs together; newest posting first).
@@ -129,6 +131,9 @@ mail:
   same_person_cooldown_days: 30
   max_attachment_kb: 250
 sweep:
+  # Network work done at the same time: the sources, careers pages, job boards and job
+  # pages. Notion writes stay at about 3 per second whatever this is.
+  workers: 8
   # At most this many NEW jobs are saved per day (all sweeps together). New postings are
   # ranked by a free match score (sweep/rank.py, no LLM) and only the best are saved.
   daily_new_limit: 30

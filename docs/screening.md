@@ -61,6 +61,13 @@ skipped at once (`Skip`, reason `Seniority`, or `Experience >5 yrs` above 5 year
 note `(no AI used)`; it does not count toward the daily 30. The same limit applies after the
 LLM reads the years.
 
+## Several jobs at once
+
+After the first job goes through the LLM, screening sends `screening.workers` (4) jobs at the
+same time, never more than what is left of the daily limit. The first job goes alone, so a
+refused API key still stops the run after one call. Results and the daily count are the same
+as one at a time; only the wait is shorter. `screening.workers: 1` screens one at a time.
+
 ## When the API key is refused
 
 If Anthropic answers HTTP 401 or 403 (a wrong or revoked `ANTHROPIC_API_KEY`, or an account
@@ -150,7 +157,8 @@ risk High -5, Medium -2; posted in the last 7 days +1.
 
 `Screen verdict`, `Skip reason` (Skip only), `Status` = `Screened` (only from `New`),
 `Language required`, `Contract type` (Poland; others `Unknown`), `Sponsorship`, `Work mode`
-and `Expires` (only if stated), `Salary` and `Years required` (only if empty), `Visa flags`
+and `Expires` (only if stated), `Salary` and `Years required` (only if empty, as `3+ years`),
+`Visa flags`
 (merged, never removed), `Tech stack`, `Gaps`, and a body section:
 
 ```

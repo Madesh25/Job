@@ -27,6 +27,7 @@ from urllib.parse import urlsplit
 from bs4 import BeautifulSoup, Tag
 
 from jobengine import http
+from jobengine.parallel import run_all
 from jobengine.settings import Settings
 from jobengine.sweep.models import Job
 from jobengine.sweep.normalize import experience, years_required
@@ -55,6 +56,7 @@ class Config:
     max_pages: int = DEFAULT_MAX_PAGES
     sources: tuple[str, ...] = DEFAULT_SOURCES
     full_min: int = 600
+    workers: int = 8  # pages read at the same time (sweep.workers)
 
     @classmethod
     def from_settings(cls, s: Settings) -> Config:
@@ -64,6 +66,7 @@ class Config:
             max_pages=max(0, int(cfg.get("max_pages", DEFAULT_MAX_PAGES))),
             sources=tuple(cfg.get("sources") or DEFAULT_SOURCES),
             full_min=int(s.screening.get("full_min_chars", 600)),
+            workers=max(1, int(s.sweep.get("workers", 8))),
         )
 
 
@@ -217,11 +220,15 @@ def fill(
     Changes `groups` in place; at most cfg.max_pages pages are read."""
     outcome = Outcome()
     todo = [group for group in groups if needs_text(group[0], cfg)][:cfg.max_pages]
-    for i, group in enumerate(todo, 1):
-        if progress is not None and (i == 1 or i % 5 == 0):
-            progress(f"Reading full job descriptions: {i} of {len(todo)}")
+
+    def done(finished: int, total: int) -> None:
+        if progress is not None and (finished == 1 or finished % 5 == 0):
+            progress(f"Reading full job descriptions: {finished} of {total}")
+
+    # Several pages at once (cfg.workers); the results are applied here, in list order.
+    fulls = run_all(lambda group: read(group[0], get_page), todo, cfg.workers, done)
+    for group, full in zip(todo, fulls, strict=True):
         outcome.tried += 1
-        full = read(group[0], get_page)
         if full is not None:
             if full.description != group[0].description:
                 outcome.read += 1
