@@ -1,9 +1,12 @@
 """Free checks for jobs you cannot take, run before the daily 30 are picked and again before
 screening spends tokens. Pure functions, no I/O.
 
-- Language: the posting requires Polish or Dutch, or it is written in Polish or Dutch and
-  does not ask for English.
+- Language: the posting requires a language other than English (Polish, Dutch, German,
+  French and so on, in the description or the title: "German-Speaking"), or it is written in
+  Polish or Dutch and does not ask for English.
 - Contract: a job in Poland that offers only a B2B contract.
+- Visa: the posting says there is no visa sponsorship or relocation, or that the right to
+  work in the EU (or the country) is required.
 
 They only fire on clear wording; anything unclear is left for the AI screening.
 """
@@ -42,6 +45,14 @@ def _language_patterns(english: str, own: list[str]) -> list[re.Pattern[str]]:
     ]
 
 
+# Other languages than Polish and Dutch: the English wording only.
+OTHER_LANGUAGES = ("German", "French", "Spanish", "Italian", "Portuguese", "Czech", "Slovak",
+                   "Hungarian", "Romanian", "Swedish", "Danish", "Norwegian", "Finnish",
+                   "Russian", "Ukrainian", "Turkish", "Greek", "Hebrew", "Arabic", "Japanese",
+                   "Korean", "Chinese", "Mandarin")
+# The Job Opportunities "Skip reason" options for languages; any other language is "Other".
+LANGUAGE_REASONS = ("Polish required", "Dutch required")
+
 _REQUIRES = {
     "Polish": _language_patterns("polish", [
         r"j[eę]zyk(?:a|iem)?\s+polsk",
@@ -55,7 +66,9 @@ _REQUIRES = {
         r"\bnederlandstalig",
         r"\bnederlands\s+op\s+(?:b2|c1|c2)",
     ]),
+    **{lang: _language_patterns(lang.lower(), []) for lang in OTHER_LANGUAGES},
 }
+_TITLE_LANGUAGES = {lang.lower(): lang for lang in ("Polish", "Dutch", *OTHER_LANGUAGES)}
 _ASKS_ENGLISH = re.compile(r"english|angielski|engels")
 
 # Common short words: a posting that uses many more of one language's words than English
@@ -82,10 +95,19 @@ def _required_segments(text: str) -> list[str]:
     return [seg for seg in segments(text) if not _OPTIONAL.search(seg)]
 
 
-def language_block(description: str | None) -> str | None:
-    """The language the job needs that is not English ("Polish", "Dutch"), else None."""
-    if not description:
-        return None
+def title_language(title: str | None) -> str | None:
+    """A language named in the title ("macOS Engineer (German-Speaking)", "L1, French")."""
+    for word in canon(title).split():
+        if word in _TITLE_LANGUAGES:
+            return _TITLE_LANGUAGES[word]
+    return None
+
+
+def language_block(description: str | None, title: str | None = None) -> str | None:
+    """The language the job needs that is not English ("Polish", "German"), else None."""
+    lang = title_language(title)
+    if lang or not description:
+        return lang
     segments = _required_segments(description)
     for lang, patterns in _REQUIRES.items():
         if any(p.search(seg) for seg in segments for p in patterns):
@@ -114,12 +136,51 @@ def b2b_only(country: str | None, description: str | None, salary: str | None = 
     return bool(_B2B.search(text)) and not _EMPLOYMENT.search(text)
 
 
-def cannot_take(country: str | None, description: str | None,
-                salary: str | None = None) -> str | None:
-    """A Job Opportunities "Skip reason" option when a free check rules the job out."""
-    lang = language_block(description)
+_WORK_RIGHT = r"(?:right to work|work permit|work authori[sz]ation|work visa|" \
+              r"eligib\w* to work|authori[sz]ed to work|permission to work)"
+_NO_SPONSORSHIP = re.compile(
+    r"\bno\s+(?:visa\s+)?sponsor(?:ship|ing)\b"
+    r"|\b(?:visa\s+)?sponsorship\s+(?:is\s+)?(?:not|un)\s*(?:available|provided|offered|possible)"
+    r"|\b(?:unable|not able|cannot|can\s*not|can't|do not|don't|will not|won't|does not|"
+    r"doesn't)\s+(?:to\s+)?(?:offer\s+|provide\s+|support\s+)?(?:visa\s+)?sponsor"
+    r"|\bwithout\s+(?:the\s+need\s+for\s+|requiring\s+)?(?:visa\s+|employer\s+)?sponsorship"
+    rf"|\bmust\s+(?:already\s+)?(?:have|hold|possess|be)\s+(?:\w+\s+){{0,4}}{_WORK_RIGHT}"
+    rf"|\b(?:eu|eea|eu/eea|eu\s+eea|european)\s+{_WORK_RIGHT}\s+(?:is\s+)?(?:required|mandatory|"
+    r"needed|a must)"
+    rf"|\b{_WORK_RIGHT}\s+(?:in\s+the\s+(?:eu|eea)\s+)?(?:is\s+)?(?:required|mandatory|a must)"
+    r"|\brelocation\s+(?:provided|assistance|support|package|offered)\W{0,12}"
+    r"(?:none|no|not\s+(?:provided|available|offered))\b"
+)
+
+
+def no_sponsorship(description: str | None) -> bool:
+    """True when the posting says there is no visa sponsorship or relocation, or that you
+    must already have the right to work there."""
+    if not description:
+        return False
+    text = re.sub(r"<br\s*/?>", "\n", description.lower())
+    return bool(_NO_SPONSORSHIP.search(text))
+
+
+NO_SPONSORSHIP = "No visa sponsorship"
+B2B_ONLY = "B2B only"
+
+
+def cannot_take(country: str | None, description: str | None, salary: str | None = None,
+                title: str | None = None) -> str | None:
+    """Why a free check rules the job out ("German required", "B2B only", "No visa
+    sponsorship"), else None. skip_reason() gives the Job Opportunities option for it."""
+    lang = language_block(description, title)
     if lang:
         return f"{lang} required"
     if b2b_only(country, description, salary):
-        return "B2B only"
+        return B2B_ONLY
+    if no_sponsorship(description):
+        return NO_SPONSORSHIP
     return None
+
+
+def skip_reason(label: str) -> str:
+    """The Job Opportunities "Skip reason" option for a cannot_take() label: the language
+    and B2B options exist, anything else is "Other" (the schema is never changed here)."""
+    return label if label in (*LANGUAGE_REASONS, B2B_ONLY) else "Other"

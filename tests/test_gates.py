@@ -165,3 +165,12 @@ def test_pre_gate_uses_the_higher_years_and_the_free_checks():
     assert pre_gate(row(), None, 4, "Fluent Polish is required.").reason == "Polish required"
     assert pre_gate(row(), None, 4, "B2B contract only.").reason == "B2B only"
     assert pre_gate(row(country="Ireland"), None, 4, "B2B contract only.") is None
+
+
+def test_pre_gate_skips_no_sponsorship_and_other_languages_for_free():
+    from jobengine.screen.gates import pre_gate
+
+    hit = pre_gate(row(), None, 4, "EU/EEA work authorization is required.")
+    assert (hit.reason, hit.detail) == ("Other", "No visa sponsorship")
+    hit = pre_gate(row(role="macOS Engineer (German-Speaking)"), None, 4, "Kubernetes.")
+    assert (hit.reason, hit.detail) == ("Other", "German required")

@@ -152,6 +152,8 @@ def _rank(deps: SweepDeps, groups: list[list[Job]], today: date) -> list[list[Jo
 
 DEFAULT_MAX_YEARS = 4
 DEFAULT_MAX_POSTED_AGE = 1
+DEFAULT_MIN_SKILL_MATCH = 0.7
+DEFAULT_MIN_SKILL_TERMS = 4
 
 
 def max_years(s: Settings) -> int:
@@ -181,19 +183,58 @@ def too_old(job: Job, today: date, max_age: int | None) -> bool:
     return (today - job.posted_date).days > max_age
 
 
-def not_a_fit(job: Job, limit: int) -> str | None:
-    """Why the job cannot be taken, found for free, or None: "too senior", or a Skip reason
-    from sweep/fit.py ("Polish required", "Dutch required", "B2B only")."""
-    if too_senior(job, limit):
+@dataclass(frozen=True)
+class FitRules:
+    """The free checks of not_a_fit(), read once per sweep."""
+
+    max_years: int
+    ranker: Ranker | None = None
+    min_match: float = DEFAULT_MIN_SKILL_MATCH
+    min_terms: int = DEFAULT_MIN_SKILL_TERMS
+
+    @classmethod
+    def from_settings(cls, s: Settings, ranker: Ranker | None) -> FitRules:
+        return cls(max_years=max_years(s), ranker=ranker,
+                   min_match=float(s.sweep.get("min_skill_match", DEFAULT_MIN_SKILL_MATCH)),
+                   min_terms=int(s.sweep.get("min_skill_terms", DEFAULT_MIN_SKILL_TERMS)))
+
+
+LOW_MATCH = "Low skill match"
+
+
+def skill_share(job: Job, rules: FitRules) -> float | None:
+    """The share of the tools the job names that you have, or None when it names fewer than
+    sweep.min_skill_terms tools (too little to judge)."""
+    if rules.ranker is None:
+        return None
+    have, missing = rules.ranker.match(job)
+    named = len(have) + len(missing)
+    return len(have) / named if named >= rules.min_terms else None
+
+
+def not_a_fit(job: Job, rules: FitRules) -> str | None:
+    """Why the job cannot be taken, found for free, or None: "too senior", a sweep/fit.py
+    label ("German required", "B2B only", "No visa sponsorship"), or "Low skill match"."""
+    if too_senior(job, rules.max_years):
         return "too senior"
-    return fit.cannot_take(job.country, job.description, job.salary)
+    reason = fit.cannot_take(job.country, job.description, job.salary, job.role)
+    if reason:
+        return reason
+    share = skill_share(job, rules)
+    if share is not None and share < rules.min_match:
+        return LOW_MATCH
+    return None
 
 
 def _count(summary: SweepSummary, reason: str) -> None:
     if reason == "too senior":
         summary.too_senior += 1
-    elif reason == "B2B only":
+    elif reason == fit.B2B_ONLY:
         summary.b2b_only += 1
+    elif reason == fit.NO_SPONSORSHIP:
+        summary.no_sponsorship += 1
+    elif reason == LOW_MATCH:
+        summary.low_match += 1
     else:
         summary.needs_language += 1
 
@@ -233,9 +274,11 @@ def _pick(
     """The new jobs you can take, best first; the first `room` are saved.
 
     Dropped for free (not_a_fit): jobs asking for more than screening.max_years_required
-    years (or Senior titles without years in your range), jobs that need Polish or Dutch,
-    and B2B-only jobs in Poland. These checks run before the daily limit is filled, so the
-    saved jobs are ones screening will not skip for these reasons.
+    years (or Senior titles without years in your range), jobs that need a language other
+    than English, B2B-only jobs in Poland, jobs that state no visa sponsorship or relocation,
+    and jobs where fewer than sweep.min_skill_match of the tools they name are yours. These
+    checks run before the daily limit is filled, so the saved jobs are ones screening will
+    not skip for these reasons.
 
     The years, languages and contracts are often only in the full description, so the job
     pages are read in rounds from the top of the list: after each round the jobs that do not
@@ -243,11 +286,11 @@ def _pick(
     or sweep.fulltext.max_pages pages were read. Then the fitting jobs are ranked again (a
     full description often names skills the snippet left out).
     """
-    limit = max_years(s)
+    rules = FitRules.from_settings(s, ranker)
     fits: list[list[Job]] = []
     pending: list[list[Job]] = []
     for jobs in ranked:  # known from the snippet already: free
-        reason = not_a_fit(jobs[0], limit)
+        reason = not_a_fit(jobs[0], rules)
         if reason:
             _count(summary, reason)
         else:
@@ -265,7 +308,7 @@ def _pick(
         summary.full_tried += outcome.tried
         summary.full_read += outcome.read
         for jobs in chunk:
-            reason = not_a_fit(jobs[0], limit)
+            reason = not_a_fit(jobs[0], rules)
             if reason:
                 _count(summary, reason)
             else:

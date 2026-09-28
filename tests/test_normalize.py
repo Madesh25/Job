@@ -192,3 +192,13 @@ def test_normalize_never_infers_salary_or_date():
 def test_parse_active_countries():
     assert parse_active_countries("Poland, Netherlands, Ireland") == ACTIVE
     assert parse_active_countries("") == []
+
+
+@pytest.mark.parametrize("text, expected", [
+    ("At least five years of relevant experience in Linux administration", 5),
+    ("five (5) years of experience", 5),
+    ("Two+ years with AWS", 2),
+    ("One of the team for three weeks", None),
+])
+def test_years_in_words(text, expected):
+    assert years_required(text) == expected

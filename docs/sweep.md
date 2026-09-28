@@ -151,13 +151,29 @@ spend its places (or tokens) on jobs it would skip anyway:
   stated, a description that calls the role itself senior ("a hands-on senior engineering
   role", "senior-level") counts as too senior too; mentions of senior colleagues do not.
   Titles with `VP` or `Vice President` are out of scope (`sweep.title_exclude`).
-- **Language** (`sweep/fit.py`). Polish or Dutch is required ("Fluent Polish", "Polish
-  (C1)", "znajomosc jezyka polskiego", "vloeiend Nederlands"), or the posting is written in
-  Polish or Dutch and does not ask for English. "Polish is a plus", "nice to have" and
-  "Polish clients" never count. Summary: `Needs Polish or Dutch (not saved)`.
+- **Language** (`sweep/fit.py`). A language other than English is required: Polish or
+  Dutch ("Fluent Polish", "Polish (C1)", "znajomosc jezyka polskiego", "vloeiend
+  Nederlands"), or German, French, Spanish and others ("Fluent German required"); or the
+  title names one ("macOS Engineer (German-Speaking)", "Infrastructure Engineer (French)");
+  or the posting is written in Polish or Dutch and does not ask for English. "Polish is a
+  plus", "nice to have" and "Polish clients" never count. Summary: `Needs a language other
+  than English (not saved)`.
 - **Contract** (`sweep/fit.py`). A job in Poland that states B2B (or a `+ VAT` rate) and no
   employment contract (`umowa o prace`, `UoP`, "B2B or UoP"). Summary: `B2B contract only
   (not saved)`.
+- **Visa** (`sweep/fit.py`). The posting says there is no visa sponsorship ("no visa
+  sponsorship available", "we are unable to sponsor", "sponsorship is not available"), that
+  you must already have the right to work there ("EU/EEA work authorization is required",
+  "you must have the right to work in Ireland") or that no relocation is given
+  ("Relocation Provided: None"). Offers of sponsorship or relocation never count. Summary:
+  `No visa sponsorship or relocation (not saved)`.
+- **Skills** (`sweep/rank.py`, `match`). Of the tools a job names (your Skills Inventory and
+  Active Term Map terms, Term Map gaps, and a list of common tools such as Java, Spring,
+  Kafka, VMware, PowerShell or Jenkins), at least `sweep.min_skill_match` (0.7) must be
+  yours. "Spring Boot" counts once, not also as "Spring". A job naming fewer than
+  `sweep.min_skill_terms` (4) tools is kept, as there is too little to judge. Summary: `Too
+  few of your skills (not saved)`.
+- Years are also read when written as words ("at least five years", "five (5) years").
 
 Snippets rarely state these, so the sweep reads the job pages in rounds from the top of the
 list: after each round the jobs that do not fit drop out and the next ones are read, until

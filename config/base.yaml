@@ -239,6 +239,11 @@ sweep:
   # only, 1 is today and yesterday (a job posted after yesterday's /fetch is not lost).
   # Jobs without a posted date are kept. Rows already in Notion are still updated.
   max_posted_age_days: 1
+  # Skill match: of the tools a new job names (your Skills Inventory and Term Map, plus the
+  # common tools in sweep/rank.py), at least this share must be yours, or it is not saved.
+  # Jobs naming fewer than min_skill_terms tools are kept (too little to judge).
+  min_skill_match: 0.7
+  min_skill_terms: 4
   adzuna:
     countries: [pl, nl]
     # Adzuna results carry no currency field; each country endpoint reports salaries

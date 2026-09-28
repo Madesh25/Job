@@ -86,5 +86,62 @@ def test_jobs_you_cannot_take_do_not_use_the_daily_places():
     assert [g[0].url for g in picked] == ["https://j.example.com/2", "https://j.example.com/3"]
     assert (summary.needs_language, summary.b2b_only) == (1, 1)
     text = summary.friendly_text()
-    assert "Needs Polish or Dutch (not saved): 1" in text
+    assert "Needs a language other than English (not saved): 1" in text
     assert "B2B contract only (not saved): 1" in text
+
+
+@pytest.mark.parametrize("text, blocked", [
+    ("Please note: EU/EEA work authorization is required (no visa sponsorship available for "
+     "this position).", True),
+    ("Travel Requirements<br>None<br>Relocation Provided<br>None<br>Position Type", True),
+    ("You must have the right to work in Ireland.", True),
+    ("Sponsorship is not available for this role.", True),
+    ("We are unable to sponsor visas.", True),
+    ("Candidates must be eligible to work without sponsorship.", True),
+    ("We offer visa sponsorship and relocation support.", False),
+    ("Relocation package offered.", False),
+    ("We will help you obtain a work permit.", False),
+    (None, False),
+])
+def test_no_sponsorship(text, blocked):
+    from jobengine.sweep.fit import no_sponsorship
+
+    assert no_sponsorship(text) is blocked
+
+
+@pytest.mark.parametrize("title, lang", [
+    ("macOS Platform Engineer (German-Speaking) | Enterprise Aviation Company", "German"),
+    ("Infrastructure Engineer (L1/Shift Lead, French)", "French"),
+    ("DevOps Engineer", None),
+])
+def test_a_language_in_the_title(title, lang):
+    assert language_block("We run Kubernetes.", title) == lang
+
+
+def test_other_languages_and_their_skip_reason():
+    from jobengine.sweep.fit import skip_reason
+
+    assert language_block("Fluent German is required.") == "German"
+    assert cannot_take("Poland", "x", title="Engineer (French)") == "French required"
+    assert skip_reason("French required") == "Other"
+    assert skip_reason("Polish required") == "Polish required"
+    assert skip_reason("B2B only") == "B2B only"
+    assert skip_reason("No visa sponsorship") == "Other"
+    assert cannot_take("Netherlands", "No visa sponsorship.") == "No visa sponsorship"
+
+
+@pytest.mark.skill_match
+def test_too_few_of_your_skills_is_not_saved():
+    from jobengine.reference import Reference
+    from jobengine.sweep.rank import Ranker
+    from jobengine.sweep.runner import LOW_MATCH, FitRules, not_a_fit, skill_share
+
+    rules = FitRules(max_years=4, ranker=Ranker(Reference.fake()))
+    java = replace(BASE, description="Java, Spring Boot, Kafka and Jenkins with some Docker.")
+    assert skill_share(java, rules) == 0.2  # docker of 5 tools
+    assert not_a_fit(java, rules) == LOW_MATCH
+    good = replace(BASE, description="Kubernetes, Terraform, AWS, Docker and a bit of Java.")
+    assert skill_share(good, rules) == 0.8
+    assert not_a_fit(good, rules) is None
+    few = replace(BASE, description="Java and Docker.")  # 2 tools: too few to judge
+    assert skill_share(few, rules) is None and not_a_fit(few, rules) is None
