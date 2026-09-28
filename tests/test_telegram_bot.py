@@ -547,13 +547,16 @@ def test_screen_command(desk):
     assert "ready to review: /pending" in fake.sent[2][1]
 
 
-def test_fetch_chains_screening():
+def test_fetch_never_screens_by_itself():
     s = settings()
     d = fake_desk(s, FAKE_TODAY)
+    calls = []
+    d.screen = lambda *a, **k: calls.append(1) or "screened"
     text = tb.make_fetcher(s, True, d)(lambda line: None)
     assert "New jobs added to Notion: 8" in text
-    assert "Screening done: 20 screened" in text
-    assert text.endswith("ready to review: /pending")
+    assert calls == [] and "Screening done" not in text
+    assert text.endswith("Next: /screen checks the new jobs against your profile (uses the AI, "
+                         "at most 30 jobs a day).")
 
 
 def test_desk_failures_are_reported_not_raised(desk):
@@ -637,8 +640,9 @@ def test_approve_resume_old_revision_rebuild_and_i_applied(desk):
     assert "(version 2)" in fake.sent[1][1]
     fake = talk(desk, tap(1, f"ra:{new}"))
     assert fake.sent[0][1] == ("[LOCAL] Resume approved and saved. Apply here: "
-                               "https://jobs.example.com/pl-clean")
-    assert fake.buttons[0] == ["ia:pl-clean"]
+                               "https://jobs.example.com/pl-clean\nNext: tap Find contacts for "
+                               "people to write to, or I applied.")
+    assert fake.buttons[0] == ["ia:pl-clean", "ct:pl-clean"]
     row = desk.resume.resume_log.get(new)
     assert row["Approved"] is True and row["File"].startswith("DRY RUN: ")
     fake = talk(desk, tap(1, "ia:pl-clean"), tap(2, "ia:pl-clean"))
@@ -677,23 +681,31 @@ def test_console_reply_command_carries_the_caption(tmp_path):
 # ---------------------------------------------------------------- Module 05: contacts
 
 
-def test_resume_approval_runs_the_contact_lookup(desk):
+def test_resume_approval_offers_contacts_then_drafts_as_buttons(desk):
     talk(desk, tap(1, "ap:pl-clean"))
     fake = talk(desk, tap(1, "ra:00000001000040008000000000000001"))
     texts = [t for _, t in fake.sent]
-    assert texts[0].startswith("[LOCAL] Resume approved and saved.")
+    assert len(texts) == 1 and texts[0].startswith("[LOCAL] Resume approved and saved.")
+    assert fake.buttons[0] == ["ia:pl-clean", "ct:pl-clean"]  # nothing looked up yet
+    assert not desk.repo.rows["pl-clean"].get("Contacts")
+    fake = talk(desk, tap(2, "ct:pl-clean"))
+    texts = [t for _, t in fake.sent]
     # Module 10: an Apply high job at a large target company gets outreach.
-    assert texts[1] == ("[LOCAL] Outreach for Vistula Cloud: yes (priority A; 10 of 11 left "
+    assert texts[0] == ("[LOCAL] Outreach for Vistula Cloud: yes (priority A; 10 of 11 left "
                         "this week).")
-    assert texts[2] == "[LOCAL] Finding contacts for Vistula Cloud..."
-    summary = texts[3]
+    assert texts[1] == "[LOCAL] Finding contacts for Vistula Cloud..."
+    summary = texts[2]
     assert summary.startswith("[LOCAL] Contacts for Vistula Cloud, DevOps Engineer (Poland)")
     assert "Peer engineer: Kasia Example (Platform Engineer) [cache]" in summary
     assert "found. Credits: Apollo" in summary
     assert desk.repo.rows["pl-clean"]["Contacts"]
-    # Module 06: then the Gmail drafts (DRY_RUN here: nothing created, a preview instead).
-    assert texts[4].startswith("[LOCAL] Writing Gmail drafts for 4 contacts")
-    drafts = texts[5]
+    assert len(texts) == 3 and "Next: tap Write Gmail drafts" in summary
+    assert fake.buttons[-1] == ["dr:pl-clean"]
+    # Module 06: drafts only on the tap (DRY_RUN here: nothing created, a preview instead).
+    fake = talk(desk, tap(3, "dr:pl-clean"))
+    texts = [t for _, t in fake.sent]
+    assert texts[0] == "[LOCAL] Writing Gmail drafts (never sent)..."
+    drafts = texts[1]
     assert drafts.startswith("[LOCAL] Drafts for Vistula Cloud, DevOps Engineer")
     assert "DRY RUN: 4 drafts not created." in drafts
     assert "Subject: [LOCAL] to piotr.example@vistula.example.com | " in drafts
@@ -703,6 +715,7 @@ def test_resume_approval_runs_the_contact_lookup(desk):
 def test_drafts_command(desk):
     talk(desk, tap(1, "ap:pl-clean"))
     talk(desk, tap(1, "ra:00000001000040008000000000000001"))
+    talk(desk, tap(2, "ct:pl-clean"))
     fake = talk(desk, "/drafts pl-clean")
     assert fake.sent[-1][1].startswith("[LOCAL] Drafts for Vistula Cloud, DevOps Engineer")
     assert talk(desk, "/drafts").sent[0][1] == "[LOCAL] Send /drafts <job URL or page id>."
@@ -857,13 +870,14 @@ def test_apply_only_when_the_week_is_used_up_then_find_contacts_anyway(desk):
     week = week_key(FAKE_TODAY)
     desk.state.set("outreach.week", {"week": week, "allowance": 2, "jobs": ["a", "b"]})
     talk(desk, tap(1, "ap:pl-clean"))
-    fake = talk(desk, tap(1, "ra:00000001000040008000000000000001"))
+    talk(desk, tap(1, "ra:00000001000040008000000000000001"))
+    fake = talk(desk, tap(2, "ct:pl-clean"))
     texts = [t for _, t in fake.sent]
-    assert texts[1].startswith("[LOCAL] Apply only for Vistula Cloud: this week's outreach "
+    assert texts[0].startswith("[LOCAL] Apply only for Vistula Cloud: this week's outreach "
                                "budget is used up.")
     assert ["oc:pl-clean"] in fake.buttons
-    assert texts[2] == "[LOCAL] Checking free contacts for Vistula Cloud..."
-    summary = texts[3]
+    assert texts[1] == "[LOCAL] Checking free contacts for Vistula Cloud..."
+    summary = texts[2]
     assert "Kasia Example (Platform Engineer) [cache]" in summary  # free: the cache
     assert "Apply only: no paid lookup for this job" in summary
     assert "[Apollo" not in summary  # no provider was searched

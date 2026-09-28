@@ -60,10 +60,14 @@ provider waterfall) runs only for jobs within the outreach budget
 
 ## Telegram
 
-- After **Approve resume**: "Finding contacts for ..." and then the list, for example
+- After **Approve resume** the bot shows two buttons, **I applied** and **Find contacts**;
+  nothing is looked up until you tap **Find contacts**. Then "Finding contacts for ..." and
+  the list, for example
   `4 of 4 found. Credits: Apollo 2/75, Hunter 0/25, Snov 0/50`, or
   `2 of 4 found. Missing: 1 hiring, 1 recruiter.`, or
   `No contacts found. Apply through the portal only.`
+  When contacts were found, a **Write Gmail drafts** button writes the drafts (never sent); they
+  are not written until you tap it. `/drafts <job>` does the same.
 - Domain question: `What is the email domain for <Company>? Reply to this message with the
   domain, e.g. example.com. Ref JOB-xxxxxxxx`. Reply to that message with the domain; it is kept
   in Bot State (`domain:<company>`) and the lookup continues. Copy it into the Target Companies

@@ -81,7 +81,8 @@ def bot_commands() -> list[dict[str, str]]:
 # Shown at once on a button tap (Telegram's small popup) while the work runs.
 TAP_TOASTS = {"ap": "Approving, building your resume...", "sk": "Skipping...",
               "nx": "Next job...", "fg": "Adding it and rebuilding...",
-              "fc": "Adding it and rebuilding..."}
+              "fc": "Adding it and rebuilding...", "ct": "Finding contacts...",
+              "dr": "Writing Gmail drafts..."}
 
 DESK_COMMANDS = ("pending", "jd", "done", "screen", "gaps", "contacts", "credits", "outreach",
                  "drafts", "today",
@@ -691,8 +692,8 @@ def run(
 
 
 def make_fetcher(s: Settings, fake: bool, desk: Desk | None = None) -> Fetcher:
-    """/fetch runs the sweep (fixtures and an in-memory Notion with --fake, real otherwise),
-    then screens the new jobs when a desk is given."""
+    """/fetch runs the sweep (fixtures and an in-memory Notion with --fake, real otherwise).
+    It never screens by itself: the summary ends with the next step, /screen."""
 
     def fetch(progress: Progress) -> str:
         if fake:
@@ -704,10 +705,10 @@ def make_fetcher(s: Settings, fake: bool, desk: Desk | None = None) -> Fetcher:
             state = desk.state if desk is not None else None
             summary = run_sweep(s, real_deps(s), date.today(), progress=progress, state=state)
         text = summary.friendly_text()
-        if desk is None or summary.blocked:
+        if summary.blocked or not summary.new:
             return text
-        progress("Screening the new jobs...")
-        return f"{text}\n\n{desk.screen(progress=progress)}"
+        return (f"{text}\n\n\U0001F449 Next: /screen checks the new jobs against your profile "
+                "(uses the AI, at most 30 jobs a day).")
 
     return fetch
 

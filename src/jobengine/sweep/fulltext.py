@@ -149,20 +149,55 @@ def needs_text(job: Job, cfg: Config) -> bool:
     return not job.description or job.description_is_snippet or len(job.description) < cfg.full_min
 
 
-def read(job: Job, get_page: PageGetter) -> Job | None:
-    """The job with its full description, or None when the page gave nothing better."""
+ADZUNA_DETAILS = re.compile(r"^https://(www\.adzuna\.[a-z.]+)/details/(\d+)")
+
+
+def employer_link(url: str) -> str | None:
+    """Adzuna's own redirect to the employer's page for an Adzuna details link, else None.
+    Adzuna shows "this job is not available in your region" outside the job's country; the
+    employer's page has no such block."""
+    match = ADZUNA_DETAILS.match(url)
+    return f"https://{match.group(1)}/land/ad/{match.group(2)}" if match else None
+
+
+def _is_adzuna(url: str) -> bool:
+    return "adzuna." in (urlsplit(url).hostname or "")
+
+
+def _open(job: Job, get_page: PageGetter) -> tuple[str, str] | None:
+    """(final url, html) of the best page for the job: the employer's page when Adzuna
+    redirects there, else the job's own link."""
+    land = employer_link(job.url)
+    if land:
+        try:
+            final_url, page = get_page(land)
+            if not _is_adzuna(final_url):
+                return final_url, page
+        except http.HttpError as exc:
+            log.info("employer page not reached for %s: %s", job.company, exc)
     try:
-        final_url, page = get_page(job.url)
+        return get_page(job.url)
     except http.HttpError as exc:
         log.info("full text not read for %s: %s", job.company, exc)
         return None
+
+
+def read(job: Job, get_page: PageGetter) -> Job | None:
+    """The job with its full description (and, for Adzuna, the employer's own link), or
+    None when the pages gave nothing better."""
+    opened = _open(job, get_page)
+    if opened is None:
+        return None
+    final_url, page = opened
+    moved = _is_adzuna(job.url) and not _is_adzuna(final_url)
     text = extract(page)
     if not text or len(text) <= len(job.description or ""):
-        return None
+        return replace(job, url=final_url) if moved else None
     host = (urlsplit(final_url).hostname or "").lower()
     years = job.years_required if job.years_required is not None else years_required(text)
     return replace(job, description=text, description_is_snippet=False,
-                   description_origin=f"full page, {host}", years_required=years)
+                   description_origin=f"full page, {host}", years_required=years,
+                   url=final_url if moved else job.url)
 
 
 @dataclass
@@ -187,6 +222,7 @@ def fill(
         outcome.tried += 1
         full = read(group[0], get_page)
         if full is not None:
+            if full.description != group[0].description:
+                outcome.read += 1
             group[0] = full
-            outcome.read += 1
     return outcome

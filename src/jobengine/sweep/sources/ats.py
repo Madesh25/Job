@@ -17,7 +17,7 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
-from urllib.parse import parse_qs, urlsplit
+from urllib.parse import parse_qs, urlencode, urljoin, urlsplit, urlunsplit
 
 from bs4 import BeautifulSoup
 
@@ -32,7 +32,7 @@ BOARD = "Company site"
 SR_PAGE_SIZE = 100
 SR_MAX_PAGES = 10
 WD_PAGE_SIZE = 20
-SUPPORTED = ("greenhouse", "lever", "smartrecruiters", "workday", "amazon")
+SUPPORTED = ("greenhouse", "lever", "smartrecruiters", "workday", "amazon", "avature")
 # Searches for boards that are too big to read whole (Workday, Amazon).
 DEFAULT_SEARCH_TERMS = ("devops", "site reliability", "sre", "platform engineer",
                         "cloud engineer", "kubernetes")
@@ -48,6 +48,9 @@ WORKDAY_URL = re.compile(
     r"([\w-]+)\.(wd\d+)\.myworkdayjobs\.com/(?:[a-z]{2}-[a-z]{2}/)?([\w-]+)", re.I
 )
 AMAZON_URL = re.compile(r"(?:www\.)?amazon\.jobs\b", re.I)
+# Avature career sites list jobs on a server-rendered SearchJobs page, for example
+# https://apply.deloittece.com/en_US/careers/SearchJobs/?523=[5515]
+AVATURE_URL = re.compile(r"^https://[^/\s]+/[a-z]{2}_[A-Z]{2}/[\w-]+/SearchJobs\b", re.I)
 PAGE_URL = re.compile(r"(?:https?:)?//[^\s\"'<>\\]+", re.I)
 # Path parts that are never a board token.
 NOT_TOKENS = {"static", "js", "css", "assets", "embed", "wday", "api", "v1", "images"}
@@ -102,6 +105,8 @@ def board_from_url(url: str) -> Board | None:
                      site=site)
     if AMAZON_URL.search(url):
         return Board("amazon", "amazon")
+    if AVATURE_URL.search(url):
+        return Board("avature", url)  # the search page itself, with its filters
     return None
 
 
@@ -452,6 +457,73 @@ def amazon(company: TargetCompany, get: Getter, keep: Prefilter, terms: tuple[st
     return postings, dropped, 0
 
 
+# ---------------------------------------------------------------- Avature (list pages)
+
+AVATURE_PAGE_SIZE = 50
+AVATURE_MAX_PAGES = 6
+AVATURE_JOB = re.compile(r"/JobDetail/(?:[^/?#]*/)?(\d+)")
+
+
+def _page_url(url: str, offset: int) -> str:
+    parts = urlsplit(url)
+    query = {k: v for k, v in parse_qs(parts.query, keep_blank_values=True).items()
+             if k not in ("jobRecordsPerPage", "jobOffset")}
+    query["jobRecordsPerPage"] = [str(AVATURE_PAGE_SIZE)]
+    query["jobOffset"] = [str(offset)]
+    return urlunsplit(parts._replace(query=urlencode(query, doseq=True)))
+
+
+def _card_location(anchor: Any, title: str) -> str:
+    """The place line next to a job link: "Gdansk, Warsaw - Poland"."""
+    node = anchor
+    for _ in range(4):
+        node = node.parent
+        if node is None:
+            break
+        jobs = {m.group(1) for a in node.find_all("a", href=True)
+                if (m := AVATURE_JOB.search(a["href"]))}
+        if len(jobs) > 1:  # this block holds other jobs too
+            break
+        lines = [line.strip() for line in node.get_text("\n").splitlines() if line.strip()]
+        if len(lines) > 12:
+            break
+        for line in lines:
+            if line != title and len(line) < 200 and (
+                re.search(r"poland|netherlands|ireland|polska|nederland", line, re.I)
+            ):
+                return line
+    return ""
+
+
+def avature(company: TargetCompany, board: Board, page: PageGetter, keep: Prefilter):
+    """Jobs listed on an Avature SearchJobs page (the page's own filters, for example the
+    country, are kept). Descriptions are read later from each job page (sweep/fulltext.py)."""
+    postings, dropped, seen = [], 0, set()
+    for n in range(AVATURE_MAX_PAGES):
+        final_url, html_text = page(_page_url(board.token, n * AVATURE_PAGE_SIZE))
+        soup = BeautifulSoup(html_text, "html.parser")
+        found = 0
+        for anchor in soup.find_all("a", href=True):
+            href = urljoin(final_url, anchor["href"])
+            match = AVATURE_JOB.search(href)
+            title = anchor.get_text(" ", strip=True)
+            if not match or match.group(1) in seen or not title or len(title) > 150:
+                continue
+            seen.add(match.group(1))
+            found += 1
+            location = _card_location(anchor, title) or company.region or ""
+            if not keep(title, location):
+                dropped += 1
+                continue
+            postings.append(RawPosting(
+                source=SOURCE, board=BOARD, title=title, company=company.name,
+                location_text=location, url=href, posting_id=f"avature-{match.group(1)}",
+            ))
+        if found < AVATURE_PAGE_SIZE:
+            break
+    return postings, dropped, 0
+
+
 # ---------------------------------------------------------------- finding the board
 
 
@@ -647,6 +719,8 @@ def fetch(
                 postings, dropped, used = workday(company, board, get, post, keep, wd_budget,
                                                   today, terms, wd_pages)
                 wd_budget -= used
+            elif board.ats == "avature":
+                postings, dropped, _ = avature(company, board, page, keep)
             elif board.ats == "amazon":
                 if amazon_done:  # Amazon and AWS share one board: searched once
                     continue
@@ -657,6 +731,8 @@ def fetch(
                 detail_budget -= used
         except http.HttpError as exc:
             result.notes.append(f"ats {company.name}: {exc}")
+            # A wrong job board link (HTTP 404) shows in the summary, like a blocked site.
+            result.blocked.append(f"{company.name} (job board {_problem(exc)})")
             continue
         result.postings.extend(postings)
         dropped_total += dropped
@@ -664,7 +740,7 @@ def fetch(
     if detector.found:
         result.notes.append(f"ats: found the job board of {detector.found} companies "
                             "on their careers page or by their name")
-    result.blocked = detector.blocked
+    result.blocked = detector.blocked + result.blocked
     result.no_board = detector.no_board
     if dropped_total:
         result.notes.append(

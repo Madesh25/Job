@@ -25,8 +25,9 @@ jobs checked"), then sends a short summary: new jobs per country (in Config
 `countries.active` order), jobs seen again, jobs skipped, possible ghost jobs, and any source
 that was not checked. The terminal CLI keeps the detailed summary shown below. With
 `python -m jobengine.telegram_bot --fake`, `/fetch` uses the fixtures and the in-memory repo.
-Since Module 03, `/fetch` screens the new jobs right after the sweep (see
-`docs/screening.md`).
+`/fetch` only fetches. It never screens by itself: the summary ends with `Next: /screen ...`
+and screening (the AI step) runs only when you send `/screen` (see `docs/screening.md`).
+Nothing in the bot runs a next step on its own; it tells you the next step or shows a button.
 
 Progress lines (time, source counts, pages, rows processed) go to stderr while it runs; the
 summary is printed at the end.
@@ -112,6 +113,12 @@ A source whose secret is missing is skipped with a line in the summary; the run 
   Greenhouse, Lever, SmartRecruiters and amazon.jobs links are then read directly. A company
   site we cannot read at all (its own custom system) is only covered through the job boards:
   Adzuna, Jooble and email alerts.
+- Avature career sites (for example `https://apply.deloittece.com/en_US/careers/SearchJobs/...`):
+  a `SearchJobs` link in Careers URL is read as a list page, with the filters in the link kept
+  (the country, for example). Up to 6 pages of 50 jobs; each job's description is read later
+  from its own page. The place comes from the listing, else from the row's `Region`.
+- A job board link that fails (a Workday link that answers HTTP 404) is listed in the
+  summary with the blocked sites, as `Acme (job board HTTP 404)`.
 - For a company whose board is still not found, add an override in `config/base.yaml`:
 
   ```yaml
@@ -135,6 +142,16 @@ Telegram hands a message to the bot again when the bot stopped before it finishe
 the middle of `/fetch`). A `/fetch`, `/screen` or `/update` sent before the bot started is
 therefore not run by itself: the bot answers `Not running /fetch: it was sent before the bot
 started` and you send it again when you want it.
+
+## Adzuna links outside the job's country
+
+Adzuna's own job page says "Sorry, this job is not available in your region" when you open it
+from another country (India, for example). For new Adzuna jobs the sweep asks Adzuna for the
+employer's own job page (`/land/ad/<id>`, the same redirect as Adzuna's Apply button) and, when
+it leads to the employer's site, saves that link as the job's URL and reads the description
+there. When Adzuna refuses that too, the Adzuna link and its text stay. Rows already in Notion
+keep their Adzuna link; open those through a VPN set to the job's country, or search the title
+and company on the employer's site.
 
 ## Seeing jobs day by day in Notion
 
