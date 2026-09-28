@@ -560,7 +560,8 @@ def build_resume(
             "Revision": revision,
         }, body_blocks(plan, changes))
         update: dict[str, Any] = {"Resume": [*(values.get("Resume") or []), log_id]}
-        gaps = merge_gaps(values.get("Gaps"), plan.gaps_reported)
+        # Forced skills are the ones to learn first, so they stay in Gaps too.
+        gaps = merge_gaps(values.get("Gaps"), [*plan.gaps_reported, *plan.forced_skills])
         if gaps != (values.get("Gaps") or ""):
             update["Gaps"] = gaps  # so /gaps can list what to learn next
         if values.get("Status") in BUILDABLE_STATUSES:
