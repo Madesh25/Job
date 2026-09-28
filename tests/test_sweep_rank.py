@@ -97,3 +97,19 @@ def test_rank_without_reference_is_newest_first():
     a = replace(BASE, dedupe_key="a", posted_date=date(2026, 9, 1))
     b = replace(BASE, dedupe_key="b", posted_date=date(2026, 9, 20))
     assert [g[0].dedupe_key for g in _rank(deps, [[a], [b]], TODAY)] == ["b", "a"]
+
+
+def test_same_job_in_another_city_is_saved_once():
+    from jobengine.sweep.dedupe import IndexRow
+    from jobengine.sweep.runner import _one_per_job
+
+    def job(key):
+        return [replace(BASE, dedupe_key=key)]
+
+    index = {"sii|devops engineer|warszawa": IndexRow(page_id="p",
+                                                      dedupe_key="sii|devops engineer|warszawa")}
+    ranked = [job("sii|devops engineer|krakow"), job("acme|sre|gdansk"),
+              job("acme|sre|poznan"), job("acme|cloud engineer|poznan")]
+    kept, dropped = _one_per_job(ranked, index)
+    assert [g[0].dedupe_key for g in kept] == ["acme|sre|gdansk", "acme|cloud engineer|poznan"]
+    assert dropped == 2

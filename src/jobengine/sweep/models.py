@@ -94,6 +94,7 @@ class SweepSummary:
     new_by_country: dict[str, int] = field(default_factory=dict)
     not_checked: list[str] = field(default_factory=list)  # plain-language source problems
     not_kept: int = 0  # new jobs below today's best-match cut (sweep.daily_new_limit)
+    other_cities: int = 0  # new postings of a job already saved, in another city
     full_read: int = 0  # job pages that gave a full description (sweep/fulltext.py)
     blocked_sites: list[str] = field(default_factory=list)  # "Name (HTTP 403)"
     no_board_sites: list[str] = field(default_factory=list)
@@ -131,6 +132,9 @@ class SweepSummary:
             "",
             f"\U0001F4C9 Weaker matches not saved (daily limit): {self.not_kept}",
         ]
+        if self.other_cities:
+            lines.append(f"\U0001F4CD Same job in another city (not saved again): "
+                         f"{self.other_cities}")
         if self.full_tried:
             lines.append(f"\U0001F4C4 Full descriptions read from the job page: "
                          f"{self.full_read} of {self.full_tried}")

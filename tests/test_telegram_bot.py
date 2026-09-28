@@ -108,6 +108,28 @@ def test_poll_once_answers_and_advances_offset():
     assert "offset" not in fake.calls[0][1]
 
 
+def test_fetch_sent_before_the_bot_started_is_not_run_again():
+    old = update(20, "/fetch")
+    old["message"]["date"] = 1_000
+    new = update(21, "/fetch")
+    new["message"]["date"] = 2_000
+    ran = []
+    fake = FakeTelegram([[old, new]])
+    offset = tb.poll_once(tb.TelegramClient(fake), settings(), None,
+                          lambda progress: ran.append(1) or "Sweep done", started=1_500)
+    assert offset == 22 and ran == [1]  # only the /fetch sent after the start ran
+    texts = [text for _, text in fake.sent]
+    assert any("Not running /fetch: it was sent before the bot started" in t for t in texts)
+
+
+def test_other_commands_before_the_start_still_run():
+    old = update(30, "/start")
+    old["message"]["date"] = 1_000
+    fake = FakeTelegram([[old]])
+    tb.poll_once(tb.TelegramClient(fake), settings(), None, started=1_500)
+    assert len(fake.sent) == 1 and "Not running" not in fake.sent[0][1]
+
+
 def test_poll_once_passes_offset_and_keeps_it_when_empty():
     fake = FakeTelegram([[]])
     assert tb.poll_once(tb.TelegramClient(fake), settings(), 42) == 42
@@ -208,7 +230,7 @@ def test_fetch_in_fake_mode_returns_prefixed_summary(monkeypatch, capsys):
     assert tb.main(["--fake"]) == 0
     out = capsys.readouterr().out
     assert "bot> [LOCAL] \u2705 Job search finished" in out
-    assert "New jobs added to Notion: 10" in out
+    assert "New jobs added to Notion: 8" in out
 
 
 def test_fetch_reply_goes_through_telegram_text():
@@ -326,10 +348,10 @@ def test_fake_bot_fetch_shows_start_progress_and_summary(monkeypatch, capsys):
     out = capsys.readouterr().out
     assert "bot> [LOCAL] \U0001F50E Searching for jobs (started " in out
     assert "bot (updated)> [LOCAL] \u2705 Job search done in under a minute." in out
-    assert "\U0001F1F5\U0001F1F1 Poland: 5" in out
+    assert "\U0001F1F5\U0001F1F1 Poland: 3" in out
     assert "\U0001F1F3\U0001F1F1 Netherlands: 2" in out
     assert "\U0001F1EE\U0001F1EA Ireland: 3" in out
-    assert "Already in Notion, seen again: 6" in out
+    assert "Already in Notion, seen again: 5" in out
     assert "Not a match (skipped): 3" in out
 
 
@@ -529,8 +551,8 @@ def test_fetch_chains_screening():
     s = settings()
     d = fake_desk(s, FAKE_TODAY)
     text = tb.make_fetcher(s, True, d)(lambda line: None)
-    assert "New jobs added to Notion: 10" in text
-    assert "Screening done: 22 screened" in text
+    assert "New jobs added to Notion: 8" in text
+    assert "Screening done: 20 screened" in text
     assert text.endswith("ready to review: /pending")
 
 

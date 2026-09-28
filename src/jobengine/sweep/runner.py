@@ -148,6 +148,28 @@ def _rank(deps: SweepDeps, groups: list[list[Job]], today: date) -> list[list[Jo
     return _sort(groups, _ranker(deps) if groups else None, today)
 
 
+def _job_key(dedupe_key: str) -> str:
+    """company|title without the city: the same job offered in several cities."""
+    return "|".join(dedupe_key.split("|")[:2])
+
+
+def _one_per_job(
+    ranked: list[list[Job]], index: dict[str, IndexRow]
+) -> tuple[list[list[Job]], int]:
+    """Drop new jobs that are the same company and title as a row already in Notion or a
+    better ranked one in this sweep (one posting listed in 8 cities is one job)."""
+    seen = {_job_key(key) for key in index}
+    out, dropped = [], 0
+    for jobs in ranked:
+        key = _job_key(jobs[0].dedupe_key)
+        if key in seen:
+            dropped += 1
+            continue
+        seen.add(key)
+        out.append(jobs)
+    return out, dropped
+
+
 def _read_full_text(
     s: Settings,
     deps: SweepDeps,
@@ -316,6 +338,7 @@ def run_sweep(
     room = max(0, limit - used)
     ranker = _ranker(deps) if candidates else None
     ranked = _sort(list(candidates.values()), ranker, today)
+    ranked, summary.other_cities = _one_per_job(ranked, index)
     ranked = _read_full_text(s, deps, ranked, room, ranker, today, summary, say)
     kept = ranked[:room]
     for jobs in kept:
