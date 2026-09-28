@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ipaddress
 from urllib.parse import urlsplit
 
 from jobengine.settings import PROD_WRITE_IDS, Settings
@@ -118,5 +119,37 @@ def assert_fetch_allowed(url: str, s: Settings) -> None:
         raise SafetyError(f"refusing to fetch {host}: linkedin is never fetched")
     if parts.scheme != "https":
         raise SafetyError(f"refusing to fetch {host or '(no host)'}: only https is allowed")
-    if host not in {h.lower() for h in s.allowed_hosts}:
-        raise SafetyError(f"refusing to fetch {host}: host is not on safety.allowed_hosts")
+    if host in {h.lower() for h in s.allowed_hosts}:
+        return
+    if any(host.endswith("." + suffix.lower()) for suffix in s.allowed_host_suffixes):
+        return
+    raise SafetyError(f"refusing to fetch {host}: host is not on safety.allowed_hosts")
+
+
+# Hosts a job page is never read from, even when a posting links to them.
+PRIVATE_SUFFIXES = (".local", ".localhost", ".internal", ".lan", ".home", ".corp")
+
+
+def assert_page_fetch_allowed(url: str, s: Settings) -> None:
+    """Raise SafetyError unless url may be read as a public job page (sweep full text).
+
+    Job pages live on any employer or job board domain, so there is no host allowlist.
+    Instead: https only, a public DNS name (no IP address, no localhost or internal
+    names) and never linkedin. Every redirect is checked again by http.get_page.
+    """
+    parts = urlsplit(url)
+    host = (parts.hostname or "").lower().rstrip(".")
+    if "linkedin" in host:
+        raise SafetyError(f"refusing to fetch {host}: linkedin is never fetched")
+    if parts.scheme != "https":
+        raise SafetyError(f"refusing to fetch {host or '(no host)'}: only https is allowed")
+    try:
+        ipaddress.ip_address(host.strip("[]"))
+    except ValueError:
+        pass
+    else:
+        raise SafetyError(f"refusing to fetch {host}: IP addresses are never fetched")
+    if "." not in host or host == "localhost" or host.endswith(PRIVATE_SUFFIXES):
+        raise SafetyError(f"refusing to fetch {host or '(no host)'}: not a public host")
+    if parts.username or parts.password:
+        raise SafetyError(f"refusing to fetch {host}: URLs with a login are never fetched")

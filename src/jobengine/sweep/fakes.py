@@ -16,7 +16,7 @@ from jobengine import http
 from jobengine.config_store import ConfigStore
 from jobengine.gmail_reader import GmailMessage
 from jobengine.notion_repo import FakeJobsRepo
-from jobengine.safety import assert_fetch_allowed
+from jobengine.safety import assert_fetch_allowed, assert_page_fetch_allowed
 from jobengine.settings import ROOT_DIR, Settings
 from jobengine.sweep.models import TargetCompany
 
@@ -84,4 +84,32 @@ class FixtureHttp:
             if url.rstrip("/").endswith(detail["id"]):
                 return detail
             raise http.HttpError(f"GET {http.safe_url(url)} failed: HTTP 404", 404)
+        if ".myworkdayjobs.com/wday/cxs/" in url:
+            path = "/job/" + url.split("/job/", 1)[-1]
+            details = _load("workday_detail.json", self.base)
+            if path in details:
+                return details[path]
+            raise http.HttpError(f"GET {http.safe_url(url)} failed: HTTP 404", 404)
+        if url.startswith("https://www.amazon.jobs/"):
+            return _load("amazon.json", self.base)
         raise http.HttpError(f"GET {http.safe_url(url)} failed: no fixture", 404)
+
+    def post(self, url: str, body: Any = None) -> Any:
+        """Workday job search. Every search term gets the same fixture list."""
+        assert_fetch_allowed(url, self.s)
+        self.requested.append(http.safe_url(url))
+        if ".myworkdayjobs.com/wday/cxs/" in url and url.endswith("/jobs"):
+            if int((body or {}).get("offset", 0)):
+                return {"total": 0, "jobPostings": []}
+            return _load("workday_jobs.json", self.base)
+        raise http.HttpError(f"POST {http.safe_url(url)} failed: no fixture", 404)
+
+    def page(self, url: str) -> tuple[str, str]:
+        """A job or careers page from fixtures/sweep/pages/ (index.json lists them)."""
+        assert_page_fetch_allowed(url, self.s)
+        self.requested.append(http.safe_url(url))
+        entry = _load("index.json", self.base / "pages").get(url)
+        if entry is None:
+            raise http.HttpError(f"GET {http.safe_url(url)} failed: HTTP 404", 404)
+        html = (self.base / "pages" / entry["file"]).read_text(encoding="utf-8")
+        return entry.get("final_url") or url, html

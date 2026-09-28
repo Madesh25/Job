@@ -1,0 +1,29 @@
+{
+  "/job/Warsaw/DevOps-Engineer_JR1001": {
+    "jobPostingInfo": {
+      "title": "DevOps Engineer",
+      "jobDescription": "<p>Balt Bank Technology runs the payment platform for 3 million customers.</p><h3>What you will do</h3><ul><li>Build and run Kubernetes clusters on AWS with Terraform</li><li>Own the CI/CD pipelines in GitHub Actions and Argo CD</li><li>Improve monitoring with Prometheus and Grafana</li></ul><h3>What you bring</h3><ul><li>3+ years of experience in a DevOps or SRE role</li><li>Good Linux and Python or Bash scripting</li><li>English at B2 level</li></ul>",
+      "location": "Warsaw",
+      "country": {
+        "descriptor": "Poland"
+      },
+      "startDate": "2026-09-29",
+      "jobReqId": "JR1001",
+      "externalUrl": "https://balticbank.wd3.myworkdayjobs.com/careers/job/Warsaw/DevOps-Engineer_JR1001"
+    }
+  },
+  "/job/Dublin/Cloud-Engineer_JR1002": {
+    "jobPostingInfo": {
+      "title": "Cloud Engineer",
+      "jobDescription": "<p>Cloud Engineer for our Dublin hub. Azure and Terraform, 2+ years.</p>",
+      "location": "Dublin",
+      "additionalLocations": [
+        "Amsterdam"
+      ],
+      "country": {
+        "descriptor": "Ireland"
+      },
+      "jobReqId": "JR1002"
+    }
+  }
+}

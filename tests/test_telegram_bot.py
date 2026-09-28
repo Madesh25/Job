@@ -208,7 +208,7 @@ def test_fetch_in_fake_mode_returns_prefixed_summary(monkeypatch, capsys):
     assert tb.main(["--fake"]) == 0
     out = capsys.readouterr().out
     assert "bot> [LOCAL] \u2705 Job search finished" in out
-    assert "New jobs added to Notion: 8" in out
+    assert "New jobs added to Notion: 10" in out
 
 
 def test_fetch_reply_goes_through_telegram_text():
@@ -326,9 +326,9 @@ def test_fake_bot_fetch_shows_start_progress_and_summary(monkeypatch, capsys):
     out = capsys.readouterr().out
     assert "bot> [LOCAL] \U0001F50E Searching for jobs (started " in out
     assert "bot (updated)> [LOCAL] \u2705 Job search done in under a minute." in out
-    assert "\U0001F1F5\U0001F1F1 Poland: 4" in out
+    assert "\U0001F1F5\U0001F1F1 Poland: 5" in out
     assert "\U0001F1F3\U0001F1F1 Netherlands: 2" in out
-    assert "\U0001F1EE\U0001F1EA Ireland: 2" in out
+    assert "\U0001F1EE\U0001F1EA Ireland: 3" in out
     assert "Already in Notion, seen again: 6" in out
     assert "Not a match (skipped): 3" in out
 
@@ -528,8 +528,8 @@ def test_fetch_chains_screening():
     s = settings()
     d = fake_desk(s, FAKE_TODAY)
     text = tb.make_fetcher(s, True, d)(lambda line: None)
-    assert "New jobs added to Notion: 8" in text
-    assert "Screening done: 20 screened" in text
+    assert "New jobs added to Notion: 10" in text
+    assert "Screening done: 22 screened" in text
     assert text.endswith("ready to review: /pending")
 
 

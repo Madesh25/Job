@@ -68,6 +68,8 @@ class Settings(BaseModel):
     tracking: dict[str, Any] = Field(default_factory=dict)
     strategy: dict[str, Any] = Field(default_factory=dict)
     allowed_hosts: tuple[str, ...] = ()
+    # Any subdomain of these is allowed too (Workday boards: <tenant>.wd3.myworkdayjobs.com).
+    allowed_host_suffixes: tuple[str, ...] = ()
 
     notion_token: str | None = None
     telegram_bot_token: str | None = None
@@ -165,6 +167,7 @@ def load_settings(env: str | None = None, environ: Mapping[str, str] | None = No
         tracking=dict(cfg.get("tracking") or {}),
         strategy=dict(cfg.get("strategy") or {}),
         allowed_hosts=tuple(safety.get("allowed_hosts") or ()),
+        allowed_host_suffixes=tuple(safety.get("allowed_host_suffixes") or ()),
         bot_mode=(environ.get("BOT_MODE") or "polling").strip().lower(),
         **secrets,
     )

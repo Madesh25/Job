@@ -14,7 +14,7 @@ from jobengine.notion_repo import JobsRepo, NotionClient, NotionReader, jobs_rep
 from jobengine.reference import Reference
 from jobengine.safety import notion_write_target
 from jobengine.settings import Settings
-from jobengine.sweep import fakes
+from jobengine.sweep import fakes, fulltext
 from jobengine.sweep.dedupe import IndexRow, create_plan, description_blocks, update_plan
 from jobengine.sweep.gate import strategy_gate
 from jobengine.sweep.models import Job, Skipped, SourceResult, SweepSummary, TargetCompany
@@ -57,9 +57,12 @@ class SweepDeps:
     repo: JobsRepo | None  # None means no write target: DRY RUN, nothing is written
     gmail: Callable[[], SourceResult]
     adzuna: Callable[[], SourceResult]
-    ats: Callable[[list[TargetCompany], Prefilter], SourceResult]
+    # (companies, keep, bot_state) -> postings; bot_state caches the detected boards.
+    ats: Callable[..., SourceResult]
     # Skills Inventory, Term Map and Target Companies for the free match score.
     reference: Callable[[], Reference] | None = None
+    # Reads one job page for its full description (url -> (final url, html)).
+    page: fulltext.PageGetter | None = None
 
 
 def fake_deps(s: Settings, repo: JobsRepo | None = None) -> SweepDeps:
@@ -76,8 +79,11 @@ def fake_deps(s: Settings, repo: JobsRepo | None = None) -> SweepDeps:
         repo=repo,
         gmail=lambda: gmail_alerts.fetch(s, load_messages=fakes.gmail_messages),
         adzuna=lambda: adzuna.fetch(s, get=get),
-        ats=lambda companies, keep: ats.fetch(s, companies, keep, get=get),
+        ats=lambda companies, keep, state=None: ats.fetch(
+            s, companies, keep, get=get, post=get.post, page=get.page, state=state,
+            today=fakes.FAKE_TODAY),
         reference=Reference.fake,
+        page=get.page,
     )
 
 
@@ -93,8 +99,9 @@ def real_deps(s: Settings) -> SweepDeps:
         repo=jobs_repo_for(s, client),
         gmail=lambda: gmail_alerts.fetch(s),
         adzuna=lambda: adzuna.fetch(s),
-        ats=lambda companies, keep: ats.fetch(s, companies, keep),
+        ats=lambda companies, keep, state=None: ats.fetch(s, companies, keep, state=state),
         reference=lambda: Reference.load(client, s),
+        page=lambda url: http.get_page(url, s=s),
     )
 
 
@@ -113,20 +120,55 @@ def _used_today(state: Any, today: date) -> int:
     return int(value.get("count") or 0)
 
 
-def _rank(deps: SweepDeps, groups: list[list[Job]], today: date) -> list[list[Job]]:
-    """New jobs best match first (then newest). Without reference data, newest first."""
-    ranker = None
-    if deps.reference is not None and groups:
-        try:
-            ranker = Ranker(deps.reference())
-        except http.HttpError as exc:
-            log.warning("match ranking unavailable (%s): newest jobs first", exc)
+def _ranker(deps: SweepDeps) -> Ranker | None:
+    if deps.reference is None:
+        return None
+    try:
+        return Ranker(deps.reference())
+    except http.HttpError as exc:
+        log.warning("match ranking unavailable (%s): newest jobs first", exc)
+        return None
 
+
+def _sort(groups: list[list[Job]], ranker: Ranker | None, today: date) -> list[list[Job]]:
     def key(jobs: list[Job]) -> tuple[int, date]:
         job = jobs[0]
         return (ranker.score(job, today) if ranker else 0, job.posted_date or date.min)
 
     return sorted(groups, key=key, reverse=True)
+
+
+def _rank(deps: SweepDeps, groups: list[list[Job]], today: date) -> list[list[Job]]:
+    """New jobs best match first (then newest). Without reference data, newest first."""
+    return _sort(groups, _ranker(deps) if groups else None, today)
+
+
+def _read_full_text(
+    s: Settings,
+    deps: SweepDeps,
+    ranked: list[list[Job]],
+    room: int,
+    ranker: Ranker | None,
+    today: date,
+    summary: SweepSummary,
+    say: Progress,
+) -> list[list[Job]]:
+    """Read the full description of the jobs near the top of today's list, then rank
+    again: a full description often names skills the snippet left out. Only the best
+    `room + lookahead` jobs are read, never the ones that cannot be kept anyway."""
+    cfg = fulltext.Config.from_settings(s)
+    if not cfg.enabled or deps.page is None or room <= 0 or not ranked:
+        return ranked
+    lookahead = int((s.sweep.get("fulltext") or {}).get("lookahead", 15))
+    window = ranked[:room + lookahead]
+    outcome = fulltext.fill(window, cfg, deps.page, progress=say)
+    summary.full_read, summary.full_tried = outcome.read, outcome.tried
+    if outcome.tried:
+        summary.notes.append(
+            f"Full descriptions: read {outcome.read} of {outcome.tried} job pages "
+            f"(the others kept the short text from their source)."
+        )
+    return _sort(window, ranker, today) + ranked[len(window):]
 
 
 def run_sweep(
@@ -177,7 +219,7 @@ def run_sweep(
         say(f"Searching {SOURCE_LABELS[name]}... ({found} jobs found so far)")
         try:
             if name == "ats":
-                result = deps.ats(companies, keep)
+                result = deps.ats(companies, keep, state)
             else:
                 result = getattr(deps, name)()
         except http.HttpError as exc:
@@ -265,7 +307,9 @@ def run_sweep(
     limit = max(0, int(s.sweep.get("daily_new_limit", DEFAULT_DAILY_NEW_LIMIT)))
     used = _used_today(state, today)
     room = max(0, limit - used)
-    ranked = _rank(deps, list(candidates.values()), today)
+    ranker = _ranker(deps) if candidates else None
+    ranked = _sort(list(candidates.values()), ranker, today)
+    ranked = _read_full_text(s, deps, ranked, room, ranker, today, summary, say)
     kept = ranked[:room]
     for jobs in kept:
         create_new(jobs[0])
