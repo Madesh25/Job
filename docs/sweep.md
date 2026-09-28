@@ -121,13 +121,31 @@ A source whose secret is missing is skipped with a line in the summary; the run 
       Baltic Bank: {ats: workday, token: balticbank, host: balticbank.wd3.myworkdayjobs.com, site: careers}
   ```
 
+## One row per job
+
+A company often lists one opening in several cities (the same "Senior DevOps Engineer" in
+Warszawa, Kraków, Wrocław and five more). New postings with the same company and title as a
+row already in Notion, or as a better ranked new job in the same sweep, are not saved again,
+so they do not use the daily 30. The summary counts them: `Same job in another city (not saved
+again): 7`.
+
+## Restarting the bot during /fetch
+
+Telegram hands a message to the bot again when the bot stopped before it finished (Ctrl+C in
+the middle of `/fetch`). A `/fetch`, `/screen` or `/update` sent before the bot started is
+therefore not run by itself: the bot answers `Not running /fetch: it was sent before the bot
+started` and you send it again when you want it.
+
 ## Seeing jobs day by day in Notion
 
 Job Opportunities (DEV) has a view **By day**: grouped by `First seen` (the day the sweep
 found the job), newest first, with Company, Role, Screen verdict, Status, Board, place, dates,
 seniority, salary and URL. Each group folds open and closed. Notion's API can only create the
 grouping as relative dates (Today, Yesterday, Last 7 days); for one group per date open the
-view, click **Group**, then set **Date by** to **Day**. Do the same in the prod database when
+view, click **Group**, then set **Date by** to **Day**. `First seen` is set once, when the job
+is first found, and never changes: a job found today stays in today's group, tomorrow that
+group is yesterday's, and so on. Nothing is merged or deleted; every job stays in the database
+for good (older groups just fold away). Do the same in the prod database when
 it goes live. `Posted date` can be used instead of `First seen`, but it is empty for jobs whose
 source does not state it (email alerts).
 

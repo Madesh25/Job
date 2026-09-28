@@ -393,16 +393,41 @@ def handle_update(
     return chat_id, telegram_text(reply_for(text, s, fetch), s)
 
 
+# Commands that run for minutes or cost money. Telegram delivers a message again when the bot
+# stopped before confirming it (Ctrl+C in the middle of /fetch), so one sent before this bot
+# started is not run again by itself.
+STALE_COMMANDS = ("fetch", "screen", "update")
+
+
+def _stale_command(update: dict[str, Any], started: float | None) -> str | None:
+    message = update.get("message") or {}
+    command = parse_command(message.get("text") or "")
+    if started is None or command not in STALE_COMMANDS:
+        return None
+    sent = message.get("date")  # Telegram always sets it; the terminal harness does not
+    return command if sent is not None and int(sent) < int(started) else None
+
+
 def poll_once(
     client: TelegramClient,
     s: Settings,
     offset: int | None,
     fetch: Fetcher | None = None,
     desk: Desk | None = None,
+    started: float | None = None,
 ) -> int | None:
-    """Fetch one batch of updates, answer them, and return the next offset."""
+    """Fetch one batch of updates, answer them, and return the next offset. With `started`
+    (the bot's start time), /fetch, /screen and /update sent before it are not run."""
     for update in client.get_updates(offset):
         offset = update["update_id"] + 1
+        command = _stale_command(update, started)
+        chat = str((update.get("message") or {}).get("chat", {}).get("id", ""))
+        if command and chat == str(s.telegram_chat_id):
+            log.info("not running /%s sent before the bot started", command)
+            client.send_message(chat, telegram_text(
+                f"Not running /{command}: it was sent before the bot started (maybe a run you "
+                f"stopped). Send /{command} again to run it.", s))
+            continue
         handle_one(client, s, update, fetch, desk)
     return offset
 
@@ -654,11 +679,12 @@ def run(
         log.warning("could not set the / menu: %s", exc)
     client.send_message(str(s.telegram_chat_id), telegram_text("Job Engine bot started.", s))
     offset: int | None = None
+    started = time.time()
     polls = 0
     while max_polls is None or polls < max_polls:
         polls += 1
         try:
-            offset = poll_once(client, s, offset, fetch, desk)
+            offset = poll_once(client, s, offset, fetch, desk, started=started)
         except TelegramError as exc:
             log.error("%s, retrying in 5s", exc)
             sleep(5)
