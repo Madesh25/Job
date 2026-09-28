@@ -151,6 +151,7 @@ def _rank(deps: SweepDeps, groups: list[list[Job]], today: date) -> list[list[Jo
 
 
 DEFAULT_MAX_YEARS = 4
+DEFAULT_MAX_POSTED_AGE = 1
 
 
 def max_years(s: Settings) -> int:
@@ -164,6 +165,20 @@ def too_senior(job: Job, limit: int) -> bool:
     if job.years_required is not None:
         return job.years_required > limit
     return job.seniority in ("Senior", "Lead") or senior_in_text(job.description)
+
+
+def max_posted_age(s: Settings) -> int | None:
+    """sweep.max_posted_age_days: how many days old a new job's posting may be (0 is today
+    only, 1 is today and yesterday). None when the setting is empty: any age."""
+    value = s.sweep.get("max_posted_age_days", DEFAULT_MAX_POSTED_AGE)
+    return None if value is None else max(0, int(value))
+
+
+def too_old(job: Job, today: date, max_age: int | None) -> bool:
+    """True for a posting older than max_age days. A job without a posted date is kept."""
+    if max_age is None or job.posted_date is None:
+        return False
+    return (today - job.posted_date).days > max_age
 
 
 def not_a_fit(job: Job, limit: int) -> str | None:
@@ -386,6 +401,8 @@ def run_sweep(
 
     # Pass 1: rows already in Notion are updated; new jobs wait to be ranked.
     candidates: dict[str, list[Job]] = {}  # dedupe key -> postings, first one creates
+    max_age = max_posted_age(s)
+    summary.max_age_days = max_age
     for result in results:
         for raw in result.postings:
             done += 1
@@ -398,7 +415,9 @@ def run_sweep(
                 log.debug("skipped %s: %s", raw.title, outcome.reason)
                 continue
             row = index.get(outcome.dedupe_key)
-            if row is None:
+            if row is None and too_old(outcome, today, max_age):
+                summary.too_old += 1
+            elif row is None:
                 candidates.setdefault(outcome.dedupe_key, []).append(outcome)
             else:
                 update_existing(row, outcome)

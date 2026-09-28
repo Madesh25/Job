@@ -234,3 +234,30 @@ def test_not_stated_only_for_a_full_description():
     assert create_plan(full, TODAY)["Years required"] == "Not stated"
     assert "Years required" not in create_plan(BASE, TODAY)  # a snippet: not checked yet
     assert years_low("Not stated") is None
+
+
+def test_old_postings_are_not_saved_as_new_jobs():
+    from datetime import timedelta
+
+    from jobengine.sweep.runner import too_old
+
+    today = TODAY
+    assert not too_old(replace(BASE, posted_date=today), today, 0)
+    assert too_old(replace(BASE, posted_date=today - timedelta(days=1)), today, 0)
+    assert not too_old(replace(BASE, posted_date=today - timedelta(days=1)), today, 1)
+    assert too_old(replace(BASE, posted_date=date(2026, 8, 4)), today, 1)
+    assert not too_old(replace(BASE, posted_date=None), today, 1)  # no date: kept
+    assert not too_old(replace(BASE, posted_date=date(2026, 8, 4)), today, None)
+
+
+@pytest.mark.posting_age
+def test_sweep_counts_old_postings_and_still_updates_known_rows():
+    from jobengine.sweep.runner import max_posted_age
+
+    s = load_settings("local", {})
+    assert max_posted_age(s) == 1
+    summary = run_sweep(s, fake_deps(s), TODAY)
+    assert summary.too_old > 0 and summary.max_age_days == 1
+    assert f"Posted before yesterday (not saved): {summary.too_old}" in summary.friendly_text()
+    s.sweep["max_posted_age_days"] = None
+    assert max_posted_age(s) is None

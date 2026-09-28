@@ -133,6 +133,12 @@ A source whose secret is missing is skipped with a line in the summary; the run 
 The daily 30 are filled only with jobs that pass these free checks, so screening does not
 spend its places (or tokens) on jobs it would skip anyway:
 
+- **Fresh postings.** A new job is only saved when its posting is at most
+  `sweep.max_posted_age_days` (1) days old: posted today or yesterday, so a job posted after
+  yesterday's `/fetch` is not lost. 0 keeps today's postings only; an empty value keeps any
+  age. Company sites often list jobs that are weeks old; those are not saved. Jobs without a
+  posted date are kept, and rows already in Notion are still updated. Summary: `Posted before
+  yesterday (not saved)`.
 - **Experience.** `screening.max_years_required` (4) is the most years a saved job may ask
   for. The years come from the description: `2-3 years`, `3+ years`, `at least 4 years`,
   `min. 3 lata`, `5 lat doswiadczenia` and so on. A range counts by its lower number (`3-5
