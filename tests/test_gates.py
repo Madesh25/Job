@@ -127,3 +127,41 @@ def test_first_gate_wins():
             mandatory_requirements=[tool("Java")])
     assert gate(row(role="Lead DevOps"), e).gate == 1
     assert gate(e=e).gate == 2
+
+
+@pytest.mark.parametrize("term", ["MS Azure", "Microsoft Azure", "Linux OS", "Amazon Web Services",
+                                  "K8s"])
+def test_skill_names_match_without_extra_words(term):
+    assert REF.lookup(term) is not None
+
+
+@pytest.mark.parametrize("term", ["artifact repositories", "build tooling", "DevOps tooling",
+                                  "CI/CD pipelines", "Operating Systems"])
+def test_general_phrases_never_fail_the_tech_check(term):
+    assert unbacked_tools(ext(mandatory_requirements=[tool(term)]), REF) == []
+    assert gate(e=ext(mandatory_requirements=[tool(term), tool("Kubernetes")])) is None
+
+
+def test_a_named_tool_you_lack_still_fails():
+    assert unbacked_tools(ext(mandatory_requirements=[tool("Java")]), REF) == ["Java"]
+    assert unbacked_tools(ext(mandatory_requirements=[tool("Java build tooling")]), REF) == [
+        "Java build tooling"]
+
+
+def test_stated_years_in_range_beat_the_lead_reading():
+    lead = Quoted(value="lead", quote="lead complex technical projects")
+    assert gate(row(years_required=3), ext(seniority_title_flag=lead)) is None
+    assert gate(e=ext(seniority_title_flag=lead,
+                      years_required_min=Quoted(value=3, quote="q"))) is None
+    hit = gate(e=ext(seniority_title_flag=lead))  # no years stated: the reading decides
+    assert hit.reason == "Seniority"
+
+
+def test_pre_gate_uses_the_higher_years_and_the_free_checks():
+    from jobengine.screen.gates import pre_gate
+
+    hit = pre_gate(row(years_required=2), 5, 4, "IT: 5 lat doswiadczenia")
+    assert (hit.reason, hit.detail) == ("Seniority", "5 years required, your limit is 4")
+    assert pre_gate(row(), None, 4, "Fluent Polish is required.").reason == "Polish required"
+    assert pre_gate(row(), None, 4, "B2B contract only.").reason == "B2B only"
+    assert pre_gate(row(country="Ireland"), None, 4, "B2B contract only.") is None

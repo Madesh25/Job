@@ -128,7 +128,12 @@ def test_seniority(title, expected):
         ("You have 3+ years of experience with Kubernetes", 3),
         ("at least 4 years in operations", 4),
         ("Minimum 3 years of AWS", 3),
-        ("3-5 years of Terraform, 2+ years of Go", 2),
+        ("3-5 years of Terraform, 2+ years of Go", 3),  # the largest requirement
+        ("minimalne doswiadczenie w IT: 5 lat, na podobnym stanowisku: 2 lata", 5),
+        ("Scalo od 18 lat tworzy oprogramowanie. 2+ years of AWS", 2),  # company age
+        ("We have 25+ years of history. 3+ years of Linux", 3),
+        ("3+ years of experience. 5+ years preferred", 3),  # nice-to-have years ignored
+        ("5+ years of experience is a plus", 5),  # only nice-to-have years: they count
         ("4\u20136 years with Linux", 4),
         ("Wymagamy: 3 lata doswiadczenia", 3),
         ("min. 4 lat doswiadczenia", 4),

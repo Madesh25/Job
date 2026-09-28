@@ -15,7 +15,7 @@ from jobengine.parallel import run_all
 from jobengine.reference import Reference
 from jobengine.safety import notion_write_target
 from jobengine.settings import Settings
-from jobengine.sweep import fakes, fulltext
+from jobengine.sweep import fakes, fit, fulltext
 from jobengine.sweep.dedupe import IndexRow, create_plan, description_blocks, update_plan
 from jobengine.sweep.gate import strategy_gate
 from jobengine.sweep.models import Job, Skipped, SourceResult, SweepSummary, TargetCompany
@@ -166,6 +166,23 @@ def too_senior(job: Job, limit: int) -> bool:
     return job.seniority in ("Senior", "Lead") or senior_in_text(job.description)
 
 
+def not_a_fit(job: Job, limit: int) -> str | None:
+    """Why the job cannot be taken, found for free, or None: "too senior", or a Skip reason
+    from sweep/fit.py ("Polish required", "Dutch required", "B2B only")."""
+    if too_senior(job, limit):
+        return "too senior"
+    return fit.cannot_take(job.country, job.description, job.salary)
+
+
+def _count(summary: SweepSummary, reason: str) -> None:
+    if reason == "too senior":
+        summary.too_senior += 1
+    elif reason == "B2B only":
+        summary.b2b_only += 1
+    else:
+        summary.needs_language += 1
+
+
 def _job_key(dedupe_key: str) -> str:
     """company|title without the city: the same job offered in several cities."""
     return "|".join(dedupe_key.split("|")[:2])
@@ -198,21 +215,26 @@ def _pick(
     summary: SweepSummary,
     say: Progress,
 ) -> list[list[Job]]:
-    """The new jobs that fit your experience, best first; the first `room` are saved.
+    """The new jobs you can take, best first; the first `room` are saved.
 
-    Jobs asking for more than screening.max_years_required years (or Senior titles without
-    years in your range) are dropped. The years are often only in the full description, so
-    the job pages are read in rounds from the top of the list: after each round the jobs
-    that ask for too much drop out and the next ones are read, until `room + lookahead`
-    fitting jobs are found or sweep.fulltext.max_pages pages were read. Then the fitting
-    jobs are ranked again (a full description often names skills the snippet left out).
+    Dropped for free (not_a_fit): jobs asking for more than screening.max_years_required
+    years (or Senior titles without years in your range), jobs that need Polish or Dutch,
+    and B2B-only jobs in Poland. These checks run before the daily limit is filled, so the
+    saved jobs are ones screening will not skip for these reasons.
+
+    The years, languages and contracts are often only in the full description, so the job
+    pages are read in rounds from the top of the list: after each round the jobs that do not
+    fit drop out and the next ones are read, until `room + lookahead` fitting jobs are found
+    or sweep.fulltext.max_pages pages were read. Then the fitting jobs are ranked again (a
+    full description often names skills the snippet left out).
     """
     limit = max_years(s)
     fits: list[list[Job]] = []
     pending: list[list[Job]] = []
     for jobs in ranked:  # known from the snippet already: free
-        if too_senior(jobs[0], limit):
-            summary.too_senior += 1
+        reason = not_a_fit(jobs[0], limit)
+        if reason:
+            _count(summary, reason)
         else:
             pending.append(jobs)
     cfg = fulltext.Config.from_settings(s)
@@ -228,8 +250,9 @@ def _pick(
         summary.full_tried += outcome.tried
         summary.full_read += outcome.read
         for jobs in chunk:
-            if too_senior(jobs[0], limit):
-                summary.too_senior += 1
+            reason = not_a_fit(jobs[0], limit)
+            if reason:
+                _count(summary, reason)
             else:
                 fits.append(jobs)
     if summary.full_tried:
