@@ -375,3 +375,91 @@ def test_friendly_summary_lists_sites_to_fix():
     text = summary.friendly_text()
     assert "- Blocked us: Intel (IE) (HTTP 403)" in text
     assert "- No job board found: Co 0, Co 1, Co 2, Co 3, Co 4, Co 5, Co 6, Co 7 and 2 more" in text
+
+
+ADZ = replace(JOB, url="https://www.adzuna.pl/details/5901137322?utm_medium=api")
+
+
+def test_adzuna_job_gets_the_employer_link_and_page():
+    opened = []
+
+    def get_page(url):
+        opened.append(url)
+        return "https://careers.example.com/jobs/77", f"<main>{LONG}</main>"
+
+    full = fulltext.read(ADZ, get_page)
+    assert opened == ["https://www.adzuna.pl/land/ad/5901137322"]
+    assert full.url == "https://careers.example.com/jobs/77"
+    assert full.description_origin == "full page, careers.example.com"
+
+
+def test_adzuna_region_block_falls_back_to_the_details_page():
+    def get_page(url):
+        if "/land/ad/" in url:
+            raise http.HttpError("GET https://www.adzuna.pl/land/ad/1 failed: HTTP 403", 403)
+        return url, f"<main>{LONG}</main>"
+
+    full = fulltext.read(ADZ, get_page)
+    assert full.url == ADZ.url  # still the Adzuna link
+    assert full.description_origin == "full page, www.adzuna.pl"
+
+
+def test_employer_link_without_more_text_still_replaces_the_url():
+    full = fulltext.read(ADZ, lambda url: ("https://careers.example.com/j", "<p>Apply</p>"))
+    assert full.url == "https://careers.example.com/j"
+    assert full.description == ADZ.description and full.description_is_snippet
+
+
+def test_employer_link_only_for_adzuna_details():
+    assert fulltext.employer_link("https://www.adzuna.nl/details/42?x=1") == (
+        "https://www.adzuna.nl/land/ad/42")
+    assert fulltext.employer_link("https://careers.example.com/details/42") is None
+
+
+DELOITTE_URL = ("https://apply.deloittece.com/en_US/careers/SearchJobs/"
+                "?523=%5B5515%5D&523_format=1482&listFilterMode=1")
+LIST_PAGE = """<html><body><ul>
+<li><h3><a href="/en_US/careers/JobDetail/DevOps-Engineer/52101">DevOps Engineer</a></h3>
+    <div>Gdansk, Katowice, Warsaw - Poland</div><div>Experienced</div></li>
+<li><h3><a href="/en_US/careers/JobDetail/Java-Developer/52102">Java Developer</a></h3>
+    <div>Warsaw - Poland</div></li>
+<li><h3><a href="/en_US/careers/JobDetail/Cloud-Engineer/52103">Cloud Engineer</a></h3>
+    <div>Experienced</div></li>
+<li><a href="/en_US/careers/JobDetail/DevOps-Engineer/52101">Apply now</a></li>
+</ul></body></html>"""
+
+
+def test_avature_search_page_is_detected():
+    board = ats.detect_board(TargetCompany("Deloitte", DELOITTE_URL, "Custom", True), {})
+    assert board == ats.Board("avature", DELOITTE_URL)
+
+
+def test_avature_jobs_from_the_list_page():
+    opened = []
+
+    def page(url):
+        opened.append(url)
+        return url, LIST_PAGE
+
+    deloitte = TargetCompany("Deloitte", DELOITTE_URL, "Custom", True, region="Poland")
+    result = ats.fetch(S, [deloitte], keep, get=fakes.FixtureHttp(S), page=page, today=TODAY)
+    assert [(p.title, p.location_text, p.posting_id) for p in result.postings] == [
+        ("DevOps Engineer", "Gdansk, Katowice, Warsaw - Poland", "avature-52101"),
+        ("Cloud Engineer", "Poland", "avature-52103"),  # no place shown: the row's Region
+    ]
+    assert result.postings[0].url == (
+        "https://apply.deloittece.com/en_US/careers/JobDetail/DevOps-Engineer/52101")
+    assert result.postings[0].description is None  # read later from the job page
+    assert len(opened) == 1  # fewer than 50 jobs: one page
+    assert "523=%5B5515%5D" in opened[0] and "jobRecordsPerPage=50" in opened[0]
+
+
+def test_wrong_job_board_link_is_listed_to_fix():
+    wrong = TargetCompany("Acme", "https://acme.wd1.myworkdayjobs.com/External", "Workday", True)
+
+    def post(url, body):
+        raise http.HttpError("POST https://acme.wd1.myworkdayjobs.com/x failed: HTTP 404", 404)
+
+    result = ats.fetch(S, [wrong], keep, get=fakes.FixtureHttp(S), post=post,
+                       page=fakes.FixtureHttp(S).page, today=TODAY)
+    assert result.blocked == ["Acme (job board HTTP 404)"]

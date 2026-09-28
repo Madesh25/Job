@@ -240,6 +240,18 @@ class Desk:
             return self.strategy_tap(action, arg)
         if action == "oc" and arg:
             return self.outreach_tap(arg)
+        if action == "ct" and arg:  # "Find contacts" under an approved resume
+            from jobengine.resume.builder import notion_id
+
+            return self.outreach_or_apply_only(notion_id(arg))
+        if action == "dr" and arg:  # "Write Gmail drafts" under the contacts found
+            if self.mail is None:
+                return [Reply("Gmail drafts are not available in this bot.")]
+            from jobengine.resume.builder import notion_id
+
+            job_id = notion_id(arg)
+            self.say(Reply("Writing Gmail drafts (never sent)..."))
+            return self.drafts(job_id)
         if action not in ("ap", "sk") or not arg:
             return [Reply("That button is no longer valid. Send /pending.")]
         before = self.ranked()
@@ -346,11 +358,13 @@ class Desk:
             latest = [self.preview(result.latest)] if result.latest else []
             return [Reply(result.message), *latest]
         if result.status == "approved" and result.job_id:
-            first = Reply(result.message, [("I applied", f"ia:{short_id(result.job_id)}")])
-            if self.contacts is None or self.notify is None:
-                return [first, *self.find_contacts(result.job_id)]
-            self.say(first)  # before the (slower) contact lookup
-            return self.outreach_or_apply_only(result.job_id)
+            # Nothing runs by itself: the next steps are buttons.
+            buttons = [("I applied", f"ia:{short_id(result.job_id)}")]
+            text = result.message
+            if self.contacts is not None:
+                buttons.append(("Find contacts", f"ct:{short_id(result.job_id)}"))
+                text += "\nNext: tap Find contacts for people to write to, or I applied."
+            return [Reply(text, buttons)]
         return [Reply(result.message)]
 
     # ------------------------------------------------------------ outreach budget (Module 10)
@@ -414,11 +428,13 @@ class Desk:
         return [Reply(result.message)]
 
     def _then_drafts(self, first: Reply, job_id: str, contacts: list[Any]) -> list[Reply]:
-        """The contacts summary, then the drafts (sent at once when the bot can)."""
-        if self.notify is None or self.mail is None or not _contact_ids(contacts):
-            return [first, *self.on_contacts_ready(job_id, contacts)]
-        self.say(first)
-        return self.on_contacts_ready(job_id, contacts)
+        """The contacts summary with a "Write Gmail drafts" button: drafts are only written
+        when you tap it."""
+        contact_finder.on_contacts_ready(job_id, contacts)
+        if self.mail is not None and _contact_ids(contacts):
+            first.buttons = [*first.buttons, ("Write Gmail drafts", f"dr:{short_id(job_id)}")]
+            first.text += "\nNext: tap Write Gmail drafts (they are never sent by themselves)."
+        return [first]
 
     def contacts_command(self, args: str) -> list[Reply]:
         if self.contacts is None or self.repo is None:
@@ -470,15 +486,6 @@ class Desk:
         return [Reply(answer.message)]
 
     # ------------------------------------------------------------ drafts (Module 06)
-
-    def on_contacts_ready(self, job_id: str, contacts: list[Any]) -> list[Reply]:
-        """Gmail drafts for the contacts just found (never sent)."""
-        contact_finder.on_contacts_ready(job_id, contacts)
-        ids = _contact_ids(contacts)
-        if self.mail is None or not ids:
-            return []
-        self.say(Reply(f"Writing Gmail drafts for {len(ids)} contacts..."))
-        return self.drafts(job_id, ids)
 
     def drafts(self, job_id: str, ids: list[str] | None = None) -> list[Reply]:
         assert self.mail is not None
