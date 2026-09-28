@@ -24,6 +24,7 @@ from jobengine.sweep.normalize import (
     detect_location,
     normalize,
     parse_active_countries,
+    senior_in_text,
     title_scope,
 )
 from jobengine.sweep.rank import Ranker
@@ -158,10 +159,11 @@ def max_years(s: Settings) -> int:
 
 
 def too_senior(job: Job, limit: int) -> bool:
-    """More years than you have, or a Senior title without years at or under the limit."""
+    """More years than you have; without years stated, a Senior title or a description
+    that calls the role senior ("a hands-on senior engineering role")."""
     if job.years_required is not None:
         return job.years_required > limit
-    return job.seniority in ("Senior", "Lead")
+    return job.seniority in ("Senior", "Lead") or senior_in_text(job.description)
 
 
 def _job_key(dedupe_key: str) -> str:

@@ -190,3 +190,46 @@ def test_your_experience_window(text, kept):
 
     job = replace(BASE, description=text, years_required=years_required(text))
     assert too_senior(job, 4) is not kept
+
+
+@pytest.mark.parametrize("text, senior", [
+    ("This is a hands-on senior engineering role combining architecture", True),
+    ("We are looking for a Senior DevOps Engineer to join", True),
+    ("Senior-level experience with Azure", True),
+    ("A senior position in our platform team", True),
+    ("You will work with senior engineers and architects", False),
+    ("Mentoring from senior colleagues", False),
+    ("Kubernetes and Terraform every day", False),
+    (None, False),
+])
+def test_senior_in_text(text, senior):
+    from jobengine.sweep.normalize import senior_in_text
+
+    assert senior_in_text(text) is senior
+
+
+def test_senior_text_counts_only_without_years():
+    from jobengine.sweep.runner import too_senior
+
+    text = "This is a hands-on senior engineering role."
+    assert too_senior(replace(BASE, description=text), 4)
+    assert not too_senior(replace(BASE, description=text, years_required=3), 4)
+
+
+def test_vp_titles_are_out_of_scope():
+    from jobengine.sweep.normalize import Rules, title_scope
+
+    rules = Rules.from_config(load_settings("local", {}).sweep)
+    assert title_scope("Java DevOps Engineer - Digital Assets (VP)", rules) is not None
+    assert title_scope("Vice President, Site Reliability Engineer", rules) is not None
+    assert title_scope("DevOps Engineer", rules) is None
+
+
+def test_not_stated_only_for_a_full_description():
+    from jobengine.sweep.dedupe import create_plan
+    from jobengine.sweep.normalize import years_low
+
+    full = replace(BASE, description="x" * 700, description_is_snippet=False)
+    assert create_plan(full, TODAY)["Years required"] == "Not stated"
+    assert "Years required" not in create_plan(BASE, TODAY)  # a snippet: not checked yet
+    assert years_low("Not stated") is None

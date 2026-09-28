@@ -63,6 +63,11 @@ def test_pre_gate_needs_no_llm():
     assert pre_gate(row(role="Senior DevOps Engineer"), None).reason == "Seniority"
     assert pre_gate(row(role="Senior DevOps Engineer"), 3) is None  # senior but in range
     assert pre_gate(row(role="Lead DevOps Engineer"), 2).detail == "title says lead"
+    assert pre_gate(row(role="Java DevOps Engineer (VP)"), None).detail == "title says vp"
+    senior = "This is a hands-on senior engineering role."
+    assert pre_gate(row(), None, jd=senior).detail == (
+        "the description calls the role senior, no years stated")
+    assert pre_gate(row(), 3, jd=senior) is None  # the years decide when stated
 
 
 def test_mandatory_polish_or_dutch_skips_preferred_does_not():

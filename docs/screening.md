@@ -55,8 +55,9 @@ Screening done: 14 screened (5 high, 1 normal, 2 low, 1 needs review, 5 skipped)
 ## Free seniority check before the AI
 
 Before a job goes to the LLM, the title and the years are checked for free: a Lead,
-Principal, Staff or Head of title, `Years required` (or the years in the description text)
-over `screening.max_years_required` (4), or a Senior title with no years stated. Such a job is
+Principal, Staff, Head of, VP or Vice President title, `Years required` (or the years in the description text)
+over `screening.max_years_required` (4), or, with no years stated, a Senior title or a
+description that calls the role senior. Such a job is
 skipped at once (`Skip`, reason `Seniority`, or `Experience >5 yrs` above 5 years) with the
 note `(no AI used)`; it does not count toward the daily 30. The same limit applies after the
 LLM reads the years.
