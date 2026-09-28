@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import threading
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import date
@@ -21,6 +22,7 @@ from jobengine.notion_repo import (
     jobs_repo_for,
     select_filter,
 )
+from jobengine.parallel import run_all
 from jobengine.reference import Reference
 from jobengine.safety import notion_write_target
 from jobengine.screen import daily, visa
@@ -30,7 +32,7 @@ from jobengine.screen.models import Extraction, JobRow, ScreenResult, ScreenSumm
 from jobengine.screen.tiering import build_matrix, contract_type, tier
 from jobengine.settings import ROOT_DIR, Settings
 from jobengine.sweep.dedupe import parse_posting_ids
-from jobengine.sweep.normalize import years_required
+from jobengine.sweep.normalize import years_low, years_required
 
 log = logging.getLogger("jobengine.screen")
 
@@ -124,7 +126,7 @@ def job_row(page_id: str, values: dict[str, Any]) -> JobRow:
         dedupe_key=values.get("Dedupe key"),
         status=values.get("Status"),
         screen_verdict=values.get("Screen verdict"),
-        years_required=int(years) if years is not None else None,
+        years_required=years_low(years),
         expires=values.get("Expires"),
         posted_date=values.get("Posted date"),
         ghost_risk=values.get("Ghost job risk"),
@@ -224,7 +226,7 @@ def plan_props(
     if not row.salary and ext.salary_text.value:
         props["Salary"] = str(ext.salary_text.value)
     if row.years_required is None and ext.years is not None:
-        props["Years required"] = ext.years
+        props["Years required"] = f"{ext.years}+ years"  # the LLM gives the lowest years
     merged = list(row.visa_flags) + [f for f in result.visa_flags if f not in row.visa_flags]
     if merged != list(row.visa_flags):
         props["Visa flags"] = merged
@@ -250,9 +252,15 @@ class _Run:
     applied: list[JobRow]
     _register: IndRegister | None = None
     _register_tried: bool = False
+    # Rows are screened on several threads: the IND register is loaded once.
+    _lock: threading.Lock = field(default_factory=threading.Lock)
     notes: list[str] = field(default_factory=list)
 
     def register(self) -> IndRegister | None:
+        with self._lock:
+            return self._load_register()
+
+    def _load_register(self) -> IndRegister | None:
         if not self._register_tried:
             self._register_tried = True
             url = self.config.get("ind_register.url")
@@ -364,27 +372,39 @@ def screen_pending(
     sent = 0  # rows that went to the LLM
     done = 0
     stopped = False
+    workers = max(1, int(s.screening.get("workers", 4)))
+
+    def one(row: JobRow) -> tuple[ScreenResult | None, Exception | None]:
+        try:
+            return run.screen(row, ("New",)), None
+        except (LLMError, http.HttpError) as exc:
+            return None, exc
+
     try:
-        for row in rows:
-            if sent >= room:
-                break
-            done += 1
-            if progress and done % 10 == 0:
-                progress(f"Screening: {done} of {min(len(rows), room)} jobs checked")
-            try:
-                result = run.screen(row, ("New",))
-            except LLMAuthError as exc:  # every other job would fail the same way
-                summary.errors.append(f"Screening stopped: {exc}")
-                stopped = True
-                break
-            except (LLMError, http.HttpError) as exc:
-                summary.errors.append(f"Could not screen {_label(row)}: {exc}")
-                continue
-            if result.description_kind != "none" and result.llm_used:
-                sent += 1
-            if result.verdict == "Unscreened":
-                summary.waiting_for_jd += 1
-            summary.add(result)
+        pos = 0
+        while pos < len(rows) and sent < room and not stopped:
+            # One job first (a refused key then costs one call), then `workers` at a time,
+            # never more than what is left of today's limit.
+            size = 1 if sent == 0 else min(workers, room - sent)
+            batch = rows[pos:pos + size]
+            pos += len(batch)
+            for row, (result, exc) in zip(batch, run_all(one, batch, workers), strict=True):
+                done += 1
+                if progress and done % 10 == 0:
+                    progress(f"Screening: {done} of {min(len(rows), room)} jobs checked")
+                if isinstance(exc, LLMAuthError):  # every other job would fail the same way
+                    if not stopped:
+                        summary.errors.append(f"Screening stopped: {exc}")
+                    stopped = True
+                    continue
+                if exc is not None or result is None:
+                    summary.errors.append(f"Could not screen {_label(row)}: {exc}")
+                    continue
+                if result.description_kind != "none" and result.llm_used:
+                    sent += 1
+                if result.verdict == "Unscreened":
+                    summary.waiting_for_jd += 1
+                summary.add(result)
     finally:
         if deps.write and sent:
             daily.record(deps.state, today, used + sent)

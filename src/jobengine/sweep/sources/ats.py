@@ -22,6 +22,7 @@ from urllib.parse import parse_qs, urlencode, urljoin, urlsplit, urlunsplit
 from bs4 import BeautifulSoup
 
 from jobengine import http
+from jobengine.parallel import Budget, run_all
 from jobengine.settings import Settings
 from jobengine.sweep.models import RawPosting, SourceResult, TargetCompany
 
@@ -263,8 +264,10 @@ def _sr_description(detail: Mapping[str, Any]) -> str | None:
 
 
 def smartrecruiters(
-    company: TargetCompany, board: Board, get: Getter, keep: Prefilter, detail_budget: int
+    company: TargetCompany, board: Board, get: Getter, keep: Prefilter,
+    detail_budget: int | Budget,
 ):
+    budget = detail_budget if isinstance(detail_budget, Budget) else Budget(detail_budget)
     base = f"https://api.smartrecruiters.com/v1/companies/{board.token}/postings"
     kept, dropped = [], 0
     offset = 0
@@ -285,7 +288,7 @@ def smartrecruiters(
     postings, detail_calls = [], 0
     for job, location in kept:
         detail: Mapping[str, Any] = {}
-        if detail_calls < detail_budget:
+        if budget.take():
             detail_calls += 1
             detail = get(f"{base}/{job['id']}", {}) or {}
         url = detail.get("postingUrl") or f"https://jobs.smartrecruiters.com/{board.token}/{job['id']}"
@@ -338,10 +341,11 @@ def _wd_location(info: Mapping[str, Any]) -> str:
 
 def workday(
     company: TargetCompany, board: Board, get: Getter, post: Poster, keep: Prefilter,
-    detail_budget: int, today: date, terms: tuple[str, ...], max_pages: int,
+    detail_budget: int | Budget, today: date, terms: tuple[str, ...], max_pages: int,
 ):
     """Workday career site search (the JSON the site's own page uses). Detail calls give
     the full description, the start date and every location."""
+    budget = detail_budget if isinstance(detail_budget, Budget) else Budget(detail_budget)
     base = f"https://{board.host}/wday/cxs/{board.token}/{board.site}"
     listed: dict[str, Mapping[str, Any]] = {}
     for term in terms:
@@ -367,7 +371,7 @@ def workday(
             dropped += 1
             continue
         info: Mapping[str, Any] = {}
-        if calls < detail_budget:
+        if budget.take():
             calls += 1
             try:
                 info = (get(f"{base}{path}", {}) or {}).get("jobPostingInfo") or {}
@@ -586,15 +590,21 @@ class Detector:
         else:
             self.no_board.append(company.name)
 
-    def board(self, company: TargetCompany) -> Board | None:
+    def _cached(self, company: TargetCompany) -> tuple[bool, Board | None]:
+        """(True, board) when the cache or the run budget decides; (False, None) when the
+        careers page must be read."""
         entry = self.cache.get(company.name)
         checked = _iso_date(entry.get("checked")) if entry else None
         if entry and checked and self.today - checked < self.every:
             self._note(company, entry)
-            return Board.from_dict(entry) if entry.get("ats") else None
+            return True, Board.from_dict(entry) if entry.get("ats") else None
         if self.left <= 0:
-            return Board.from_dict(entry) if entry and entry.get("ats") else None
+            return True, Board.from_dict(entry) if entry and entry.get("ats") else None
         self.left -= 1
+        return False, None
+
+    def _check(self, company: TargetCompany) -> tuple[Board | None, str | None]:
+        """Network only (safe on a worker thread): read the careers page, then guess."""
         board, problem = None, None
         url = company.careers_url or ""
         if self.page is not None and url.lower().startswith("https://"):
@@ -606,6 +616,10 @@ class Detector:
                 problem = _problem(exc)
         if board is None and self.guess_names:
             board = self.guess(company)
+        return board, problem
+
+    def _record(self, company: TargetCompany, board: Board | None,
+                problem: str | None) -> Board | None:
         entry = {**(board.as_dict() if board else {"ats": None}),
                  "checked": self.today.isoformat()}
         if board is None and problem:
@@ -616,6 +630,28 @@ class Detector:
             self.found += 1
         self._note(company, entry)
         return board
+
+    def board(self, company: TargetCompany) -> Board | None:
+        decided, board = self._cached(company)
+        if decided:
+            return board
+        return self._record(company, *self._check(company))
+
+    def resolve(self, companies: list[TargetCompany], workers: int) -> dict[str, Board | None]:
+        """board() for many companies: the careers pages are read `workers` at a time; the
+        cache, the budget and the lists are updated here, in company order."""
+        out: dict[str, Board | None] = {}
+        to_check = []
+        for company in companies:
+            decided, board = self._cached(company)
+            if decided:
+                out[company.name] = board
+            else:
+                to_check.append(company)
+        for company, found in zip(to_check, run_all(self._check, to_check, workers),
+                                  strict=True):
+            out[company.name] = self._record(company, *found)
+        return out
 
     def guess(self, company: TargetCompany) -> Board | None:
         """The company name as a Greenhouse, Lever or SmartRecruiters board, when one exists
@@ -696,44 +732,61 @@ def fetch(
     today = today or date.today()
     cfg = s.sweep.get("ats") or {}
     overrides = s.sweep.get("ats_boards") or {}
-    detail_budget = int(cfg.get("max_detail_calls", 20))
-    wd_budget = int(cfg.get("workday_detail_calls", 40))
+    sr_budget = Budget(int(cfg.get("max_detail_calls", 20)))
+    wd_budget = Budget(int(cfg.get("workday_detail_calls", 40)))
     terms = tuple(cfg.get("search_terms") or DEFAULT_SEARCH_TERMS)
     wd_pages = int(cfg.get("workday_pages_per_term", 1))
+    workers = max(1, int(s.sweep.get("workers", 8)))
     detector = Detector(s, page, get, state, today)
-    dropped_total = 0
+    active = [c for c in companies if c.active]
+    # 1. Which board each company uses (careers pages are read several at a time).
+    known = {c.name: detect_board(c, overrides) for c in active}
+    found = detector.resolve([c for c in active if known[c.name] is None], workers)
+    tasks: list[tuple[TargetCompany, Board]] = []
     amazon_done = False
-    for company in companies:
-        if not company.active:
-            continue
-        board = detect_board(company, overrides) or detector.board(company)
+    for company in active:
+        board = known[company.name] or found.get(company.name)
         if board is None or board.ats not in SUPPORTED:
             result.not_supported.append(company.name)
             continue
+        if board.ats == "amazon":
+            if amazon_done:  # Amazon and AWS share one board: searched once
+                continue
+            amazon_done = True
+        tasks.append((company, board))
+
+    # 2. Every board's feed, several at a time; results are kept in company order.
+    def read_board(task: tuple[TargetCompany, Board]) -> tuple[list[RawPosting], int] | str:
+        company, board = task
         try:
             if board.ats == "greenhouse":
                 postings, dropped, _ = greenhouse(company, board, get, keep)
             elif board.ats == "lever":
                 postings, dropped, _ = lever(company, board, get, keep)
             elif board.ats == "workday":
-                postings, dropped, used = workday(company, board, get, post, keep, wd_budget,
-                                                  today, terms, wd_pages)
-                wd_budget -= used
+                postings, dropped, _ = workday(company, board, get, post, keep, wd_budget,
+                                               today, terms, wd_pages)
             elif board.ats == "avature":
                 postings, dropped, _ = avature(company, board, page, keep)
             elif board.ats == "amazon":
-                if amazon_done:  # Amazon and AWS share one board: searched once
-                    continue
-                amazon_done = True
                 postings, dropped, _ = amazon(company, get, keep, terms)
             else:
-                postings, dropped, used = smartrecruiters(company, board, get, keep, detail_budget)
-                detail_budget -= used
+                postings, dropped, _ = smartrecruiters(company, board, get, keep, sr_budget)
         except http.HttpError as exc:
-            result.notes.append(f"ats {company.name}: {exc}")
+            return str(exc)
+        return postings, dropped
+
+    dropped_total = 0
+    for (company, _board), outcome in zip(tasks, run_all(read_board, tasks, workers),
+                                          strict=True):
+        if isinstance(outcome, str):
+            result.notes.append(f"ats {company.name}: {outcome}")
             # A wrong job board link (HTTP 404) shows in the summary, like a blocked site.
-            result.blocked.append(f"{company.name} (job board {_problem(exc)})")
+            status = re.search(r"HTTP (\d{3})", outcome)
+            problem = f"HTTP {status.group(1)}" if status else "no answer"
+            result.blocked.append(f"{company.name} (job board {problem})")
             continue
+        postings, dropped = outcome
         result.postings.extend(postings)
         dropped_total += dropped
     detector.save()

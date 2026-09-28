@@ -1,6 +1,8 @@
 from dataclasses import replace
 from datetime import date
 
+import pytest
+
 from jobengine.bot_state import FakeBotState
 from jobengine.reference import Reference
 from jobengine.settings import load_settings
@@ -159,10 +161,32 @@ def test_senior_jobs_are_replaced_by_the_next_ones_down_the_list():
     assert summary.too_senior == 2 and len(read) == 4  # two more read to refill
 
 
-def test_experience_column_only_when_switched_on():
-    from jobengine.sweep.runner import _columns
+def test_years_cell_as_posted_and_its_lowest_number():
+    from jobengine.sweep.normalize import years_low, years_text
 
-    s = load_settings("local", {})
-    assert "Experience" in _columns(s, {"Experience": "2-3 years"})
-    s.sweep["experience_column"] = False
-    assert _columns(s, {"Experience": "2-3 years"}) == {}
+    assert years_text(2, "2-3 years") == "2-3 years"
+    assert years_text(3, None) == "3 years"
+    assert years_text(None, None) is None
+    assert years_low("3-5 years") == 3
+    assert years_low("5+ years") == 5
+    assert years_low(4) == 4 and years_low(4.0) == 4
+    assert years_low("") is None and years_low(None) is None
+
+
+@pytest.mark.parametrize("text, kept", [
+    ("1-2 years of experience", True),
+    ("1-3 years of experience", True),
+    ("2-3 years of experience", True),
+    ("3-5 years of experience", True),  # the lowest number counts: 3
+    ("4+ years of experience", True),
+    ("5 years of experience", False),
+    ("5+ years of experience", False),
+    ("6+ years of experience", False),
+    ("5-7 years of experience", False),
+])
+def test_your_experience_window(text, kept):
+    from jobengine.sweep.normalize import years_required
+    from jobengine.sweep.runner import too_senior
+
+    job = replace(BASE, description=text, years_required=years_required(text))
+    assert too_senior(job, 4) is not kept

@@ -13,6 +13,7 @@ from typing import Any
 
 from jobengine.sweep.ghost import ghost_risk
 from jobengine.sweep.models import Job
+from jobengine.sweep.normalize import years_text
 
 MAX_POSTING_IDS = 50
 DESCRIPTION_BLOCK_CHARS = 2000
@@ -35,7 +36,6 @@ class IndexRow:
     url: str | None = None
     salary: str | None = None
     years_required: int | None = None
-    experience: str | None = None
     company: str = ""
     role: str = ""
     city: str | None = None
@@ -60,8 +60,7 @@ def create_plan(job: Job, today: date) -> dict[str, Any]:
         "Posted date": job.posted_date,
         "Salary": job.salary,
         "Seniority": job.seniority,
-        "Years required": job.years_required,
-        "Experience": job.experience,
+        "Years required": years_text(job.years_required, job.experience),
         "Dedupe key": job.dedupe_key,
         "Posting IDs": format_posting_ids([job.posting_ref]),
         "First seen": today,
@@ -105,8 +104,6 @@ def update_plan(row: IndexRow, job: Job, today: date) -> UpdatePlan:
         "URL": ("url", job.url),
         "Posted date": ("posted_date", job.posted_date),
         "Salary": ("salary", job.salary),
-        "Years required": ("years_required", job.years_required),
-        "Experience": ("experience", job.experience),
     }
     after = IndexRow(**vars(row))
     after.posting_ids = ids
@@ -115,6 +112,9 @@ def update_plan(row: IndexRow, job: Job, today: date) -> UpdatePlan:
         if value is not None and value != "" and getattr(row, attr) in (None, ""):
             props[prop] = value
             setattr(after, attr, value)
+    if row.years_required is None and job.years_required is not None:
+        props["Years required"] = years_text(job.years_required, job.experience)
+        after.years_required = job.years_required
     if row.first_seen is None:
         # Only happens for rows created by hand without First seen.
         props["First seen"] = today

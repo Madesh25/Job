@@ -139,10 +139,23 @@ from the top of the list: after each round the jobs that ask for too much drop o
 next ones are read, until 30 fitting jobs (plus the lookahead) are found or
 `sweep.fulltext.max_pages` pages were read.
 
-`Years required` (a number) keeps the lowest years for sorting and filters. The optional
-`Experience` text column shows it as posted (`2-3 years`, `5+ years`); it is written only when
-`sweep.experience_column` is true (local and dev, where Job Opportunities (DEV) has the
-column). Add a text column `Experience` to the prod database, then set it for prod too.
+`Years required` is a text column that shows the experience as posted: `2-3 years`,
+`5+ years`, `3 years`. Screening and ranking read the lowest number from it. The code checks
+the column type once per run: while a database still has `Years required` as a number column
+(prod until it is converted), the lowest number is written there instead, so nothing breaks.
+To convert prod: open Job Opportunities, click the `Years required` header, Edit property,
+Type: Text. The numbers stay as text ("5").
+
+## Speed
+
+The slow parts run on several threads (`sweep.workers`, 8): the four sources (email alerts,
+Adzuna, Jooble and company sites) are searched at the same time, and so are the careers
+pages, the company job boards (Greenhouse, Lever, SmartRecruiters, Workday, Avature, Amazon)
+and the job pages. SmartRecruiters and Workday detail calls share one budget per run across
+threads. Results keep the same order as with one thread, and the cache and summary are
+updated on the main thread. Notion writes cannot go faster: the Notion client keeps about 3
+requests per second in total, whatever the number of threads. `sweep.workers: 1` runs
+everything one at a time again.
 
 ## One row per job
 
@@ -242,7 +255,8 @@ asks for the description with `/jd`. To read their pages too, add `gmail` to
   Staff, Manager and similar are dropped.
 - Seniority: Junior (`junior`, `jr`), Mid (`mid`, `regular`, `medior`), Senior (`senior`, `sr`),
   else Unknown.
-- Years required: the smallest explicit number in the description (`3+ years`, `at least 4
+- Years required: as posted, from the lowest requirement in the description (`2-3 years`,
+  `3+ years`); the lowest number counts for the limit and ranking (`3+ years`, `at least 4
   years`, `minimum 3 years`, `3-5 years`, `3 lata`, `min. 4 lat`). Empty otherwise.
 - Country and city come from `sweep.locations`. Adzuna `location.area` is tried first. A
   country with no city but "remote" in the location gives city `Remote`. A country missing

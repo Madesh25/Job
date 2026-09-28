@@ -10,6 +10,7 @@ from jobengine.notion_repo import (
     NOTION_VERSION,
     FakeJobsRepo,
     NotionClient,
+    NotionJobsRepo,
     NotionReader,
     job_properties,
     jobs_repo_for,
@@ -29,6 +30,7 @@ class FakeNotion:
         self.requests = []
         self.query_pages = []
         self.children = {}
+        self.schema = {}  # extra data source properties, for example a column type
 
     def __call__(self, request):
         body = json.loads(request.content) if request.content else None
@@ -38,6 +40,7 @@ class FakeNotion:
             return httpx.Response(200, json={"properties": {
                 "Dedupe key": {"id": "dk"}, "Posting IDs": {"id": "pi"},
                 "Company": {"id": "title"}, "Key": {"id": "k"}, "Value": {"id": "v"},
+                **self.schema,
             }})
         if path.endswith("/query"):
             page = self.query_pages.pop(0) if self.query_pages else {"results": []}
@@ -172,6 +175,17 @@ def test_client_paces_requests(notion):
     assert waits and waits[0] == pytest.approx(0.34)
 
 
+def test_client_pacing_holds_across_threads(notion):
+    from jobengine.parallel import run_all
+
+    s = load_settings("dev", {})
+    waits = []
+    client = NotionClient("t", s, sleep=waits.append, clock=lambda: 100.0)
+    run_all(lambda page: client.request("GET", f"/pages/{page}"), list("abcdef"), 6)
+    # Each call got its own slot: 0.34 s apart, never two at once.
+    assert sorted(waits) == pytest.approx([0.34 * n for n in range(1, 6)])
+
+
 def test_reader_config_and_target_companies_are_read_only(notion):
     s = load_settings("dev", {})
     reader = NotionReader(client_for(s), s)
@@ -197,12 +211,29 @@ def test_reader_config_and_target_companies_are_read_only(notion):
 
 
 def test_job_properties_types():
-    props = job_properties({"Country": "Poland", "URL": "https://x", "Years required": 3})
+    props = job_properties({"Country": "Poland", "URL": "https://x",
+                            "Years required": "2-3 years"})
     assert props == {
         "Country": {"select": {"name": "Poland"}},
         "URL": {"url": "https://x"},
-        "Years required": {"number": 3},
+        "Years required": {"rich_text": [{"type": "text", "text": {"content": "2-3 years"}}]},
     }
+
+
+@pytest.mark.parametrize("column, sent", [
+    ({"type": "rich_text"}, {"rich_text": [{"type": "text", "text": {"content": "2-3 years"}}]}),
+    ({"type": "number"}, {"number": 2}),  # a database not converted yet gets the lowest number
+])
+def test_years_required_follows_the_column_type(notion, column, sent):
+    notion.schema = {"Years required": column}
+    repo = NotionJobsRepo(client_for(load_settings("dev", {})), SANDBOX_JOBS)
+    repo.create({"Company": "Acme", "Years required": "2-3 years"}, [])
+    repo.update("p1", {"Years required": "2-3 years"})
+    writes = [r[3]["properties"]["Years required"] for r in notion.requests
+              if r[0] in ("POST", "PATCH")]
+    assert writes == [sent, sent]
+    schema_reads = [r for r in notion.requests if r[0] == "GET" and "/data_sources/" in r[1]]
+    assert len(schema_reads) == 1  # read once per repo
 
 
 def test_fake_repo_records_writes():

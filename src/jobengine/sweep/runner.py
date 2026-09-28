@@ -11,6 +11,7 @@ from typing import Any
 from jobengine import http
 from jobengine.config_store import ConfigStore
 from jobengine.notion_repo import JobsRepo, NotionClient, NotionReader, jobs_repo_for
+from jobengine.parallel import run_all
 from jobengine.reference import Reference
 from jobengine.safety import notion_write_target
 from jobengine.settings import Settings
@@ -163,13 +164,6 @@ def too_senior(job: Job, limit: int) -> bool:
     return job.seniority in ("Senior", "Lead")
 
 
-def _columns(s: Settings, props: dict[str, Any]) -> dict[str, Any]:
-    """Drop optional columns this Job Opportunities does not have."""
-    if not s.sweep.get("experience_column"):
-        props.pop("Experience", None)
-    return props
-
-
 def _job_key(dedupe_key: str) -> str:
     """company|title without the city: the same job offered in several cities."""
     return "|".join(dedupe_key.split("|")[:2])
@@ -286,29 +280,35 @@ def run_sweep(
     log.info("index: %d existing rows", len(index))
     companies = deps.companies() if "ats" in sources else []
 
-    results: list[SourceResult] = []
-    found = 0
-    for name in sources:
-        say(f"Searching {SOURCE_LABELS[name]}... ({found} jobs found so far)")
+    def collect(name: str) -> SourceResult:
         try:
             if name == "ats":
-                result = deps.ats(companies, keep, state)
-            else:
-                result = getattr(deps, name)()
+                return deps.ats(companies, keep, state)
+            return getattr(deps, name)()
         except http.HttpError as exc:
-            result = SourceResult(name=name, skipped_reason=f"{name} failed: {exc}")
+            return SourceResult(name=name, skipped_reason=f"{name} failed: {exc}")
+
+    # The sources are independent: they are searched at the same time.
+    labels = [SOURCE_LABELS[name] for name in sources]
+    say(f"Searching {', '.join(labels)}...")
+
+    def source_done(finished: int, total: int) -> None:
+        if finished < total:
+            say(f"Searching: {finished} of {total} sources done")
+
+    workers = max(1, int(s.sweep.get("workers", 8)))
+    results: list[SourceResult] = run_all(collect, sources, workers, source_done)
+    for name, result in zip(sources, results, strict=True):
         summary.sources[name] = len(result.postings)
         log.info("%s: %d postings collected", name, len(result.postings))
         summary.not_supported += len(result.not_supported)
         summary.blocked_sites.extend(result.blocked)
         summary.no_board_sites.extend(result.no_board)
-        found += len(result.postings)
         if result.skipped_reason:
             summary.notes.append(result.skipped_reason)
             problem = "not set up yet" if "missing" in result.skipped_reason else "failed this time"
             summary.not_checked.append(f"{SOURCE_LABELS[name]}: {problem}")
         summary.notes.extend(result.notes)
-        results.append(result)
 
     total = sum(len(result.postings) for result in results)
     log.info("normalising and writing %d postings...", total)
@@ -320,7 +320,6 @@ def run_sweep(
 
     def update_existing(row: IndexRow, job: Job) -> None:
         plan_update = update_plan(row, job, today)
-        _columns(s, plan_update.props)
         if repo:
             repo.update(row.page_id, plan_update.props)
             if job.description and row.page_id not in with_body:
@@ -341,7 +340,7 @@ def run_sweep(
 
     def create_new(job: Job) -> None:
         nonlocal dry_ids
-        plan = _columns(s, create_plan(job, today))
+        plan = create_plan(job, today)
         blocks = description_blocks(job)
         if repo:
             page_id = repo.create(plan, blocks)

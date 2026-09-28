@@ -148,6 +148,23 @@ def experience(description: str | None) -> str | None:
     return min(options)[2]
 
 
+def years_text(years: int | None, posted: str | None) -> str | None:
+    """The Years required cell: as posted ("2-3 years"), else the lowest number."""
+    if posted:
+        return posted
+    return f"{years} years" if years is not None else None
+
+
+def years_low(value: Any) -> int | None:
+    """The lowest years in a Years required cell: 3 for "3-5 years" or for the number 3."""
+    if value is None or isinstance(value, bool):
+        return None
+    if isinstance(value, int | float):
+        return int(value)
+    match = re.search(r"\d{1,2}", str(value))
+    return int(match.group(0)) if match else None
+
+
 def years_required(description: str | None) -> int | None:
     """Smallest explicit years-of-experience number, or None."""
     if not description:

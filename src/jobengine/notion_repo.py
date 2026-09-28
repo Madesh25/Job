@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+import threading
 import time
 from collections.abc import Callable, Iterator
 from datetime import date
@@ -22,6 +23,7 @@ from jobengine.safety import SafetyError, notion_write_target
 from jobengine.settings import Settings
 from jobengine.sweep.dedupe import IndexRow, parse_posting_ids
 from jobengine.sweep.models import TargetCompany
+from jobengine.sweep.normalize import years_low
 
 log = logging.getLogger("jobengine.notion_repo")
 
@@ -40,9 +42,9 @@ JOB_PROPERTY_TYPES = {
     "Posted date": "date",
     "Salary": "rich_text",
     "Seniority": "select",
-    "Years required": "number",
-    # Optional text column ("2-3 years"); written only when sweep.experience_column is true.
-    "Experience": "rich_text",
+    # Text as posted ("2-3 years", "5+ years"). A database where it is still a number column
+    # gets the lowest number instead (NotionJobsRepo checks the column type).
+    "Years required": "rich_text",
     "Dedupe key": "rich_text",
     "Posting IDs": "rich_text",
     "First seen": "date",
@@ -151,7 +153,6 @@ INDEX_PROPERTIES = (
     "URL",
     "Salary",
     "Years required",
-    "Experience",
 )
 
 
@@ -306,8 +307,7 @@ def index_row(page_id: str, values: dict[str, Any]) -> IndexRow | None:
         posted_date=values.get("Posted date"),
         url=values.get("URL"),
         salary=values.get("Salary"),
-        years_required=int(years) if years is not None else None,
-        experience=values.get("Experience") or None,
+        years_required=years_low(years),
         company=values.get("Company") or "",
         role=values.get("Role") or "",
         city=values.get("City"),
@@ -362,6 +362,7 @@ class NotionClient:
         self._sleep = sleep
         self._clock = clock
         self._last = -MIN_INTERVAL_SECONDS
+        self._lock = threading.Lock()
 
     def request(
         self,
@@ -371,10 +372,14 @@ class NotionClient:
         params: list[tuple[str, Any]] | None = None,
     ) -> Any:
         check_page_write(method, path, self._s)
-        wait = self._last + MIN_INTERVAL_SECONDS - self._clock()
-        if wait > 0:
-            self._sleep(wait)
-        self._last = self._clock()
+        # Several threads may share this client: each call books the next free slot, so the
+        # rate stays at about 3 requests per second whatever the number of workers.
+        with self._lock:
+            now = self._clock()
+            start = max(now, self._last + MIN_INTERVAL_SECONDS)
+            self._last = start
+        if start > now:
+            self._sleep(start - now)
         try:
             return http.request_json(
                 method, f"{NOTION_API}{path}", params=params, headers=self._headers,
@@ -430,6 +435,28 @@ class NotionJobsRepo:
     def __init__(self, client: NotionClient, data_source_id: str):
         self.client = client
         self.data_source_id = data_source_id
+        self._years_type: str | None = None
+        self._lock = threading.Lock()
+
+    def _props(self, plan: dict[str, Any]) -> dict[str, Any]:
+        """Property payloads. "Years required" is text ("2-3 years") unless this database
+        still has it as a number column; then the lowest number is written."""
+        if "Years required" in plan:
+            with self._lock:
+                if self._years_type is None:
+                    schema = self.client.request("GET", f"/data_sources/{self.data_source_id}")
+                    prop = (schema.get("properties") or {}).get("Years required") or {}
+                    self._years_type = prop.get("type") or "rich_text"
+            if self._years_type == "number":
+                plan = {**plan, "Years required": years_low(plan["Years required"])}
+        out = {}
+        for name, value in plan.items():
+            kind = JOB_PROPERTY_TYPES[name]
+            if name == "Years required" and self._years_type == "number":
+                kind = "number"
+            if value is not None:
+                out[name] = notion_value(kind, value)
+        return out
 
     def load_index(self) -> list[IndexRow]:
         rows = []
@@ -442,14 +469,14 @@ class NotionJobsRepo:
     def create(self, plan: dict[str, Any], blocks: list[str]) -> str:
         body: dict[str, Any] = {
             "parent": {"type": "data_source_id", "data_source_id": self.data_source_id},
-            "properties": job_properties(plan),
+            "properties": self._props(plan),
         }
         if blocks:
             body["children"] = paragraph_blocks(blocks)
         return self.client.request("POST", "/pages", body)["id"]
 
     def update(self, page_id: str, props: dict[str, Any]) -> None:
-        self.client.request("PATCH", f"/pages/{page_id}", {"properties": job_properties(props)})
+        self.client.request("PATCH", f"/pages/{page_id}", {"properties": self._props(props)})
 
     def has_body(self, page_id: str) -> bool:
         data = self.client.request(

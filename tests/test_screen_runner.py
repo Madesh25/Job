@@ -86,7 +86,7 @@ def test_written_properties_for_a_clean_job(s, deps):
     assert row["Sponsorship"] == "Not mentioned"
     assert row["Work mode"] == "Hybrid"
     assert row["Salary"] == "16 000 - 21 000 PLN gross per month"
-    assert row["Years required"] == 3
+    assert row["Years required"] == "3+ years"
     assert row["Tech stack"] == ["Kubernetes", "Terraform", "AWS"]
     assert "Skip reason" not in row and "Gaps" not in row
     body = row["body"]
@@ -340,3 +340,33 @@ def test_screen_one_counts_but_is_never_blocked(s, deps):
     summary = screen_one(s, deps, TODAY, "pl-clean")
     assert summary.screened == 1
     assert deps.state.get("screen.day")["count"] == 2
+
+
+def test_screening_runs_several_jobs_at_once_after_the_first(s, deps):
+    import threading
+    import time
+
+    from jobengine.llm import FakeLLM
+
+    real = FakeLLM()
+    running, peak, lock = [0], [0], threading.Lock()
+
+    class Slow:
+        calls = real.calls
+
+        def complete_json(self, *args, **kwargs):
+            with lock:
+                running[0] += 1
+                peak[0] = max(peak[0], running[0])
+            time.sleep(0.03)
+            try:
+                return real.complete_json(*args, **kwargs)
+            finally:
+                with lock:
+                    running[0] -= 1
+
+    s.screening["workers"] = 4
+    deps.llm = lambda config: Slow()
+    summary = run(s, deps)
+    assert summary.screened == 14  # the same result as one at a time
+    assert 1 < peak[0] <= 4
