@@ -14,7 +14,7 @@ from jobengine.track.runner import MARKER, TrackDeps
 
 SOURCE_SECRETS = {"gmail": ("GMAIL_ALERTS_TOKEN_JSON",), "adzuna": ("ADZUNA_APP_ID",
                                                                      "ADZUNA_APP_KEY"),
-                  "ats": ()}
+                  "jooble": ("JOOBLE_API_KEY",), "ats": ()}
 
 
 def _day(value: Any) -> date | None:
@@ -106,6 +106,12 @@ def sources_text(deps: TrackDeps) -> str:
                      f"{found} jobs")
     if last:
         lines.append(f"Last sweep: {last.get('new', 0)} new, {last.get('updated', 0)} updated")
+    blocked, no_board = last.get("blocked_sites") or [], last.get("no_board_sites") or []
+    if blocked or no_board:
+        lines.append("Company sites we could not read (put their job board link in Careers "
+                     "URL in Target Companies):")
+        lines.extend(f"- blocked us: {name}" for name in blocked)
+        lines.extend(f"- no job board found: {name}" for name in no_board)
     return "\n".join(lines)
 
 

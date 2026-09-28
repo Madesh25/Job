@@ -199,6 +199,25 @@ def test_llm_failure_is_reported_and_row_left_alone(s, deps, tmp_path):
     assert deps.repo.writes == []
 
 
+def test_refused_key_stops_screening_after_the_first_job(s, deps):
+    from jobengine.llm import LLMAuthError
+
+    class Refused:
+        calls = 0
+
+        def complete_json(self, *args, **kwargs):
+            Refused.calls += 1
+            raise LLMAuthError("Anthropic refused ANTHROPIC_API_KEY (HTTP 401).")
+
+    deps.llm = lambda config: Refused()
+    summary = run(s, deps)
+    assert Refused.calls == 1
+    text = summary.text()
+    assert "Screening stopped: Anthropic refused ANTHROPIC_API_KEY (HTTP 401)." in text
+    assert "reached" not in text  # not reported as the daily limit
+    assert deps.repo.writes == []
+
+
 def test_missing_key_is_a_clear_error(s, deps):
     def no_key(config):
         raise LLMError("ANTHROPIC_API_KEY is not set, so LLM screening cannot run")

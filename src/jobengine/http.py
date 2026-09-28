@@ -57,7 +57,10 @@ def set_transport(transport: httpx.BaseTransport | None) -> None:
 def safe_url(url: str) -> str:
     """scheme://host/path without the query string, for logs and errors."""
     parts = urlsplit(url)
-    return f"{parts.scheme}://{parts.hostname}{parts.path}"
+    path = parts.path
+    if (parts.hostname or "").endswith("jooble.org") and path.startswith("/api/"):
+        path = "/api/(key hidden)"  # the Jooble key is the last part of the path
+    return f"{parts.scheme}://{parts.hostname}{path}"
 
 
 def _retry_after(resp: httpx.Response) -> float:

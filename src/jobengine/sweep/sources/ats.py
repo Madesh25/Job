@@ -455,17 +455,46 @@ def amazon(company: TargetCompany, get: Getter, keep: Prefilter, terms: tuple[st
 # ---------------------------------------------------------------- finding the board
 
 
-class Detector:
-    """Finds the board of companies whose careers URL is their own site, by reading the
-    careers page. Results (also "nothing found") are kept in bot_state for a week."""
+# Words dropped from a company name before it is tried as a board name.
+NAME_NOISE = {"sp", "z", "o", "oo", "s", "a", "sa", "bv", "b", "v", "nv", "n", "ltd", "limited",
+              "inc", "gmbh", "plc", "llc", "group", "the", "ireland", "poland", "netherlands",
+              "polska", "nederland", "europe", "emea", "technology", "technologies"}
 
-    def __init__(self, s: Settings, page: PageGetter | None, state: Any, today: date):
+
+def name_slugs(name: str) -> list[str]:
+    """Board names a company may use: "Acme Cloud (IE)" gives acmecloud and acme-cloud."""
+    base = re.sub(r"\(.*?\)", " ", name.lower())
+    words = [w for w in re.split(r"[^a-z0-9]+", base) if w and w not in NAME_NOISE]
+    if not words:
+        return []
+    return list(dict.fromkeys(["".join(words), "-".join(words)]))
+
+
+def _problem(exc: http.HttpError) -> str:
+    if exc.status:
+        return f"HTTP {exc.status}"
+    return "blocked" if "page not read" in str(exc) else "no answer"
+
+
+class Detector:
+    """Finds the job board of companies whose careers URL is their own site.
+
+    1. Read the careers page and use the ATS it redirects to or links to.
+    2. Otherwise try the company name on the public Greenhouse, Lever and SmartRecruiters
+       APIs (many career sites block robots, but their ATS answers).
+    Results, also "nothing found" and the reason, are kept in bot_state for a week. Sites that
+    refused us are listed so their job board link can be put in Careers URL."""
+
+    def __init__(self, s: Settings, page: PageGetter | None, get: Getter | None, state: Any,
+                 today: date):
         cfg = s.sweep.get("ats") or {}
         self.page = page
+        self.get = get
         self.state = state
         self.today = today
         self.every = timedelta(days=int(cfg.get("detect_every_days", DEFAULT_DETECT_EVERY_DAYS)))
         self.left = int(cfg.get("max_detect_per_run", DEFAULT_MAX_DETECT_PER_RUN))
+        self.guess_names = bool(cfg.get("guess_by_name", True))
         self.cache: dict[str, Any] = {}
         if state is not None:
             try:
@@ -474,29 +503,73 @@ class Detector:
                 log.exception("could not read %s", DETECT_KEY)
         self.changed = False
         self.found = 0
+        self.blocked: list[str] = []  # "Company (HTTP 403)"
+        self.no_board: list[str] = []  # page read, no known board linked, name not found
+
+    def _note(self, company: TargetCompany, entry: Mapping[str, Any]) -> None:
+        if entry.get("ats"):
+            return
+        if entry.get("problem"):
+            self.blocked.append(f"{company.name} ({entry['problem']})")
+        else:
+            self.no_board.append(company.name)
 
     def board(self, company: TargetCompany) -> Board | None:
         entry = self.cache.get(company.name)
-        if entry and _iso_date(entry.get("checked")) and (
-            self.today - _iso_date(entry["checked"]) < self.every
-        ):
+        checked = _iso_date(entry.get("checked")) if entry else None
+        if entry and checked and self.today - checked < self.every:
+            self._note(company, entry)
             return Board.from_dict(entry) if entry.get("ats") else None
-        url = company.careers_url or ""
-        if self.page is None or self.left <= 0 or not url.lower().startswith("https://"):
+        if self.left <= 0:
             return Board.from_dict(entry) if entry and entry.get("ats") else None
         self.left -= 1
-        try:
-            final_url, page = self.page(url)
-        except http.HttpError as exc:
-            log.info("careers page not read for %s: %s", company.name, exc)
-            return Board.from_dict(entry) if entry and entry.get("ats") else None
-        board = board_in_page(final_url, page)
-        self.cache[company.name] = {**(board.as_dict() if board else {"ats": None}),
-                                    "checked": self.today.isoformat()}
+        board, problem = None, None
+        url = company.careers_url or ""
+        if self.page is not None and url.lower().startswith("https://"):
+            try:
+                final_url, page = self.page(url)
+                board = board_in_page(final_url, page)
+            except http.HttpError as exc:
+                log.info("careers page not read for %s: %s", company.name, exc)
+                problem = _problem(exc)
+        if board is None and self.guess_names:
+            board = self.guess(company)
+        entry = {**(board.as_dict() if board else {"ats": None}),
+                 "checked": self.today.isoformat()}
+        if board is None and problem:
+            entry["problem"] = problem
+        self.cache[company.name] = entry
         self.changed = True
         if board is not None:
             self.found += 1
+        self._note(company, entry)
         return board
+
+    def guess(self, company: TargetCompany) -> Board | None:
+        """The company name as a Greenhouse, Lever or SmartRecruiters board, when one exists
+        and lists at least one job."""
+        if self.get is None:
+            return None
+        for slug in name_slugs(company.name):
+            probes = (
+                (Board("greenhouse", slug), f"https://boards-api.greenhouse.io/v1/boards/{slug}/jobs",
+                 {}),
+                (Board("lever", slug), f"https://api.lever.co/v0/postings/{slug}",
+                 {"mode": "json", "limit": 1}),
+                (Board("lever", slug, eu=True), f"https://api.eu.lever.co/v0/postings/{slug}",
+                 {"mode": "json", "limit": 1}),
+                (Board("smartrecruiters", slug),
+                 f"https://api.smartrecruiters.com/v1/companies/{slug}/postings", {"limit": 1}),
+            )
+            for board, url, params in probes:
+                try:
+                    data = self.get(url, params)
+                except http.HttpError:
+                    continue
+                if _has_jobs(data):
+                    log.info("board for %s found by name: %s %s", company.name, board.ats, slug)
+                    return board
+        return None
 
     def save(self) -> None:
         if self.changed and self.state is not None:
@@ -504,6 +577,17 @@ class Detector:
                 self.state.set(DETECT_KEY, self.cache)
             except Exception:  # never fail a sweep over the cache
                 log.exception("could not store %s", DETECT_KEY)
+
+
+def _has_jobs(data: Any) -> bool:
+    if isinstance(data, list):  # Lever
+        return bool(data)
+    if isinstance(data, dict):
+        if "jobs" in data:  # Greenhouse
+            return bool(data["jobs"])
+        if "totalFound" in data:  # SmartRecruiters answers for any name
+            return int(data.get("totalFound") or 0) > 0
+    return False
 
 
 # ---------------------------------------------------------------- source
@@ -544,7 +628,7 @@ def fetch(
     wd_budget = int(cfg.get("workday_detail_calls", 40))
     terms = tuple(cfg.get("search_terms") or DEFAULT_SEARCH_TERMS)
     wd_pages = int(cfg.get("workday_pages_per_term", 1))
-    detector = Detector(s, page, state, today)
+    detector = Detector(s, page, get, state, today)
     dropped_total = 0
     amazon_done = False
     for company in companies:
@@ -579,7 +663,9 @@ def fetch(
     detector.save()
     if detector.found:
         result.notes.append(f"ats: found the job board of {detector.found} companies "
-                            "on their careers page")
+                            "on their careers page or by their name")
+    result.blocked = detector.blocked
+    result.no_board = detector.no_board
     if dropped_total:
         result.notes.append(
             f"ats: {dropped_total} postings outside title or location scope were not fetched"

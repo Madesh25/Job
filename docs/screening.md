@@ -52,6 +52,13 @@ Screening done: 14 screened (5 high, 1 normal, 2 low, 1 needs review, 5 skipped)
 - Skip (Tech mismatch): Odra Systems S.A., Platform Engineer (Poznań) | ...
 ```
 
+## When the API key is refused
+
+If Anthropic answers HTTP 401 or 403 (a wrong or revoked `ANTHROPIC_API_KEY`, or an account
+without credit), screening stops after the first job with `Screening stopped: Anthropic
+refused ANTHROPIC_API_KEY (HTTP 401) ...` instead of trying every job. Nothing is written and
+the daily count does not change. Fix the key in `.env` (or Secret Manager) and run `/screen`.
+
 ## The flow
 
 1. Load Config, the reference data (Skills Inventory, Term Map, Target Companies, all read

@@ -259,6 +259,7 @@ def test_progress_lines_are_plain_language():
         "Checking what is already in your Notion...",
         "Searching Email alerts... (0 jobs found so far)",
         "Searching Adzuna... (6 jobs found so far)",
+        "Searching Jooble... (13 jobs found so far)",
         "Searching Company career sites... (13 jobs found so far)",
         "Found 19 jobs. Saving to your Notion...",
         "Reading full job descriptions: 1 of 6",

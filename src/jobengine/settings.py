@@ -34,6 +34,7 @@ SECRET_VARS = {
     "GMAIL_SENDER_TOKEN_JSON": "gmail_sender_token_json",
     "ADZUNA_APP_ID": "adzuna_app_id",
     "ADZUNA_APP_KEY": "adzuna_app_key",
+    "JOOBLE_API_KEY": "jooble_api_key",
     "APOLLO_API_KEY": "apollo_api_key",
     "HUNTER_API_KEY": "hunter_api_key",
     "SNOV_CLIENT_ID": "snov_client_id",
@@ -79,6 +80,7 @@ class Settings(BaseModel):
     gmail_sender_token_json: str | None = None
     adzuna_app_id: str | None = None
     adzuna_app_key: str | None = None
+    jooble_api_key: str | None = None
     apollo_api_key: str | None = None
     hunter_api_key: str | None = None
     snov_client_id: str | None = None

@@ -71,10 +71,18 @@ class FixtureHttp:
             if page != "1":
                 return {"results": []}
             return _load(f"adzuna_{country}.json", self.base)
+        # Only the boards of the fixture companies exist; any other name is a 404, as for
+        # real (SmartRecruiters answers every name, with no jobs).
         if "boards-api.greenhouse.io" in url:
+            if "/boards/northwindcloud/" not in url:
+                raise http.HttpError(f"GET {http.safe_url(url)} failed: HTTP 404", 404)
             return _load("greenhouse.json", self.base)
         if "lever.co" in url:
+            if not url.rstrip("/").endswith("/tulipdata"):
+                raise http.HttpError(f"GET {http.safe_url(url)} failed: HTTP 404", 404)
             return _load("lever.json", self.base)
+        if "api.smartrecruiters.com" in url and "/companies/VistulaPayments/" not in url:
+            return {"content": [], "totalFound": 0}
         if "api.smartrecruiters.com" in url:
             if url.rstrip("/").endswith("/postings"):
                 if int(params.get("offset", 0)):

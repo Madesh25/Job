@@ -66,6 +66,7 @@ careers site that links to no known ATS).
 |---|---|---|
 | Gmail alerts | `GMAIL_ALERTS_TOKEN_JSON` (madeshwaranm02, `gmail.readonly`) | Query `sweep.gmail.query`. Board from the sender domain. Links are read from the email and never requested, tracking links included. Descriptions are never set (see "Email alerts setup"). |
 | Adzuna | `ADZUNA_APP_ID`, `ADZUNA_APP_KEY` | `pl` and `nl` only (Adzuna has no Ireland), at most `sweep.adzuna.max_calls_per_run` calls, split evenly between the countries (3 each by default) so every country is searched. The feed gives a snippet; the full text is read from the job page for jobs that may be saved. Predicted salaries are ignored. |
+| Jooble | `JOOBLE_API_KEY` (free, https://jooble.org/api/about) | Job search over many job boards, Ireland included. One call per country and term in `sweep.jooble` (3 x 4 = 12 calls). Board is the site Jooble found the job on when it is a known board (IrishJobs.ie, Indeed and so on, from `sweep.gmail.sender_boards`), else `Other`. The feed gives a snippet; the full text is read from the job page. Skipped without the key. |
 | ATS feeds | nothing | Every active Target Company on Greenhouse, Lever, SmartRecruiters, Workday or amazon.jobs. The board comes from `Careers URL`, from the careers page it links to, or from `sweep.ats_boards`. Board is `Company site`. |
 
 A source whose secret is missing is skipped with a line in the summary; the run continues.
@@ -90,13 +91,27 @@ A source whose secret is missing is skipped with a line in the summary; the run 
   qualifications. Searched once per sweep even when Amazon and AWS are both Target Companies.
 - Every feed is filtered by title and location before any detail call. Postings filtered out
   here are reported in one note line and not counted as skipped.
-- **Finding the board.** When `Careers URL` is the company's own site, the careers page is
-  read (the same safe page reader as below) and the ATS it redirects to or links to most is
-  used: Greenhouse (including embeds), Lever, SmartRecruiters, Workday or amazon.jobs. The
-  result, also "nothing found", is kept in Bot State `ats.detected` and checked again after
-  `sweep.ats.detect_every_days` (7). At most `sweep.ats.max_detect_per_run` (25) pages are
-  read per sweep, so a long Target Companies list is covered over a few runs. A page that
-  cannot be read is tried again next run. Target Companies itself is never changed.
+- **Finding the board.** When `Careers URL` is the company's own site:
+  1. the careers page is read (the same safe page reader as below) and the ATS it redirects
+     to or links to most is used: Greenhouse (including embeds), Lever, SmartRecruiters,
+     Workday or amazon.jobs;
+  2. otherwise (also when the site refuses robots with HTTP 403) the company name is tried
+     on the public Greenhouse, Lever and SmartRecruiters APIs: "Acme Cloud (IE)" is tried as
+     `acmecloud` and `acme-cloud`. A board counts only when it lists at least one job
+     (`sweep.ats.guess_by_name: false` switches this off).
+  The result, also "nothing found" and why, is kept in Bot State `ats.detected` and checked
+  again after `sweep.ats.detect_every_days` (7). At most `sweep.ats.max_detect_per_run` (25)
+  companies are checked per sweep, so a long Target Companies list is covered over a few
+  runs. Target Companies itself is never changed.
+- **Sites still missing.** The `/fetch` summary lists the companies whose site blocked us
+  (`Intel (IE) (HTTP 403)`) and those with no job board found; `/sources` lists all of them.
+  The fix is one field: put the company's job board link in `Careers URL` (for example
+  `https://intel.wd1.myworkdayjobs.com/External`, a `boards.greenhouse.io/...` or a
+  `jobs.lever.co/...` link). Big companies usually have one: open their careers site in a
+  browser, click any job, and copy the address of the page that lists the jobs. Workday,
+  Greenhouse, Lever, SmartRecruiters and amazon.jobs links are then read directly. A company
+  site we cannot read at all (its own custom system) is only covered through the job boards:
+  Adzuna, Jooble and email alerts.
 - For a company whose board is still not found, add an override in `config/base.yaml`:
 
   ```yaml
@@ -105,6 +120,16 @@ A source whose secret is missing is skipped with a line in the summary; the run 
       Shamrock Systems: {ats: greenhouse, token: shamrocksystems}
       Baltic Bank: {ats: workday, token: balticbank, host: balticbank.wd3.myworkdayjobs.com, site: careers}
   ```
+
+## Seeing jobs day by day in Notion
+
+Job Opportunities (DEV) has a view **By day**: grouped by `First seen` (the day the sweep
+found the job), newest first, with Company, Role, Screen verdict, Status, Board, place, dates,
+seniority, salary and URL. Each group folds open and closed. Notion's API can only create the
+grouping as relative dates (Today, Yesterday, Last 7 days); for one group per date open the
+view, click **Group**, then set **Date by** to **Day**. Do the same in the prod database when
+it goes live. `Posted date` can be used instead of `First seen`, but it is empty for jobs whose
+source does not state it (email alerts).
 
 ## Full descriptions
 
