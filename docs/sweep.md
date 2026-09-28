@@ -134,13 +134,17 @@ A source whose secret is missing is skipped with a line in the summary; the run 
 from the description: `2-3 years`, `3+ years`, `at least 4 years`, `min. 3 lata` and so on;
 the lowest one stated counts. A job asking for more, or a Senior title with no years at or
 under the limit, is not saved: the summary counts it as `Asked for more experience than you
-have (not saved)`. Snippets rarely state the years, so the sweep reads the job pages in rounds
+have (not saved)`. Without any years stated, a description that calls the role itself senior
+("a hands-on senior engineering role", "we are looking for a Senior DevOps Engineer",
+"senior-level") counts as too senior too; mentions of senior colleagues do not. Titles with
+`VP` or `Vice President` are out of scope (`sweep.title_exclude`). Snippets rarely state the years, so the sweep reads the job pages in rounds
 from the top of the list: after each round the jobs that ask for too much drop out and the
 next ones are read, until 30 fitting jobs (plus the lookahead) are found or
 `sweep.fulltext.max_pages` pages were read.
 
 `Years required` is a text column that shows the experience as posted: `2-3 years`,
-`5+ years`, `3 years`. Screening and ranking read the lowest number from it. The code checks
+`5+ years`, `3 years`, or `Not stated` when the full description was read and names no
+years. Empty means only a snippet was available, so the years were not checked yet. Screening and ranking read the lowest number from it. The code checks
 the column type once per run: while a database still has `Years required` as a number column
 (prod until it is converted), the lowest number is written there instead, so nothing breaks.
 To convert prod: open Job Opportunities, click the `Years required` header, Edit property,

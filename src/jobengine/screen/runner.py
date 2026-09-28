@@ -288,7 +288,7 @@ class _Run:
         if kind == "none":
             return ScreenResult(page_id=row.page_id, verdict="Unscreened", description_kind=kind)
         limit = int(self.s.screening.get("max_years_required", MAX_YEARS))
-        early = pre_gate(row, years_required(jd), limit)
+        early = pre_gate(row, years_required(jd), limit, jd)
         if early:  # too senior: skipped for free, no tokens spent
             result = ScreenResult(page_id=row.page_id, verdict="Skip", skip_reason=early.reason,
                                   description_kind=kind, llm_used=False,

@@ -148,11 +148,31 @@ def experience(description: str | None) -> str | None:
     return min(options)[2]
 
 
-def years_text(years: int | None, posted: str | None) -> str | None:
-    """The Years required cell: as posted ("2-3 years"), else the lowest number."""
+NOT_STATED = "Not stated"
+
+# The posting itself calls the role senior ("a hands-on senior engineering role"), as opposed
+# to mentioning senior colleagues ("you will work with senior engineers").
+_SENIOR_ROLE = re.compile(
+    r"\bsenior[\s-]+level\b"
+    r"|\bsenior (?:engineering |technical )?(?:role|position)\b"
+    r"|\b(?:as|for|hiring|seeking|looking for|join us as) an? (?:\w+ ){0,2}senior\b"
+    r"|\bthis (?:is an? )?(?:\w+ ){0,2}senior\b"
+)
+
+
+def senior_in_text(description: str | None) -> bool:
+    """True when the description says the role itself is senior."""
+    return bool(description and _SENIOR_ROLE.search(description.lower()))
+
+
+def years_text(years: int | None, posted: str | None, full: bool = False) -> str | None:
+    """The Years required cell: as posted ("2-3 years"), else the lowest number, else "Not
+    stated" when the full description was read and names no years, else empty."""
     if posted:
         return posted
-    return f"{years} years" if years is not None else None
+    if years is not None:
+        return f"{years} years"
+    return NOT_STATED if full else None
 
 
 def years_low(value: Any) -> int | None:

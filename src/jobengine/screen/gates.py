@@ -9,10 +9,10 @@ from datetime import date
 
 from jobengine.reference import Reference
 from jobengine.screen.models import Extraction, JobRow
-from jobengine.sweep.normalize import canon, canon_company, canon_title
+from jobengine.sweep.normalize import canon, canon_company, canon_title, senior_in_text
 
 MAX_YEARS = 4  # screening.max_years_required overrides it
-SENIOR_TITLE = re.compile(r"\b(lead|principal|head of|staff)\b")
+SENIOR_TITLE = re.compile(r"\b(lead|principal|head of|staff|vp|vice president)\b")
 SENIOR_WORD = re.compile(r"\b(senior|sr)\b")
 SKIP_LANGUAGES = {
     "polish": "Polish required",
@@ -38,7 +38,8 @@ def _years_hit(years: int, limit: int) -> GateHit:
     return GateHit(1, reason, f"{years} years required, your limit is {limit}")
 
 
-def pre_gate(row: JobRow, jd_years: int | None, limit: int = MAX_YEARS) -> GateHit | None:
+def pre_gate(row: JobRow, jd_years: int | None, limit: int = MAX_YEARS,
+             jd: str | None = None) -> GateHit | None:
     """The seniority checks that need no LLM: the title, and the years in Notion or in the
     description text. A row that fails them is skipped without spending tokens."""
     title = canon(row.role)
@@ -50,6 +51,8 @@ def pre_gate(row: JobRow, jd_years: int | None, limit: int = MAX_YEARS) -> GateH
         return _years_hit(years, limit)
     if years is None and SENIOR_WORD.search(title):
         return GateHit(1, "Seniority", "Senior title and no years stated")
+    if years is None and senior_in_text(jd):
+        return GateHit(1, "Seniority", "the description calls the role senior, no years stated")
     return None
 
 
