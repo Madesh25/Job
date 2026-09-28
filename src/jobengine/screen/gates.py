@@ -60,11 +60,10 @@ def pre_gate(row: JobRow, jd_years: int | None, limit: int = MAX_YEARS,
         return GateHit(1, "Seniority", "Senior title and no years stated")
     if years is None and senior_in_text(jd):
         return GateHit(1, "Seniority", "the description calls the role senior, no years stated")
-    lang = fit.language_block(jd)
-    if lang:
-        return GateHit(2, f"{lang} required", f"the description needs {lang}")
-    if fit.b2b_only(row.country, jd, row.salary):
-        return GateHit(3, "B2B only", "the description offers only a B2B contract")
+    label = fit.cannot_take(row.country, jd, row.salary, row.role)
+    if label:
+        gate = 3 if label == fit.B2B_ONLY else 7 if label == fit.NO_SPONSORSHIP else 2
+        return GateHit(gate, fit.skip_reason(label), label)
     return None
 
 

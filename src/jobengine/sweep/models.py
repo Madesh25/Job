@@ -99,8 +99,10 @@ class SweepSummary:
     too_senior: int = 0  # asked for more years than screening.max_years_required
     too_old: int = 0  # new postings older than sweep.max_posted_age_days
     max_age_days: int | None = None
-    needs_language: int = 0  # needs Polish or Dutch (sweep/fit.py)
+    needs_language: int = 0  # needs a language other than English (sweep/fit.py)
     b2b_only: int = 0  # Poland, B2B contract only (sweep/fit.py)
+    no_sponsorship: int = 0  # no visa sponsorship or relocation stated (sweep/fit.py)
+    low_match: int = 0  # below sweep.min_skill_match of your tools (sweep/runner.py)
     full_read: int = 0  # job pages that gave a full description (sweep/fulltext.py)
     blocked_sites: list[str] = field(default_factory=list)  # "Name (HTTP 403)"
     no_board_sites: list[str] = field(default_factory=list)
@@ -146,9 +148,15 @@ class SweepSummary:
                 self.max_age_days or 0, f"more than {self.max_age_days} days ago")
             lines.append(f"\U0001F5D3 Posted {when} (not saved): {self.too_old}")
         if self.needs_language:
-            lines.append(f"\U0001F5E3 Needs Polish or Dutch (not saved): {self.needs_language}")
+            lines.append(f"\U0001F5E3 Needs a language other than English (not saved): "
+                         f"{self.needs_language}")
         if self.b2b_only:
             lines.append(f"\U0001F4DD B2B contract only (not saved): {self.b2b_only}")
+        if self.no_sponsorship:
+            lines.append(f"\U0001F6C2 No visa sponsorship or relocation (not saved): "
+                         f"{self.no_sponsorship}")
+        if self.low_match:
+            lines.append(f"\U0001F9E9 Too few of your skills (not saved): {self.low_match}")
         if self.other_cities:
             lines.append(f"\U0001F4CD Same job in another city (not saved again): "
                          f"{self.other_cities}")

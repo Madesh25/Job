@@ -133,6 +133,19 @@ _YEARS_OF = re.compile(r"\b(\d{1,2})\s+years?\s+(?:of\s+)?(?:experience|exp)\b")
 _BARE_LAT = re.compile(r"\b(\d{1,2})\s+lat[a]?\b")  # "5 lat" alone is often "for 5 years"
 
 
+_NUMBER_WORDS = {w: str(i) for i, w in enumerate(
+    "zero one two three four five six seven eight nine ten eleven twelve thirteen fourteen "
+    "fifteen".split())}
+# "five (5) years", "five+ years", "five years": the word counts like the digit.
+_WORD_YEARS = re.compile(
+    rf"\b({'|'.join(_NUMBER_WORDS)})\b(\s*\(\d{{1,2}}\))?(?=\s*\+?\s*(?:years?|yrs?)\b)",
+    re.IGNORECASE)
+
+
+def _digits(text: str) -> str:
+    return _WORD_YEARS.sub(lambda m: _NUMBER_WORDS[m.group(1).lower()], text)
+
+
 def _year_options(description: str | None) -> list[tuple[int, str]]:
     """(lowest years, as posted) for each experience requirement in the description.
 
@@ -142,7 +155,7 @@ def _year_options(description: str | None) -> list[tuple[int, str]]:
         return []
     required: list[tuple[int, str]] = []
     optional: list[tuple[int, str]] = []
-    for segment in segments(description):
+    for segment in segments(_digits(description)):
         found: list[tuple[int, str]] = []
         for m in _RANGE.finditer(segment):
             low, high = int(m.group(1)), int(m.group(2))

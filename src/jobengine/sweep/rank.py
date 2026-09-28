@@ -12,6 +12,9 @@ step) then reads just those. Points, highest first:
 - Polish or Dutch stated as required: -6
 - posted in the last 3 days +2, last 7 days +1, older than 21 days -2
 - a full description (not a snippet): +1
+
+`match()` lists the tools a job names that you have and do not have; the sweep drops a job
+whose share of your tools is below `sweep.min_skill_match` (sweep/runner.py).
 """
 
 from __future__ import annotations
@@ -33,6 +36,28 @@ LANGUAGE_REQUIRED = re.compile(
 )
 
 
+# Tools and languages that jobs name, in canonical form. Those you do not own (Skills
+# Inventory, Active Term Map) count against the skill match; owned ones count for it.
+COMMON_TECH = frozenset(t.strip() for t in """
+    java|spring|spring boot|hibernate|maven|gradle|scala|kotlin|c#|dotnet|net core|c++|
+    ruby|rails|php|laravel|node js|nodejs|javascript|typescript|react|angular|vue|django|
+    flask|fastapi|kafka|rabbitmq|openshift|vmware|vsphere|nutanix|hyper v|citrix|sccm|
+    intune|active directory|windows server|macos|jamf|sap|salesforce|oracle|mainframe|
+    cobol|tableau|power bi|splunk|dynatrace|datadog|new relic|puppet|chef|saltstack|bamboo|
+    teamcity|jenkins|azure devops|bicep|arm templates|powershell|azure cli|cloudformation|
+    pulumi|nomad|consul|istio|openstack|ceph|elasticsearch|mongodb|cassandra|redis|
+    postgresql|mysql|sql server|snowflake|databricks|spark|hadoop|airflow|golang|rust|perl|
+    selinux|servicenow|aws|azure|gcp|terraform|ansible|kubernetes|docker|helm|argo cd|
+    prometheus|grafana|gitlab ci|github actions|python|bash|linux
+""".split("|")) - {""}
+
+
+def _longest(terms: list[str]) -> list[str]:
+    """Named terms without those inside a longer one: "spring boot" counts once, not also as
+    "spring"."""
+    return sorted(t for t in terms if not any(t != o and f" {t} " in f" {o} " for o in terms))
+
+
 class Ranker:
     """Scores new postings against the reference data. Build once per sweep."""
 
@@ -48,6 +73,14 @@ class Ranker:
         self.owned = {t for t in owned if t}
         self.production = {t for t in production if t}
         self.gaps = {t for t in gaps if t and t not in self.owned}
+        self.not_owned = (self.gaps | {canon_term(t) for t in COMMON_TECH}) - self.owned
+
+    def match(self, job: Job) -> tuple[list[str], list[str]]:
+        """(your tools the job names, tools it names that you do not have)."""
+        text = f" {canon(job.role)} {canon(job.description or '')} "
+        have = _longest([t for t in self.owned if f" {t} " in text])
+        missing = _longest([t for t in self.not_owned if f" {t} " in text])
+        return have, missing
 
     def score(self, job: Job, today: date) -> int:
         text = f" {canon(job.role)} {canon(job.description or '')} "
