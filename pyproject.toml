@@ -49,4 +49,5 @@ testpaths = ["tests"]
 pythonpath = ["src"]
 markers = [
     "render: renders a PDF with WeasyPrint (needs Pango and the Lato font)",
+    "posting_age: keeps the sweep.max_posted_age_days filter on (tests/conftest.py)",
 ]

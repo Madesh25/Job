@@ -235,6 +235,10 @@ sweep:
       - download
       - app store
       - google play
+  # New jobs are only saved when their posting is at most this many days old: 0 is today
+  # only, 1 is today and yesterday (a job posted after yesterday's /fetch is not lost).
+  # Jobs without a posted date are kept. Rows already in Notion are still updated.
+  max_posted_age_days: 1
   adzuna:
     countries: [pl, nl]
     # Adzuna results carry no currency field; each country endpoint reports salaries

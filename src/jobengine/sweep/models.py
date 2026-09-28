@@ -97,6 +97,8 @@ class SweepSummary:
     not_kept: int = 0  # new jobs below today's best-match cut (sweep.daily_new_limit)
     other_cities: int = 0  # new postings of a job already saved, in another city
     too_senior: int = 0  # asked for more years than screening.max_years_required
+    too_old: int = 0  # new postings older than sweep.max_posted_age_days
+    max_age_days: int | None = None
     needs_language: int = 0  # needs Polish or Dutch (sweep/fit.py)
     b2b_only: int = 0  # Poland, B2B contract only (sweep/fit.py)
     full_read: int = 0  # job pages that gave a full description (sweep/fulltext.py)
@@ -139,6 +141,10 @@ class SweepSummary:
         if self.too_senior:
             lines.append(f"\U0001F6B7 Asked for more experience than you have (not saved): "
                          f"{self.too_senior}")
+        if self.too_old:
+            when = {0: "before today", 1: "before yesterday"}.get(
+                self.max_age_days or 0, f"more than {self.max_age_days} days ago")
+            lines.append(f"\U0001F5D3 Posted {when} (not saved): {self.too_old}")
         if self.needs_language:
             lines.append(f"\U0001F5E3 Needs Polish or Dutch (not saved): {self.needs_language}")
         if self.b2b_only:
