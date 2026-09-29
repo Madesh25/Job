@@ -15,7 +15,7 @@ from jobengine.parallel import run_all
 from jobengine.reference import Reference
 from jobengine.safety import notion_write_target
 from jobengine.settings import Settings
-from jobengine.sweep import fakes, fit, fulltext
+from jobengine.sweep import crossmatch, fakes, fit, fulltext
 from jobengine.sweep.dedupe import IndexRow, create_plan, description_blocks, update_plan
 from jobengine.sweep.gate import strategy_gate
 from jobengine.sweep.models import Job, Skipped, SourceResult, SweepSummary, TargetCompany
@@ -447,6 +447,7 @@ def run_sweep(
 
     # Pass 1: rows already in Notion are updated; new jobs wait to be ranked.
     candidates: dict[str, list[Job]] = {}  # dedupe key -> postings, first one creates
+    seen: list[Job] = []  # every posting in scope, for the LinkedIn cross-match
     max_age = max_posted_age(s)
     summary.max_age_days = max_age
     for result in results:
@@ -460,6 +461,7 @@ def run_sweep(
                 summary.skipped += 1
                 log.debug("skipped %s: %s", raw.title, outcome.reason)
                 continue
+            seen.append(outcome)
             row = index.get(outcome.dedupe_key)
             if row is None and too_old(outcome, today, max_age):
                 summary.too_old += 1
@@ -492,6 +494,17 @@ def run_sweep(
             state.set(DAY_KEY, {"date": today.isoformat(), "count": used + len(kept)})
         except Exception:  # never fail a sweep over the counter
             log.exception("could not store the daily new-job count")
+
+    # Pass 3: LinkedIn rows without a description, from the same job on another site.
+    if repo and (s.sweep.get("crossmatch") or {}).get("enabled", True):
+        try:
+            filled = crossmatch.fill_linkedin(
+                repo, seen, fulltext.Config.from_settings(s), deps.page, with_body,
+                max_pages=int((s.sweep.get("crossmatch") or {}).get("max_pages", 10)),
+                progress=say)
+            summary.linkedin_filled = filled.labels
+        except Exception:  # never fail a sweep over the cross-match
+            log.exception("LinkedIn cross-match failed")
 
     high = sorted(label for label, risk in touched.values() if risk == "High")
     summary.high_ghost = len(high)

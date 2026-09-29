@@ -107,6 +107,7 @@ class SweepSummary:
     blocked_sites: list[str] = field(default_factory=list)  # "Name (HTTP 403)"
     no_board_sites: list[str] = field(default_factory=list)
     full_tried: int = 0
+    linkedin_filled: list[str] = field(default_factory=list)  # sweep/crossmatch.py
 
     def text(self) -> str:
         if self.blocked:
@@ -163,6 +164,10 @@ class SweepSummary:
         if self.full_tried:
             lines.append(f"\U0001F4C4 Full descriptions read from the job page: "
                          f"{self.full_read} of {self.full_tried}")
+        if self.linkedin_filled:
+            lines.append(f"\U0001F517 LinkedIn jobs: description found on another site "
+                         f"(no /jd needed): {len(self.linkedin_filled)}")
+            lines.extend(f"- {job}" for job in self.linkedin_filled)
         lines += [
             f"\U0001F501 Already in Notion, seen again: {self.updated + self.reposts}",
             f"\U0001F6AB Not a match (skipped): {self.skipped}",

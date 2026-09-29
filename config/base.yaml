@@ -136,6 +136,13 @@ mail:
   same_person_cooldown_days: 30
   max_attachment_kb: 250
 sweep:
+  # LinkedIn alert jobs have no description (LinkedIn is never read). After each sweep the
+  # same company, title and country is looked up among the other sources' postings and its
+  # description is written to the LinkedIn row (sweep/crossmatch.py). At most max_pages
+  # job pages are read for it when the match has only a snippet.
+  crossmatch:
+    enabled: true
+    max_pages: 10
   # Network work done at the same time: the sources, careers pages, job boards and job
   # pages. Notion writes stay at about 3 per second whatever this is.
   workers: 8

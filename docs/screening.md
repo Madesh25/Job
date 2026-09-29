@@ -132,7 +132,9 @@ then run `/screen`.
    - `full`: at least 600 characters (`screening.full_min_chars`) and not `(snippet only)`
    - `snippet`: marked `(snippet only)` or shorter
    - `none`: no description. The row stays `Unscreened` and counts as "waiting for JD".
-     LinkedIn is never fetched, so LinkedIn rows wait here until you paste the JD with `/jd`.
+     LinkedIn is never fetched, so LinkedIn rows wait here until you paste the JD with `/jd`,
+     unless the sweep found the same job on another site (see "LinkedIn descriptions from other
+     sites" in [sweep.md](sweep.md)).
 3. One LLM call (stage `score`) extracts the facts, then the quote check, the gates, the
    tier and the visa checks run, and the results are written.
 
