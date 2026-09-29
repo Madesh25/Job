@@ -64,6 +64,7 @@ HELP_TEXT = (
     "/drafts <url or id> - write Gmail drafts for a job's contacts again\n"
     "/applypack <url or id> - ready answers for a job's application form (visa, notice, salary)\n"
     "/mailmode - draft (only write Gmail drafts) or send (check every mail, then send it)\n"
+    "/mailqueue - mails waiting for the recipient's morning (Tue to Thu, 8 to 10 their time)\n"
     "/today - run the daily check now (sent mails, replies, bounces, follow-ups)\n"
     "/followups - follow-up drafts waiting to be sent, and follow-ups due soon\n"
     "/stats - applied, replies, interviews and reply rates (30 days and all time)\n"
@@ -545,6 +546,8 @@ def desk_replies(update: dict[str, Any], s: Settings, desk: Desk | None) -> list
         return _guarded("/drafts", lambda: desk.drafts_command(args))
     if command == "applypack":
         return _guarded("/applypack", lambda: desk.applypack_command(args))
+    if command == "mailqueue":
+        return _guarded("/mailqueue", desk.mailqueue_command)
     if command == "mailmode":
         return _guarded("/mailmode", lambda: desk.mailmode_command(args))
     if command == "status" and desk.track is not None:
@@ -671,12 +674,14 @@ def run_autopilot(
 def autopilot_check(client: TelegramClient, s: Settings, desk: Desk | None,
                     fetch: Fetcher | None = None) -> None:
     """Long polling: carry on with an /autopilot whose half-price batch has answered, else
-    start the morning's scheduled run when it is due (Config schedule.autopilot)."""
+    start the morning's scheduled run when it is due (Config schedule.autopilot); then send
+    one queued mail whose recipient's morning has come (mail/timing.py)."""
     if desk is None:
         return
     _bind_notify(client, s, desk)
     replies = _guarded("Autopilot",
                        lambda: desk.autopilot_scheduled(autopilot_fetch(fetch)) or [])
+    replies += _guarded("Mail queue", desk.mail_queue_tick)
     if replies:
         send_replies(client, s, str(s.telegram_chat_id), replies)
 

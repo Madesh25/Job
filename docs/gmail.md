@@ -125,6 +125,29 @@ Kept as drafts, not sent:
   Outside prod every mail goes to your redirect address, so send mode can be tried safely in
   dev: you receive the mails yourself.
 
+### The recipient's morning (send window)
+
+In send mode a mail that passed every check goes out at once only inside the recipient's
+morning: **Tuesday to Thursday, 08:00 to 10:00 in the job's country** (Poland
+Europe/Warsaw, Netherlands Europe/Amsterdam, Ireland Europe/Dublin). Mails read at the
+start of the working day get more replies than ones that arrive at night or on a Friday
+evening.
+
+- Outside the window the draft stays in Gmail and waits in the mail queue (Bot State
+  `mail.queue`); the summary says when each one goes (`Waiting for the recipient's
+  morning: - Piotr Example (cold mail): Tue 06 Oct 08:00 CEST`).
+- `/mailqueue` lists the waiting mails and when each goes.
+- The queue is checked every few minutes (long polling, together with /autopilot; Cloud
+  Run: Cloud Scheduler job `je-mail-prod`, [deploy.md](deploy.md) B4). Each check sends at
+  most **one** mail, so a morning's mails go out a few minutes apart.
+- At send time the draft is read back from Gmail and checked again (To, subject, body,
+  signature, the approved resume); the daily cap still applies, and the rest wait for the
+  next morning. A draft you sent or deleted yourself leaves the queue; one that changed is
+  kept as a draft and you are told why.
+- Change the days and hours in `config/base.yaml` (`mail.send_window`). Notion Config
+  `mail.send_window` = `off` sends at once, as before.
+- DRY RUN: the summary says `Would wait for the recipient's morning` and nothing is queued.
+
 ## Tokens (gmail.modify)
 
 Drafts need `gmail.modify`; the old OAuth Playground tokens only have `gmail.readonly`,
