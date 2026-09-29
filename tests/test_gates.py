@@ -174,3 +174,9 @@ def test_pre_gate_skips_no_sponsorship_and_other_languages_for_free():
     assert (hit.reason, hit.detail) == ("Other", "No visa sponsorship")
     hit = pre_gate(row(role="macOS Engineer (German-Speaking)"), None, 4, "Kubernetes.")
     assert (hit.reason, hit.detail) == ("Other", "German required")
+
+
+def test_slash_terms_match_any_part():
+    assert REF.lookup("Unix/Linux") is not None
+    assert unbacked_tools(ext(mandatory_requirements=[tool("Unix/Linux")]), REF) == []
+    assert REF.lookup("Java/Scala") is None

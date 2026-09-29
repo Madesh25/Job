@@ -56,15 +56,24 @@ GENERAL_WORDS = frozenset("""
 """.split())
 
 
-def term_keys(term: str | None) -> list[str]:
-    """The canonical keys a requirement term is looked up by: as written, then without
-    filler words, then its synonym."""
+def _keys_of(term: str) -> list[str]:
     key = canon_term(term)
     keys = [key] if key else []
     words = [w for w in key.split() if w not in FILLER_WORDS]
     if words and len(words) < len(key.split()):
         keys.append(" ".join(words))
     keys.extend(SYNONYMS[k] for k in list(keys) if k in SYNONYMS)
+    return keys
+
+
+def term_keys(term: str | None) -> list[str]:
+    """The canonical keys a requirement term is looked up by: as written, then without
+    filler words, then its synonym; "Unix/Linux" also by each part ("unix", "linux")."""
+    keys = _keys_of(term or "")
+    parts = [p for p in re.split(r"\s*/\s*", term or "") if p.strip()]
+    if len(parts) > 1:
+        for part in parts:
+            keys.extend(_keys_of(part))
     return list(dict.fromkeys(keys))
 
 

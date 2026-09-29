@@ -130,9 +130,11 @@ class AnthropicLLM:
         except anthropic.APIStatusError as exc:
             if exc.status_code in (401, 403):
                 raise LLMAuthError(
-                    f"Anthropic refused ANTHROPIC_API_KEY (HTTP {exc.status_code}). Check the "
-                    "key in .env (or Secret Manager): it may be wrong, revoked, or the account "
-                    "may have no credit."
+                    f"Anthropic refused ANTHROPIC_API_KEY (HTTP {exc.status_code}): the key "
+                    "may be wrong or revoked, or the account may have no credit. The key is "
+                    "read only when the bot starts: put the new key in .env, then stop the bot "
+                    "(Ctrl+C) and start it again. On Cloud Run: add a new version of the "
+                    "Anthropic secret and redeploy."
                 ) from None
             raise LLMError(f"LLM call failed: HTTP {exc.status_code}") from None
         except anthropic.APIConnectionError:

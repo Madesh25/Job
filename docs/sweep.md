@@ -66,7 +66,7 @@ careers site that links to no known ATS).
 | Source | Needs | Notes |
 |---|---|---|
 | Gmail alerts | `GMAIL_ALERTS_TOKEN_JSON` (madeshwaranm02, `gmail.readonly`) | Query `sweep.gmail.query`. Board from the sender domain. Links are read from the email and never requested, tracking links included. Descriptions are never set (see "Email alerts setup"). |
-| Adzuna | `ADZUNA_APP_ID`, `ADZUNA_APP_KEY` | `pl` and `nl` only (Adzuna has no Ireland), at most `sweep.adzuna.max_calls_per_run` calls, split evenly between the countries (3 each by default) so every country is searched. The feed gives a snippet; the full text is read from the job page for jobs that may be saved. Predicted salaries are ignored. |
+| Adzuna | `ADZUNA_APP_ID`, `ADZUNA_APP_KEY` | `pl` and `nl` only (Adzuna has no Ireland), at most `sweep.adzuna.max_calls_per_run` calls, split evenly between the countries (12 calls, 6 pages of 50 each by default) so every country is searched. The feed gives a snippet; the full text is read from the job page for jobs that may be saved. Predicted salaries are ignored. |
 | Jooble | `JOOBLE_API_KEY` (free, https://jooble.org/api/about) | Job search over many job boards, Ireland included. One call per country and term in `sweep.jooble` (3 x 4 = 12 calls). Board is the site Jooble found the job on when it is a known board (IrishJobs.ie, Indeed and so on, from `sweep.gmail.sender_boards`), else `Other`. The feed gives a snippet; the full text is read from the job page. Skipped without the key. |
 | ATS feeds | nothing | Every active Target Company on Greenhouse, Lever, SmartRecruiters, Workday or amazon.jobs. The board comes from `Careers URL`, from the careers page it links to, or from `sweep.ats_boards`. Board is `Company site`. |
 
@@ -134,11 +134,11 @@ The daily 30 are filled only with jobs that pass these free checks, so screening
 spend its places (or tokens) on jobs it would skip anyway:
 
 - **Fresh postings.** A new job is only saved when its posting is at most
-  `sweep.max_posted_age_days` (1) days old: posted today or yesterday, so a job posted after
-  yesterday's `/fetch` is not lost. 0 keeps today's postings only; an empty value keeps any
-  age. Company sites often list jobs that are weeks old; those are not saved. Jobs without a
-  posted date are kept, and rows already in Notion are still updated. Summary: `Posted before
-  yesterday (not saved)`.
+  `sweep.max_posted_age_days` (2) days old: posted in the last 3 days, so a job posted after
+  the last `/fetch` is not lost. 0 keeps today's postings only, 1 today and yesterday; an
+  empty value keeps any age. Company sites often list jobs that are weeks old; those are not
+  saved. Jobs without a posted date are kept, and rows already in Notion are still updated.
+  Summary: `Posted more than 2 days ago (not saved)`.
 - **Experience.** `screening.max_years_required` (4) is the most years a saved job may ask
   for. The years come from the description: `2-3 years`, `3+ years`, `at least 4 years`,
   `min. 3 lata`, `5 lat doswiadczenia` and so on. A range counts by its lower number (`3-5
@@ -169,11 +169,14 @@ spend its places (or tokens) on jobs it would skip anyway:
   `No visa sponsorship or relocation (not saved)`.
 - **Skills** (`sweep/rank.py`, `match`). Of the tools a job names (your Skills Inventory and
   Active Term Map terms, Term Map gaps, and a list of common tools such as Java, Spring,
-  Kafka, VMware, PowerShell or Jenkins), at least `sweep.min_skill_match` (0.7) must be
+  Kafka, VMware, PowerShell or Jenkins), at least `sweep.min_skill_match` (0.6) must be
   yours. "Spring Boot" counts once, not also as "Spring". A job naming fewer than
   `sweep.min_skill_terms` (4) tools is kept, as there is too little to judge. Summary: `Too
   few of your skills (not saved)`.
 - Years are also read when written as words ("at least five years", "five (5) years").
+- **Same job, two company names.** Target Companies lists one company per country ("Citi" and
+  "Citi (IE)"). The `(IE)`, `(NL)` or `(PL)` tag is left out of the Dedupe key, so a job found
+  through both is saved once. Rows saved before this rule are matched by their company name.
 
 Snippets rarely state these, so the sweep reads the job pages in rounds from the top of the
 list: after each round the jobs that do not fit drop out and the next ones are read, until

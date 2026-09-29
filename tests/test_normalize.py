@@ -202,3 +202,14 @@ def test_parse_active_countries():
 ])
 def test_years_in_words(text, expected):
     assert years_required(text) == expected
+
+
+def test_region_tag_is_not_part_of_the_company():
+    from jobengine.sweep.normalize import dedupe_key, index_key
+
+    key = dedupe_key("Citi (IE)", "Site Reliability Engineer (SRE)", "Warszawa", "Poland")
+    assert key == dedupe_key("Citi", "Site Reliability Engineer (SRE)", "Warszawa", "Poland")
+    # Rows saved before this change still carry "citi ie" in their stored key.
+    assert index_key("citi ie|site reliability engineer sre|warszawa", "Citi (IE)") == key
+    assert index_key("citi|sre|warszawa", "Citi") == "citi|sre|warszawa"
+    assert dedupe_key("Delft Digital B.V.", "SRE", None, "Netherlands").startswith("delft digital|")

@@ -215,20 +215,19 @@ def test_adzuna_splits_call_limit_between_countries():
 
     s = load_settings("local", {"ADZUNA_APP_ID": "id", "ADZUNA_APP_KEY": "key"})
     result = adzuna.fetch(s, get=get)
-    assert len(calls) == 6
+    assert len(calls) == 12
     assert calls[0][1] == {
         "app_id": "id", "app_key": "key", "results_per_page": 50, "max_days_old": 3,
         "what_or": "devops sre kubernetes platform cloud infrastructure",
         "content-type": "application/json",
     }
-    # Poland no longer uses the whole budget: 3 calls each, so the Netherlands is searched.
+    # Poland does not use the whole budget: 6 calls each, so the Netherlands is searched.
     assert [url.split("/jobs/")[1] for url, _ in calls] == [
-        "pl/search/1", "pl/search/2", "pl/search/3",
-        "nl/search/1", "nl/search/2", "nl/search/3",
+        *(f"pl/search/{n}" for n in range(1, 7)), *(f"nl/search/{n}" for n in range(1, 7)),
     ]
     assert result.notes == [
-        "adzuna pl: stopped at its limit of 3 calls",
-        "adzuna nl: stopped at its limit of 3 calls",
+        "adzuna pl: stopped at its limit of 6 calls",
+        "adzuna nl: stopped at its limit of 6 calls",
     ]
 
 
