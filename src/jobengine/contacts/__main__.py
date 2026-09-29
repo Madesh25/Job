@@ -1,5 +1,6 @@
 """CLI: python -m jobengine.contacts [--fake] --job <page_id or fixture> [--no-write]
-       python -m jobengine.contacts --probe apollo|hunter|snov --domain <domain>"""
+       python -m jobengine.contacts --probe apollo|hunter|snov --domain <domain>
+       python -m jobengine.contacts --probe lusha --domain "<Company Name>"""
 
 from __future__ import annotations
 
@@ -25,7 +26,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--no-write", action="store_true", help="show the result, write nothing")
     parser.add_argument("--probe", choices=sorted(PROVIDERS),
                         help="one real search call to check API access (prod, DRY_RUN=false)")
-    parser.add_argument("--domain", help="company email domain for --probe")
+    parser.add_argument("--domain", help="company email domain for --probe (lusha: the "
+                        "company name)")
     args = parser.parse_args(argv)
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s", datefmt="%H:%M:%S")

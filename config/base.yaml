@@ -35,6 +35,7 @@ safety:
     - api.prospeo.io
     - api.tomba.io
     - api.github.com
+    - api.lusha.com
   # Any subdomain of these (Workday boards are <tenant>.<wdN>.myworkdayjobs.com).
   allowed_host_suffixes:
     - myworkdayjobs.com

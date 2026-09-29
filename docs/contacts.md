@@ -45,8 +45,16 @@ emails you can find each month:
 - **Prod:** create the secrets `prospeo-api-key`, `tomba-api-key` and `tomba-api-secret`
   first, then add them to `SECRETS` in `.github/workflows/deploy.yml` (a missing secret stops
   the deploy, so they are not listed there yet).
-- Lusha and GetProspect are not in yet: their public code does not show where the revealed
-  email is in the answer, and emails are never guessed.
+- **Lusha (step 1: the probe).** Lusha's official MCP server (npm `@lusha-org/mcp`) shows how
+  to call it (`api_key` header, `POST /prospecting/contact/search`, then
+  `/prospecting/contact/enrich` with `revealEmails`) but passes the answer on as it is, so it
+  does not show where the people and the revealed emails are. Emails are never guessed, so
+  the lookup waits for one real answer: in prod with `DRY_RUN=false` and `LUSHA_API_KEY` set,
+  run `python -m jobengine.contacts --probe lusha --domain "<Company Name>"`. It makes one
+  search (no reveal), and prints only the field names and value types (no names, emails or
+  values). Send that list to Claude to build the Lusha lookup (step 2).
+- **GetProspect** is not in: no official source for its API could be read, and a request or
+  answer shape is never guessed. Its docs page (or an official SDK) is needed first.
 
 ## Engineers from GitHub (free)
 
