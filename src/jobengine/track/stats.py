@@ -117,3 +117,68 @@ def compute(jobs: Iterable[dict[str, Any]], contacts: Iterable[dict[str, Any]], 
 def stats_text(jobs: list[dict[str, Any]], contacts: list[dict[str, Any]], today: date) -> str:
     return "\n\n".join([compute(jobs, contacts, today, 30, "Last 30 days").text(),
                         compute(jobs, contacts, today, None, "All time").text()])
+
+
+# ---------------------------------------------------------------- what gets replies (PR 9)
+
+REPORT_SPLITS = (("Board", "board"), ("Country", "country"))
+# Contacts Type -> the mail each type gets (mail/templates.py KIND).
+MAIL_KIND = {"Peer engineer": "referral ask (engineers)", "Recruiter/TA": "cold mail (HR)",
+             "Hiring": "cold mail (hiring managers)", "Other": "cold mail (mailboxes)"}
+DEFAULT_MIN_SAMPLE = 3
+
+
+def _group_line(key: str, f: Funnel) -> str:
+    line = f"{key} {f.replied}/{f.applied} replied ({pct(f.rate)})"
+    return f"{line}, {f.interview} interview{'s' if f.interview != 1 else ''}" \
+        if f.interview else line
+
+
+def _best_and_worst(groups: dict[str, Funnel], min_sample: int) -> str | None:
+    fair = {k: f for k, f in groups.items() if f.applied >= min_sample and k != "Unknown"}
+    if len(fair) < 2:
+        return None
+    ranked = sorted(fair.items(), key=lambda kv: (-kv[1].rate, -kv[1].interview, kv[0]))
+    (best, fb), (worst, fw) = ranked[0], ranked[-1]
+    if fb.rate == fw.rate:
+        return None
+    return f"most replies from {best} ({pct(fb.rate)}), fewest from {worst} ({pct(fw.rate)})"
+
+
+def replies_report(jobs: Iterable[dict[str, Any]], contacts: Iterable[dict[str, Any]],
+                   today: date, days: int = 30,
+                   min_sample: int = DEFAULT_MIN_SAMPLE) -> str:
+    """Where replies and interviews came from in the last `days` days: by board, by country
+    and by the kind of mail (referral ask or cold mail), with a tip when a group of at least
+    `min_sample` beats another. Pure; no AI."""
+    stats = compute(jobs, contacts, today, days, f"Last {days} days")
+    lines = [f"What gets replies (last {days} days, {stats.funnel.applied} applied, "
+             f"{stats.funnel.replied} replied, {stats.funnel.interview} interviews):"]
+    tips: list[str] = []
+    for prop, name in REPORT_SPLITS:
+        groups = stats.splits.get(prop) or {}
+        if not groups:
+            continue
+        ordered = sorted(groups.items(), key=lambda kv: (-kv[1].rate, -kv[1].applied, kv[0]))
+        lines.append(f"- By {name}: " + "; ".join(_group_line(k, f) for k, f in ordered))
+        tip = _best_and_worst(groups, min_sample)
+        if tip:
+            tips.append(f"{name}: {tip}")
+    mail = {MAIL_KIND.get(kind, kind): rate for kind, rate in stats.contacts.items()}
+    if mail:
+        ordered_mail = sorted(mail.items(), key=lambda kv: (-kv[1].rate, -kv[1].contacted))
+        lines.append("- By mail: " + "; ".join(
+            f"{kind} {r.replied}/{r.contacted} replied ({pct(r.rate)})"
+            for kind, r in ordered_mail))
+        fair = [(k, r) for k, r in ordered_mail if r.contacted >= min_sample]
+        if len(fair) >= 2 and fair[0][1].rate > fair[-1][1].rate:
+            tips.append(f"mail: {fair[0][0]} gets more replies ({pct(fair[0][1].rate)}) than "
+                        f"{fair[-1][0]} ({pct(fair[-1][1].rate)})")
+    if stats.funnel.applied == 0 and not mail:
+        return f"What gets replies (last {days} days): nothing applied or mailed yet."
+    if tips:
+        lines.append("Put more effort where it works: " + "; ".join(tips) + ".")
+    else:
+        lines.append(f"Not enough data for a tip yet (needs at least {min_sample} in two "
+                     "groups).")
+    return "\n".join(lines)

@@ -8,7 +8,7 @@ from datetime import datetime, timedelta
 from jobengine.screen.runner import pending_rows, waiting_for_jd
 from jobengine.track import commands
 from jobengine.track.runner import TrackDeps
-from jobengine.track.stats import Funnel, compute, pct
+from jobengine.track.stats import Funnel, compute, pct, replies_report
 
 FIELDS = ("applied", "replied", "screening", "interview", "offer", "rejected", "ghosted")
 
@@ -41,4 +41,5 @@ def run_weekly_digest(deps: TrackDeps, now: datetime) -> str:
     due = commands.followups_due(contacts, today, commands.followup_days(deps, config), 0)
     lines.append(f"Follow-ups due: {len(due)}")
     lines.append(commands.strategy_line(config, today))
+    lines += ["", replies_report(jobs, contacts, today)]
     return "\n".join(lines)

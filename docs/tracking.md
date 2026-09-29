@@ -103,6 +103,13 @@ Commands: `/today`, `/followups`, `/status` (now with job and contact counts), `
 `/sources`, `/health`, `/digest`. The weekly digest (Module 09 sends it on Sunday 20:00
 Asia/Kolkata) compares the last 7 days with the week before and lists what waits for you.
 
+It ends with **What gets replies (last 30 days)** (`track/stats.replies_report`, free, no
+AI): replies and interviews by board, by country and by mail (referral ask to engineers,
+cold mail to HR, hiring managers or mailboxes), best first, then a tip such as
+`Put more effort where it works: board: most replies from Company site (67%), fewest from
+Adzuna (0%)`. A tip needs at least 3 applications (or mails) in two groups; until then it
+says there is not enough data yet. `/digest` shows it any time.
+
 ## Notion prerequisites
 
 - Contacts (DEV): `Follow-up draft ID` (text) and the Status option `Ghosted` (done). Prod gets
