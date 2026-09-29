@@ -1,7 +1,9 @@
 # /autopilot
 
-One Telegram command takes new postings all the way to Gmail drafts. Nothing is ever sent:
-you read the drafts, send them yourself, apply on the job page and tap **I applied**.
+One Telegram command takes new postings all the way to Gmail drafts. In mail mode draft (the
+default) nothing is sent: you read the drafts, send them yourself, apply on the job page and
+tap **I applied**. In mail mode send (`/mailmode send`) the drafts that pass every check are
+sent (see "Mail mode" in [gmail.md](gmail.md)).
 
 ## What it does
 
@@ -23,7 +25,9 @@ you read the drafts, send them yourself, apply on the job page and tap **I appli
    - Find contacts within this week's outreach budget ([outreach.md](outreach.md)): paid
      lookups only for jobs the budget covers, and only in prod with `DRY_RUN=false`. When the
      company's email domain is unknown, the bot asks; reply with the domain as usual.
-   - Write Gmail drafts, one per contact (DRY RUN outside prod: a preview, nothing created).
+   - Write Gmail drafts, one per contact (DRY RUN: a preview, nothing created). In mail mode
+     send, check them and send the ones that pass; a message per job lists what was sent and
+     what was kept as a draft, and why.
 6. **One summary**: the list of jobs with what was done for each, then each resume PDF with
    an **I applied** button.
 

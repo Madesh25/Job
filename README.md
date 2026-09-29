@@ -72,7 +72,8 @@ job description. See [docs/screening.md](docs/screening.md).
 
 `/autopilot` in Telegram fetches, screens at half price, approves the best Apply high and
 Apply normal jobs (at most 10 a day), saves their resumes, finds contacts and writes Gmail
-drafts (never sent), then sends one summary with the PDFs. See
+drafts, then sends one summary with the PDFs. `/mailmode send` lets it send the drafts that
+pass every check (To, Cc, subject, body, resume attachment); the default only writes drafts. See
 [docs/autopilot.md](docs/autopilot.md).
 
 ## Build a resume
