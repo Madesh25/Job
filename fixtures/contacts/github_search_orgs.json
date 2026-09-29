@@ -1,0 +1,13 @@
+{
+ "total_count": 2,
+ "items": [
+  {
+   "login": "vistula-games",
+   "type": "Organization"
+  },
+  {
+   "login": "vistula-cloud",
+   "type": "Organization"
+  }
+ ]
+}

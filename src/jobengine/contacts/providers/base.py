@@ -69,6 +69,10 @@ ROUTES = {
     "api.prospeo.io/search-person": "prospeo_search.json",
     "api.prospeo.io/bulk-enrich-person": "prospeo_enrich.json",
     "api.tomba.io/v1/domain-search": "tomba_domain_search.json",
+    "api.github.com/search/users": "github_search_orgs.json",
+    "api.github.com/orgs/": "github_orgs.json",
+    "api.github.com/orgs/vistula-cloud/public_members": "github_public_members.json",
+    "api.github.com/users/": "github_users.json",
 }
 
 

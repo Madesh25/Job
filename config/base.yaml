@@ -34,6 +34,7 @@ safety:
     - api.snov.io
     - api.prospeo.io
     - api.tomba.io
+    - api.github.com
   # Any subdomain of these (Workday boards are <tenant>.<wdN>.myworkdayjobs.com).
   allowed_host_suffixes:
     - myworkdayjobs.com
@@ -139,6 +140,10 @@ contacts:
     peer: [DevOps Engineer, Site Reliability Engineer, Platform Engineer, Cloud Engineer]
     hiring: [Engineering Manager, Head of Platform, Head of DevOps, Infrastructure Manager]
     recruiter: [Recruiter, Talent Acquisition, Technical Recruiter]
+  # Engineers from the company's public GitHub organisation (free; on when Notion Config
+  # contacts.github is "on"). At most this many member profiles are read per job.
+  github:
+    max_profiles: 20
 tracking:
   # Gmail label names (Module 07). Labels are applied, never created: make them in Gmail.
   labels:
