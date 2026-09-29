@@ -243,6 +243,12 @@ sets `Status` to `Screened` only if it is `New` or `Screened`, so a row never mo
   already read, so it needs 2 Notion requests instead of 4.
 - `/fetch` runs the sweep, then screening, and ends with `N ready to review: /pending`.
 - `/pending` shows one card at a time, best first, with `Approve`, `Skip` and `Next`.
+  Below the screening match counts the card shows, from the description and your reference
+  data (free, no AI, `sweep/rank.py`):
+  - `Skill match: 75% (3 of 4 tools it names)`: the tools the job names that you have.
+  - `Missing keywords: java, snowflake`: tools it names that you do not have (at most 6).
+  - `Use their word: EKS (your Kubernetes on AWS)`: the job's word for a skill you have under
+    another name (Active Term Map rows); say it their way in the resume and the mail.
   Approve sets `Status` = `Approved` and builds the resume (see `docs/resume-builder.md`),
   Skip sets `Declined`. A card already handled (a double tap, or changed in Notion) answers
   "Already handled". Buttons only work for your chat ID.

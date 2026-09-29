@@ -33,6 +33,7 @@ from jobengine.screen.runner import (
     SECTION_PREFIX,
     ScreenDeps,
     ScreenError,
+    description,
     find_row,
     job_row,
     pending_rows,
@@ -45,6 +46,7 @@ from jobengine.settings import ROOT_DIR, Settings
 from jobengine.strategy import runner as strategy_runner
 from jobengine.strategy.runner import StrategyDeps
 from jobengine.sweep.normalize import dedupe_key
+from jobengine.sweep.rank import Ranker
 from jobengine.track import commands as track_commands
 from jobengine.track import runner as track_runner
 from jobengine.track.digest import run_weekly_digest
@@ -73,7 +75,9 @@ REFERENCE_TTL_SECONDS = 600
 NO_TARGET = "DRY RUN: no Job Opportunities target in this environment, nothing to show."
 MAX_TEXT = 4000  # Telegram allows 4096 characters per message
 HIGH_ALERT = "\U0001F525 Apply high: apply today while the posting is fresh."
-MAX_HIGH_ALERTS = 5  # cards sent at once after a screening; the rest are in /pending
+MAX_HIGH_ALERTS = 5
+MAX_KEYWORDS = 6  # missing keywords shown on a /pending card
+MAX_REWORD = 4  # cards sent at once after a screening; the rest are in /pending
 
 
 @dataclass
@@ -163,6 +167,7 @@ class Desk:
         window = int(s.screening.get("jd_capture_minutes", jd_capture.WINDOW_MINUTES))
         self.captures = Captures(state, window)
         self._reference: tuple[float, Reference] | None = None
+        self._ranker: Ranker | None = None
 
     @property
     def repo(self) -> JobsRepo | None:
@@ -182,9 +187,38 @@ class Desk:
         rows = pending_rows(self.repo)
         return sorted(rows, key=lambda r: rank_key(r, ref, today), reverse=True)
 
+    def ranker(self) -> Ranker:
+        """The free skill matcher (sweep/rank.py), rebuilt when the reference data is."""
+        ref = self.reference()
+        if self._ranker is None or self._ranker.ref is not ref:
+            self._ranker = Ranker(ref)
+        return self._ranker
+
+    def keyword_lines(self, body: list[str]) -> list[str]:
+        """Skill match, missing keywords and the job's words for skills you have (no AI)."""
+        jd, _kind = description(body)
+        if not jd:
+            return []
+        found = self.ranker().keywords(jd)
+        lines = []
+        if found.share is not None:
+            named = len(found.have) + len(found.missing)
+            lines.append(f"Skill match: {found.share}% ({len(found.have)} of {named} tools "
+                         "it names)")
+        if found.missing:
+            more = len(found.missing) - MAX_KEYWORDS
+            extra = f" and {more} more" if more > 0 else ""
+            lines.append(f"Missing keywords: {', '.join(found.missing[:MAX_KEYWORDS])}{extra}")
+        if found.reword:
+            pairs = "; ".join(f"{theirs} (your {mine})"
+                              for theirs, mine in found.reword[:MAX_REWORD])
+            lines.append(f"Use their word: {pairs}")
+        return lines
+
     def card(self, row: JobRow, index: int, total: int, buttons: bool = True) -> Reply:
         assert self.repo is not None
-        counts = match_counts(self.repo.read_body(row.page_id))
+        body = self.repo.read_body(row.page_id)
+        counts = match_counts(body)
         posted = row.posted_date.isoformat() if row.posted_date else "unknown"
         place = ", ".join(p for p in (row.city, row.country) if p) or "unknown place"
         lines = [
@@ -196,6 +230,7 @@ class Desk:
             f"{row.sponsorship or 'Not mentioned'} | Visa: {', '.join(row.visa_flags) or 'none'}",
             f"Match: {counts['Strong']} strong, {counts['Transferable']} transferable, "
             f"{counts['Gap']} gaps",
+            *self.keyword_lines(body),
             f"Gaps: {row.gaps or 'none'}",
         ]
         if row.url:
