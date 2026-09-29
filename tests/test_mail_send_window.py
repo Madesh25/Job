@@ -82,7 +82,7 @@ def test_the_queue_sends_one_mail_per_check_in_the_morning():
     first = d.mail_queue_tick()[0].text
     assert first.startswith("Sent at 08:05 CEST (the recipient's morning), after the checks: "
                             "Piotr Example (cold mail) | To madeshwaranm02@gmail.com")
-    assert first.endswith("1 of 15 sends used today. 3 mails wait in the queue.")
+    assert first.endswith("1 of 10 sends used today. 3 mails wait in the queue.")
     assert d.mail.gmail().sent == ["r-fake-draft-1"]
     changed = [v for k, v in statuses(d).items() if v != before[k]]
     assert changed == [("Contacted", "")]

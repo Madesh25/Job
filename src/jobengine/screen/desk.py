@@ -595,7 +595,7 @@ class Desk:
         return [Reply(mail_sender.queue_text(self.mail, self.state)[:MAX_TEXT])]
 
     def mailmode_command(self, args: str) -> list[Reply]:
-        return [Reply(mail_sender.mode_command(self.state, args))]
+        return [Reply(mail_sender.mode_command(self.state, args, self.mail))]
 
     def drafts_command(self, args: str) -> list[Reply]:
         """/drafts <job>: retry drafting for a job (drafts already made are skipped)."""
