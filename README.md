@@ -124,7 +124,8 @@ python -m jobengine.track daily --fake --now 2026-10-15T08:00:00+05:30
 ```
 
 Detects sent drafts, replies, bounces, drafts one follow-up after 7 days and sends a daily
-report (`/today` in Telegram). See [docs/tracking.md](docs/tracking.md).
+report (`/today` in Telegram). Between daily checks, a reply from a contact or an employer
+is pinged in Telegram within 15 minutes. See [docs/tracking.md](docs/tracking.md).
 
 ## Strategy review and IND refresh
 

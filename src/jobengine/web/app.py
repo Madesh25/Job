@@ -76,6 +76,7 @@ class Tasks:
     # Queued, not awaited: a run with 10 resumes can take longer than the request timeout.
     autopilot: Callable[[], dict[str, Any]] = field(default=lambda: {"ok": True})
     mail: Callable[[], dict[str, Any]] = field(default=lambda: {"ok": True})
+    replies: Callable[[], dict[str, Any]] = field(default=lambda: {"ok": True})
 
 
 def desk_tasks(s: Settings, desk: Desk, client: tb.TelegramClient,
@@ -138,7 +139,15 @@ def desk_tasks(s: Settings, desk: Desk, client: tb.TelegramClient,
             send(replies)
         return {"ok": True, "sent": len(replies)}
 
-    return Tasks(daily=daily, digest=digest, sweep=sweep, autopilot=autopilot, mail=mail)
+    def replies() -> dict[str, Any]:
+        """Ping new replies from contacts and employers (track/ping.py)."""
+        pings = desk.reply_ping_tick()
+        if pings:
+            send(pings)
+        return {"ok": True, "pinged": len(pings)}
+
+    return Tasks(daily=daily, digest=digest, sweep=sweep, autopilot=autopilot, mail=mail,
+                 replies=replies)
 
 
 def create_app(
@@ -221,6 +230,10 @@ def create_app(
     @app.post("/tasks/mail")
     def task_mail(request: Request) -> JSONResponse:
         return run_task("mail", tasks.mail, request.headers.get("Authorization"))
+
+    @app.post("/tasks/replies")
+    def task_replies(request: Request) -> JSONResponse:
+        return run_task("replies", tasks.replies, request.headers.get("Authorization"))
 
     @app.post("/tasks/sweep")
     def task_sweep(request: Request) -> JSONResponse:
