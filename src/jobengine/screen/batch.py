@@ -40,12 +40,22 @@ from jobengine.settings import Settings
 log = logging.getLogger("jobengine.screen")
 
 STATE_KEY = BATCH_STATE_KEY
+COLLECT_HINT = " Send /screen collect to save the results."
 NO_BATCH = "No batch is waiting. /screen batch sends the Unscreened jobs at half price."
 
 
 def waiting_rows(deps: ScreenDeps) -> set[str]:
     """Page IDs of the rows in a batch that has not been collected yet."""
     return _batch_rows(deps)
+
+
+def ended(deps: ScreenDeps) -> bool | None:
+    """True once the waiting batch has ended, False while it works, None without a batch.
+    One status call only: nothing is read from Job Opportunities."""
+    pending = deps.state.get(STATE_KEY) if deps.state is not None else None
+    if not pending or not pending.get("id"):
+        return None
+    return bool(_batch_llm(deps.llm(deps.config())).batch_status(pending["id"]).ended)
 
 
 def _batch_llm(llm: Any) -> Any:
@@ -95,7 +105,7 @@ def submit(s: Settings, deps: ScreenDeps, today: date, limit: int | None = None)
     daily.record(deps.state, today, used + len(send))
     summary.errors.append(
         f"Sent {len(send)} jobs to the half-price batch. Anthropic usually answers within an "
-        "hour (at most 24 hours). Send /screen collect to save the results."
+        f"hour (at most 24 hours).{COLLECT_HINT}"
     )
     left = sum(1 for item in prepared if not isinstance(item, ScreenResult)) - len(send)
     if left > 0:
