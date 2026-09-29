@@ -255,9 +255,12 @@ def test_sweep_counts_old_postings_and_still_updates_known_rows():
     from jobengine.sweep.runner import max_posted_age
 
     s = load_settings("local", {})
-    assert max_posted_age(s) == 1
+    assert max_posted_age(s) == 2
+    s.sweep["max_posted_age_days"] = 1
     summary = run_sweep(s, fake_deps(s), TODAY)
     assert summary.too_old > 0 and summary.max_age_days == 1
     assert f"Posted before yesterday (not saved): {summary.too_old}" in summary.friendly_text()
+    summary.max_age_days = 2
+    assert f"Posted more than 2 days ago (not saved): {summary.too_old}" in summary.friendly_text()
     s.sweep["max_posted_age_days"] = None
     assert max_posted_age(s) is None

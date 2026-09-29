@@ -86,10 +86,28 @@ def canon_city(city: str | None) -> str:
     return CITY_ALIASES.get(value, value)
 
 
+# Target Companies lists one company per country: "Citi" and "Citi (IE)". The tag is not part
+# of the company, so the same job found through both is one job.
+_REGION_TAG = re.compile(r"\s*\((?:ie|nl|pl|ireland|netherlands|poland)\)\s*$", re.IGNORECASE)
+
+
+def without_region(company: str | None) -> str:
+    return _REGION_TAG.sub("", company or "")
+
+
 def dedupe_key(company: str, title: str, city: str | None, country: str) -> str:
-    """V16 company-role-city key, all parts canonical."""
+    """V16 company-role-city key, all parts canonical (a "(IE)" style tag is left out)."""
     place = canon_city(city) if city else canon(country)
-    return f"{canon_company(company)}|{canon_title(title)}|{place}"
+    return f"{canon_company(without_region(company))}|{canon_title(title)}|{place}"
+
+
+def index_key(dedupe: str, company: str | None) -> str:
+    """The key an existing row is found by: its stored Dedupe key, with the company part
+    rebuilt when the company has a region tag (rows saved before the tag was left out)."""
+    if not company or not _REGION_TAG.search(company):
+        return dedupe
+    _, sep, rest = dedupe.partition("|")
+    return f"{canon_company(without_region(company))}{sep}{rest}" if sep else dedupe
 
 
 def _has_term(text: str, terms: Iterable[str]) -> str | None:

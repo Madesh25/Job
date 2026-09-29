@@ -236,13 +236,13 @@ sweep:
       - app store
       - google play
   # New jobs are only saved when their posting is at most this many days old: 0 is today
-  # only, 1 is today and yesterday (a job posted after yesterday's /fetch is not lost).
+  # only, 1 today and yesterday, 2 the last 3 days (a job posted after a /fetch is not lost).
   # Jobs without a posted date are kept. Rows already in Notion are still updated.
-  max_posted_age_days: 1
+  max_posted_age_days: 2
   # Skill match: of the tools a new job names (your Skills Inventory and Term Map, plus the
   # common tools in sweep/rank.py), at least this share must be yours, or it is not saved.
   # Jobs naming fewer than min_skill_terms tools are kept (too little to judge).
-  min_skill_match: 0.7
+  min_skill_match: 0.6
   min_skill_terms: 4
   adzuna:
     countries: [pl, nl]
@@ -254,7 +254,7 @@ sweep:
     results_per_page: 50
     max_days_old: 3
     what_or: "devops sre kubernetes platform cloud infrastructure"
-    max_calls_per_run: 6
+    max_calls_per_run: 12
   ats:
     # SmartRecruiters detail calls per run (each gives one full description).
     max_detail_calls: 20

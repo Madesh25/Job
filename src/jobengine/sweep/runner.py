@@ -22,6 +22,7 @@ from jobengine.sweep.models import Job, Skipped, SourceResult, SweepSummary, Tar
 from jobengine.sweep.normalize import (
     Rules,
     detect_location,
+    index_key,
     normalize,
     parse_active_countries,
     senior_in_text,
@@ -359,7 +360,9 @@ def run_sweep(
         summary.not_checked.append("Notion: no write target here, nothing was saved")
     say("Checking what is already in your Notion...")
     log.info("loading Job Opportunities index...")
-    index: dict[str, IndexRow] = {row.dedupe_key: row for row in repo.load_index()} if repo else {}
+    index: dict[str, IndexRow] = (
+        {index_key(row.dedupe_key, row.company): row for row in repo.load_index()} if repo else {}
+    )
     log.info("index: %d existing rows", len(index))
     companies = deps.companies() if "ats" in sources else []
 
