@@ -49,6 +49,11 @@ screening:
   daily_limit: 30
   # /jd collects pasted messages for this long before the capture is discarded.
   jd_capture_minutes: 20
+  # /autopilot approves at most this many Apply high and Apply normal jobs a day (best first);
+  # the rest stay in /pending. While its half-price batch works, the bot (long polling) checks
+  # it every autopilot_check_minutes and carries on by itself when the answers are in.
+  autopilot_approvals: 10
+  autopilot_check_minutes: 5
   # /jd writes the pasted text in blocks of this size, at most this many blocks.
   block_chars: 2000
   max_blocks: 90

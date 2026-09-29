@@ -25,7 +25,7 @@ from jobengine.notion_repo import FakeJobsRepo, JobsRepo
 from jobengine.reference import Reference
 from jobengine.resume import builder as resume_builder
 from jobengine.resume.builder import BuildOutcome, ResumeDeps
-from jobengine.screen import batch, jd_capture
+from jobengine.screen import autopilot, batch, jd_capture
 from jobengine.screen.jd_capture import Capture, Captures
 from jobengine.screen.models import JobRow, ScreenSummary
 from jobengine.screen.runner import (
@@ -681,6 +681,16 @@ class Desk:
             return f"Screening could not run: {exc}"
         return self._summary_text(summary)
 
+    # ------------------------------------------------------------ /autopilot
+
+    def autopilot(self, fetch: autopilot.Fetch | None,
+                  progress: Callable[[str], None] | None = None) -> list[Reply]:
+        return autopilot.run(self, fetch, progress or (lambda text: None))
+
+    def autopilot_tick(self) -> list[Reply] | None:
+        """Called every few minutes by long polling: finishes a waiting /autopilot."""
+        return autopilot.tick(self)
+
     # ------------------------------------------------------------ /jd and /done
 
     def _discarded(self, capture: Capture) -> Reply:
@@ -849,7 +859,8 @@ def fake_desk(s: Settings, today: date, now: Callable[[], datetime] | None = Non
         assert isinstance(deps.repo, FakeJobsRepo)
         merged.rows.update(deps.repo.rows)
         deps.repo = merged
-    deps.llm = lambda config: FakeLLM(default={})
+    llm = FakeLLM(default={})  # one instance: a half-price batch is kept until collected
+    deps.llm = lambda config: llm
     clock = now or (lambda: datetime.combine(today, datetime.min.time()).replace(hour=9))
     resume = resume_builder.fake_deps(s, jobs=deps.repo, out_dir=ROOT_DIR / "out" / "fake")
     resume.today = lambda: today

@@ -29,6 +29,7 @@ from typing import Any, TextIO
 
 from jobengine.main import banner
 from jobengine.safety import SafetyError, check_startup, telegram_text
+from jobengine.screen import autopilot
 from jobengine.screen.desk import Desk, Reply, fake_desk, real_desk
 from jobengine.settings import ROOT_DIR, Settings, get_settings
 from jobengine.sweep import fakes
@@ -46,6 +47,8 @@ HELP_TEXT = (
     "/start - check that the bot is alive\n"
     "/status - environment, safety settings, job and contact counts\n"
     "/fetch - search for new jobs, then screen them\n"
+    "/autopilot - fetch, screen at half price, approve the best (10 a day), save resumes, "
+    "find contacts and write Gmail drafts (never sent)\n"
     "/pending - review screened jobs one at a time (Approve, Skip, Next)\n"
     "/jd <url> - paste a job description (for LinkedIn jobs), then /done\n"
     "/jd - list jobs waiting for a description\n"
@@ -399,7 +402,7 @@ def handle_update(
 # Commands that run for minutes or cost money. Telegram delivers a message again when the bot
 # stopped before confirming it (Ctrl+C in the middle of /fetch), so one sent before this bot
 # started is not run again by itself.
-STALE_COMMANDS = ("fetch", "screen", "update")
+STALE_COMMANDS = ("fetch", "screen", "update", "autopilot")
 
 
 def _stale_command(update: dict[str, Any], started: float | None) -> str | None:
@@ -459,6 +462,9 @@ def handle_one(
             client.send_message(*out)
         return
     text = message.get("text") or ""
+    if desk is not None and parse_command(text) == "autopilot":
+        run_autopilot(client, s, chat, desk, fetch)
+        return
     if desk is not None and parse_command(text) == "screen" and len(text.split()) == 1:
         run_screen(client, s, chat, desk)
         return
@@ -620,6 +626,42 @@ def run_screen(
     client.send_message(chat_id, telegram_text(text, s))
 
 
+NEXT_STEP = "\n\n\U0001F449 Next:"  # the hint /fetch ends with
+
+
+def run_autopilot(
+    client: TelegramClient, s: Settings, chat_id: str, desk: Desk, fetch: Fetcher | None,
+    clock: Callable[[], float] = time.monotonic,
+) -> None:
+    """/autopilot: one progress message, then the summary and the resumes."""
+    progress = ProgressMessage(client, chat_id, s, clock=clock, name="Autopilot",
+                               first="Autopilot started")
+
+    def fetch_only(update: Progress) -> str:
+        assert fetch is not None
+        return fetch(update).split(NEXT_STEP)[0]  # autopilot does the next step itself
+
+    try:
+        replies = desk.autopilot(fetch_only if fetch is not None else None, progress.update)
+    except Exception as exc:  # report the failure instead of stopping the bot
+        log.exception("/autopilot failed")
+        progress.finish(ok=False)
+        client.send_message(chat_id, telegram_text(f"/autopilot failed: {exc}", s))
+        return
+    progress.finish(ok=True)
+    send_replies(client, s, chat_id, replies)
+
+
+def autopilot_check(client: TelegramClient, s: Settings, desk: Desk | None) -> None:
+    """Long polling: carry on with an /autopilot whose half-price batch has answered."""
+    if desk is None:
+        return
+    _bind_notify(client, s, desk)
+    replies = _guarded("Autopilot", lambda: desk.autopilot_tick() or [])
+    if replies:
+        send_replies(client, s, str(s.telegram_chat_id), replies)
+
+
 class Typing:
     """Shows "typing..." until the reply is ready: Telegram clears it after about 5 seconds,
     so it is sent again every TYPING_EVERY seconds from a small background thread."""
@@ -674,8 +716,10 @@ def run(
     sleep: Callable[[float], None] = time.sleep,
     fetch: Fetcher | None = None,
     desk: Desk | None = None,
+    clock: Callable[[], float] = time.monotonic,
 ) -> None:
-    """Register the / menu, announce startup, then poll forever (or max_polls times)."""
+    """Register the / menu, announce startup, then poll forever (or max_polls times).
+    Between polls, a waiting /autopilot batch is checked every few minutes."""
     try:
         client.set_commands(bot_commands())
     except TelegramError as exc:  # the menu is a convenience: never stop the bot over it
@@ -684,10 +728,14 @@ def run(
     offset: int | None = None
     started = time.time()
     polls = 0
+    next_check = clock()
     while max_polls is None or polls < max_polls:
         polls += 1
         try:
             offset = poll_once(client, s, offset, fetch, desk, started=started)
+            if desk is not None and clock() >= next_check:
+                next_check = clock() + autopilot.check_seconds(desk)
+                autopilot_check(client, s, desk)
         except TelegramError as exc:
             log.error("%s, retrying in 5s", exc)
             sleep(5)

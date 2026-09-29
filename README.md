@@ -68,6 +68,13 @@ python -m jobengine.screen --no-write                  # real verdicts, writes n
 In Telegram, `/pending` shows the screened jobs one at a time and `/jd <url>` takes a pasted
 job description. See [docs/screening.md](docs/screening.md).
 
+## Autopilot
+
+`/autopilot` in Telegram fetches, screens at half price, approves the best Apply high and
+Apply normal jobs (at most 10 a day), saves their resumes, finds contacts and writes Gmail
+drafts (never sent), then sends one summary with the PDFs. See
+[docs/autopilot.md](docs/autopilot.md).
+
 ## Build a resume
 
 ```bash
