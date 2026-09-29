@@ -681,6 +681,23 @@ class Desk:
         self.say(Reply("Running the daily check..."))
         return self.report_replies(track_runner.run_daily(self.track, self.tracking_now()))
 
+    def reply_ping_tick(self) -> list[Reply]:
+        """Every few minutes: ping new replies from contacts and employers (track/ping.py).
+        A Gmail or Notion failure is only logged: the daily check reports token problems."""
+        from jobengine.track import ping
+
+        if self.track is None:
+            return []
+        now = self.tracking_now()
+        if not ping.due(self.track, now):
+            return []
+        try:
+            texts = ping.check(self.track, now)
+        except Exception as exc:
+            log.warning("reply check failed: %s", exc)
+            return []
+        return [Reply(text[:MAX_TEXT]) for text in texts]
+
     def track_tap(self, action: str, data: str) -> list[Reply]:
         if self.track is None:
             return self._no_track() or []

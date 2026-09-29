@@ -675,13 +675,15 @@ def autopilot_check(client: TelegramClient, s: Settings, desk: Desk | None,
                     fetch: Fetcher | None = None) -> None:
     """Long polling: carry on with an /autopilot whose half-price batch has answered, else
     start the morning's scheduled run when it is due (Config schedule.autopilot); then send
-    one queued mail whose recipient's morning has come (mail/timing.py)."""
+    one queued mail whose recipient's morning has come (mail/timing.py), and ping new
+    replies (track/ping.py, every tracking.reply_check_minutes)."""
     if desk is None:
         return
     _bind_notify(client, s, desk)
     replies = _guarded("Autopilot",
                        lambda: desk.autopilot_scheduled(autopilot_fetch(fetch)) or [])
     replies += _guarded("Mail queue", desk.mail_queue_tick)
+    replies += _guarded("Reply check", desk.reply_ping_tick)
     if replies:
         send_replies(client, s, str(s.telegram_chat_id), replies)
 

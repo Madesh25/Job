@@ -151,6 +151,9 @@ tracking:
   followup_days: 7
   ghosted_days: 14
   retention_months: 12
+  # Instant reply ping (track/ping.py): the inbox is searched this often for replies from
+  # contacts and employers; each new one is sent to Telegram at once (no AI, no Notion write).
+  reply_check_minutes: 15
   first_run_days: 14
   overlap_days: 1
   ats_sender_domains: [greenhouse.io, lever.co, smartrecruiters.com, myworkday.com, workday.com,

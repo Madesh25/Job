@@ -60,6 +60,35 @@ Telegram report. It never sends mail.
    are kept so they are never mailed again.
 10. The marker is written and the report sent.
 
+## Instant reply ping
+
+Between daily checks, a reply should not wait until the next morning. Every
+`tracking.reply_check_minutes` (15, `config/base.yaml`) the inbox is searched once for new
+mail since the last check (`src/jobengine/track/ping.py`), and each new message is sent to
+Telegram at once when it is:
+
+- in the thread of a mail you sent to a contact (Contacted, Followed up or Replied), or
+- in a job's application thread, or from the company's own domain of a job you applied to
+  (Applied, Screening, Interview).
+
+```
+📩 New reply from Piotr Example (Vistula Cloud)
+From: piotr.example@vistula.example.com
+Subject: Re: DevOps Engineer on your team at Vistula Cloud
+Hi Alex, Thanks for reaching out. Could we set up a technical interview next week? ...
+It may be about an interview or a call: answer soon.
+The daily check records it; send /today to record it now.
+```
+
+- Nothing is written to Notion and no AI is used; the daily check (or `/today`) still
+  classifies and records the reply as before.
+- Each message is pinged once (Bot State `tracking.pinged`: the last message IDs and the
+  time of the last check; the first check looks back one day).
+- Automatic replies, bounces, your own mails and mail from anyone else are never pinged.
+- A Gmail or Notion failure is only logged; the daily check reports token problems.
+- Long polling checks it with the 5-minute loop; Cloud Run gets `POST /tasks/replies` from
+  Cloud Scheduler job `je-replies-prod` ([deploy.md](deploy.md) B4).
+
 ## Status rules
 
 Job order: `New < Screened < Approved < Resume built < Applied < Followed up < Replied <
