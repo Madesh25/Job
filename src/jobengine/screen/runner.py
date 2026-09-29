@@ -82,11 +82,12 @@ def fake_deps(s: Settings, base: Path = FIXTURES, write: bool = True) -> ScreenD
     def get_text(url: str) -> str:
         return (ROOT_DIR / "fixtures" / "ind_register.html").read_text(encoding="utf-8")
 
+    llm = FakeLLM()  # one client, so a batch sent by one run can be collected by the next
     return ScreenDeps(
         config=ConfigStore.fake,
         reference=Reference.fake,
         repo=repo,
-        llm=lambda config: FakeLLM(),
+        llm=lambda config: llm,
         get_text=get_text,
         write=write,
         state=FakeBotState(),
@@ -290,6 +291,16 @@ class _Run:
         return not (company and company.ind_sponsor in ("Verified", "Not listed"))
 
     def screen(self, row: JobRow, status_from: tuple[str, ...]) -> ScreenResult:
+        prepared = self.prepare(row, status_from)
+        if isinstance(prepared, ScreenResult):
+            return prepared
+        ext, dropped = extract(self.llm, title=row.role, company=row.company,
+                               country=row.country or "", jd=prepared.jd, key=row.page_id)
+        return self.finish(row, prepared, ext, dropped, status_from)
+
+    def prepare(self, row: JobRow, status_from: tuple[str, ...]) -> ScreenResult | Prepared:
+        """Everything before the LLM: read the description and run the free checks. A
+        ScreenResult means the row is done (no description yet, or skipped for free)."""
         repo = self.deps.repo
         assert repo is not None
         full_min = int(self.s.screening.get("full_min_chars", FULL_MIN_CHARS))
@@ -299,7 +310,7 @@ class _Run:
         limit = int(self.s.screening.get("max_years_required", MAX_YEARS))
         years_fix = years_update(row, jd)
         early = pre_gate(row, years_required(jd), limit, jd)
-        if early:  # too senior: skipped for free, no tokens spent
+        if early:  # skipped for free, no tokens spent
             result = ScreenResult(page_id=row.page_id, verdict="Skip", skip_reason=early.reason,
                                   description_kind=kind, llm_used=False,
                                   notes=[f"gate {early.gate}: {early.detail} (no AI used)"])
@@ -309,17 +320,23 @@ class _Run:
                 repo.update(row.page_id, props)
                 repo.append_body(row.page_id, body_section(result, self.today))
             return result
+        return Prepared(jd=jd, kind=kind, years_fix=years_fix, limit=limit)
 
-        ext, dropped = extract(self.llm, title=row.role, company=row.company,
-                               country=row.country or "", jd=jd, key=row.page_id)
+    def finish(
+        self, row: JobRow, prepared: Prepared, ext: Extraction, dropped: list[str],
+        status_from: tuple[str, ...],
+    ) -> ScreenResult:
+        """Everything after the LLM: gates, tier, and the Notion writes."""
+        repo = self.deps.repo
+        assert repo is not None
         if dropped:
             log.info("%s: dropped %d unquoted values: %s", row.page_id, len(dropped),
                      ", ".join(dropped))
         matrix = build_matrix(ext, self.ref)
         result = ScreenResult(page_id=row.page_id, verdict="Skip", matrix=matrix,
-                              extraction=ext, description_kind=kind,
+                              extraction=ext, description_kind=prepared.kind,
                               tech_terms=tool_terms(ext))
-        hit = run_gates(row, ext, self.ref, self.applied, self.today, limit)
+        hit = run_gates(row, ext, self.ref, self.applied, self.today, prepared.limit)
         if hit:
             result.skip_reason = hit.reason
             result.gaps = list(hit.gaps) or [m.text for m in matrix if m.strength == "Gap"]
@@ -328,7 +345,7 @@ class _Run:
             register = self.register() if self.needs_register(row) else None
             checks = visa.visa_checks(row, ext, self.ref, self.config, register)
             flags = checks.flags
-            tiering = tier(row, ext, self.ref, matrix, flags, kind)
+            tiering = tier(row, ext, self.ref, matrix, flags, prepared.kind)
             result.verdict = tiering.verdict
             result.bottom = tiering.bottom
             result.employer = tiering.employer
@@ -337,9 +354,19 @@ class _Run:
             result.notes.extend(checks.notes)
             result.notes.extend(tiering.notes)
         if self.deps.write:
-            repo.update(row.page_id, plan_props(result, row, status_from) | years_fix)
+            repo.update(row.page_id, plan_props(result, row, status_from) | prepared.years_fix)
             repo.append_body(row.page_id, body_section(result, self.today))
         return result
+
+
+@dataclass(frozen=True)
+class Prepared:
+    """A row that passed the free checks and waits for the LLM."""
+
+    jd: str
+    kind: str
+    years_fix: dict[str, Any]
+    limit: int
 
 
 def _start(s: Settings, deps: ScreenDeps, today: date) -> _Run:
@@ -352,6 +379,25 @@ def _start(s: Settings, deps: ScreenDeps, today: date) -> _Run:
     applied = [job_row(pid, v) for pid, v in
                deps.repo.query_rows(select_filter("Status", *sorted(APPLIED_STATUSES)))]
     return _Run(s, deps, today, config, deps.reference(), llm, applied)
+
+
+BATCH_STATE_KEY = "screen.batch"  # screen/batch.py: the batch that waits to be collected
+
+
+def _batch_rows(deps: ScreenDeps) -> set[str]:
+    pending = deps.state.get(BATCH_STATE_KEY) if deps.state is not None else None
+    return set((pending or {}).get("rows") or [])
+
+
+def unscreened_rows(deps: ScreenDeps) -> list[JobRow]:
+    """Unscreened rows, newest posting first, without the rows of a waiting batch."""
+    assert deps.repo is not None
+    waiting = _batch_rows(deps)
+    rows = [job_row(pid, v) for pid, v in
+            deps.repo.query_rows(select_filter("Screen verdict", "Unscreened"))
+            if pid not in waiting]
+    rows.sort(key=lambda r: r.posted_date or date.min, reverse=True)
+    return rows
 
 
 def _label(row: JobRow) -> str:
@@ -371,9 +417,11 @@ def screen_pending(
         return summary
     used = daily.used_today(deps.state, today)
     room = limit if limit is not None else max(0, daily.daily_limit(s) - used)
-    rows = [job_row(pid, v) for pid, v in
-            deps.repo.query_rows(select_filter("Screen verdict", "Unscreened"))]
-    rows.sort(key=lambda r: r.posted_date or date.min, reverse=True)
+    rows = unscreened_rows(deps)
+    in_batch = len(_batch_rows(deps))
+    if in_batch:
+        summary.errors.append(f"{in_batch} jobs wait in a half-price batch: /screen collect "
+                              "saves them.")
     log.info("%d Unscreened rows, screening at most %d", len(rows), room)
     if room <= 0:
         summary.errors.append(_limit_note(s, used, len(rows), limit))

@@ -1,5 +1,5 @@
 """CLI: python -m jobengine.screen [--fake] [--today YYYY-MM-DD] [--row <ref>] [--limit N]
-[--no-write]"""
+[--no-write] [--batch | --collect]"""
 
 from __future__ import annotations
 
@@ -9,8 +9,10 @@ import sys
 from datetime import date
 
 from jobengine import http
+from jobengine.llm import LLMError
 from jobengine.main import banner
 from jobengine.safety import SafetyError, check_startup
+from jobengine.screen import batch
 from jobengine.screen.runner import (
     FAKE_TODAY,
     ScreenError,
@@ -35,6 +37,11 @@ def main(argv: list[str] | None = None) -> int:
                              "screening.daily_limit today)")
     parser.add_argument("--no-write", action="store_true",
                         help="print the verdicts without writing anything")
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--batch", action="store_true",
+                      help="send the Unscreened jobs as one half-price batch (answers later)")
+    mode.add_argument("--collect", action="store_true",
+                      help="save the answers of the waiting batch, if it has ended")
     args = parser.parse_args(argv)
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s", datefmt="%H:%M:%S")
@@ -52,9 +59,13 @@ def main(argv: list[str] | None = None) -> int:
         deps = fake_deps(s, write=write) if args.fake else real_deps(s, write=write)
         if args.row:
             summary = screen_one(s, deps, today, args.row)
+        elif args.batch:
+            summary = batch.submit(s, deps, today, limit=args.limit)
+        elif args.collect:
+            summary = batch.collect(s, deps, today)
         else:
             summary = screen_pending(s, deps, today, limit=args.limit)
-    except (ScreenError, http.HttpError) as exc:
+    except (ScreenError, LLMError, http.HttpError) as exc:
         print(f"Job Engine screening failed: {exc}", file=sys.stderr)
         return 1
 

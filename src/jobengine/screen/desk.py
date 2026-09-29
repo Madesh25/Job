@@ -25,7 +25,7 @@ from jobengine.notion_repo import FakeJobsRepo, JobsRepo
 from jobengine.reference import Reference
 from jobengine.resume import builder as resume_builder
 from jobengine.resume.builder import BuildOutcome, ResumeDeps
-from jobengine.screen import jd_capture
+from jobengine.screen import batch, jd_capture
 from jobengine.screen.jd_capture import Capture, Captures
 from jobengine.screen.models import JobRow, ScreenSummary
 from jobengine.screen.runner import (
@@ -667,8 +667,13 @@ class Desk:
     def screen(self, args: str = "", progress: Callable[[str], None] | None = None) -> str:
         if self.repo is None:
             return NO_TARGET
+        word = args.strip().lower()
         try:
-            if args.strip():
+            if word == "batch":  # half price, answers later (screen/batch.py)
+                summary = batch.submit(self.s, self.deps, self.today())
+            elif word == "collect":
+                summary = batch.collect(self.s, self.deps, self.today())
+            elif args.strip():
                 summary = screen_one(self.s, self.deps, self.today(), args.strip())
             else:
                 summary = screen_pending(self.s, self.deps, self.today(), progress)

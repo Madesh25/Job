@@ -51,6 +51,8 @@ HELP_TEXT = (
     "/jd - list jobs waiting for a description\n"
     "/screen - screen jobs that are not screened yet\n"
     "/screen <url or id> - screen one job again\n"
+    "/screen batch - send them at half price, answers later\n"
+    "/screen collect - save the answers of that batch\n"
     "/gaps - skills jobs ask for that you do not have yet (what to learn next)\n"
     "/contacts <url or id> - find contacts for a job (cache first, then Apollo, Hunter, Snov)\n"
     "/credits - show the contact providers' credit counters\n"
