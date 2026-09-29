@@ -235,7 +235,8 @@ def _prepare(desk: Desk, row: JobRow) -> JobReport:
         sent = mail_sender.send_checked(desk.mail, desk.state, drafts)
         verb = "would be sent (DRY RUN)" if sent.dry_run else "sent"
         report.drafts = f"{len(sent.sent)} of {len(drafts.drafted)} mails {verb}" + (
-            f", {len(sent.kept)} kept as drafts" if sent.kept else "")
+            f", {len(sent.queued)} wait for the recipient's morning" if sent.queued else ""
+        ) + (f", {len(sent.kept)} kept as drafts" if sent.kept else "")
         report.mail = sent.message
     elif drafts.dry_run:
         report.drafts = f"DRY RUN: {len(drafts.drafted)} drafts not created"

@@ -13,13 +13,13 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from datetime import date
+from datetime import UTC, date, datetime
 from typing import Any
 
 from jobengine.bot_state import BotState
 from jobengine.drive_client import DriveError
 from jobengine.gmail_client import GmailError
-from jobengine.mail import preflight
+from jobengine.mail import preflight, timing
 from jobengine.mail.drafter import (
     DraftsResult,
     MailDeps,
@@ -39,6 +39,7 @@ SENT_KEY = "mail.sent_day"  # bot_state: {"date": <iso date>, "count": <mails se
 DRAFT, SEND = "draft", "send"
 DEFAULT_DAILY_SENDS = 10
 CHECKED = "To, no Cc or Bcc, subject, body, signature, resume attachment, Gmail's copy"
+WINDOW_HINT = "/mailqueue shows the queue"
 
 
 @dataclass
@@ -54,6 +55,7 @@ class SentLine:
 class SendResult:
     sent: list[SentLine] = field(default_factory=list)
     kept: list[str] = field(default_factory=list)
+    queued: list[str] = field(default_factory=list)  # wait for the recipient's morning
     dry_run: bool = False
     used: int = 0
     cap: int = DEFAULT_DAILY_SENDS
@@ -128,6 +130,10 @@ def send_checked(deps: MailDeps, state: BotState | None, drafts: DraftsResult) -
     max_kb = _max_kb(deps, config)
     notes: dict[str, str] = {}  # Contacts Notes, read once when the first mail goes out
     label = s.env_label if s.app_env != PROD else ""
+    window = timing.window(s.mail, config)
+    now = deps.now()
+    values = (deps.jobs.get_values(drafts.job_id) if deps.jobs is not None else None) or {}
+    country = str(values.get("Country") or "")
     for line, mail in zip(drafts.drafted, drafts.mails, strict=True):
         who = line.name or line.email
         expected = preflight.Expected(
@@ -140,6 +146,19 @@ def send_checked(deps: MailDeps, state: BotState | None, drafts: DraftsResult) -
                 problems = preflight.check_raw(gmail.draft_raw(line.draft_id), expected)
             if problems:
                 result.kept.append(f"{who}: {'; '.join(problems)}")
+                continue
+            if window.enabled and not timing.inside(window, country, now):
+                at = timing.next_start(window, country, now)
+                kind = KIND.get(line.template, "mail")
+                result.queued.append(f"{who} ({kind}): {timing.when_text(at)}")
+                if gmail is not None:
+                    timing.add(state, timing.QueueItem(
+                        draft_id=line.draft_id, job_id=drafts.job_id, page_id=line.page_id,
+                        name=who, to=expected.to, subject=mail.subject,
+                        template=line.template, thread_id=line.thread_id, country=country,
+                        signature=mail.signature.text.strip().splitlines()[0]
+                        if mail.signature.text.strip() else "",
+                        due=at.astimezone(UTC).isoformat()))
                 continue
             if used >= result.cap:
                 result.kept.append(f"{who}: today's {result.cap} sends are used")
@@ -195,6 +214,11 @@ def send_summary(deps: MailDeps, drafts: DraftsResult, result: SendResult) -> st
     for item in result.sent:
         lines.append(f"- {item.name} ({item.kind}): To {item.to} | Subject: {item.subject} | "
                      f"Attachment: {item.attachment}")
+    if result.queued:
+        verb = "Would wait" if result.dry_run else "Waiting"
+        lines.append(f"{verb} for the recipient's morning ({WINDOW_HINT}), then sent by "
+                     "itself after the same checks:")
+        lines += [f"- {q}" for q in result.queued]
     if result.kept:
         lines.append("Kept as drafts, not sent:")
         lines += [f"- {k}" for k in result.kept]
@@ -202,4 +226,91 @@ def send_summary(deps: MailDeps, drafts: DraftsResult, result: SendResult) -> st
         lines.append(f"Skipped: {'; '.join(drafts.skipped)}")
     if not result.dry_run:
         lines.append(f"{result.used} of {result.cap} sends used today.")
+    return "\n".join(lines)
+
+
+# ---------------------------------------------------------------- the morning queue
+
+
+def send_due(deps: MailDeps, state: BotState | None) -> str | None:
+    """Send one waiting mail whose recipient's morning has come, after the same checks.
+    Called every few minutes; None when nothing was due (or today's sends are used)."""
+    config = deps.config()
+    s = deps.s
+    window = timing.window(s.mail, config)
+    now = deps.now()
+    due = timing.due_items(state, now, window)
+    if not due or not gmail_write_allowed(s):
+        return None
+    today = deps.today()
+    cap = daily_cap(deps, config)
+    used = sent_today(state, today)
+    if used >= cap:
+        return None  # the rest wait for the next morning
+    item = due[0]
+    kind = KIND.get(item.template, "mail")
+    gmail = deps.gmail()
+    try:
+        raw = gmail.draft_raw(item.draft_id)
+    except Exception:  # sent or deleted in Gmail by you
+        timing.remove(state, item.draft_id)
+        return (f"{item.name}: the draft is no longer in Gmail (sent or deleted), so it left "
+                "the mail queue.")
+    try:
+        attachment = None
+        if (config.get("mail.attach_resume") or "yes").casefold() != "no":
+            row = approved_resume(deps, item.job_id)
+            if row is None:
+                raise DriveError("no approved resume for this job")
+            attachment = (resume_name(row), resume_pdf(deps, row))
+    except (DriveError, GmailError) as exc:
+        timing.remove(state, item.draft_id)
+        return f"Not sent, kept as a draft: {item.name} ({exc})."
+    expected = preflight.Expected(
+        to=item.to, subject=item.subject, signature_text=item.signature,
+        attachment=attachment, max_kb=_max_kb(deps, config),
+        env_label=s.env_label if s.app_env != PROD else "")
+    problems = preflight.check_raw(raw, expected)
+    if problems:
+        timing.remove(state, item.draft_id)
+        return f"Not sent, kept as a draft: {item.name}: {'; '.join(problems)}."
+    try:
+        sent = gmail.send_draft(item.draft_id)
+    except Exception as exc:  # Gmail refused it: it stays a draft
+        log.warning("sending to %s failed: %s", item.to, exc)
+        timing.remove(state, item.draft_id)
+        return f"Not sent, kept as a draft: {item.name}: Gmail refused it ({exc})."
+    timing.remove(state, item.draft_id)
+    used += 1
+    _record(state, today, used)
+    notes = ""
+    if deps.contacts is not None:
+        notes = dict(deps.contacts.all_rows()).get(item.page_id, {}).get("Notes") or ""
+    _mark_contacted(deps, item.page_id, notes, sent.thread_id or item.thread_id, today)
+    if deps.jobs is not None:
+        deps.jobs.update(item.job_id, {"Last activity date": today})
+    local = timing.aware(now).astimezone(timing.zone(item.country))
+    left = len(timing.load(state))
+    return (f"Sent at {local:%H:%M} {local.tzname()} (the recipient's morning), after the "
+            f"checks: {item.name} ({kind}) | To {item.to} | Subject: {item.subject}\n"
+            f"{used} of {cap} sends used today. {left} "
+            f"mail{'' if left == 1 else 's'} wait in the queue.")
+
+
+def queue_text(deps: MailDeps, state: BotState | None) -> str:
+    """/mailqueue: the mails waiting for their recipient's morning."""
+    window = timing.window(deps.s.mail, deps.config())
+    items = timing.load(state)
+    if not window.enabled:
+        head = "Send window: off (mails that pass the checks are sent at once)."
+    else:
+        head = f"Send window: {window.text()}."
+    if not items:
+        return f"{head}\nNo mail waits in the queue."
+    lines = [head, f"{len(items)} mail{'' if len(items) == 1 else 's'} waiting:"]
+    for item in sorted(items, key=lambda i: i.due):
+        at = datetime.fromisoformat(item.due).astimezone(timing.zone(item.country))
+        lines.append(f"- {item.name} ({KIND.get(item.template, 'mail')}), "
+                     f"{timing.when_text(at)}: {item.subject}")
+    lines.append("Each is checked again and sent by itself; one every few minutes.")
     return "\n".join(lines)

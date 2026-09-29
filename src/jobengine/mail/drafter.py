@@ -12,9 +12,10 @@ import logging
 import re
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from jobengine.config_store import ConfigStore
 from jobengine.contacts.jd_emails import GENERIC_MAILBOXES
@@ -71,6 +72,7 @@ class MailDeps:
     drive: Callable[[], Drive]
     llm: Callable[[ConfigStore], LLMClient | None]
     today: Callable[[], date] = date.today
+    now: Callable[[], datetime] = datetime.now  # the send window (mail/timing.py)
     write: bool = True  # False: --no-write, render only
     root: Path = ROOT_DIR  # where "DRY RUN: out/..." resume paths are resolved
 
@@ -397,6 +399,10 @@ def seed_resume_log(resume_log: Any, drive: Any, s: Settings, jobs: JobsRepo,
                            "Approved": True, "File": file_value}, [])
 
 
+# Thursday 09:30 in Warsaw (08:30 in Dublin): inside every fixture country's send window.
+FAKE_SEND_NOW = datetime(2026, 10, 1, 9, 30, tzinfo=ZoneInfo("Europe/Warsaw"))
+
+
 def fake_deps(
     s: Settings,
     jobs: JobsRepo | None = None,
@@ -426,6 +432,7 @@ def fake_deps(
         s=s, config=ConfigStore.fake, jobs=jobs, contacts=contacts, resume_log=resume_log,
         templates=fake_templates, gmail=lambda: the_gmail, drive=lambda: the_drive,
         llm=lambda config: FakeLLM(default={"index": 1}), write=write, root=root,
+        now=lambda: FAKE_SEND_NOW,
     )
 
 

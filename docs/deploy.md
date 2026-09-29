@@ -17,6 +17,7 @@ hand**; nothing in Part B is done from code. Work through it top to bottom.
 | `POST /tasks/daily` | Cloud Scheduler (OIDC token) | daily check (Module 07), then the strategy reminder (Module 08) |
 | `POST /tasks/digest` | Cloud Scheduler | weekly digest |
 | `POST /tasks/autopilot` | Cloud Scheduler | scheduled /autopilot, only when Config `schedule.autopilot` is `true`; answered at once (202), the run reports in Telegram ([autopilot.md](autopilot.md)) |
+| `POST /tasks/mail` | Cloud Scheduler | sends one queued mail whose recipient's morning has come (mail mode send, [gmail.md](gmail.md)) |
 | `POST /tasks/sweep` | Cloud Scheduler | sweep and screening, only when Config `schedule.auto_fetch` is `true` (the strategy gate still applies) |
 
 The service allows unauthenticated calls (Telegram must reach it); every path is protected in
@@ -174,6 +175,12 @@ gcloud scheduler jobs create http je-autopilot-prod --project $PROJECT --locatio
   --schedule "*/30 7-12 * * 1-5" --time-zone "Europe/Warsaw" --uri "$PROD_URL/tasks/autopilot" \
   --http-method POST --oidc-service-account-email "$SCHED" --oidc-token-audience "$PROD_URL" \
   --attempt-deadline 60s --max-retry-attempts 1
+# The mail queue (mail mode send): every 10 minutes 07:00 to 11:50 Warsaw time (08:00 to
+# 10:00 in Warsaw, Amsterdam and Dublin), Tuesday to Thursday. One mail per call.
+gcloud scheduler jobs create http je-mail-prod --project $PROJECT --location $REGION \
+  --schedule "*/10 7-11 * * 2-4" --time-zone "Europe/Warsaw" --uri "$PROD_URL/tasks/mail" \
+  --http-method POST --oidc-service-account-email "$SCHED" --oidc-token-audience "$PROD_URL" \
+  --attempt-deadline 300s --max-retry-attempts 1
 ```
 
 - [ ] `je-daily-dev`: paused (run it by hand with `gcloud scheduler jobs run`).
@@ -184,6 +191,8 @@ gcloud scheduler jobs create http je-autopilot-prod --project $PROJECT --locatio
       `schedule.autopilot` is `true`. Needs the prod `Bot State` (B3) so a run is not started
       twice after a restart. Config: add `schedule.autopilot` = `false` (turn it on after
       go-live step 4).
+- [ ] `je-mail-prod`: `*/10 7-11 * * 2-4` in Europe/Warsaw; sends nothing unless mail mode is
+      send and a queued mail is due. Change it with `mail.send_window` in the yaml.
 
 ## How deploys treat DRY_RUN
 

@@ -73,7 +73,9 @@ job description. See [docs/screening.md](docs/screening.md).
 `/autopilot` in Telegram fetches, screens at half price, approves the best Apply high and
 Apply normal jobs (at most 10 a day), saves their resumes, finds contacts and writes Gmail
 drafts, then sends one summary with the PDFs. `/mailmode send` lets it send the drafts that
-pass every check (To, Cc, subject, body, resume attachment); the default only writes drafts. See
+pass every check (To, Cc, subject, body, resume attachment), in the recipient's morning
+(Tuesday to Thursday, 08:00 to 10:00 their time; `/mailqueue` shows the waiting ones); the
+default only writes drafts. See
 [docs/autopilot.md](docs/autopilot.md). With Notion Config `schedule.autopilot` set to `true`
 it also runs by itself every weekday at 07:00 Europe/Warsaw (`/autopilot when` shows the next
 run).

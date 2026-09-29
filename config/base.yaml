@@ -185,6 +185,14 @@ mail:
   # Defaults; Notion Config keys mail.same_person_cooldown_days and mail.max_attachment_kb win.
   same_person_cooldown_days: 30
   max_attachment_kb: 250
+  # Mail mode send: a checked mail goes out only in the recipient's morning (the job's
+  # country); outside it the draft waits in /mailqueue and is sent by itself, one every few
+  # minutes, after the same checks. Notion Config mail.send_window = off sends at once.
+  send_window:
+    enabled: true
+    days: [Tue, Wed, Thu]
+    start: "08:00"
+    end: "10:00"
 sweep:
   # LinkedIn alert jobs have no description (LinkedIn is never read). After each sweep the
   # same company, title and country is looked up among the other sources' postings and its

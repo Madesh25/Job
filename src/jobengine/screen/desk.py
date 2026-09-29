@@ -21,6 +21,7 @@ from jobengine.contacts.finder import ContactDeps
 from jobengine.llm import LLMError
 from jobengine.mail import drafter as mail_drafter
 from jobengine.mail import sender as mail_sender
+from jobengine.mail import timing as mail_timing
 from jobengine.mail.drafter import MailDeps
 from jobengine.notion_repo import FakeJobsRepo, JobsRepo
 from jobengine.reference import Reference
@@ -580,6 +581,18 @@ class Desk:
             sent = mail_sender.send_checked(self.mail, self.state, result)
             return [Reply(sent.message[:MAX_TEXT])]
         return [Reply(result.message[:MAX_TEXT])]
+
+    def mail_queue_tick(self) -> list[Reply]:
+        """Every few minutes: send one queued mail whose recipient's morning has come."""
+        if self.mail is None or not self.sending() and not mail_timing.load(self.state):
+            return []
+        text = mail_sender.send_due(self.mail, self.state)
+        return [Reply(text[:MAX_TEXT])] if text else []
+
+    def mailqueue_command(self) -> list[Reply]:
+        if self.mail is None:
+            return [Reply("Gmail drafts are not available in this bot.")]
+        return [Reply(mail_sender.queue_text(self.mail, self.state)[:MAX_TEXT])]
 
     def mailmode_command(self, args: str) -> list[Reply]:
         return [Reply(mail_sender.mode_command(self.state, args))]
