@@ -29,6 +29,7 @@ from jobengine.mail.drafter import (
     resume_name,
     resume_pdf,
 )
+from jobengine.mail.templates import KIND
 from jobengine.safety import PROD, gmail_write_allowed, route_recipients
 
 log = logging.getLogger("jobengine.mail")
@@ -46,6 +47,7 @@ class SentLine:
     to: str
     subject: str
     attachment: str
+    kind: str = "mail"  # referral ask (engineers) or cold mail (HR, recruiters, hiring)
 
 
 @dataclass
@@ -144,7 +146,8 @@ def send_checked(deps: MailDeps, state: BotState | None, drafts: DraftsResult) -
                 continue
             size = f" ({len(attachment[1]) / 1024:.0f} KB)" if attachment else ""
             sent_line = SentLine(who, mail.to, mail.subject,
-                                 f"{attachment[0]}{size}" if attachment else "none")
+                                 f"{attachment[0]}{size}" if attachment else "none",
+                                 KIND.get(line.template, "mail"))
             if gmail is None:
                 log.warning("DRY RUN: would send the draft to %s", mail.to)
                 result.sent.append(sent_line)
@@ -190,7 +193,7 @@ def send_summary(deps: MailDeps, drafts: DraftsResult, result: SendResult) -> st
         lines.append(f"Sent {len(result.sent)} of {total} from {env_where(deps.s)} after the "
                      f"checks ({CHECKED}):")
     for item in result.sent:
-        lines.append(f"- {item.name}: To {item.to} | Subject: {item.subject} | "
+        lines.append(f"- {item.name} ({item.kind}): To {item.to} | Subject: {item.subject} | "
                      f"Attachment: {item.attachment}")
     if result.kept:
         lines.append("Kept as drafts, not sent:")

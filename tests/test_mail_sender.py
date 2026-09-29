@@ -125,7 +125,7 @@ def test_send_mode_checks_and_sends_every_good_draft():
     text = d.tap("dr:pl-clean")[0].text
     assert text.startswith("Mails for Vistula Cloud, DevOps Engineer\nSent 4 of 4 from "
                            "madeshwaranm02 in LOCAL after the checks (To, no Cc or Bcc")
-    assert ("- Piotr Example: To madeshwaranm02@gmail.com | Subject: [LOCAL] to "
+    assert ("- Piotr Example (cold mail): To madeshwaranm02@gmail.com | Subject: [LOCAL] to "
             "piotr.example@vistula.example.com | ") in text
     assert "Attachment: Alex_Devops_VistulaCloud.pdf (0 KB)" in text
     assert "4 of 15 sends used today." in text  # fixture Config mail.daily_send_cap 15

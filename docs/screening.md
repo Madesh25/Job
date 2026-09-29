@@ -226,6 +226,11 @@ sets `Status` to `Screened` only if it is `New` or `Screened`, so a row never mo
 
 ## Telegram
 
+- **Apply high alert:** after `/screen` (and `/screen collect`), each new Apply high job
+  comes as its own card, starting with `Apply high: apply today while the posting is fresh.`,
+  with **Approve** and **Skip**, so you can apply the same day. At most 5 cards at once; the
+  rest are in `/pending`. Jobs you already approved or skipped get no card. `/autopilot`
+  approves them itself, so it sends no alert.
 - Typing `/` shows the command menu. The bot registers it with Telegram (`setMyCommands`)
   each time it starts, and `python -m jobengine.deploy.set_webhook` does the same for
   Cloud Run.

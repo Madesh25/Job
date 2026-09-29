@@ -34,11 +34,16 @@ bot checks every draft and sends the ones that pass (see "Mail mode" below).
 
 ## Templates and placeholders
 
-| Contact Type | Template |
-|---|---|
-| Hiring | Hiring manager (the Recruiter one when the job has no specific detail) |
-| Recruiter/TA | Recruiter / Talent Acquisition |
-| Peer engineer | Peer engineer (the swap rule is not applied) |
+Engineers get the **referral ask**; HR, recruiters and hiring managers get the **cold mail**.
+The drafts and send summaries say which one each contact got, for example
+`Peer engineer: Anna Example (referral ask, peer template)`.
+
+| Contact Type | Template | Kind |
+|---|---|---|
+| Hiring | Hiring manager (the Recruiter one when the job has no specific detail) | cold mail |
+| Recruiter/TA (recruiters and HR) | Recruiter / Talent Acquisition | cold mail |
+| Peer engineer | Peer engineer (referral ask; the swap rule is not applied) | referral ask |
+| Generic mailbox (careers@, hr@) | Recruiter / Talent Acquisition | cold mail |
 
 | Placeholder | Source |
 |---|---|
@@ -70,9 +75,9 @@ After the contacts summary the bot sends:
 
 ```
 Drafts for Vistula Cloud, DevOps Engineer
-Hiring: Piotr Example (hiring template)
-Recruiter/TA: Ola Example (recruiter template)
-Peer engineer: Anna Example, Jan Example (peer template)
+Hiring: Piotr Example (cold mail, hiring template)
+Recruiter/TA: Ola Example (cold mail, recruiter template)
+Peer engineer: Anna Example, Jan Example (referral ask, peer template)
 4 drafts created in Gmail (madeshwaranm02 in DEV). Review and send them from Gmail > Drafts.
 Skipped: none
 Reminder: soft cap is 15 mails a day.
@@ -109,7 +114,7 @@ waiting (Contacts with Status Drafted) the summary says so.
 ```
 Mails for Vistula Cloud, DevOps Engineer
 Sent 3 of 4 from madeshwaranm02 in DEV after the checks (To, no Cc or Bcc, subject, body, signature, resume attachment, Gmail's copy):
-- Piotr Example: To madeshwaranm02@gmail.com | Subject: [DEV] to piotr@... | ... | Attachment: Alex_Devops_VistulaCloud.pdf (84 KB)
+- Piotr Example (cold mail): To madeshwaranm02@gmail.com | Subject: [DEV] to piotr@... | ... | Attachment: Alex_Devops_VistulaCloud.pdf (84 KB)
 ...
 Kept as drafts, not sent:
 - Rita Example: the attachment is not the approved resume of this job

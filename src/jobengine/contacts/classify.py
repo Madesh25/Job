@@ -11,8 +11,10 @@ PERSONAL_DOMAINS = frozenset(
     {"gmail.com", "outlook.com", "yahoo.com", "hotmail.com", "icloud.com", "proton.me"}
 )
 DEFAULT_PATTERNS = {
+    # HR counts as recruiter: they get the cold mail, never the referral ask.
     "recruiter": r"recruit|talent acquisition|sourcer|talent partner|people partner|"
-                 r"hr business partner|rekrut",
+                 r"hr business partner|rekrut|\bhr\b|human resources|people (operations|ops)|"
+                 r"talent (manager|lead|specialist)|kadr",
     "hiring": r"engineering manager|head of (devops|platform|infrastructure|cloud|sre|engineering)|"
               r"director of (engineering|infrastructure|platform)|"
               r"(devops|platform|infrastructure|sre|cloud) (team )?(lead|manager)|"

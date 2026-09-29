@@ -556,7 +556,7 @@ def desk_replies(update: dict[str, Any], s: Settings, desk: Desk | None) -> list
     if command == "done":
         return _guarded("/done", desk.done)
     if command == "screen":
-        return _guarded("/screen", lambda: [Reply(desk.screen(args))])
+        return _guarded("/screen", lambda: desk.screen_replies(args))
     if command is None:
         return _guarded("Saving the pasted text", lambda: desk.text(text) or []) or None
     return None
@@ -619,14 +619,14 @@ def run_screen(
     progress = ProgressMessage(client, chat_id, s, clock=clock, name="Screening",
                                first="Screening new jobs")
     try:
-        text = desk.screen("", progress.update)
+        replies = desk.screen_replies("", progress.update)
     except Exception as exc:  # report the failure instead of stopping the bot
         log.exception("/screen failed")
         progress.finish(ok=False)
         client.send_message(chat_id, telegram_text(f"/screen failed: {exc}", s))
         return
     progress.finish(ok=True)
-    client.send_message(chat_id, telegram_text(text, s))
+    send_replies(client, s, chat_id, replies)
 
 
 NEXT_STEP = "\n\n\U0001F449 Next:"  # the hint /fetch ends with

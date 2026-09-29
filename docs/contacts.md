@@ -39,7 +39,9 @@ provider waterfall) runs only for jobs within the outreach budget
    domain search), Snov (prospects, then an email search per chosen person). It stops as soon
    as the mix is full. A provider is skipped when its key is missing, its counter is used up,
    or paid calls are off.
-6. Candidates are classified by title (`contacts.title_patterns` in `config/base.yaml`),
+6. Candidates are classified by title (`contacts.title_patterns` in `config/base.yaml`; HR,
+   Human Resources, People Operations and Talent titles count as Recruiter/TA, so they get the
+   cold mail and never the referral ask),
    personal and off-domain emails are dropped, in-country people come first (others only when
    no one in the country fits, noted `outside <country>`), and emails are deduped against the
    whole Contacts database: a known email reuses its row.
