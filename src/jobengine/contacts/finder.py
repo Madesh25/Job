@@ -11,22 +11,32 @@ from dataclasses import dataclass, field
 from datetime import date
 from typing import Any
 
+from jobengine import http
 from jobengine.bot_state import BotState, FakeBotState
 from jobengine.config_store import ConfigStore
 from jobengine.contacts import cache as contact_cache
 from jobengine.contacts import jd_emails
-from jobengine.contacts.classify import PERSONAL_DOMAINS, fill_slots, parse_mix
+from jobengine.contacts.classify import (
+    PERSONAL_DOMAINS,
+    classify_title,
+    country_ok,
+    fill_slots,
+    keep,
+    parse_mix,
+)
 from jobengine.contacts.credits import OPTIONAL, CreditBook
 from jobengine.contacts.models import (
+    HIRING,
     NOTION_COUNTRIES,
     OTHER,
+    PEER,
     RECRUITER,
     TYPE_ORDER,
     Candidate,
     Chosen,
     ContactsResult,
 )
-from jobengine.contacts.providers import apollo, hunter, prospeo, snov, tomba
+from jobengine.contacts.providers import apollo, github, hunter, prospeo, snov, tomba
 from jobengine.contacts.providers.base import FixtureHttp, ProviderDeps, Request, real_request
 from jobengine.notion_repo import (
     ContactsRepo,
@@ -252,6 +262,10 @@ def find_contacts(deps: ContactDeps, job_id: str, paid: bool = True) -> Contacts
             deps.state.set(f"domain_ask:{job_ref(job_id)}", {"job_id": job_id,
                                                              "company": company})
             return result
+        if (config.get(GITHUB_SWITCH) or "").strip().lower() == "on" and \
+                open_slots().get(PEER, 0) > 0:
+            _github_step(deps, config, company, domain, country, result, chosen, seen,
+                         by_email, open_slots, patterns, personal)
         for name, provider in WATERFALL:
             slots = open_slots()
             if not slots:
@@ -285,6 +299,66 @@ def find_contacts(deps: ContactDeps, job_id: str, paid: bool = True) -> Contacts
     _write(deps, job_id, values, chosen, generic, today)
     result.message = _summary(result, generic, book.line())
     return result
+
+
+GITHUB_SWITCH = "contacts.github"  # Notion Config: "on" reads the company's GitHub org first
+GITHUB_ORGS = "contacts.github_orgs"  # Notion Config: "Company Name = org-login" lines
+
+
+def github_org_known(deps: ContactDeps, config: ConfigStore, company: str) -> str | None:
+    """A configured or remembered org login; "" when none was found before; None: unknown."""
+    for line in (config.get(GITHUB_ORGS) or "").splitlines():
+        name, eq, value = line.partition("=")
+        if eq and canon_company(name) == canon_company(company) and value.strip():
+            return value.strip()
+    remembered = deps.state.get(f"github_org:{canon_company(company)}")
+    return None if remembered is None else str(remembered.get("org") or "")
+
+
+def _github_step(deps: ContactDeps, config: ConfigStore, company: str, domain: str,
+                 country: str, result: ContactsResult, chosen: list[Chosen], seen: set[str],
+                 by_email: dict[str, tuple[str, dict[str, Any]]],
+                 open_slots: Callable[[], dict[str, int]], patterns: Any, personal: Any) -> None:
+    """Engineers from the company's public GitHub organisation (free), before any paid
+    lookup. Only people who published an email on the company domain; nobody outside the
+    job's country (the paid providers may still find in-country people)."""
+    pdeps = ProviderDeps(s=deps.s, request=deps.request("github"), search_titles={},
+                         patterns=patterns)
+    known = github_org_known(deps, config, company)
+    deps.calls.append("github")
+    try:
+        org, _ = github.find_org(company, domain, pdeps, lambda name: known)
+    except http.HttpError as exc:
+        result.notes.append(f"github: {exc}")
+        return
+    if known is None:
+        deps.state.set(f"github_org:{canon_company(company)}", {"org": org or ""})
+    if not org:
+        result.notes.append(f"github: no public organisation on {domain} for {company}")
+        return
+    most = int((deps.s.contacts.get("github") or {}).get("max_profiles",
+                                                         github.DEFAULT_PROFILES))
+    found = github.search(company, domain, org, pdeps, most)
+    if found.skipped_reason:
+        result.notes.append(found.skipped_reason)
+    for candidate in found.candidates:
+        key = candidate.email.strip().lower()
+        if key in seen or not keep(candidate, domain, personal):
+            continue
+        where = country_ok(candidate, country)
+        if where == "outside":
+            continue
+        kind = classify_title(candidate.title, patterns)
+        if kind not in (RECRUITER, HIRING):
+            kind = PEER  # a member of the company's engineering organisation
+        if open_slots().get(kind, 0) <= 0:
+            continue
+        seen.add(key)
+        note = "country unverified" if where == "unverified" else ""
+        picked = _chosen(candidate, kind, note, by_email, country)
+        if not picked.page_id:
+            picked.notes = "; ".join(p for p in (note, f"public GitHub profile, org {org}") if p)
+        chosen.append(picked)
 
 
 def _chosen(candidate: Candidate, kind: str, note: str,

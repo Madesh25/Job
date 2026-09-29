@@ -48,6 +48,29 @@ emails you can find each month:
 - Lusha and GetProspect are not in yet: their public code does not show where the revealed
   email is in the answer, and emails are never guessed.
 
+## Engineers from GitHub (free)
+
+Many engineering teams keep a public GitHub organisation, and some engineers publish their
+work email on their profile. With Notion Config `contacts.github` = `on`, the lookup reads it
+before any paid provider, for the Peer engineer slots (`src/jobengine/contacts/providers/github.py`):
+
+1. **The organisation:** Config `contacts.github_orgs` (`Company Name = org-login` lines),
+   else a GitHub search for organisations named like the company. One is taken only when its
+   own website or email is on the company's email domain; the answer (or "none") is kept in
+   Bot State `github_org:<company>` so the search runs once per company.
+2. **Its public members**, then their profiles, at most `contacts.github.max_profiles` (20)
+   a job.
+3. **Kept:** only people whose own profile shows an email on the company domain, exactly as
+   published (never guessed; gmail.com and other personal addresses are dropped), and not
+   outside the job's country (no location: `country unverified`). The bio is the Title; a
+   bio that reads HR or recruiter makes a Recruiter/TA contact (cold mail), a manager bio
+   Hiring, anything else Peer engineer (they are in the company's engineering organisation).
+   Source `GitHub`, Status Unverified, Notes `public GitHub profile, org <org>`.
+
+GitHub allows 60 calls an hour without a token. Set `GITHUB_TOKEN` (a fine-grained token with
+no permissions: it only reads public data) for 5,000 an hour. Like the providers, real calls
+happen only in prod with `DRY_RUN=false`; elsewhere invented fixtures answer.
+
 ## The flow
 
 1. Mix from Config `contacts.mix` (`peer=2, hiring=1, recruiter=1`) and `contacts.per_job`;
@@ -59,7 +82,8 @@ emails you can find each month:
    (`Company Name = domain.tld` lines), then a domain you gave in Telegram. Job board and ATS
    hosts (greenhouse.io, lever.co, teamtailor.com, ...) are never used. Unknown: the bot asks
    and the lookup waits for your reply.
-5. Waterfall for the open slots: Apollo (search, then one reveal per open slot), Hunter (one
+5. GitHub (free, when Config `contacts.github` is `on`; see above) for the Peer engineer
+   slots, then the waterfall for the slots still open: Apollo (search, then one reveal per open slot), Hunter (one
    domain search), Snov (prospects, then an email search per chosen person), then the free
    plans: Prospeo (one people search, then one bulk reveal of verified emails for the open
    slots only) and Tomba (one domain search). It stops as soon

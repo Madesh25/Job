@@ -1,0 +1,39 @@
+{
+ "by_key": {
+  "ewa-sre": {
+   "login": "ewa-sre",
+   "name": "Ewa Sample",
+   "email": "ewa.sample@vistula.example.com",
+   "bio": "Site Reliability Engineer, Kubernetes and Terraform",
+   "location": "Krak\u00f3w, Poland"
+  },
+  "tomek-dev": {
+   "login": "tomek-dev",
+   "name": "Tomek Example",
+   "email": "tomek@vistula.example.com",
+   "bio": "",
+   "location": "Remote"
+  },
+  "lena-personal": {
+   "login": "lena-personal",
+   "name": "Lena Example",
+   "email": "lena.example@gmail.com",
+   "bio": "DevOps",
+   "location": "Warsaw"
+  },
+  "hr-kasia": {
+   "login": "hr-kasia",
+   "name": "Kasia Sample",
+   "email": "kasia.sample@vistula.example.com",
+   "bio": "HR Business Partner",
+   "location": "Warszawa"
+  },
+  "no-email": {
+   "login": "no-email",
+   "name": "No Email",
+   "email": null,
+   "bio": "Platform Engineer",
+   "location": "Poland"
+  }
+ }
+}

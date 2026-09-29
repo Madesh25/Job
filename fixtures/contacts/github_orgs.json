@@ -1,0 +1,16 @@
+{
+ "by_key": {
+  "vistula-games": {
+   "login": "vistula-games",
+   "name": "Vistula Games",
+   "blog": "https://vistulagames.example.org",
+   "email": null
+  },
+  "vistula-cloud": {
+   "login": "vistula-cloud",
+   "name": "Vistula Cloud",
+   "blog": "https://www.vistula.example.com",
+   "email": "opensource@vistula.example.com"
+  }
+ }
+}
