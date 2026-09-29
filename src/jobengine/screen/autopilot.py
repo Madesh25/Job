@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 from jobengine import http
@@ -56,6 +56,7 @@ class JobReport:
     drafts: str = ""
     pdf: tuple[str, bytes] | None = None
     approved: bool = False
+    pack: list[str] = field(default_factory=list)  # the Apply pack (PR 11)
     mail: str | None = None  # mail mode send: what was sent and what was kept, and why
     ask: str | None = None  # a question to answer by reply (the company's email domain)
 
@@ -182,6 +183,7 @@ def _prepare(desk: Desk, row: JobRow) -> JobReport:
         report.resume = f"resume built, not saved ({_first_line(saved.message)})"
         return report
     report.resume = "resume saved"
+    report.pack = [r.text for r in desk.apply_pack(row.page_id)]
     if desk.contacts is None:
         return report
     from jobengine.outreach import planner
@@ -261,6 +263,7 @@ def _finish(desk: Desk, lines: list[str], progress: Progress) -> list[Reply]:
                 buttons = [("I applied", f"ia:{short_id(report.job_id)}")]
             replies.append(Reply(f"{report.company}, {report.role}: {report.resume}", buttons,
                                  document=report.pdf))
+        replies.extend(Reply(text) for text in report.pack)
     return replies
 
 

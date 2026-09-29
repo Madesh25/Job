@@ -126,3 +126,9 @@ The Lato font must be installed: if the PDF would use another font the build fai
 rendering in a fallback font. The pure tests (gate, sections, master, builder with a fake
 renderer) run anywhere; the tests marked `render` are skipped when Pango or Lato is missing
 (CI runs them with `REQUIRE_RENDER=1`).
+
+## Per-job header (PR 11)
+
+The headline's first part and the relocation line change per job (your approved titles and
+`resume.relocation_template`); see [apply-pack.md](apply-pack.md). Skills, bullets and the
+integrity gate are unchanged.

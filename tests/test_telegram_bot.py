@@ -685,7 +685,8 @@ def test_resume_approval_offers_contacts_then_drafts_as_buttons(desk):
     talk(desk, tap(1, "ap:pl-clean"))
     fake = talk(desk, tap(1, "ra:00000001000040008000000000000001"))
     texts = [t for _, t in fake.sent]
-    assert len(texts) == 1 and texts[0].startswith("[LOCAL] Resume approved and saved.")
+    assert len(texts) == 2 and texts[0].startswith("[LOCAL] Resume approved and saved.")
+    assert texts[1].startswith("[LOCAL] Apply pack (")  # PR 11: ready form answers
     assert fake.buttons[0] == ["ia:pl-clean", "ct:pl-clean"]  # nothing looked up yet
     assert not desk.repo.rows["pl-clean"].get("Contacts")
     fake = talk(desk, tap(2, "ct:pl-clean"))
