@@ -31,7 +31,7 @@
   },
   {
     "Key": "model.tailor",
-    "Value": "claude-sonnet-5",
+    "Value": "claude-haiku-4-5",
     "Type": "Model"
   },
   {

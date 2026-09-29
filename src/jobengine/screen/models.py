@@ -111,6 +111,7 @@ class ScreenSummary:
     waiting_for_jd: int = 0
     errors: list[str] = field(default_factory=list)
     results: list[ScreenResult] = field(default_factory=list)
+    usage_line: str | None = None  # "AI used: ... about $0.01" (llm.Usage.line)
 
     def add(self, result: ScreenResult) -> None:
         self.results.append(result)
@@ -127,7 +128,11 @@ class ScreenSummary:
             f"{v.get('Needs review', 0)} needs review, {v.get('Skip', 0)} skipped), "
             f"{self.waiting_for_jd} waiting for JD."
         )
-        return "\n".join([line, *self.errors])
+        free = sum(1 for r in self.results if not r.llm_used and r.verdict == "Skip")
+        if free:
+            line += f" {free} skipped without the AI."
+        extra = [self.usage_line] if self.usage_line else []
+        return "\n".join([line, *extra, *self.errors])
 
 
 # ---------------------------------------------------------------- Job Opportunities row

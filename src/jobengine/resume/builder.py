@@ -274,9 +274,10 @@ def merge_gaps(existing: str | None, new: list[str]) -> str:
 
 def caption(
     revision: int, values: dict[str, Any], fill: float, changes: gate.Changes, plan: Plan,
-    log_id: str | None, fill_min: float = 88, fill_max: float = 96,
+    log_id: str | None, fill_min: float = 88, fill_max: float = 96, usage: str | None = None,
 ) -> str:
-    """The preview caption in plain sections (Telegram allows 1024 characters)."""
+    """The preview caption in plain sections (Telegram allows 1024 characters). `usage` is
+    the "AI used: ..." line of the build."""
     head = [
         f"Resume for {values.get('Company')}, {values.get('Role')} (version {revision})",
         f"One page, {fill:.1f}% full (the target is {fill_min:g} to {fill_max:g}%)",
@@ -297,6 +298,8 @@ def caption(
     tail += [line for line in changes.lines if line.startswith("Left out")]
     if log_id:
         tail.append(f"Ref {short_ref(log_id)}")
+    if usage:
+        tail.append(usage)
     tail.append("Reply to this message to change something, or tap a button.")
 
     def text(detail: list[str], cut: bool) -> str:
@@ -576,8 +579,13 @@ def build_resume(
         revision=revision, log_id=log_id, pdf=pdf, filename=name, plan=plan, fill=fill,
         changes=changes.lines,
         caption=caption(revision, values, fill, changes, plan, log_id, ctx.fill_min,
-                        ctx.fill_max),
+                        ctx.fill_max, usage=_usage_line(llm)),
     )
+
+
+def _usage_line(llm: Any) -> str | None:
+    usage = getattr(llm, "usage", None)
+    return usage.line() if usage is not None else None
 
 
 # ---------------------------------------------------------------- forced skills
