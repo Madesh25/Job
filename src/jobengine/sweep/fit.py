@@ -176,7 +176,13 @@ def cannot_take(country: str | None, description: str | None, salary: str | None
     return None
 
 
+NO_SPONSORSHIP_REASON = "No sponsorship"  # the Skip reason option for NO_SPONSORSHIP
+
+
 def skip_reason(label: str) -> str:
-    """The Job Opportunities "Skip reason" option for a cannot_take() label: the language
-    and B2B options exist, anything else is "Other" (the schema is never changed here)."""
+    """The Job Opportunities "Skip reason" option for a cannot_take() label: the language,
+    B2B and no-sponsorship options exist, anything else is "Other" (the schema is never
+    changed here: the "No sponsorship" option is added to the column by hand)."""
+    if label == NO_SPONSORSHIP:
+        return NO_SPONSORSHIP_REASON
     return label if label in (*LANGUAGE_REASONS, B2B_ONLY) else "Other"

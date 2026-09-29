@@ -171,7 +171,7 @@ def test_pre_gate_skips_no_sponsorship_and_other_languages_for_free():
     from jobengine.screen.gates import pre_gate
 
     hit = pre_gate(row(), None, 4, "EU/EEA work authorization is required.")
-    assert (hit.reason, hit.detail) == ("Other", "No visa sponsorship")
+    assert (hit.reason, hit.detail) == ("No sponsorship", "No visa sponsorship")
     hit = pre_gate(row(role="macOS Engineer (German-Speaking)"), None, 4, "Kubernetes.")
     assert (hit.reason, hit.detail) == ("Other", "German required")
 
