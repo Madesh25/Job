@@ -1086,5 +1086,9 @@ def real_desk(s: Settings) -> Desk | None:
     except Exception as exc:  # the bot still works without /update
         log.warning("strategy update not available: %s", exc)
         strategy = None
+    from jobengine.llm import set_cost_sink
+    from jobengine.track import costs
+
+    set_cost_sink(costs.sink(state, date.today))  # the month's Claude cost (digest)
     return Desk(s, real_deps(s), state, resume=resume, contacts=contacts, mail=mail,
                 track=track, strategy=strategy)
