@@ -72,6 +72,8 @@ MAX_WAITING_LIST = 10
 REFERENCE_TTL_SECONDS = 600
 NO_TARGET = "DRY RUN: no Job Opportunities target in this environment, nothing to show."
 MAX_TEXT = 4000  # Telegram allows 4096 characters per message
+HIGH_ALERT = "\U0001F525 Apply high: apply today while the posting is fresh."
+MAX_HIGH_ALERTS = 5  # cards sent at once after a screening; the rest are in /pending
 
 
 @dataclass
@@ -686,8 +688,38 @@ class Desk:
         return f"{summary.text()}\n{ready} ready to review: /pending"
 
     def screen(self, args: str = "", progress: Callable[[str], None] | None = None) -> str:
+        return self._screen(args, progress)[0]
+
+    def screen_replies(self, args: str = "",
+                       progress: Callable[[str], None] | None = None) -> list[Reply]:
+        """The screening summary, then an alert card for each new Apply high job."""
+        text, summary = self._screen(args, progress)
+        return [Reply(text), *self.high_alerts(summary)]
+
+    def high_alerts(self, summary: ScreenSummary | None) -> list[Reply]:
+        """Apply high jobs this screening found, each with Approve and Skip, so you can
+        apply the same day. Jobs already handled are left out."""
+        if summary is None or self.repo is None:
+            return []
+        ids = list(dict.fromkeys(r.page_id for r in summary.results
+                                 if r.verdict == "Apply high"))
+        replies: list[Reply] = []
+        for page_id in ids[:MAX_HIGH_ALERTS]:
+            values = self.repo.get_values(page_id)
+            if not values or values.get("Status") != "Screened":
+                continue
+            card = self.card(job_row(page_id, values), len(replies), min(len(ids),
+                                                                           MAX_HIGH_ALERTS))
+            replies.append(Reply(f"{HIGH_ALERT}\n{card.text}", card.buttons[:2]))
+        if len(ids) > MAX_HIGH_ALERTS:
+            replies.append(Reply(f"{len(ids) - MAX_HIGH_ALERTS} more Apply high jobs are "
+                                 "waiting: /pending"))
+        return replies
+
+    def _screen(self, args: str, progress: Callable[[str], None] | None
+                ) -> tuple[str, ScreenSummary | None]:
         if self.repo is None:
-            return NO_TARGET
+            return NO_TARGET, None
         word = args.strip().lower()
         try:
             if word == "batch":  # half price, answers later (screen/batch.py)
@@ -699,8 +731,8 @@ class Desk:
             else:
                 summary = screen_pending(self.s, self.deps, self.today(), progress)
         except (ScreenError, LLMError, http.HttpError) as exc:
-            return f"Screening could not run: {exc}"
-        return self._summary_text(summary)
+            return f"Screening could not run: {exc}", None
+        return self._summary_text(summary), summary
 
     # ------------------------------------------------------------ /autopilot
 

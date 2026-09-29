@@ -73,7 +73,7 @@ resume:
 contacts:
   # Title patterns (lowercase regex), checked in this order. Anything else is Other.
   title_patterns:
-    recruiter: "recruit|talent acquisition|sourcer|talent partner|people partner|hr business partner|rekrut"
+    recruiter: "recruit|talent acquisition|sourcer|talent partner|people partner|hr business partner|rekrut|\\bhr\\b|human resources|people (operations|ops)|talent (manager|lead|specialist)|kadr"
     hiring: "engineering manager|head of (devops|platform|infrastructure|cloud|sre|engineering)|director of (engineering|infrastructure|platform)|(devops|platform|infrastructure|sre|cloud) (team )?(lead|manager)|tech lead|team lead"
     peer: "devops|site reliability|sre|platform engineer|cloud engineer|infrastructure engineer|systems engineer|kubernetes|release engineer|build engineer"
   # Used when Config contacts.mix is missing or cannot be read.

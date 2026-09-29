@@ -41,7 +41,7 @@ from jobengine.mail.fill import (
     pick_detail,
     placeholder_values,
 )
-from jobengine.mail.templates import Template, TemplateError
+from jobengine.mail.templates import KIND, Template, TemplateError
 from jobengine.notion_repo import ContactsRepo, JobsRepo, ResumeLogRepo
 from jobengine.resume.builder import hex_id, notion_id, specific_details
 from jobengine.safety import gmail_write_allowed, route_recipients
@@ -335,7 +335,8 @@ def _group_lines(result: DraftsResult) -> list[str]:
         for (template, note), names in by_template.items():
             extra = f", {note}" if note else ""
             label = "Mailbox" if kind == OTHER else kind
-            lines.append(f"{label}: {', '.join(names)} ({template} template{extra})")
+            kind = KIND.get(template, "mail")
+            lines.append(f"{label}: {', '.join(names)} ({kind}, {template} template{extra})")
     return lines
 
 

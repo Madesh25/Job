@@ -64,9 +64,9 @@ def test_order_templates_and_summary(tmp_path):
         ("Peer engineer", "peer")]
     lines = result.message.splitlines()
     assert lines[:4] == ["Drafts for Vistula Cloud, DevOps Engineer",
-                         "Hiring: Piotr Example (hiring template)",
-                         "Recruiter/TA: Ola Example (recruiter template)",
-                         "Peer engineer: Anna Example, Jan Example (peer template)"]
+                         "Hiring: Piotr Example (cold mail, hiring template)",
+                         "Recruiter/TA: Ola Example (cold mail, recruiter template)",
+                         "Peer engineer: Anna Example, Jan Example (referral ask, peer template)"]
     assert "Reminder: soft cap is 15 mails a day." in lines
 
 
@@ -134,7 +134,8 @@ def test_hiring_without_detail_gets_recruiter_and_remote_city(tmp_path):
     deps = deps_for(settings("prod"), tmp_path, gmail=gmail)
     result = drafter.create_drafts(deps, "fixture-no-detail-ie")
     assert [(d.type, d.template) for d in result.drafted] == [("Hiring", "recruiter")]
-    assert "Hiring: Niamh Example (recruiter template, no specific detail)" in result.message
+    assert ("Hiring: Niamh Example (cold mail, recruiter template, no specific detail)"
+            in result.message)
     assert parsed(gmail)["Subject"] == "Platform Engineer application, Northwind Cloud Ireland"
     assert "an Irish employment permit" in result.mails[0].body
 
