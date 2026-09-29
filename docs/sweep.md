@@ -155,7 +155,10 @@ spend its places (or tokens) on jobs it would skip anyway:
   Dutch ("Fluent Polish", "Polish (C1)", "znajomosc jezyka polskiego", "vloeiend
   Nederlands"), or German, French, Spanish and others ("Fluent German required"); or the
   title names one ("macOS Engineer (German-Speaking)", "Infrastructure Engineer (French)");
-  or the posting is written in Polish or Dutch and does not ask for English. "Polish is a
+  or the posting is written in Polish or Dutch, even when it also asks for English (the
+  team works in that language). An English posting with a short Polish privacy note still
+  passes: the posting must use at least twice as many Polish or Dutch common words as
+  English ones. "Polish is a
   plus", "nice to have" and "Polish clients" never count. Summary: `Needs a language other
   than English (not saved)`.
 - **Contract** (`sweep/fit.py`). A job in Poland that states B2B (or a `+ VAT` rate) and no

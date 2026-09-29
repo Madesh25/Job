@@ -62,7 +62,7 @@ Before a job goes to the LLM it is checked for free, with the same rules the swe
   `screening.max_years_required` (4); with no years stated, a Senior title or a description
   that calls the role senior;
 - a language other than English required, in the description or the title, or a posting
-  written in Polish or Dutch that does not ask for English (`Polish required` / `Dutch
+  written in Polish or Dutch, even when it also asks for English (`Polish required` / `Dutch
   required`; other languages are `Other`, with the language in the note);
 - a job in Poland with a B2B contract only (`B2B only`);
 - no visa sponsorship or relocation stated, or the right to work required (`Other`, note
