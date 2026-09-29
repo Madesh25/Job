@@ -42,3 +42,28 @@ never stops the others.
 - Once the day's approvals are used, `/autopilot` still fetches and screens, and the new
   jobs wait for tomorrow's approvals (or for you in `/pending`).
 - After a bot restart, the waiting run (Bot State `autopilot.run`) is picked up again.
+
+## Every morning by itself (scheduled)
+
+`/autopilot` can run once a day without a command. It is **off** until you set Notion Config
+`schedule.autopilot` to `true` (set it back to `false` to stop it). Send `/autopilot when` to
+see whether it is on and when it runs next.
+
+- **When**: Monday to Friday at 07:00 Europe/Warsaw (10:30 in India), the time European
+  recruiters start their day, so your applications and mails are among the first. The time
+  zone covers Poland and the Netherlands; Ireland is one hour behind.
+- **Change the time**: Notion Config `schedule.autopilot_time` (`HH:MM`, Europe/Warsaw). The
+  days, the time zone and the latest start time are in `config/base.yaml` under
+  `screening.autopilot_schedule`.
+- **Once a day**: the first check at or after the start time runs it (Bot State
+  `autopilot.scheduled` keeps the date). A bot that was off in the morning starts it until
+  the latest start time (10:00), never later: send `/autopilot` yourself after that.
+- **Long polling** (the bot on your laptop): checked every
+  `screening.autopilot_check_minutes` (5), together with a waiting batch.
+- **Cloud Run**: Cloud Scheduler job `je-autopilot-prod` calls `POST /tasks/autopilot` every
+  30 minutes in the morning ([deploy.md](deploy.md) B4). The first call starts the run; later
+  calls carry on with its half-price batch once it has answered. The call is answered at
+  once and the run reports in Telegram (a failure too).
+- It is the same run as `/autopilot`: at most `screening.autopilot_approvals` (10) approvals
+  a day, and the mail mode (`/mailmode`) decides between drafts and sending. The summary
+  starts with "Scheduled autopilot (07:00 Europe/Warsaw)".

@@ -26,6 +26,7 @@ from jobengine.mail import drafter as mail_drafter
 from jobengine.mail import sender as mail_sender
 from jobengine.resume import builder as resume_builder
 from jobengine.screen import batch
+from jobengine.screen import schedule as autopilot_schedule
 from jobengine.screen.models import JobRow
 from jobengine.screen.runner import ScreenError
 
@@ -121,6 +122,24 @@ def tick(desk: Desk) -> list[Reply] | None:
         return [Reply(f"Autopilot stopped: {exc}. Send /autopilot to try again.")]
 
 
+def scheduled(desk: Desk, fetch: Fetch | None, progress: Progress) -> list[Reply] | None:
+    """The morning schedule (screen/schedule.py): carry on with a waiting run, else start
+    today's run when it is due. None when there is nothing to do or to say."""
+    if desk.repo is None:
+        return None
+    if desk.state.get(RUN_KEY):
+        return tick(desk)
+    if not autopilot_schedule.due(desk):
+        return None
+    autopilot_schedule.mark_started(desk)
+    replies = run(desk, fetch, progress)
+    if replies:
+        p = autopilot_schedule.plan(desk)
+        replies[0].text = (f"Scheduled autopilot ({p.start:%H:%M} {p.zone.key}):\n\n"
+                           + replies[0].text)
+    return replies
+
+
 def _collect_then_finish(desk: Desk, lines: list[str], progress: Progress) -> list[Reply]:
     from jobengine.screen.desk import Reply
 
@@ -137,6 +156,10 @@ def _collect_then_finish(desk: Desk, lines: list[str], progress: Progress) -> li
 
 
 def _wait_text(desk: Desk) -> str:
+    if desk.s.bot_mode == "webhook" and autopilot_schedule.plan(desk).on:
+        return ("The scheduled check (every 30 minutes in the morning) carries on by itself "
+                "when the answers are in: it approves the best jobs, builds resumes, finds "
+                "contacts and writes Gmail drafts. You can also send /autopilot again later.")
     if desk.s.bot_mode == "webhook":
         return ("Send /autopilot again in about an hour: it saves the answers, then approves "
                 "the best jobs, builds resumes, finds contacts and writes Gmail drafts.")

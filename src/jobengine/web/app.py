@@ -11,7 +11,7 @@ import logging
 import sys
 from collections import deque
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
 
@@ -73,6 +73,8 @@ class Tasks:
     daily: Callable[[], dict[str, Any]]
     digest: Callable[[], dict[str, Any]]
     sweep: Callable[[], dict[str, Any]]
+    # Queued, not awaited: a run with 10 resumes can take longer than the request timeout.
+    autopilot: Callable[[], dict[str, Any]] = field(default=lambda: {"ok": True})
 
 
 def desk_tasks(s: Settings, desk: Desk, client: tb.TelegramClient,
@@ -115,7 +117,20 @@ def desk_tasks(s: Settings, desk: Desk, client: tb.TelegramClient,
         send([Reply(summary)])
         return {"ok": True}
 
-    return Tasks(daily=daily, digest=digest, sweep=sweep)
+    def autopilot() -> dict[str, Any]:
+        """The morning schedule (screen/schedule.py): start today's run when it is due, or
+        carry on with a run whose half-price batch has answered."""
+        try:
+            replies = desk.autopilot_scheduled(tb.autopilot_fetch(fetch))
+        except Exception as exc:  # queued: nobody waits for the result, so report it here
+            log.exception("scheduled autopilot failed")
+            send([Reply(f"Scheduled autopilot failed: {exc}")])
+            return {"ok": False, "error": str(exc)}
+        if replies:
+            send(replies)
+        return {"ok": True, "ran": bool(replies)}
+
+    return Tasks(daily=daily, digest=digest, sweep=sweep, autopilot=autopilot)
 
 
 def create_app(
@@ -185,6 +200,15 @@ def create_app(
     @app.post("/tasks/digest")
     def task_digest(request: Request) -> JSONResponse:
         return run_task("digest", tasks.digest, request.headers.get("Authorization"))
+
+    @app.post("/tasks/autopilot")
+    def task_autopilot(request: Request) -> JSONResponse:
+        try:
+            check_scheduler_token(request.headers.get("Authorization"), s, verify)
+        except AuthError as exc:
+            return denied(exc)
+        worker.submit(tasks.autopilot)  # answers at once; the run reports in Telegram
+        return JSONResponse({"task": "autopilot", "queued": True}, status_code=202)
 
     @app.post("/tasks/sweep")
     def task_sweep(request: Request) -> JSONResponse:

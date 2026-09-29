@@ -813,6 +813,19 @@ class Desk:
         """Called every few minutes by long polling: finishes a waiting /autopilot."""
         return autopilot.tick(self)
 
+    def autopilot_scheduled(self, fetch: autopilot.Fetch | None,
+                            progress: Callable[[str], None] | None = None
+                            ) -> list[Reply] | None:
+        """The morning schedule: carries on with a waiting run, else starts today's run when
+        Config schedule.autopilot is true and it is due (screen/schedule.py)."""
+        return autopilot.scheduled(self, fetch, progress or (lambda text: None))
+
+    def autopilot_when(self) -> list[Reply]:
+        """/autopilot when: the schedule and the next run."""
+        from jobengine.screen import schedule
+
+        return [Reply(schedule.status_text(self))]
+
     # ------------------------------------------------------------ /jd and /done
 
     def _discarded(self, capture: Capture) -> Reply:

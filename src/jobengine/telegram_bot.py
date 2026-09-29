@@ -49,6 +49,7 @@ HELP_TEXT = (
     "/fetch - search for new jobs, then screen them\n"
     "/autopilot - fetch, screen at half price, approve the best (10 a day), save resumes, "
     "find contacts and write Gmail drafts (never sent)\n"
+    "/autopilot when - the morning schedule (Config schedule.autopilot) and the next run\n"
     "/pending - review screened jobs one at a time (Approve, Skip, Next)\n"
     "/jd <url> - paste a job description (for LinkedIn jobs), then /done\n"
     "/jd - list jobs waiting for a description\n"
@@ -465,7 +466,10 @@ def handle_one(
         return
     text = message.get("text") or ""
     if desk is not None and parse_command(text) == "autopilot":
-        run_autopilot(client, s, chat, desk, fetch)
+        if text.split()[1:2] in (["when"], ["schedule"]):
+            send_replies(client, s, chat, _guarded("/autopilot when", desk.autopilot_when))
+        else:
+            run_autopilot(client, s, chat, desk, fetch)
         return
     if desk is not None and parse_command(text) == "screen" and len(text.split()) == 1:
         run_screen(client, s, chat, desk)
@@ -635,6 +639,17 @@ def run_screen(
 NEXT_STEP = "\n\n\U0001F449 Next:"  # the hint /fetch ends with
 
 
+def autopilot_fetch(fetch: Fetcher | None) -> Fetcher | None:
+    """The /fetch sweep without its "Next: /screen" hint: autopilot does the next step."""
+    if fetch is None:
+        return None
+
+    def fetch_only(update: Progress) -> str:
+        return fetch(update).split(NEXT_STEP)[0]
+
+    return fetch_only
+
+
 def run_autopilot(
     client: TelegramClient, s: Settings, chat_id: str, desk: Desk, fetch: Fetcher | None,
     clock: Callable[[], float] = time.monotonic,
@@ -642,13 +657,8 @@ def run_autopilot(
     """/autopilot: one progress message, then the summary and the resumes."""
     progress = ProgressMessage(client, chat_id, s, clock=clock, name="Autopilot",
                                first="Autopilot started")
-
-    def fetch_only(update: Progress) -> str:
-        assert fetch is not None
-        return fetch(update).split(NEXT_STEP)[0]  # autopilot does the next step itself
-
     try:
-        replies = desk.autopilot(fetch_only if fetch is not None else None, progress.update)
+        replies = desk.autopilot(autopilot_fetch(fetch), progress.update)
     except Exception as exc:  # report the failure instead of stopping the bot
         log.exception("/autopilot failed")
         progress.finish(ok=False)
@@ -658,12 +668,15 @@ def run_autopilot(
     send_replies(client, s, chat_id, replies)
 
 
-def autopilot_check(client: TelegramClient, s: Settings, desk: Desk | None) -> None:
-    """Long polling: carry on with an /autopilot whose half-price batch has answered."""
+def autopilot_check(client: TelegramClient, s: Settings, desk: Desk | None,
+                    fetch: Fetcher | None = None) -> None:
+    """Long polling: carry on with an /autopilot whose half-price batch has answered, else
+    start the morning's scheduled run when it is due (Config schedule.autopilot)."""
     if desk is None:
         return
     _bind_notify(client, s, desk)
-    replies = _guarded("Autopilot", lambda: desk.autopilot_tick() or [])
+    replies = _guarded("Autopilot",
+                       lambda: desk.autopilot_scheduled(autopilot_fetch(fetch)) or [])
     if replies:
         send_replies(client, s, str(s.telegram_chat_id), replies)
 
@@ -725,7 +738,8 @@ def run(
     clock: Callable[[], float] = time.monotonic,
 ) -> None:
     """Register the / menu, announce startup, then poll forever (or max_polls times).
-    Between polls, a waiting /autopilot batch is checked every few minutes."""
+    Between polls, every few minutes: a waiting /autopilot batch is checked, and the morning's
+    scheduled /autopilot starts when it is due."""
     try:
         client.set_commands(bot_commands())
     except TelegramError as exc:  # the menu is a convenience: never stop the bot over it
@@ -741,7 +755,7 @@ def run(
             offset = poll_once(client, s, offset, fetch, desk, started=started)
             if desk is not None and clock() >= next_check:
                 next_check = clock() + autopilot.check_seconds(desk)
-                autopilot_check(client, s, desk)
+                autopilot_check(client, s, desk, fetch)
         except TelegramError as exc:
             log.error("%s, retrying in 5s", exc)
             sleep(5)
