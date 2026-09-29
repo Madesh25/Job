@@ -20,6 +20,7 @@ whose share of your tools is below `sweep.min_skill_match` (sweep/runner.py).
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass
 from datetime import date
 
 from jobengine.reference import OWNED_LEVELS, Reference, canon_term
@@ -27,6 +28,19 @@ from jobengine.sweep.models import Job
 from jobengine.sweep.normalize import canon
 
 MAX_TERMS = 8
+
+
+@dataclass(frozen=True)
+class Keywords:
+    have: list[str]
+    missing: list[str]
+    reword: list[tuple[str, str]]  # (the job's word, your true skill it stands for)
+
+    @property
+    def share(self) -> int | None:
+        """Percent of the named tools you have; None when the job names none."""
+        total = len(self.have) + len(self.missing)
+        return round(100 * len(self.have) / total) if total else None
 TOP_TIERS = (1, 2, 3, 4, 6)
 SENIORITY_POINTS = {"Mid": 3, "Unknown": 1, "Junior": 0, "Senior": -2, "Lead": -8}
 LANGUAGE_REQUIRED = re.compile(
@@ -77,10 +91,30 @@ class Ranker:
 
     def match(self, job: Job) -> tuple[list[str], list[str]]:
         """(your tools the job names, tools it names that you do not have)."""
-        text = f" {canon(job.role)} {canon(job.description or '')} "
+        return self.match_text(f"{job.role} {job.description or ''}")
+
+    def match_text(self, text: str) -> tuple[list[str], list[str]]:
+        """match() for any text, for example a saved job description."""
+        text = f" {canon(text)} "
         have = _longest([t for t in self.owned if f" {t} " in text])
         missing = _longest([t for t in self.not_owned if f" {t} " in text])
         return have, missing
+
+    def keywords(self, text: str) -> Keywords:
+        """What the /pending card shows: the skill match, the tools you lack, and the job's
+        words for skills you have under another name (Active Term Map rows)."""
+        have, missing = self.match_text(text)
+        canon_text = f" {canon(text)} "
+        skills = self.ref.skill_terms()
+        reword: dict[str, str] = {}
+        for row in self.ref.term_map:
+            if not row.backs:
+                continue
+            for term in row.jd_terms:
+                key = canon_term(term)
+                if key and key not in skills and f" {key} " in canon_text:
+                    reword.setdefault(term.strip(), row.truthful_equivalent.strip())
+        return Keywords(have=have, missing=missing, reword=sorted(reword.items()))
 
     def score(self, job: Job, today: date) -> int:
         text = f" {canon(job.role)} {canon(job.description or '')} "
