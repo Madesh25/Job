@@ -4,12 +4,12 @@ on some plans, so it only runs where paid calls are allowed."""
 
 from __future__ import annotations
 
-from jobengine.contacts.providers import apollo, hunter, snov
+from jobengine.contacts.providers import apollo, hunter, lusha, snov
 from jobengine.contacts.providers.base import ProviderDeps, real_request
 from jobengine.safety import paid_api_allowed
 from jobengine.settings import Settings
 
-PROVIDERS = {"apollo": apollo, "hunter": hunter, "snov": snov}
+PROVIDERS = {"apollo": apollo, "hunter": hunter, "snov": snov, "lusha": lusha}
 REFUSED = ("--probe makes a real provider call, so it only runs with APP_ENV=prod and "
            "DRY_RUN=false.")
 
@@ -21,5 +21,10 @@ def run_probe(provider: str, domain: str, s: Settings) -> str:
     deps = ProviderDeps(s=s, request=real_request(s),
                         search_titles=s.contacts.get("search_titles") or {})
     count, fields = module.probe(domain, deps)
+    if module is lusha:
+        return (f"lusha probe for {domain} (company name): {count} results. The answer's "
+                "fields (types only, no values):\n" + "\n".join(fields) +
+                "\nNothing was revealed or written and no counter changed. Send this list to "
+                "Claude to build the Lusha lookup.")
     return (f"{provider} probe for {domain}: {count} results. Fields present: "
             f"{', '.join(fields) or 'none'}. Nothing was written and no counter changed.")

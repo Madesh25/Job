@@ -42,6 +42,7 @@ SECRET_VARS = {
     "PROSPEO_API_KEY": "prospeo_api_key",
     "TOMBA_API_KEY": "tomba_api_key",
     "TOMBA_API_SECRET": "tomba_api_secret",
+    "LUSHA_API_KEY": "lusha_api_key",
     "GITHUB_TOKEN": "github_token",  # optional: public GitHub reads, 5,000 calls an hour
     # Cloud Run (Module 09).
     "TELEGRAM_WEBHOOK_SECRET": "telegram_webhook_secret",
@@ -94,6 +95,7 @@ class Settings(BaseModel):
     tomba_api_key: str | None = None
     tomba_api_secret: str | None = None
     github_token: str | None = None
+    lusha_api_key: str | None = None
     telegram_webhook_secret: str | None = None
     service_url: str | None = None
     scheduler_sa_email: str | None = None
