@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Protocol
@@ -56,7 +57,8 @@ class Usage:
     cost: float = 0.0
     unpriced: set[str] = field(default_factory=set)  # models missing from PRICES_PER_MTOK
 
-    def add(self, model: str, usage: Any, factor: float = 1.0) -> None:
+    def add(self, model: str, usage: Any, factor: float = 1.0) -> float:
+        """Count one call; returns its estimated cost in dollars (0 when unpriced)."""
         def count(name: str) -> int:
             value = getattr(usage, name, None)
             return value if isinstance(value, int) else 0
@@ -70,10 +72,12 @@ class Usage:
         price = PRICES_PER_MTOK.get(model)
         if price is None:
             self.unpriced.add(model)
-            return
+            return 0.0
         per_in, per_out = price[0] / 1e6, price[1] / 1e6
-        self.cost += factor * (fresh * per_in + read * per_in * CACHE_READ_FACTOR
-                               + write * per_in * CACHE_WRITE_FACTOR + out * per_out)
+        cost = factor * (fresh * per_in + read * per_in * CACHE_READ_FACTOR
+                         + write * per_in * CACHE_WRITE_FACTOR + out * per_out)
+        self.cost += cost
+        return cost
 
     def line(self) -> str | None:
         """"AI used: 3 calls, 5,210 tokens in, 1,340 out, about $0.0120", or None when no
@@ -86,6 +90,28 @@ class Usage:
         if self.unpriced:
             text += f" (no price for {', '.join(sorted(self.unpriced))})"
         return text
+
+
+WEB_SEARCH_DOLLARS = 0.01  # $10 per 1,000 web searches, billed on top of the tokens
+
+# Where every call's estimated cost goes (the month's running total in Bot State, see
+# track/costs.py): (stage, dollars). Set once by the bot; None in tests and scripts.
+CostSink = Callable[[str, float], None]
+_cost_sink: CostSink | None = None
+
+
+def set_cost_sink(sink: CostSink | None) -> None:
+    global _cost_sink
+    _cost_sink = sink
+
+
+def record_cost(stage: str, dollars: float) -> None:
+    if _cost_sink is None or dollars <= 0:
+        return
+    try:
+        _cost_sink(stage, dollars)
+    except Exception:  # the cost total is a report: never fail a call over it
+        log.exception("could not record the LLM cost")
 
 
 class LLMError(Exception):
@@ -240,7 +266,7 @@ class AnthropicLLM:
         for attempt in (1, 2):
             response = self._create(messages=messages, **kwargs)
             usage = getattr(response, "usage", None)
-            self.usage.add(model, usage)
+            record_cost(stage, self.usage.add(model, usage))
             log.info(
                 "llm stage=%s model=%s input_tokens=%s output_tokens=%s cache_read=%s",
                 stage, model, getattr(usage, "input_tokens", None),
@@ -319,7 +345,7 @@ class AnthropicLLM:
                 out[item.custom_id] = f"batch request {result.type}"
                 continue
             message = result.message
-            self.usage.add(message.model, message.usage, BATCH_FACTOR)
+            record_cost(stage, self.usage.add(message.model, message.usage, BATCH_FACTOR))
             if getattr(message, "stop_reason", None) == "refusal":
                 out[item.custom_id] = f"LLM declined the {stage} request"
                 continue
@@ -352,7 +378,10 @@ class AnthropicLLM:
         for _ in range(MAX_CONTINUATIONS + 2):
             response = self._create(messages=messages, **kwargs)
             usage = getattr(response, "usage", None)
-            self.usage.add(model, usage)  # web searches are billed on top, not counted here
+            searches = getattr(getattr(usage, "server_tool_use", None), "web_search_requests",
+                               0)
+            record_cost(stage, self.usage.add(model, usage) + WEB_SEARCH_DOLLARS * (
+                searches if isinstance(searches, int) else 0))
             log.info("llm stage=%s model=%s input_tokens=%s output_tokens=%s searches=%s",
                      stage, model, getattr(usage, "input_tokens", None),
                      getattr(usage, "output_tokens", None),
