@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Protocol
 
@@ -28,6 +29,62 @@ NO_SAMPLING_PREFIXES = (
     "claude-opus-4-7", "claude-opus-4-8", "claude-opus-5", "claude-sonnet-5",
     "claude-fable", "claude-mythos",
 )
+
+
+# US dollars per million tokens (input, output), from Anthropic's price list. Cache reads cost
+# a tenth of the input price, cache writes (5 minutes) a quarter more.
+PRICES_PER_MTOK = {
+    "claude-haiku-4-5": (1.0, 5.0),
+    "claude-sonnet-5": (2.0, 10.0),
+    "claude-sonnet-5-5": (2.0, 10.0),
+    "claude-opus-5": (5.0, 25.0),
+    "claude-opus-5-5": (4.0, 20.0),
+}
+CACHE_READ_FACTOR = 0.1
+CACHE_WRITE_FACTOR = 1.25
+
+
+@dataclass
+class Usage:
+    """Tokens and estimated cost of the LLM calls of one run (one /screen, one resume)."""
+
+    calls: int = 0
+    input_tokens: int = 0
+    output_tokens: int = 0
+    cache_read: int = 0
+    cost: float = 0.0
+    unpriced: set[str] = field(default_factory=set)  # models missing from PRICES_PER_MTOK
+
+    def add(self, model: str, usage: Any) -> None:
+        def count(name: str) -> int:
+            value = getattr(usage, name, None)
+            return value if isinstance(value, int) else 0
+
+        fresh, out = count("input_tokens"), count("output_tokens")
+        read, write = count("cache_read_input_tokens"), count("cache_creation_input_tokens")
+        self.calls += 1
+        self.input_tokens += fresh + read + write
+        self.output_tokens += out
+        self.cache_read += read
+        price = PRICES_PER_MTOK.get(model)
+        if price is None:
+            self.unpriced.add(model)
+            return
+        per_in, per_out = price[0] / 1e6, price[1] / 1e6
+        self.cost += (fresh * per_in + read * per_in * CACHE_READ_FACTOR
+                      + write * per_in * CACHE_WRITE_FACTOR + out * per_out)
+
+    def line(self) -> str | None:
+        """"AI used: 3 calls, 5,210 tokens in, 1,340 out, about $0.0120", or None when no
+        call was made."""
+        if not self.calls:
+            return None
+        text = (f"AI used: {self.calls} call{'s' if self.calls != 1 else ''}, "
+                f"{self.input_tokens:,} tokens in, {self.output_tokens:,} out, "
+                f"about ${self.cost:.4f}")
+        if self.unpriced:
+            text += f" (no price for {', '.join(sorted(self.unpriced))})"
+        return text
 
 
 class LLMError(Exception):
@@ -121,6 +178,7 @@ class AnthropicLLM:
 
             client = anthropic.Anthropic(api_key=s.anthropic_api_key, max_retries=2, timeout=120)
         self._client = client
+        self.usage = Usage()
 
     def _create(self, **kwargs: Any) -> Any:
         import anthropic
@@ -160,6 +218,7 @@ class AnthropicLLM:
         for attempt in (1, 2):
             response = self._create(messages=messages, **kwargs)
             usage = getattr(response, "usage", None)
+            self.usage.add(model, usage)
             log.info(
                 "llm stage=%s model=%s input_tokens=%s output_tokens=%s cache_read=%s",
                 stage, model, getattr(usage, "input_tokens", None),
@@ -205,6 +264,7 @@ class AnthropicLLM:
         for _ in range(MAX_CONTINUATIONS + 2):
             response = self._create(messages=messages, **kwargs)
             usage = getattr(response, "usage", None)
+            self.usage.add(model, usage)  # web searches are billed on top, not counted here
             log.info("llm stage=%s model=%s input_tokens=%s output_tokens=%s searches=%s",
                      stage, model, getattr(usage, "input_tokens", None),
                      getattr(usage, "output_tokens", None),
@@ -239,6 +299,7 @@ class FakeLLM:
         self.base = base
         self.default = default
         self.calls: list[dict[str, Any]] = []
+        self.usage = Usage()  # stays empty: fixtures cost nothing
 
     def complete_json(
         self, stage: str, system: str, user: str, *, max_tokens: int = 2000,

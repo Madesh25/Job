@@ -13,6 +13,7 @@ from typing import Any
 
 from pydantic import ValidationError
 
+from jobengine.jdtrim import trim_jd
 from jobengine.llm import LLMClient
 from jobengine.reference import OWNED_LEVELS, Reference
 from jobengine.resume.models import MasterResume, Plan, PlanRow
@@ -108,8 +109,9 @@ def user_prompt(
     if correction:
         data["correction_from_candidate"] = correction
     return (
-        f"{json.dumps(data, indent=1, ensure_ascii=False)}\n\n"
-        f"Job description:\n<<<\n{job.jd}\n>>>"
+        # Compact JSON: indentation spaces are input tokens too.
+        f"{json.dumps(data, ensure_ascii=False, separators=(',', ':'))}\n\n"
+        f"Job description:\n<<<\n{trim_jd(job.jd)}\n>>>"
     )
 
 

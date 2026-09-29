@@ -42,8 +42,16 @@ def test_fake_run_summary(s, deps):
     summary = run(s, deps)
     assert summary.text() == (
         "Screening done: 14 screened (4 high, 1 normal, 2 low, 1 needs review, 6 skipped), "
-        "1 waiting for JD."
+        "1 waiting for JD. 4 skipped without the AI."
     )
+
+
+def test_summary_ends_with_the_ai_cost_of_the_run():
+    from jobengine.screen.models import ScreenSummary
+
+    summary = ScreenSummary(usage_line="AI used: 2 calls, 3,000 tokens in, 800 out, about $0.0070")
+    assert summary.text().splitlines()[1].startswith("AI used: 2 calls")
+    assert len(ScreenSummary().text().splitlines()) == 1  # no AI call: no line
 
 
 def test_fixture_verdicts(s, deps):

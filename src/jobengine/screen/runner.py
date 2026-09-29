@@ -420,6 +420,7 @@ def screen_pending(
             daily.record(deps.state, today, used + sent)
     if done < len(rows) and not stopped:
         summary.errors.append(_limit_note(s, used + sent, len(rows) - done, limit))
+    summary.usage_line = _usage_line(run)
     summary.errors.extend(dict.fromkeys(run.notes))
     if not deps.write:
         summary.errors.append("--no-write: nothing was written")
@@ -471,10 +472,16 @@ def screen_one(s: Settings, deps: ScreenDeps, today: date, ref: str) -> ScreenSu
     if result.verdict == "Unscreened":
         summary.waiting_for_jd += 1
     summary.add(result)
+    summary.usage_line = _usage_line(run)
     summary.errors.extend(dict.fromkeys(run.notes))
     if not deps.write:
         summary.errors.append("--no-write: nothing was written")
     return summary
+
+
+def _usage_line(run: _Run) -> str | None:
+    usage = getattr(run.llm, "usage", None)
+    return usage.line() if usage is not None else None
 
 
 def pending_rows(repo: JobsRepo) -> list[JobRow]:

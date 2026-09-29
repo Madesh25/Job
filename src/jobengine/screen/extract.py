@@ -12,6 +12,7 @@ from typing import Any
 
 from pydantic import ValidationError
 
+from jobengine.jdtrim import trim_jd
 from jobengine.llm import LLMClient
 from jobengine.screen.models import Extraction, Language, Quoted, Requirement
 
@@ -178,8 +179,10 @@ def extract(
 ) -> tuple[Extraction, list[str]]:
     """One LLM call per job, then the quote check. The LLM gets only the job text: never
     contacts, emails or phone numbers."""
+    # The LLM reads the description without legal boilerplate (fewer input tokens); quotes
+    # are still checked against the full text, which contains every trimmed line.
     raw = llm.complete_json(
-        STAGE, SYSTEM_PROMPT, user_prompt(title, company, country, jd), key=key,
+        STAGE, SYSTEM_PROMPT, user_prompt(title, company, country, trim_jd(jd)), key=key,
         max_tokens=MAX_OUTPUT_TOKENS,
     )
     return check_quotes(raw, jd)

@@ -81,12 +81,29 @@ same time, never more than what is left of the daily limit. The first job goes a
 refused API key still stops the run after one call. Results and the daily count are the same
 as one at a time; only the wait is shorter. `screening.workers: 1` screens one at a time.
 
+## Keeping the AI cheap
+
+- The free checks above skip many jobs before any AI call; the reply says how many
+  (`N skipped without the AI`).
+- The AI reads the description without legal boilerplate (`src/jobengine/jdtrim.py`):
+  privacy and data-processing notices (GDPR, the Polish RODO clause) and equal-opportunity
+  statements, when they are a paragraph of 120 characters or more, and repeated lines. A
+  short line such as "Knowledge of GDPR" is a requirement and stays. Quotes are still checked
+  against the full description, and the Notion page keeps the full text.
+- The reply ends with `AI used: N calls, X tokens in, Y out, about $Z` for that run, priced
+  from `PRICES_PER_MTOK` in `src/jobengine/llm.py` (cache reads at a tenth of the input
+  price). Web searches (`/update`) are billed on top and are not in that figure.
+- Resumes use Haiku too (Config `model.tailor` = `claude-haiku-4-5`; local and dev always
+  use Haiku).
+
 ## When the API key is refused
 
 If Anthropic answers HTTP 401 or 403 (a wrong or revoked `ANTHROPIC_API_KEY`, or an account
 without credit), screening stops after the first job with `Screening stopped: Anthropic
 refused ANTHROPIC_API_KEY (HTTP 401) ...` instead of trying every job. Nothing is written and
-the daily count does not change. Fix the key in `.env` (or Secret Manager) and run `/screen`.
+the daily count does not change. The key is read only when the bot starts: put the new key in
+`.env`, stop the bot and start it again (on Cloud Run: add a secret version and redeploy),
+then run `/screen`.
 
 ## The flow
 
