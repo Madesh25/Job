@@ -20,6 +20,7 @@ from jobengine.contacts import finder as contact_finder
 from jobengine.contacts.finder import ContactDeps
 from jobengine.llm import LLMError
 from jobengine.mail import drafter as mail_drafter
+from jobengine.mail import sender as mail_sender
 from jobengine.mail.drafter import MailDeps
 from jobengine.notion_repo import FakeJobsRepo, JobsRepo
 from jobengine.reference import Reference
@@ -250,7 +251,10 @@ class Desk:
             from jobengine.resume.builder import notion_id
 
             job_id = notion_id(arg)
-            self.say(Reply("Writing Gmail drafts (never sent)..."))
+            if self.sending():
+                self.say(Reply("Writing, checking and sending the mails..."))
+            else:
+                self.say(Reply("Writing Gmail drafts (never sent)..."))
             return self.drafts(job_id)
         if action not in ("ap", "sk") or not arg:
             return [Reply("That button is no longer valid. Send /pending.")]
@@ -432,8 +436,15 @@ class Desk:
         when you tap it."""
         contact_finder.on_contacts_ready(job_id, contacts)
         if self.mail is not None and _contact_ids(contacts):
-            first.buttons = [*first.buttons, ("Write Gmail drafts", f"dr:{short_id(job_id)}")]
-            first.text += "\nNext: tap Write Gmail drafts (they are never sent by themselves)."
+            if self.sending():
+                first.buttons = [*first.buttons, ("Check and send mails",
+                                                  f"dr:{short_id(job_id)}")]
+                first.text += ("\nNext: tap Check and send mails (mail mode send: each mail is "
+                               "checked and sent only when every check passes).")
+            else:
+                first.buttons = [*first.buttons, ("Write Gmail drafts",
+                                                  f"dr:{short_id(job_id)}")]
+                first.text += "\nNext: tap Write Gmail drafts (they are never sent by themselves)."
         return [first]
 
     def contacts_command(self, args: str) -> list[Reply]:
@@ -487,10 +498,20 @@ class Desk:
 
     # ------------------------------------------------------------ drafts (Module 06)
 
+    def sending(self) -> bool:
+        """Mail mode "send" (/mailmode): drafts that pass every check are sent."""
+        return mail_sender.mode(self.state) == mail_sender.SEND
+
     def drafts(self, job_id: str, ids: list[str] | None = None) -> list[Reply]:
         assert self.mail is not None
         result = mail_drafter.create_drafts(self.mail, job_id, ids)
+        if self.sending() and result.ok and result.drafted:
+            sent = mail_sender.send_checked(self.mail, self.state, result)
+            return [Reply(sent.message[:MAX_TEXT])]
         return [Reply(result.message[:MAX_TEXT])]
+
+    def mailmode_command(self, args: str) -> list[Reply]:
+        return [Reply(mail_sender.mode_command(self.state, args))]
 
     def drafts_command(self, args: str) -> list[Reply]:
         """/drafts <job>: retry drafting for a job (drafts already made are skipped)."""

@@ -152,10 +152,14 @@ GOOGLE_CLIENT_ALLOWED = {
     "src/jobengine/gmail_client.py",
     "src/jobengine/gmail_auth.py",
 }
-# Module 06: drafts only. Never send, remove, trash, edit a draft or create labels.
+# Module 06: drafts. Never remove, trash, edit a draft or create labels. The one send is a
+# draft the bot wrote and checked (mail mode "send", mail/sender.py): _drafts().send, once.
 GMAIL_CLIENT = "src/jobengine/gmail_client.py"
-GMAIL_CLIENT_FORBIDDEN = [".send(", "delete(", "trash(", "batchDelete", "drafts().update",
-                          "labels().create"]
+GMAIL_CLIENT_FORBIDDEN = ["messages().send", "delete(", "trash(", "batchDelete",
+                          "drafts().update", "labels().create"]
+DRAFT_SEND = "self._drafts()" + ".send("
+SEND_DRAFT_CALL = ".send" + "_draft("
+SEND_DRAFT_CALLERS = {"src/jobengine/gmail_client.py", "src/jobengine/mail/sender.py"}
 # The token helper only reads the profile of the account it authorised.
 GMAIL_AUTH = "src/jobengine/gmail_auth.py"
 GMAIL_AUTH_FORBIDDEN = [*GMAIL_CLIENT_FORBIDDEN, "drafts(", "modify("]
@@ -175,6 +179,8 @@ def test_google_api_client_only_in_gmail_reader_and_drive_client():
 def test_gmail_client_never_sends_or_deletes():
     text = (ROOT / GMAIL_CLIENT).read_text(encoding="utf-8")
     assert [call for call in GMAIL_CLIENT_FORBIDDEN if call in text] == []
+    # The only send: one checked draft, never a free-form message.
+    assert text.count(".send(") == 1 and text.count(DRAFT_SEND) == 1
     auth = (ROOT / GMAIL_AUTH).read_text(encoding="utf-8")
     assert [call for call in GMAIL_AUTH_FORBIDDEN if call in auth] == []
 
@@ -288,3 +294,14 @@ def test_dev_service_gets_no_prod_only_secrets():
                       "notion-token-prod", "telegram-token-prod", "anthropic-key-prod",
                       "telegram-webhook-secret-prod"):
         assert prod_only not in dev_line, prod_only
+
+
+def test_only_the_checked_sender_sends_drafts():
+    callers = {p.relative_to(ROOT).as_posix() for p in src_files()
+               if SEND_DRAFT_CALL in p.read_text(encoding="utf-8")}
+    assert callers <= SEND_DRAFT_CALLERS
+    others = [p.relative_to(ROOT).as_posix() for p in src_files()
+              if p.relative_to(ROOT).as_posix() != GMAIL_CLIENT
+              and ".send(" in p.read_text(encoding="utf-8")
+              and "gmail" in p.read_text(encoding="utf-8").casefold()]
+    assert [p for p in others if p not in SEND_DRAFT_CALLERS] == []

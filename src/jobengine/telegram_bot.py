@@ -60,7 +60,8 @@ HELP_TEXT = (
     "/contacts <url or id> - find contacts for a job (cache first, then Apollo, Hunter, Snov)\n"
     "/credits - show the contact providers' credit counters\n"
     "/outreach - this week's outreach budget (which approved jobs get contacts and cold mails)\n"
-    "/drafts <url or id> - write Gmail drafts for a job's contacts again (never sends)\n"
+    "/drafts <url or id> - write Gmail drafts for a job's contacts again\n"
+    "/mailmode - draft (only write Gmail drafts) or send (check every mail, then send it)\n"
     "/today - run the daily check now (sent mails, replies, bounces, follow-ups)\n"
     "/followups - follow-up drafts waiting to be sent, and follow-ups due soon\n"
     "/stats - applied, replies, interviews and reply rates (30 days and all time)\n"
@@ -537,6 +538,8 @@ def desk_replies(update: dict[str, Any], s: Settings, desk: Desk | None) -> list
         return _guarded("/outreach", desk.outreach_command)
     if command == "drafts":
         return _guarded("/drafts", lambda: desk.drafts_command(args))
+    if command == "mailmode":
+        return _guarded("/mailmode", lambda: desk.mailmode_command(args))
     if command == "status" and desk.track is not None:
         return _guarded("/status", lambda: [Reply(f"{status_text(s)}\n{desk.status_lines()}")])
     tracking = {"today": desk.today_command, "followups": desk.followups_command,

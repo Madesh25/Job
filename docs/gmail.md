@@ -2,15 +2,18 @@
 
 When contacts are ready for a job, the bot writes one cold mail per contact into Gmail
 **Drafts**: the approved Cold Mail Templates word for word, the Config signature, and the
-approved resume PDF attached. It never sends anything. You open Gmail > Drafts, read, edit if
-needed, and send yourself.
+approved resume PDF attached. In mail mode **draft** (the default) it never sends anything:
+you open Gmail > Drafts, read, edit if needed, and send yourself. In mail mode **send** the
+bot checks every draft and sends the ones that pass (see "Mail mode" below).
 
 ## Rules
 
-- **Draft only.** `src/jobengine/gmail_client.py` is the only module that writes to Gmail. It
+- **Drafts first.** `src/jobengine/gmail_client.py` is the only module that writes to Gmail. It
   may call `users.drafts.create`, `drafts.get`, `drafts.list`, `messages.get`, `threads.get`,
-  `labels.list` and `messages.modify` (labels, Module 07). Sending, removing, trashing, editing
-  a draft and creating labels are not in the code; `tests/test_repo_rules.py` checks the file.
+  `labels.list`, `messages.modify` (labels, Module 07) and `drafts.send` (mail mode send only,
+  one draft at a time, called only from `mail/sender.py` after the checks). Sending a
+  free-form message, removing, trashing, editing a draft and creating labels are not in the
+  code; `tests/test_repo_rules.py` checks the files.
 - **Templates word for word.** Templates are read from the Notion page Cold Mail Templates at
   run time. A section without `APPROVED` in its heading is never used. Only the placeholders
   change. No LLM writes mail text; one LLM call (stage `email`) only returns the index of the
@@ -77,6 +80,45 @@ Reminder: soft cap is 15 mails a day.
 
 `/drafts <job URL or page id>` retries a job. When more than `mail.daily_send_cap` drafts are
 waiting (Contacts with Status Drafted) the summary says so.
+
+## Mail mode (/mailmode)
+
+- `/mailmode` shows the mode, `/mailmode draft` and `/mailmode send` change it (Bot State
+  `mail.mode`). It applies to the **Write Gmail drafts** button (called **Check and send
+  mails** in send mode), `/drafts <job>` and `/autopilot`.
+- **draft** (the default): as above, drafts only.
+- **send**: the drafts are written exactly as in draft mode, then each one is checked twice,
+  first the mail the bot built and then the draft read back from Gmail
+  (`src/jobengine/mail/preflight.py`):
+  - **To:** exactly one well-formed address, the expected one (the contact in prod, your
+    redirect address in local and dev). No Cc, no Bcc, no Reply-To.
+  - **Subject:** present, the expected text, no `{placeholder}` left, no long dash, at most
+    200 characters, and `[DEV]` or `[LOCAL]` first outside prod.
+  - **Body:** a plain text and an HTML part, no placeholder left, no long dash, the signature
+    there, not almost empty.
+  - **Attachment:** exactly one, the approved resume of this job (same file name and same
+    bytes as its Resume Log row), a real PDF, within `mail.max_attachment_kb`. None when
+    Config `mail.attach_resume` is `no`.
+- A draft that passes is sent with Gmail's `drafts.send`, at most Config
+  `mail.daily_send_cap` a day (10 when not set; Bot State `mail.sent_day` counts them). The
+  contact becomes `Contacted` with `Last contacted` today at once. A draft with any problem,
+  over the day's cap, or refused by Gmail stays in Gmail Drafts; the summary says why.
+- The summary lists every mail sent (To, Subject, attachment name and size), the ones kept
+  as drafts with the reason, and the day's count:
+
+```
+Mails for Vistula Cloud, DevOps Engineer
+Sent 3 of 4 from madeshwaranm02 in DEV after the checks (To, no Cc or Bcc, subject, body, signature, resume attachment, Gmail's copy):
+- Piotr Example: To madeshwaranm02@gmail.com | Subject: [DEV] to piotr@... | ... | Attachment: Alex_Devops_VistulaCloud.pdf (84 KB)
+...
+Kept as drafts, not sent:
+- Rita Example: the attachment is not the approved resume of this job
+3 of 10 sends used today.
+```
+
+- With DRY_RUN on, the checks run and nothing is sent (`DRY RUN: 4 of 4 would be sent`).
+  Outside prod every mail goes to your redirect address, so send mode can be tried safely in
+  dev: you receive the mails yourself.
 
 ## Tokens (gmail.modify)
 

@@ -45,6 +45,14 @@ class Gmail(Protocol):
     def create_draft(self, raw: str, thread_id: str | None = None) -> Draft: ...
 
 
+class SendGmail(Gmail, Protocol):
+    """Mail mode "send" (mail/sender.py): read a draft back, then send that draft."""
+
+    def draft_raw(self, draft_id: str) -> bytes: ...
+
+    def send_draft(self, draft_id: str) -> Draft: ...
+
+
 class TrackGmail(Gmail, Protocol):
     """What the daily tracking run reads and changes (Module 07)."""
 
@@ -164,6 +172,19 @@ class GmailClient:
     def get_draft(self, draft_id: str) -> dict[str, Any]:
         return self._drafts().get(userId=USER, id=draft_id, format="minimal").execute()
 
+    def draft_raw(self, draft_id: str) -> bytes:
+        """The draft exactly as Gmail holds it (RFC 822 bytes), for the checks before sending."""
+        data = self._drafts().get(userId=USER, id=draft_id, format="raw").execute()
+        raw = (data.get("message") or {}).get("raw") or ""
+        return base64.urlsafe_b64decode(raw + "=" * (-len(raw) % 4))
+
+    def send_draft(self, draft_id: str) -> Draft:
+        """Send one draft that passed every check (mail mode "send"). The only send call:
+        never a free-form message, so only a draft the bot wrote and checked can go out."""
+        result = self._drafts().send(userId=USER, body={"id": draft_id}).execute()
+        return Draft(draft_id=draft_id, thread_id=result.get("threadId", ""),
+                     message_id=result.get("id", ""))
+
     def draft_exists(self, draft_id: str) -> bool:
         from googleapiclient.errors import HttpError
 
@@ -234,6 +255,8 @@ class FakeGmail:
     label_ids: dict[str, str] = field(default_factory=dict)
     label_calls: list[tuple[str, str]] = field(default_factory=list)  # (thread, label id)
     queries: list[str] = field(default_factory=list)
+    sent: list[str] = field(default_factory=list)  # draft IDs sent (mail mode "send")
+    changed: dict[str, bytes] = field(default_factory=dict)  # tests: Gmail's copy differs
 
     def create_draft(self, raw: str, thread_id: str | None = None) -> Draft:
         n = len(self.drafts) + 1
@@ -242,6 +265,20 @@ class FakeGmail:
         self.drafts.append({"raw": raw, "id": draft.draft_id, "thread": draft.thread_id})
         self.open_drafts.add(draft.draft_id)
         return draft
+
+    def draft_raw(self, draft_id: str) -> bytes:
+        if draft_id in self.changed:
+            return self.changed[draft_id]
+        raw = next(d["raw"] for d in self.drafts if d["id"] == draft_id)
+        return base64.urlsafe_b64decode(raw)
+
+    def send_draft(self, draft_id: str) -> Draft:
+        if draft_id not in self.open_drafts:
+            raise GmailError(f"no draft {draft_id}")
+        self.open_drafts.discard(draft_id)
+        self.sent.append(draft_id)
+        thread = next(d["thread"] for d in self.drafts if d["id"] == draft_id)
+        return Draft(draft_id=draft_id, thread_id=thread, message_id=f"sent-{draft_id}")
 
     def draft_exists(self, draft_id: str) -> bool:
         return draft_id in self.open_drafts

@@ -23,6 +23,7 @@ from jobengine import http
 from jobengine.contacts import finder as contact_finder
 from jobengine.llm import LLMError
 from jobengine.mail import drafter as mail_drafter
+from jobengine.mail import sender as mail_sender
 from jobengine.resume import builder as resume_builder
 from jobengine.screen import batch
 from jobengine.screen.models import JobRow
@@ -55,6 +56,7 @@ class JobReport:
     drafts: str = ""
     pdf: tuple[str, bytes] | None = None
     approved: bool = False
+    mail: str | None = None  # mail mode send: what was sent and what was kept, and why
     ask: str | None = None  # a question to answer by reply (the company's email domain)
 
     def line(self, number: int) -> str:
@@ -204,6 +206,12 @@ def _prepare(desk: Desk, row: JobRow) -> JobReport:
     drafts = mail_drafter.create_drafts(desk.mail, row.page_id)
     if not drafts.ok:
         report.drafts = f"no drafts ({_first_line(drafts.message)})"
+    elif desk.sending() and drafts.drafted:
+        sent = mail_sender.send_checked(desk.mail, desk.state, drafts)
+        verb = "would be sent (DRY RUN)" if sent.dry_run else "sent"
+        report.drafts = f"{len(sent.sent)} of {len(drafts.drafted)} mails {verb}" + (
+            f", {len(sent.kept)} kept as drafts" if sent.kept else "")
+        report.mail = sent.message
     elif drafts.dry_run:
         report.drafts = f"DRY RUN: {len(drafts.drafted)} drafts not created"
     else:
@@ -245,6 +253,8 @@ def _finish(desk: Desk, lines: list[str], progress: Progress) -> list[Reply]:
     for report in reports:
         if report.ask:
             replies.append(Reply(report.ask))
+        if report.mail:
+            replies.append(Reply(report.mail))
         if report.pdf is not None:
             buttons: list[tuple[str, str]] = []
             if report.resume == "resume saved":
@@ -270,6 +280,12 @@ def _summary(desk: Desk, reports: list[JobReport], over: int) -> str:
            f"({split}).", *(r.line(i) for i, r in enumerate(reports, 1))]
     if over:
         out.append(f"{over} more wait for tomorrow (at most {approvals_limit(desk)} a day).")
-    out.append("Drafts are in Gmail and never sent by themselves: read them, send them, apply "
-               "on the job page, then tap I applied under the resume. /pending has the rest.")
+    if desk.sending():
+        out.append("Mail mode send: mails that passed every check were sent (details below); "
+                   "the rest stay in Gmail Drafts. Apply on the job page, then tap I applied "
+                   "under the resume. /pending has the rest.")
+    else:
+        out.append("Drafts are in Gmail and never sent by themselves: read them, send them, "
+                   "apply on the job page, then tap I applied under the resume. /pending has "
+                   "the rest.")
     return "\n".join(out)
