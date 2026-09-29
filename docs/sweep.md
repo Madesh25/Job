@@ -279,6 +279,28 @@ The page reader (`http.get_page`) is separate from the API client:
 
 Set `sweep.fulltext.enabled: false` to switch it off.
 
+## LinkedIn descriptions from other sites
+
+LinkedIn email alerts have no job description and LinkedIn is never read, so such a job used to
+wait for `/jd`. After each sweep, every Unscreened LinkedIn row without a description is looked
+up among this sweep's other postings (company boards, Adzuna, Jooble), in
+`src/jobengine/sweep/crossmatch.py`:
+
+- **Same company** (legal suffixes such as Sp. z o.o. or B.V. and a "(PL)" tag ignored),
+  **same title** and **same country**. The city may differ, and work-mode words (Remote,
+  Hybrid, On-site, Full-time) and the job's own city or country in the title are ignored.
+  Nothing looser counts: a "Senior DevOps Engineer" posting is never used for a "DevOps
+  Engineer" alert.
+- Only a **full** description is used. When the match has only a snippet (Adzuna), its page
+  is read like any other job page (at most `sweep.crossmatch.max_pages`, 10, per sweep).
+- The description is written to the LinkedIn row's page with a first line saying where it
+  came from: `Description source: ats (same job on Company site, found for this LinkedIn
+  alert: <url>)`. No property changes, no AI, no LinkedIn request.
+- The Telegram summary lists them: `LinkedIn jobs: description found on another site (no /jd
+  needed): N`. The next `/screen` screens them like any other job. Rows without a match keep
+  waiting for `/jd`.
+- `sweep.crossmatch.enabled: false` turns it off.
+
 ## Email alerts setup
 
 The code is ready; only the Gmail side is missing. When you want it:
