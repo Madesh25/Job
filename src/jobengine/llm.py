@@ -42,6 +42,7 @@ PRICES_PER_MTOK = {
 }
 CACHE_READ_FACTOR = 0.1
 CACHE_WRITE_FACTOR = 1.25
+BATCH_FACTOR = 0.5  # the Message Batches API bills every token at half price
 
 
 @dataclass
@@ -55,7 +56,7 @@ class Usage:
     cost: float = 0.0
     unpriced: set[str] = field(default_factory=set)  # models missing from PRICES_PER_MTOK
 
-    def add(self, model: str, usage: Any) -> None:
+    def add(self, model: str, usage: Any, factor: float = 1.0) -> None:
         def count(name: str) -> int:
             value = getattr(usage, name, None)
             return value if isinstance(value, int) else 0
@@ -71,8 +72,8 @@ class Usage:
             self.unpriced.add(model)
             return
         per_in, per_out = price[0] / 1e6, price[1] / 1e6
-        self.cost += (fresh * per_in + read * per_in * CACHE_READ_FACTOR
-                      + write * per_in * CACHE_WRITE_FACTOR + out * per_out)
+        self.cost += factor * (fresh * per_in + read * per_in * CACHE_READ_FACTOR
+                               + write * per_in * CACHE_WRITE_FACTOR + out * per_out)
 
     def line(self) -> str | None:
         """"AI used: 3 calls, 5,210 tokens in, 1,340 out, about $0.0120", or None when no
@@ -95,6 +96,15 @@ class LLMAuthError(LLMError):
     """The API key was refused (HTTP 401 or 403): every further call would fail too."""
 
 
+@dataclass
+class BatchStatus:
+    """Where a submitted batch is: `ended` once every request has an answer."""
+
+    ended: bool
+    done: int
+    total: int
+
+
 class LLMClient(Protocol):
     def complete_json(
         self, stage: str, system: str, user: str, *, max_tokens: int = 2000,
@@ -107,6 +117,18 @@ class SearchLLM(LLMClient, Protocol):
         self, stage: str, system: str, user: str, *, max_tokens: int = 4000,
         max_uses: int = 8, key: str | None = None,
     ) -> tuple[dict[str, Any], list[str]]: ...
+
+
+class BatchLLM(LLMClient, Protocol):
+    """Half-price, asynchronous calls (Message Batches API): submit now, collect later."""
+
+    def submit_batch(
+        self, stage: str, system: str, items: list[tuple[str, str]], *, max_tokens: int = 2000,
+    ) -> str: ...
+
+    def batch_status(self, batch_id: str) -> BatchStatus: ...
+
+    def batch_results(self, batch_id: str, stage: str) -> dict[str, dict[str, Any] | str]: ...
 
 
 # Anthropic's server-side web search tool (basic version: works on every current model,
@@ -242,6 +264,72 @@ class AnthropicLLM:
                 ]
         raise LLMError("unreachable")  # pragma: no cover
 
+    def _batch_call(self, call: Any) -> Any:
+        import anthropic
+
+        try:
+            return call()
+        except anthropic.APIStatusError as exc:
+            if exc.status_code in (401, 403):
+                raise LLMAuthError(f"Anthropic refused ANTHROPIC_API_KEY (HTTP {exc.status_code})"
+                                   ) from None
+            raise LLMError(f"LLM batch call failed: HTTP {exc.status_code}") from None
+        except anthropic.APIConnectionError:
+            raise LLMError("LLM batch call failed: connection error") from None
+
+    def submit_batch(
+        self, stage: str, system: str, items: list[tuple[str, str]], *, max_tokens: int = 2000,
+    ) -> str:
+        """Send (key, user prompt) pairs as one batch; the key comes back with each answer.
+        Returns the batch ID. Keys: letters, digits, - and _, at most 64 characters."""
+        _check_stage(stage)
+        model = model_for(stage, self.config, self.s)
+        requests = []
+        for key, user in items:
+            params: dict[str, Any] = {
+                "model": model,
+                "max_tokens": max_tokens,
+                "system": [{"type": "text", "text": system,
+                            "cache_control": {"type": "ephemeral"}}],
+                "messages": [{"role": "user", "content": user}],
+            }
+            if supports_temperature(model):
+                params["temperature"] = 0
+            requests.append({"custom_id": key, "params": params})
+        batch = self._batch_call(lambda: self._client.messages.batches.create(requests=requests))
+        log.info("llm batch stage=%s model=%s requests=%d id=%s", stage, model, len(items),
+                 batch.id)
+        return batch.id
+
+    def batch_status(self, batch_id: str) -> BatchStatus:
+        batch = self._batch_call(lambda: self._client.messages.batches.retrieve(batch_id))
+        counts = batch.request_counts
+        done = counts.succeeded + counts.errored + counts.canceled + counts.expired
+        return BatchStatus(ended=batch.processing_status == "ended", done=done,
+                           total=done + counts.processing)
+
+    def batch_results(self, batch_id: str, stage: str) -> dict[str, dict[str, Any] | str]:
+        """key -> the parsed JSON object, or an error message for that request."""
+        _check_stage(stage)
+        out: dict[str, dict[str, Any] | str] = {}
+        items = self._batch_call(lambda: list(self._client.messages.batches.results(batch_id)))
+        for item in items:
+            result = item.result
+            if result.type != "succeeded":
+                out[item.custom_id] = f"batch request {result.type}"
+                continue
+            message = result.message
+            self.usage.add(message.model, message.usage, BATCH_FACTOR)
+            if getattr(message, "stop_reason", None) == "refusal":
+                out[item.custom_id] = f"LLM declined the {stage} request"
+                continue
+            text = "".join(b.text for b in message.content if getattr(b, "type", "") == "text")
+            try:
+                out[item.custom_id] = parse_json_object(text)
+            except ValueError:
+                out[item.custom_id] = f"LLM reply for {stage} was not valid JSON"
+        return out
+
     def complete_json_with_search(
         self, stage: str, system: str, user: str, *, max_tokens: int = 4000,
         max_uses: int = 8, key: str | None = None,
@@ -300,6 +388,8 @@ class FakeLLM:
         self.default = default
         self.calls: list[dict[str, Any]] = []
         self.usage = Usage()  # stays empty: fixtures cost nothing
+        self.batches: dict[str, tuple[str, str, list[tuple[str, str]]]] = {}
+        self.batch_ended = True  # tests set False to see a batch still processing
 
     def complete_json(
         self, stage: str, system: str, user: str, *, max_tokens: int = 2000,
@@ -331,3 +421,27 @@ class FakeLLM:
             raise LLMError(f"FakeLLM has no fixture {stage}/{key}.json")
         data = json.loads(path.read_text(encoding="utf-8"))
         return data.get("reply") or {}, list(data.get("search_urls") or [])
+
+    def submit_batch(
+        self, stage: str, system: str, items: list[tuple[str, str]], *, max_tokens: int = 2000,
+    ) -> str:
+        _check_stage(stage)
+        batch_id = f"fakebatch_{len(self.batches) + 1}"
+        self.batches[batch_id] = (stage, system, list(items))
+        return batch_id
+
+    def batch_status(self, batch_id: str) -> BatchStatus:
+        total = len(self.batches[batch_id][2])
+        return BatchStatus(ended=self.batch_ended, done=total if self.batch_ended else 0,
+                           total=total)
+
+    def batch_results(self, batch_id: str, stage: str) -> dict[str, dict[str, Any] | str]:
+        """Each key answers like complete_json would (fixture, default, or an error)."""
+        _, system, items = self.batches[batch_id]
+        out: dict[str, dict[str, Any] | str] = {}
+        for key, user in items:
+            try:
+                out[key] = self.complete_json(stage, system, user, key=key)
+            except LLMError as exc:
+                out[key] = str(exc)
+        return out

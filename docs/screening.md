@@ -96,6 +96,24 @@ as one at a time; only the wait is shorter. `screening.workers: 1` screens one a
 - Resumes use Haiku too (Config `model.tailor` = `claude-haiku-4-5`; local and dev always
   use Haiku).
 
+## Half-price batch
+
+`/screen batch` (CLI: `python -m jobengine.screen --batch`) runs the free checks now (skips
+are written at once) and sends the other Unscreened jobs, up to what is left of today's
+limit, to Anthropic's Message Batches API in one batch. Batch calls cost half the normal
+price. Anthropic answers most batches within an hour, at most within 24 hours. The batch ID
+and its rows are kept in Bot State (`screen.batch`), and the daily count goes up when the
+batch is sent.
+
+`/screen collect` (CLI: `--collect`) checks the batch. While it is still working, the reply
+says how many answers are ready. Once it has ended, each answer goes through the same quote
+check, gates, tier and Notion writes as a normal screening, and the reply ends with the half
+price `AI used` line. A row whose answer failed stays Unscreened for the next `/screen`.
+
+Only one batch waits at a time. Plain `/screen` leaves the rows of a waiting batch alone and
+says how many wait, so no job is paid for twice. A good habit: `/screen batch` in the
+evening, `/screen collect` in the morning.
+
 ## When the API key is refused
 
 If Anthropic answers HTTP 401 or 403 (a wrong or revoked `ANTHROPIC_API_KEY`, or an account
