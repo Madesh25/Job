@@ -32,6 +32,8 @@ safety:
     - api.apollo.io
     - api.hunter.io
     - api.snov.io
+    - api.prospeo.io
+    - api.tomba.io
   # Any subdomain of these (Workday boards are <tenant>.<wdN>.myworkdayjobs.com).
   allowed_host_suffixes:
     - myworkdayjobs.com

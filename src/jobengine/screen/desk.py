@@ -500,7 +500,9 @@ class Desk:
 
         config = (self.contacts.config if self.contacts else self.deps.config)()
         keys = {"apollo": self.s.apollo_api_key, "hunter": self.s.hunter_api_key,
-                "snov": self.s.snov_client_id and self.s.snov_client_secret}
+                "snov": self.s.snov_client_id and self.s.snov_client_secret,
+                "prospeo": self.s.prospeo_api_key,
+                "tomba": self.s.tomba_api_key and self.s.tomba_api_secret}
         lines = ["Provider credits (reset on the 1st):"]
         for provider in PROVIDERS:
             key = f"credits.{provider}"

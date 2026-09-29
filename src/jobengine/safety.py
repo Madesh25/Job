@@ -52,7 +52,7 @@ def gmail_write_allowed(s: Settings) -> bool:
 
 # The only Config keys the code may write.
 config_writable_keys = ["credits.apollo", "credits.hunter", "credits.snov",
-                        "last_strategy_update"]
+                        "credits.prospeo", "credits.tomba", "last_strategy_update"]
 # The only Target Companies properties the code may write (Module 08, prod only).
 target_companies_writable_fields = ["IND sponsor", "Last checked", "ATS platform"]
 

@@ -17,7 +17,9 @@ from jobengine.safety import check_config_write
 
 log = logging.getLogger("jobengine.contacts.credits")
 
-PROVIDERS = ("apollo", "hunter", "snov")
+PROVIDERS = ("apollo", "hunter", "snov", "prospeo", "tomba")
+# Free plans added later: left out of the credits line until their Config counter exists.
+OPTIONAL = ("prospeo", "tomba")
 COUNTER_RE = re.compile(r"^\s*(\d+)\s*/\s*(\d+)")
 
 
@@ -89,6 +91,8 @@ class CreditBook:
         parts = []
         for provider in PROVIDERS:
             counter = self.counters.get(provider)
+            if counter is None and provider in OPTIONAL:
+                continue
             name = provider.capitalize()
             parts.append(f"{name} {counter.short()}" if counter else f"{name} n/a")
         return "Credits: " + ", ".join(parts)

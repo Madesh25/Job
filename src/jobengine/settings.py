@@ -39,6 +39,9 @@ SECRET_VARS = {
     "HUNTER_API_KEY": "hunter_api_key",
     "SNOV_CLIENT_ID": "snov_client_id",
     "SNOV_CLIENT_SECRET": "snov_client_secret",
+    "PROSPEO_API_KEY": "prospeo_api_key",
+    "TOMBA_API_KEY": "tomba_api_key",
+    "TOMBA_API_SECRET": "tomba_api_secret",
     # Cloud Run (Module 09).
     "TELEGRAM_WEBHOOK_SECRET": "telegram_webhook_secret",
     "SERVICE_URL": "service_url",
@@ -85,6 +88,9 @@ class Settings(BaseModel):
     hunter_api_key: str | None = None
     snov_client_id: str | None = None
     snov_client_secret: str | None = None
+    prospeo_api_key: str | None = None
+    tomba_api_key: str | None = None
+    tomba_api_secret: str | None = None
     telegram_webhook_secret: str | None = None
     service_url: str | None = None
     scheduler_sa_email: str | None = None

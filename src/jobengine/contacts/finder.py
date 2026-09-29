@@ -1,5 +1,6 @@
 """find_contacts (spec section 2): cache, job description, domain, then the paid waterfall
-(Apollo, Hunter, Snov) for the slots still open. Writes Contacts and the job's relation."""
+(Apollo, Hunter, Snov, then the free plans of Prospeo and Tomba) for the slots still open.
+Writes Contacts and the job's relation."""
 
 from __future__ import annotations
 
@@ -15,7 +16,7 @@ from jobengine.config_store import ConfigStore
 from jobengine.contacts import cache as contact_cache
 from jobengine.contacts import jd_emails
 from jobengine.contacts.classify import PERSONAL_DOMAINS, fill_slots, parse_mix
-from jobengine.contacts.credits import CreditBook
+from jobengine.contacts.credits import OPTIONAL, CreditBook
 from jobengine.contacts.models import (
     NOTION_COUNTRIES,
     OTHER,
@@ -25,7 +26,7 @@ from jobengine.contacts.models import (
     Chosen,
     ContactsResult,
 )
-from jobengine.contacts.providers import apollo, hunter, snov
+from jobengine.contacts.providers import apollo, hunter, prospeo, snov, tomba
 from jobengine.contacts.providers.base import FixtureHttp, ProviderDeps, Request, real_request
 from jobengine.notion_repo import (
     ContactsRepo,
@@ -46,12 +47,15 @@ from jobengine.sweep.normalize import canon_company
 log = logging.getLogger("jobengine.contacts")
 
 FIXTURES = ROOT_DIR / "fixtures" / "contacts"
-WATERFALL = (("apollo", apollo), ("hunter", hunter), ("snov", snov))
+WATERFALL = (("apollo", apollo), ("hunter", hunter), ("snov", snov), ("prospeo", prospeo),
+             ("tomba", tomba))
 DOMAIN_RE = re.compile(r"^(?=.{4,253}$)([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,}$")
 ATS_HOSTS = ("greenhouse.io", "lever.co", "smartrecruiters.com", "myworkdayjobs.com",
              "workday.com", "teamtailor.com", "recruitee.com", "personio.de")
 FIXTURE_KEYS = {"apollo_api_key": "fixture-apollo-key", "hunter_api_key": "fixture-hunter-key",
-                "snov_client_id": "fixture-snov-id", "snov_client_secret": "fixture-snov-secret"}
+                "snov_client_id": "fixture-snov-id", "snov_client_secret": "fixture-snov-secret",
+                "prospeo_api_key": "fixture-prospeo-key", "tomba_api_key": "fixture-tomba-key",
+                "tomba_api_secret": "fixture-tomba-secret"}
 NONE_FOUND = "No contacts found. Apply through the portal only."
 MAX_CONTACT_PERSON = 5
 SLOT_WORDS = {"Peer engineer": "peer", "Hiring": "hiring", "Recruiter/TA": "recruiter"}
@@ -255,6 +259,8 @@ def find_contacts(deps: ContactDeps, job_id: str, paid: bool = True) -> Contacts
             if deps.s.app_env == "prod" and not paid_api_allowed(name, deps.s):
                 result.notes.append(f"{name}: paid calls are off (DRY_RUN), skipped")
                 continue
+            if book.counters.get(name) is None and name in OPTIONAL:
+                continue  # a free plan you have not set up (no Config credits.<name>)
             left = book.available(name)
             if left <= 0:
                 result.notes.append(f"{name}: no credits left this month, skipped")

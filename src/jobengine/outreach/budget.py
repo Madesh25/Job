@@ -15,10 +15,11 @@ from datetime import date, timedelta
 
 from jobengine.contacts.credits import PROVIDERS, Counter
 
-DEFAULT_COST = {"apollo": 4, "hunter": 1, "snov": 4}
+# One job's lookup: Prospeo is a search plus up to 4 reveals, Tomba one domain search.
+DEFAULT_COST = {"apollo": 4, "hunter": 1, "snov": 4, "prospeo": 5, "tomba": 1}
 PRIORITIES = ("A", "B", "C", "D")
 LARGE_TIERS = frozenset({1, 2})
-COST_PART = re.compile(r"(apollo|hunter|snov)\s*=\s*(\d+)", re.IGNORECASE)
+COST_PART = re.compile(r"(apollo|hunter|snov|prospeo|tomba)\s*=\s*(\d+)", re.IGNORECASE)
 
 
 def parse_costs(value: str | None) -> dict[str, int]:
