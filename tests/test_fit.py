@@ -43,11 +43,20 @@ def test_language_block(text, lang):
     assert language_block(text) == lang
 
 
-def test_written_in_polish_needs_english_to_pass():
+def test_a_posting_written_in_polish_is_skipped_even_when_it_asks_for_english():
     assert written_in(POLISH_TEXT) == "Polish"
     assert language_block(POLISH_TEXT) == "Polish"
-    assert language_block(POLISH_TEXT + " Wymagany jezyk angielski B2.") is None
+    asks_english = POLISH_TEXT + " Wymagany jezyk angielski na poziomie min. B2."
+    assert language_block(asks_english) == "Polish"
     assert written_in("We run Kubernetes and Terraform on AWS for our clients.") is None
+
+
+def test_an_english_posting_with_a_polish_privacy_note_passes():
+    english = " ".join(["You will run our Kubernetes platform and improve the CI pipelines with "
+                        "the team, and you are on call for the services we own."] * 6)
+    note = ("Wszystkie informacje o przetwarzaniu danych osobowych w tej rekrutacji znajdziesz "
+            "w formularzu aplikacyjnym, po kliknieciu w przycisk Aplikuj Teraz.")
+    assert language_block(f"{english} {note}") is None
 
 
 @pytest.mark.parametrize("country, text, only", [

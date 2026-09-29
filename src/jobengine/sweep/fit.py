@@ -3,7 +3,7 @@ screening spends tokens. Pure functions, no I/O.
 
 - Language: the posting requires a language other than English (Polish, Dutch, German,
   French and so on, in the description or the title: "German-Speaking"), or it is written in
-  Polish or Dutch and does not ask for English.
+  Polish or Dutch (even when it also asks for English: the team works in that language).
 - Contract: a job in Poland that offers only a B2B contract.
 - Visa: the posting says there is no visa sponsorship or relocation, or that the right to
   work in the EU (or the country) is required.
@@ -69,7 +69,6 @@ _REQUIRES = {
     **{lang: _language_patterns(lang.lower(), []) for lang in OTHER_LANGUAGES},
 }
 _TITLE_LANGUAGES = {lang.lower(): lang for lang in ("Polish", "Dutch", *OTHER_LANGUAGES)}
-_ASKS_ENGLISH = re.compile(r"english|angielski|engels")
 
 # Common short words: a posting that uses many more of one language's words than English
 # words is written in that language.
@@ -112,10 +111,7 @@ def language_block(description: str | None, title: str | None = None) -> str | N
     for lang, patterns in _REQUIRES.items():
         if any(p.search(seg) for seg in segments for p in patterns):
             return lang
-    lang = written_in(description)
-    if lang and not _ASKS_ENGLISH.search(description.lower()):
-        return lang
-    return None
+    return written_in(description)
 
 
 _B2B = re.compile(r"\bb2b\b|\+\s*vat\b|\bnetto\s*\+|\bnet\s*\+\s*vat\b")
