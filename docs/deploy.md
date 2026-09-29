@@ -149,6 +149,8 @@ These exist on the DEV copies since Modules 02 to 08 and are now applied to prod
       its data source ID into `config/prod.yaml` under `notion.write.bot_state` (a one-line PR).
       Until then prod keeps bot state (update dedupe, /jd pastes, strategy runs) in memory only.
 - [ ] Share the Job Engine page with the prod Notion integration.
+- [ ] Job Opportunities: add the Skip reason option `No sponsorship` (jobs that offer no
+      visa sponsorship are skipped with it; without the option Notion would add it itself).
 - [ ] Config: add `schedule.auto_fetch` = `false`.
 
 ## B4. Cloud Scheduler (time zone Asia/Kolkata)

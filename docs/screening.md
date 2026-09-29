@@ -65,8 +65,10 @@ Before a job goes to the LLM it is checked for free, with the same rules the swe
   written in Polish or Dutch, even when it also asks for English (`Polish required` / `Dutch
   required`; other languages are `Other`, with the language in the note);
 - a job in Poland with a B2B contract only (`B2B only`);
-- no visa sponsorship or relocation stated, or the right to work required (`Other`, note
-  `No visa sponsorship`). The Skip reason options are not changed from code.
+- no visa sponsorship or relocation stated, or the right to work required (`No
+  sponsorship`, note `No visa sponsorship`). The Skip reason options are not changed from
+  code: the `No sponsorship` option is added to the column by hand (done in DEV; prod in
+  go-live step B3).
 
 Such a job is skipped at once (`Skip`, reason `Seniority`, `Experience >5 yrs` above 5
 years, or the language or contract reason) with the note `(no AI used)`; it does not count

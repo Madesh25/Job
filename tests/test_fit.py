@@ -135,7 +135,7 @@ def test_other_languages_and_their_skip_reason():
     assert skip_reason("French required") == "Other"
     assert skip_reason("Polish required") == "Polish required"
     assert skip_reason("B2B only") == "B2B only"
-    assert skip_reason("No visa sponsorship") == "Other"
+    assert skip_reason("No visa sponsorship") == "No sponsorship"
     assert cannot_take("Netherlands", "No visa sponsorship.") == "No visa sponsorship"
 
 
