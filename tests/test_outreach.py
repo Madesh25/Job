@@ -25,10 +25,14 @@ TODAY = date(2026, 10, 1)
 
 
 def test_costs_and_capacity():
-    assert parse_costs(None) == {"apollo": 4, "hunter": 1, "snov": 4}
-    assert parse_costs("apollo=2, Hunter = 3") == {"apollo": 2, "hunter": 3, "snov": 4}
+    assert parse_costs(None) == {"apollo": 4, "hunter": 1, "snov": 4, "prospeo": 5, "tomba": 1}
+    assert parse_costs("apollo=2, Hunter = 3, tomba=2") == {
+        "apollo": 2, "hunter": 3, "snov": 4, "prospeo": 5, "tomba": 2}
     counters = {"apollo": Counter(55, 75), "hunter": Counter(20, 25), "snov": None}
     assert month_capacity(counters, parse_costs(None)) == 20 // 4 + 5
+    # The free plans add their own jobs once their counters exist.
+    counters |= {"prospeo": Counter(0, 75), "tomba": Counter(5, 25)}
+    assert month_capacity(counters, parse_costs(None)) == 20 // 4 + 5 + 75 // 5 + 20
 
 
 def test_weeks_and_allowance():

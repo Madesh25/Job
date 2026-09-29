@@ -20,7 +20,7 @@ class Candidate:
     email: str
     country: str | None
     provider_verified: bool
-    source: str  # Apollo | Hunter | Snov | Job posting
+    source: str  # Apollo | Hunter | Snov | Prospeo | Tomba | Job posting
     country_unverified: bool = False
     person_id: str | None = None  # provider id, for a later reveal
 

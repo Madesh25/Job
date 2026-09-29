@@ -13,7 +13,9 @@ provider waterfall) runs only for jobs within the outreach budget
   the Contacts cache. No `first.last@domain` patterns, no SMTP probing, no LinkedIn or people
   search pages. A repo test fails if code in `contacts/` builds an email from a name.
 - **Own accounts, one key per provider** (`APOLLO_API_KEY`, `HUNTER_API_KEY`,
-  `SNOV_CLIENT_ID` + `SNOV_CLIENT_SECRET`).
+  `SNOV_CLIENT_ID` + `SNOV_CLIENT_SECRET`, and the free plans `PROSPEO_API_KEY`,
+  `TOMBA_API_KEY` + `TOMBA_API_SECRET`). One account per provider: several free accounts
+  break their terms.
 - **Paid calls only in prod with DRY_RUN=false** (`safety.paid_api_allowed`). In local and dev
   the providers answer from invented fixtures (`fixtures/contacts/`). In prod with DRY_RUN on,
   providers are skipped entirely, so test people never reach the production Contacts.
@@ -23,6 +25,28 @@ provider waterfall) runs only for jobs within the outreach budget
 - **Minimum data:** name, title, work email, company, country, source, date found, type. No
   phone numbers, no personal addresses (gmail.com, outlook.com, yahoo.com, hotmail.com,
   icloud.com, proton.me), no LinkedIn URLs, no photos.
+
+## Free plans: Prospeo and Tomba
+
+They run after Apollo, Hunter and Snov, only for slots still open, and roughly double the
+emails you can find each month:
+
+| Provider | Free plan | One job costs | Keys (`.env`) | Config counter |
+|---|---|---|---|---|
+| Prospeo | 75 credits a month | 1 search + 1 per verified email (at most 5) | `PROSPEO_API_KEY` | `credits.prospeo` = `0 / 75 per month` |
+| Tomba | 25 searches a month | 1 domain search | `TOMBA_API_KEY`, `TOMBA_API_SECRET` | `credits.tomba` = `0 / 25 per month` |
+
+- Endpoints come from the providers' own code: Prospeo's MCP server (`POST /search-person`,
+  `POST /bulk-enrich-person`, header `X-KEY`) and Tomba's SDKs (`GET /v1/domain-search`,
+  headers `X-Tomba-Key` and `X-Tomba-Secret`).
+- **Set up:** sign up, put the keys in `.env`, and add the two Config rows above (Type
+  `Credit counter`). A provider without its Config row is skipped quietly and left out of the
+  credits line; with the row it counts down like the others (`/credits`, `/outreach`).
+- **Prod:** create the secrets `prospeo-api-key`, `tomba-api-key` and `tomba-api-secret`
+  first, then add them to `SECRETS` in `.github/workflows/deploy.yml` (a missing secret stops
+  the deploy, so they are not listed there yet).
+- Lusha and GetProspect are not in yet: their public code does not show where the revealed
+  email is in the answer, and emails are never guessed.
 
 ## The flow
 
@@ -36,7 +60,9 @@ provider waterfall) runs only for jobs within the outreach budget
    hosts (greenhouse.io, lever.co, teamtailor.com, ...) are never used. Unknown: the bot asks
    and the lookup waits for your reply.
 5. Waterfall for the open slots: Apollo (search, then one reveal per open slot), Hunter (one
-   domain search), Snov (prospects, then an email search per chosen person). It stops as soon
+   domain search), Snov (prospects, then an email search per chosen person), then the free
+   plans: Prospeo (one people search, then one bulk reveal of verified emails for the open
+   slots only) and Tomba (one domain search). It stops as soon
    as the mix is full. A provider is skipped when its key is missing, its counter is used up,
    or paid calls are off.
 6. Candidates are classified by title (`contacts.title_patterns` in `config/base.yaml`; HR,

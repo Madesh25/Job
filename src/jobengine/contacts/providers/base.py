@@ -66,6 +66,9 @@ ROUTES = {
     "api.snov.io/v2/domain-search/prospects/result": "snov_prospects.json",
     "api.snov.io/v2/domain-search/prospects/search-emails/start": "snov_emails_start.json",
     "api.snov.io/v2/domain-search/prospects/search-emails/result": "snov_emails.json",
+    "api.prospeo.io/search-person": "prospeo_search.json",
+    "api.prospeo.io/bulk-enrich-person": "prospeo_enrich.json",
+    "api.tomba.io/v1/domain-search": "tomba_domain_search.json",
 }
 
 

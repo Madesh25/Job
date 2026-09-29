@@ -109,6 +109,7 @@ or `gcloud secrets versions add NAME --data-file=-` for a new value). Names are 
 | `ADZUNA_APP_ID`, `ADZUNA_APP_KEY` | `adzuna-app-id`, `adzuna-app-key` | same |
 | `APOLLO_API_KEY`, `HUNTER_API_KEY` | not mounted | `apollo-api-key`, `hunter-api-key` |
 | `SNOV_CLIENT_ID`, `SNOV_CLIENT_SECRET` | not mounted | `snov-client-id`, `snov-client-secret` |
+| `PROSPEO_API_KEY`, `TOMBA_API_KEY`, `TOMBA_API_SECRET` | not mounted | `prospeo-api-key`, `tomba-api-key`, `tomba-api-secret` (create them, then add to `SECRETS` in deploy.yml) |
 
 - [ ] Create a DEV bot with @BotFather; store its token as `telegram-token-dev`. The existing
       `telegram-bot-token` value becomes `telegram-token-prod`.
