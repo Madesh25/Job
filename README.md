@@ -76,6 +76,13 @@ drafts, then sends one summary with the PDFs. `/mailmode send` lets it send the 
 pass every check (To, Cc, subject, body, resume attachment); the default only writes drafts. See
 [docs/autopilot.md](docs/autopilot.md).
 
+## Apply pack
+
+When a resume is approved the bot sends ready answers for the job's application form (visa,
+salary floor, notice period, why this company) and saves them on the job's Notion page;
+`/applypack <job>` sends them again. The resume's headline and location line follow the job.
+See [docs/apply-pack.md](docs/apply-pack.md).
+
 ## Build a resume
 
 ```bash

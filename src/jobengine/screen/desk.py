@@ -405,8 +405,40 @@ class Desk:
             if self.contacts is not None:
                 buttons.append(("Find contacts", f"ct:{short_id(result.job_id)}"))
                 text += "\nNext: tap Find contacts for people to write to, or I applied."
-            return [Reply(text, buttons)]
+            return [Reply(text, buttons), *self.apply_pack(result.job_id)]
         return [Reply(result.message)]
+
+    # ------------------------------------------------------------ Apply pack (PR 11)
+
+    def apply_pack(self, job_id: str) -> list[Reply]:
+        """Ready answers for this job's portal form; also saved on the job's Notion page."""
+        from jobengine.apply import pack
+        from jobengine.resume.builder import specific_details
+
+        if self.repo is None:
+            return []
+        values = self.repo.get_values(job_id)
+        if not values:
+            return []
+        text = pack.build(self.s, self.deps.config(), values,
+                          specific_details(self.repo.read_body(job_id)), self.today())
+        if self.deps.write:
+            try:
+                self.repo.append_body(job_id, pack.blocks(text))
+            except http.HttpError as exc:  # the answers still reach you in Telegram
+                log.warning("could not save the apply pack on %s: %s", job_id, exc)
+        return [Reply(text[:MAX_TEXT])]
+
+    def applypack_command(self, args: str) -> list[Reply]:
+        """/applypack <job>: the Apply pack again."""
+        if self.repo is None:
+            return [Reply(NO_TARGET)]
+        if not args.strip():
+            return [Reply("Send /applypack <job URL or page id>.")]
+        row = find_row(self.repo, args.strip())
+        if row is None:
+            return [Reply(f"No Job Opportunities row found for {args.strip()}")]
+        return self.apply_pack(row.page_id)
 
     # ------------------------------------------------------------ outreach budget (Module 10)
 

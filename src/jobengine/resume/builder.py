@@ -341,10 +341,11 @@ class _Context:
 
 
 def _context(deps: ResumeDeps, job_id: str, values: dict[str, Any]) -> _Context:
+    from jobengine.resume import header
     from jobengine.resume.sections import resolve
 
     config = deps.config()
-    master = load_master(deps.blocks(), config)
+    master = header.for_job(load_master(deps.blocks(), config), deps.s, config, values)
     sections = resolve(deps.sections(), values.get("Country"), config)
     return _Context(
         config=config, reference=deps.reference(), master=master, sections=sections,

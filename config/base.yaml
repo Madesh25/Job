@@ -59,6 +59,40 @@ screening:
   # /jd writes the pasted text in blocks of this size, at most this many blocks.
   block_chars: 2000
   max_blocks: 90
+apply_pack:
+  # Ready answers for portal forms, one Telegram message per approved job (apply/pack.py).
+  # Your answers (PR 11); a Notion Config key apply.<name> wins over each one.
+  sponsorship_needed: "Yes"
+  authorized_without_sponsorship: "No"
+  notice_period: "90 days, can be shortened to 30 to 40 days"
+  earliest_start: "About 3 months after the offer, including the work permit"
+  expected_salary: "Open, any range at or above the visa minimum"
+  current_salary: "Prefer not to say"
+  experience: "4 years overall, 3 years in DevOps"
+  education: "Mechanical Engineering"
+  english: "C1 (only where the form requires a level)"
+  other_languages: "None"
+  relocation: "Open to relocate at my own cost; relocation support is welcome"
+  interviews: "Any time"
+  gender: "Male"
+  other_diversity: "Prefer not to say"
+  why_template: "The role's focus on {detail} is close to my day-to-day work at Xerago."
+  # Per country: the work permit line and the visa salary minimum (2026 figures; check each
+  # year: IND and DETE publish new amounts every January and March).
+  countries:
+    Poland:
+      permit: "I need a Polish work permit (type A); the employer applies, usually 1 to 3
+        months."
+      salary_floor: "No visa salary minimum (the work permit follows the local pay level)"
+    Netherlands:
+      permit: "I qualify as a Highly Skilled Migrant; a recognised IND sponsor can hire me
+        without a labour market test."
+      salary_floor: "EUR 4,357 a month gross, about EUR 52,300 a year before holiday pay
+        (Highly Skilled Migrant minimum under 30, 2026)"
+    Ireland:
+      permit: "I need an Irish employment permit. DevOps is on the Critical Skills Occupations
+        List, so a General Employment Permit needs no labour market test."
+      salary_floor: "EUR 36,605 a year (General Employment Permit minimum from March 2026)"
 resume:
   # Defaults; Notion Config keys with the same names (resume.fill_min, ...) win when set.
   fill_min: 88
@@ -72,6 +106,12 @@ resume:
   connector_words: "and with using for on in the a an via to of across including through into by
     its their"
   out_dir: out
+  # Per job (resume/header.py): the headline's first part becomes the job's title when it is
+  # one of these (your approved titles), and the relocation line names the job's place.
+  # Config keys resume.headline_titles and resume.relocation_template win when set.
+  headline_titles: "DevOps Engineer, Site Reliability Engineer, Platform Engineer, Cloud Engineer,
+    Infrastructure Engineer, Kubernetes Engineer"
+  relocation_template: "Chennai, India (relocating to {place})"
 contacts:
   # Title patterns (lowercase regex), checked in this order. Anything else is Other.
   title_patterns:
