@@ -11,6 +11,7 @@ import logging
 import re
 from dataclasses import dataclass, field
 from typing import Any
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from jobengine.config_store import ConfigStore
 from jobengine.llm import LLMClient, LLMError
@@ -80,6 +81,22 @@ def first_name(name: str) -> str:
     return words[0] if words else ""
 
 
+TRACKING_PARAMS = re.compile(r"^(utm_\w+|gclid|fbclid|mc_cid|mc_eid|ref|refid|trk\w*|src)$",
+                             re.IGNORECASE)
+
+
+def job_link(url: str) -> str:
+    """The job's page for {job_link} (PR 15): http(s) only, tracking parameters removed.
+    Empty when the job has no usable link, so a template that asks for it is not drafted."""
+    url = (url or "").strip()
+    parts = urlsplit(url)
+    if parts.scheme not in ("http", "https") or not parts.netloc or " " in url:
+        return ""
+    query = [(k, v) for k, v in parse_qsl(parts.query, keep_blank_values=True)
+             if not TRACKING_PARAMS.match(k)]
+    return urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(query), ""))
+
+
 def permit_word(config: ConfigStore, country: str) -> str | None:
     return config.get(f"{PERMIT_PREFIX}{(country or '').strip().casefold()}")
 
@@ -136,6 +153,7 @@ def placeholder_values(job: MailJob, name: str, config: ConfigStore,
         "city": city_for(job),
         "country": job.country.strip(),
         "permit_word": permit_word(config, job.country) or "",
+        "job_link": job_link(job.url),
     }
     if detail:
         values["specific_detail"] = detail

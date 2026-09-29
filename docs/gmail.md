@@ -54,8 +54,16 @@ The drafts and send summaries say which one each contact got, for example
 | `{country}` | Job `Country` |
 | `{permit_word}` | Config `mail.permit_word.poland`, `.netherlands`, `.ireland` |
 | `{specific_detail}` | one of the screening `Specific details`, exactly as stored |
+| `{job_link}` | Job `URL`, http(s) only, tracking parameters such as `utm_source` removed |
 
 An unfilled placeholder aborts that draft. Polish-language mails are not generated.
+
+**The job link in the referral ask.** An engineer can only refer you to a job they can find.
+Add `{job_link}` to the Peer engineer template on the Cold Mail Templates page in your own
+words, for example a line `This is the role: {job_link}`, then keep the heading's APPROVED
+date. The bot never adds text to a template: without `{job_link}` in the template, nothing
+changes. A job without a usable link is not drafted for that template (the draft is aborted
+with "unfilled placeholder {job_link}"), so a referral ask never goes out without its link.
 
 ## The draft
 
