@@ -56,6 +56,14 @@ screening:
   # it every autopilot_check_minutes and carries on by itself when the answers are in.
   autopilot_approvals: 10
   autopilot_check_minutes: 5
+  # Scheduled /autopilot (off until Notion Config schedule.autopilot is true): once a day at
+  # `time` in `timezone` on `days`. A bot that is off then starts it until `latest`, never
+  # later. Notion Config schedule.autopilot_time ("HH:MM") wins over `time`.
+  autopilot_schedule:
+    time: "07:00"
+    latest: "10:00"
+    timezone: Europe/Warsaw
+    days: [Mon, Tue, Wed, Thu, Fri]
   # /jd writes the pasted text in blocks of this size, at most this many blocks.
   block_chars: 2000
   max_blocks: 90

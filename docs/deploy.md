@@ -16,6 +16,7 @@ hand**; nothing in Part B is done from code. Work through it top to bottom.
 | `POST /telegram/webhook` | Telegram (secret header `X-Telegram-Bot-Api-Secret-Token`) | dedupes the update, answers 200 at once, handles it in the background worker (same handler as long polling, so the chat ID lock still applies) |
 | `POST /tasks/daily` | Cloud Scheduler (OIDC token) | daily check (Module 07), then the strategy reminder (Module 08) |
 | `POST /tasks/digest` | Cloud Scheduler | weekly digest |
+| `POST /tasks/autopilot` | Cloud Scheduler | scheduled /autopilot, only when Config `schedule.autopilot` is `true`; answered at once (202), the run reports in Telegram ([autopilot.md](autopilot.md)) |
 | `POST /tasks/sweep` | Cloud Scheduler | sweep and screening, only when Config `schedule.auto_fetch` is `true` (the strategy gate still applies) |
 
 The service allows unauthenticated calls (Telegram must reach it); every path is protected in
@@ -167,12 +168,22 @@ job je-daily-dev   "30 7 * * *" "$DEV_URL"  /tasks/daily  && gcloud scheduler jo
 job je-daily-prod  "30 7 * * *" "$PROD_URL" /tasks/daily
 job je-digest-prod "0 20 * * 0" "$PROD_URL" /tasks/digest && gcloud scheduler jobs pause je-digest-prod --project $PROJECT --location $REGION
 job je-sweep-prod  "0 8 * * *"  "$PROD_URL" /tasks/sweep
+# Scheduled /autopilot: its own time zone (Europe/Warsaw), every 30 minutes 07:00 to 12:30,
+# Monday to Friday. The first call starts the day's run, later calls carry on with its batch.
+gcloud scheduler jobs create http je-autopilot-prod --project $PROJECT --location $REGION \
+  --schedule "*/30 7-12 * * 1-5" --time-zone "Europe/Warsaw" --uri "$PROD_URL/tasks/autopilot" \
+  --http-method POST --oidc-service-account-email "$SCHED" --oidc-token-audience "$PROD_URL" \
+  --attempt-deadline 60s --max-retry-attempts 1
 ```
 
 - [ ] `je-daily-dev`: paused (run it by hand with `gcloud scheduler jobs run`).
 - [ ] `je-daily-prod`: `30 7 * * *`, enabled at go-live step 3.
 - [ ] `je-digest-prod`: `0 20 * * 0` (Sunday 20:00), paused until go-live step 4.
 - [ ] `je-sweep-prod`: `0 8 * * *`; it does nothing unless Config `schedule.auto_fetch` is `true`.
+- [ ] `je-autopilot-prod`: `*/30 7-12 * * 1-5` in Europe/Warsaw; it does nothing unless Config
+      `schedule.autopilot` is `true`. Needs the prod `Bot State` (B3) so a run is not started
+      twice after a restart. Config: add `schedule.autopilot` = `false` (turn it on after
+      go-live step 4).
 
 ## How deploys treat DRY_RUN
 

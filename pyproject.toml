@@ -22,6 +22,7 @@ dependencies = [
     "pdfplumber",
     "fastapi",
     "uvicorn",
+    "tzdata",  # time zones for the scheduled /autopilot (the slim image has none)
 ]
 
 [project.optional-dependencies]
