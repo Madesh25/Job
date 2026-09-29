@@ -19,7 +19,7 @@ from typing import Any
 from jobengine.bot_state import BotState
 from jobengine.drive_client import DriveError
 from jobengine.gmail_client import GmailError
-from jobengine.mail import preflight, timing
+from jobengine.mail import preflight, timing, warmup
 from jobengine.mail.drafter import (
     DraftsResult,
     MailDeps,
@@ -67,7 +67,7 @@ def mode(state: BotState | None) -> str:
     return SEND if value.get("mode") == SEND else DRAFT
 
 
-def mode_command(state: BotState | None, args: str) -> str:
+def mode_command(state: BotState | None, args: str, deps: MailDeps | None = None) -> str:
     """/mailmode, /mailmode draft, /mailmode send."""
     word = args.strip().lower()
     if word in (DRAFT, SEND):
@@ -78,18 +78,34 @@ def mode_command(state: BotState | None, args: str) -> str:
     if word and word not in (DRAFT, SEND):
         return f"Unknown mail mode {word!r}. Send /mailmode draft or /mailmode send."
     if current == SEND:
-        return ("Mail mode: send. Drafts are written, checked (" + CHECKED + ") and sent "
-                "when every check passes, at most Config mail.daily_send_cap a day (10 when "
-                "not set). Any problem keeps the mail as a draft. /mailmode draft to only "
-                "write drafts.")
+        text = ("Mail mode: send. Drafts are written, checked (" + CHECKED + ") and sent "
+                "when every check passes, within today's cap. Any problem keeps the mail as "
+                "a draft. /mailmode draft to only write drafts.")
+        if deps is not None:
+            config = deps.config()
+            text += "\n" + warmup.line(deps.s.mail, state, config, deps.today(),
+                                       ceiling(deps, config))
+        return text
     return ("Mail mode: draft. Mails are written as Gmail drafts and never sent; you send "
             "them from Gmail. /mailmode send to let the bot send the drafts that pass every "
             "check.")
 
 
-def daily_cap(deps: MailDeps, config: Any) -> int:
-    default = int(deps.s.mail.get("daily_send_cap", DEFAULT_DAILY_SENDS))
+def ceiling(deps: MailDeps, config: Any) -> int:
+    """Config mail.daily_send_cap. Not set: 10, or the warm-up's last step when it is on."""
+    if warmup.enabled(config) and config.get("mail.daily_send_cap") is None:
+        default = warmup.steps(deps.s.mail)[-1]
+    else:
+        default = int(deps.s.mail.get("daily_send_cap", DEFAULT_DAILY_SENDS))
     return max(0, config.get_int("mail.daily_send_cap", default) or 0)
+
+
+def daily_cap(deps: MailDeps, config: Any, state: BotState | None = None) -> int:
+    """Today's cap: the warm-up step of this week (mail/warmup.py), never above the
+    ceiling Config mail.daily_send_cap."""
+    top = ceiling(deps, config)
+    ramp = warmup.cap(deps.s.mail, state, config, deps.today())
+    return top if ramp is None else min(top, ramp)
 
 
 def sent_today(state: BotState | None, today: date) -> int:
@@ -100,6 +116,7 @@ def sent_today(state: BotState | None, today: date) -> int:
 def _record(state: BotState | None, today: date, count: int) -> None:
     if state is not None:
         state.set(SENT_KEY, {"date": today.isoformat(), "count": count})
+        warmup.mark_first_send(state, today)
 
 
 def _append(notes: str | None, line: str) -> str:
@@ -113,7 +130,7 @@ def send_checked(deps: MailDeps, state: BotState | None, drafts: DraftsResult) -
     today = deps.today()
     s = deps.s
     dry = drafts.dry_run or not gmail_write_allowed(s)
-    result = SendResult(dry_run=dry, cap=daily_cap(deps, config))
+    result = SendResult(dry_run=dry, cap=daily_cap(deps, config, state))
     used = sent_today(state, today)
     try:
         attachment = None
@@ -243,7 +260,7 @@ def send_due(deps: MailDeps, state: BotState | None) -> str | None:
     if not due or not gmail_write_allowed(s):
         return None
     today = deps.today()
-    cap = daily_cap(deps, config)
+    cap = daily_cap(deps, config, state)
     used = sent_today(state, today)
     if used >= cap:
         return None  # the rest wait for the next morning

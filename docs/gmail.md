@@ -112,8 +112,8 @@ waiting (Contacts with Status Drafted) the summary says so.
   - **Attachment:** exactly one, the approved resume of this job (same file name and same
     bytes as its Resume Log row), a real PDF, within `mail.max_attachment_kb`. None when
     Config `mail.attach_resume` is `no`.
-- A draft that passes is sent with Gmail's `drafts.send`, at most Config
-  `mail.daily_send_cap` a day (10 when not set; Bot State `mail.sent_day` counts them). The
+- A draft that passes is sent with Gmail's `drafts.send`, within today's cap (Bot State
+  `mail.sent_day` counts them; see the warm-up below). The
   contact becomes `Contacted` with `Last contacted` today at once. A draft with any problem,
   over the day's cap, or refused by Gmail stays in Gmail Drafts; the summary says why.
 - The summary lists every mail sent (To, Subject, attachment name and size), the ones kept
@@ -132,6 +132,28 @@ Kept as drafts, not sent:
 - With DRY_RUN on, the checks run and nothing is sent (`DRY RUN: 4 of 4 would be sent`).
   Outside prod every mail goes to your redirect address, so send mode can be tried safely in
   dev: you receive the mails yourself.
+
+### Warm-up (the daily cap grows week by week)
+
+A new sender that jumps to 30 cold mails a day looks like spam to Gmail and to the receiving
+servers. The daily cap therefore grows week by week (`src/jobengine/mail/warmup.py`):
+
+| Week of sending | Mails a day |
+|---|---|
+| 1 | 10 |
+| 2 | 15 |
+| 3 | 20 |
+| 4 | 25 |
+| 5 on | 30 |
+
+- Week 1 starts the day the bot sends its first mail (Bot State `mail.warmup_start`). If you
+  already mailed from this address by hand, set Notion Config `mail.warmup_start` to that
+  date (`YYYY-MM-DD`) to start further along.
+- Notion Config `mail.daily_send_cap` stays the ceiling: the cap is the smaller of the two.
+  Raise it to 30 so the warm-up can reach 30 (not set: 30).
+- `/mailmode` shows the week and today's cap. Notion Config `mail.warmup` = `off` turns it off
+  (then only `mail.daily_send_cap`, 10 when not set). The steps are `mail.warmup.steps` in the
+  yaml. Mails over the cap stay drafts (or wait in the queue for the next morning).
 
 ### The recipient's morning (send window)
 

@@ -128,7 +128,8 @@ def test_send_mode_checks_and_sends_every_good_draft():
     assert ("- Piotr Example (cold mail): To madeshwaranm02@gmail.com | Subject: [LOCAL] to "
             "piotr.example@vistula.example.com | ") in text
     assert "Attachment: Alex_Devops_VistulaCloud.pdf (0 KB)" in text
-    assert "4 of 15 sends used today." in text  # fixture Config mail.daily_send_cap 15
+    # Warm-up week 1: 10 a day (the fixture Config mail.daily_send_cap 15 is the ceiling).
+    assert "4 of 10 sends used today." in text
     gmail = d.mail.gmail()
     assert gmail.sent == ["r-fake-draft-1", "r-fake-draft-2", "r-fake-draft-3",
                           "r-fake-draft-4"]
@@ -153,11 +154,11 @@ def test_a_draft_that_changed_in_gmail_is_kept():
 def test_daily_cap_keeps_the_rest_as_drafts():
     d = ready_desk()
     d.tap("ct:pl-clean")
-    d.state.set(sender.SENT_KEY, {"date": FAKE_TODAY.isoformat(), "count": 14})
+    d.state.set(sender.SENT_KEY, {"date": FAKE_TODAY.isoformat(), "count": 9})
     text = d.tap("dr:pl-clean")[0].text
     assert "Sent 1 of 4" in text
-    assert "today's 15 sends are used" in text
-    assert "15 of 15 sends used today." in text
+    assert "today's 10 sends are used" in text  # warm-up week 1
+    assert "10 of 10 sends used today." in text
 
 
 def test_gmail_refusing_one_keeps_it_as_a_draft():

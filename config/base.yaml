@@ -196,6 +196,10 @@ mail:
   # Mail mode send: a checked mail goes out only in the recipient's morning (the job's
   # country); outside it the draft waits in /mailqueue and is sent by itself, one every few
   # minutes, after the same checks. Notion Config mail.send_window = off sends at once.
+  # Mail warm-up (mail/warmup.py): the daily send cap per week of sending, from the first
+  # mail the bot sends. Notion Config mail.daily_send_cap is the ceiling; mail.warmup = off.
+  warmup:
+    steps: [10, 15, 20, 25, 30]
   send_window:
     enabled: true
     days: [Tue, Wed, Thu]
