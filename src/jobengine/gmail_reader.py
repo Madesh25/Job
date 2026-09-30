@@ -1,8 +1,11 @@
 """Read-only Gmail access for job alert emails (the alerts inbox, madeshwaranm02).
 
-Only users.messages.list and users.messages.get are used, with the gmail.readonly scope.
-Nothing here labels, changes, sends or removes mail. The Google API client makes its own
-HTTP calls, which is the one allowed exception to jobengine.http.
+Only users.messages.list and users.messages.get are used. The token keeps the scopes it
+was granted: gmail.readonly, or gmail.modify (the token `python -m jobengine.gmail_auth`
+makes, which can read too). Asking Google for a scope the token was not granted fails with
+invalid_scope, so none is forced. Nothing here labels, changes, sends or removes mail. The
+Google API client makes its own HTTP calls, which is the one allowed exception to
+jobengine.http.
 """
 
 from __future__ import annotations
@@ -13,6 +16,18 @@ from dataclasses import dataclass
 from typing import Any
 
 SCOPES = ["https://www.googleapis.com/auth/gmail.readonly"]
+# Any of these lets the token read mail.
+READ_SCOPES = (*SCOPES, "https://www.googleapis.com/auth/gmail.modify",
+               "https://mail.google.com/")
+
+
+class TokenScopeError(ValueError):
+    """The token was not granted any scope that can read mail."""
+
+
+def token_scopes(info: dict[str, Any]) -> list[str]:
+    scopes = info.get("scopes") or []
+    return scopes.split() if isinstance(scopes, str) else list(scopes)
 
 
 @dataclass(frozen=True)
@@ -28,7 +43,13 @@ def build_service(token_json: str) -> Any:
     from google.oauth2.credentials import Credentials
     from googleapiclient.discovery import build
 
-    creds = Credentials.from_authorized_user_info(json.loads(token_json), SCOPES)
+    info = json.loads(token_json)
+    granted = token_scopes(info)
+    if granted and not any(scope in granted for scope in READ_SCOPES):
+        raise TokenScopeError("the token cannot read mail (scopes: " + ", ".join(granted)
+                              + "); make it with gmail.readonly or gmail.modify")
+    # No scopes passed: the refresh keeps what the token was granted.
+    creds = Credentials.from_authorized_user_info(info)
     return build("gmail", "v1", credentials=creds, cache_discovery=False, static_discovery=True)
 
 
