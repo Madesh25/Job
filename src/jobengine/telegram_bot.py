@@ -61,6 +61,8 @@ HELP_TEXT = (
     "/contacts <url or id> - find contacts for a job (cache first, then Apollo, Hunter, Snov)\n"
     "/credits - show the contact providers' credit counters\n"
     "/outreach - this week's outreach budget (which approved jobs get contacts and cold mails)\n"
+    "/fetchcontacts - contacts and Gmail drafts (resume attached) for the jobs you applied "
+    "to today\n"
     "/drafts <url or id> - write Gmail drafts for a job's contacts again\n"
     "/applypack <url or id> - ready answers for a job's application form (visa, notice, salary)\n"
     "/mailmode - draft (only write Gmail drafts) or send (check every mail, then send it)\n"
@@ -91,10 +93,10 @@ def bot_commands() -> list[dict[str, str]]:
 TAP_TOASTS = {"ap": "Approving, building your resume...", "sk": "Skipping...",
               "nx": "Next job...", "fg": "Adding it and rebuilding...",
               "fc": "Adding it and rebuilding...", "ct": "Finding contacts...",
-              "dr": "Writing Gmail drafts..."}
+              "dr": "Writing Gmail drafts...", "fx": "Finding contacts and writing drafts..."}
 
 DESK_COMMANDS = ("pending", "jd", "done", "screen", "gaps", "contacts", "credits", "outreach",
-                 "drafts", "today",
+                 "drafts", "fetchcontacts", "today",
                  "followups", "stats", "sources", "health", "digest", "update", "rules")
 
 # (method, payload, http_timeout) -> decoded JSON response
@@ -542,6 +544,8 @@ def desk_replies(update: dict[str, Any], s: Settings, desk: Desk | None) -> list
         return _guarded("/credits", desk.credits)
     if command == "outreach":
         return _guarded("/outreach", desk.outreach_command)
+    if command == "fetchcontacts":
+        return _guarded("/fetchcontacts", desk.fetch_contacts_command)
     if command == "drafts":
         return _guarded("/drafts", lambda: desk.drafts_command(args))
     if command == "applypack":

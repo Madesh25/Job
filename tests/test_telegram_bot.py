@@ -641,10 +641,12 @@ def test_approve_resume_old_revision_rebuild_and_i_applied(desk):
     fake = talk(desk, tap(1, f"ra:{new}"))
     assert fake.sent[0][1].startswith("[LOCAL] Apply pack (")  # the form answers first
     assert fake.sent[1][1] == ("[LOCAL] Resume approved and saved. Apply here: "
-                               "https://jobs.example.com/pl-clean\nNext: tap Find contacts for "
-                               "people to write to.\nWhen you are done, tap I applied (or Not "
-                               "applying): then the next job comes.")
-    assert fake.buttons[1] == ["ia:pl-clean", "na:pl-clean", "ct:pl-clean"]
+                               "https://jobs.example.com/pl-clean\nWhen you are done, tap I "
+                               "applied (or Not applying): then the next job comes.\nAfter your "
+                               "last job: /fetchcontacts finds the contacts and writes the Gmail "
+                               "drafts, with the resume attached, for every job you applied to "
+                               "today.")
+    assert fake.buttons[1] == ["ia:pl-clean", "na:pl-clean"]
     row = desk.resume.resume_log.get(new)
     assert row["Approved"] is True and row["File"].startswith("DRY RUN: ")
     fake = talk(desk, tap(1, "ia:pl-clean"))
@@ -691,8 +693,9 @@ def test_resume_approval_offers_contacts_then_drafts_as_buttons(desk):
     texts = [t for _, t in fake.sent]
     assert len(texts) == 2 and texts[1].startswith("[LOCAL] Resume approved and saved.")
     assert texts[0].startswith("[LOCAL] Apply pack (")  # PR 11: ready form answers
-    # Nothing looked up yet; the buttons are on the last message.
-    assert fake.buttons[1] == ["ia:pl-clean", "na:pl-clean", "ct:pl-clean"]
+    # Nothing looked up yet; the buttons are on the last message. Contacts come later with
+    # /fetchcontacts; an old Find contacts button (ct:) still works.
+    assert fake.buttons[1] == ["ia:pl-clean", "na:pl-clean"]
     assert not desk.repo.rows["pl-clean"].get("Contacts")
     fake = talk(desk, tap(2, "ct:pl-clean"))
     texts = [t for _, t in fake.sent]

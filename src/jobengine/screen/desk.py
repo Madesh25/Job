@@ -140,6 +140,8 @@ def match_counts(body: list[str]) -> dict[str, int]:
 ONE_AT_A_TIME = ("Check the resume: tap Approve resume, or Rebuild to change it. Then you "
                  "get the job link to apply, and the next job comes after I applied or Not "
                  "applying.")
+FETCH_HINT = ("After your last job: /fetchcontacts finds the contacts and writes the Gmail "
+              "drafts, with the resume attached, for every job you applied to today.")
 NOT_APPLYING_ASK = "Why are you not applying? (It goes to Notion.)"
 # code -> (what you tapped, the Skip reason option)
 NOT_APPLYING = {"c": ("the job is closed or expired", "Expired"),
@@ -289,7 +291,9 @@ class Desk:
             return self.strategy_tap(action, arg)
         if action == "oc" and arg:
             return self.outreach_tap(arg)
-        if action == "ct" and arg:  # "Find contacts" under an approved resume
+        if action == "fx" and arg:  # "Go" under /fetchcontacts
+            return self.fetch_contacts_tap(arg)
+        if action == "ct" and arg:  # "Find contacts" (older messages; /contacts does the same)
             from jobengine.resume.builder import notion_id
 
             return self.outreach_or_apply_only(notion_id(arg))
@@ -427,11 +431,10 @@ class Desk:
             job = short_id(result.job_id)
             buttons = [("I applied", f"ia:{job}"), ("Not applying", f"na:{job}")]
             text = result.message
-            if self.contacts is not None:
-                buttons.append(("Find contacts", f"ct:{job}"))
-                text += "\nNext: tap Find contacts for people to write to."
             text += ("\nWhen you are done, tap I applied (or Not applying): then the next job "
                      "comes.")
+            if self.contacts is not None and self.mail is not None:
+                text += f"\n{FETCH_HINT}"
             return [*self.apply_pack(result.job_id), Reply(text, buttons)]
         return [Reply(result.message)]
 
@@ -572,6 +575,115 @@ class Desk:
                                                   f"dr:{short_id(job_id)}")]
                 first.text += "\nNext: tap Write Gmail drafts (they are never sent by themselves)."
         return [first]
+
+    # ------------------------------------------------------------ /fetchcontacts
+
+    def applied_on(self, day: date) -> list[tuple[str, dict[str, Any]]]:
+        """Jobs you marked I applied on this day, oldest row first."""
+        from jobengine.notion_repo import select_filter
+
+        assert self.repo is not None
+        return [(pid, values) for pid, values in
+                self.repo.query_rows(select_filter("Status", "Applied"))
+                if values.get("Applied date") == day]
+
+    def fetch_contacts_command(self) -> list[Reply]:
+        """/fetchcontacts: what a run for today's applied jobs would do, and a Go button.
+        Nothing is looked up or written before you tap Go."""
+        if self.contacts is None or self.mail is None or self.repo is None:
+            return [Reply("Contact lookup and Gmail drafts are not available in this bot.")]
+        today = self.today()
+        jobs = self.applied_on(today)
+        if not jobs:
+            return [Reply(f"No job is marked I applied today ({today.isoformat()}). Tap I "
+                          "applied under a job first.")]
+        saved = [(pid, v) for pid, v in jobs if v.get("Contacts")]
+        lines = [f"Applied today ({today.isoformat()}): {len(jobs)} job(s)."]
+        for _pid, values in jobs:
+            count = len(values.get("Contacts") or [])
+            what = f"{count} saved contact(s)" if count else "needs a lookup"
+            lines.append(f"- {values.get('Company')}, {values.get('Role')}: {what}")
+        need = len(jobs) - len(saved)
+        if need:
+            lines.append(f"{need} job(s) need a lookup: the Contacts cache and the job posting "
+                         "first, then the paid providers (/credits shows what is left).")
+            if self.s.app_env != "prod" or self.s.dry_run:
+                lines.append("Paid calls are off here (only prod with DRY_RUN=false); lookups "
+                             "use test data.")
+        if self.sending():
+            lines.append("Mail mode is send: each mail is checked and sent (in the "
+                         "recipient's morning) only when every check passes.")
+        else:
+            lines.append("Then Gmail drafts with the resume attached (never sent by "
+                         "themselves). Drafts already written are skipped.")
+        lines.append("Tap Go to start.")
+        return [Reply("\n".join(lines), [("Go", f"fx:{today.isoformat()}")])]
+
+    def fetch_contacts_tap(self, day: str) -> list[Reply]:
+        """fx:<date>: contacts, then drafts, for every job applied on that day. One short line
+        per job as it goes, then a summary."""
+        if self.contacts is None or self.mail is None or self.repo is None:
+            return [Reply("Contact lookup and Gmail drafts are not available in this bot.")]
+        try:
+            when = date.fromisoformat(day)
+        except ValueError:
+            return [Reply("That button is no longer valid. Send /fetchcontacts.")]
+        if when != self.today():
+            return [Reply("That list was for another day. Send /fetchcontacts again.")]
+        from jobengine.outreach import planner
+
+        jobs = self.applied_on(when)
+        out: list[Reply] = []
+
+        def emit(reply: Reply) -> None:
+            if self.notify is None:
+                out.append(reply)
+            else:
+                self.notify(reply)
+
+        drafted, dry = 0, False
+        none: list[str] = []
+        waiting: list[str] = []
+        failed: list[str] = []
+        c = self.contacts
+        for index, (job_id, values) in enumerate(jobs, 1):
+            job = f"{values.get('Company')}, {values.get('Role')}"
+            emit(Reply(f"{index}/{len(jobs)} {job}..."))
+            if not values.get("Contacts"):
+                planner.force(c.state, c.config(), job_id, c.today())  # still counted
+                found = contact_finder.find_contacts(c, job_id)
+                if found.status == "waiting_domain":
+                    emit(Reply(found.message))  # reply to it; then tap Write Gmail drafts
+                    waiting.append(job)
+                    continue
+                if found.status != "done" or not _contact_ids(found.contacts):
+                    emit(Reply(found.message[:MAX_TEXT]))
+                    none.append(job)
+                    continue
+                contact_finder.on_contacts_ready(job_id, found.contacts)
+            result = mail_drafter.create_drafts(self.mail, job_id)
+            if self.sending() and result.ok and result.drafted:
+                emit(Reply(mail_sender.send_checked(self.mail, self.state, result)
+                           .message[:MAX_TEXT]))
+            else:
+                emit(Reply(result.message[:MAX_TEXT]))
+            dry = dry or result.dry_run
+            if result.ok:
+                drafted += len(result.drafted)
+            else:
+                failed.append(job)
+        mails = "mail(s) checked for sending" if self.sending() else "Gmail draft(s)"
+        lines = [f"Done: {len(jobs)} job(s) applied today, {drafted} {mails}."]
+        if dry:
+            lines[0] += " DRY RUN: nothing was created in Gmail."
+        if none:
+            lines.append("No contacts found: " + "; ".join(none))
+        if waiting:
+            lines.append("Waiting for the email domain (reply to the question, then tap Write "
+                         "Gmail drafts): " + "; ".join(waiting))
+        if failed:
+            lines.append("Drafts not written (see the message above): " + "; ".join(failed))
+        return [*out, Reply("\n".join(lines))]
 
     def contacts_command(self, args: str) -> list[Reply]:
         if self.contacts is None or self.repo is None:
