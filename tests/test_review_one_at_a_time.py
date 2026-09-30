@@ -5,7 +5,7 @@ from pathlib import Path
 
 from test_telegram_bot import Clock, fake_rendering, settings
 
-from jobengine.screen.desk import NOT_APPLYING_ASK, ONE_AT_A_TIME, fake_desk
+from jobengine.screen.desk import FETCH_HINT, NOT_APPLYING_ASK, ONE_AT_A_TIME, fake_desk
 from jobengine.sweep.fakes import FAKE_TODAY
 
 
@@ -48,7 +48,8 @@ def test_approve_resume_gives_the_link_then_i_applied_brings_the_next_job():
     replies = approve_resume(d)
     last = replies[-1]
     assert last.text.startswith("Resume approved and saved. Apply here: https://")
-    assert [data.split(":")[0] for _, data in last.buttons] == ["ia", "na", "ct"]
+    assert [data.split(":")[0] for _, data in last.buttons] == ["ia", "na"]
+    assert last.text.endswith(FETCH_HINT)
     assert not any(is_card(r) for r in replies)
     after = d.tap("ia:pl-clean")
     assert after[0].text.startswith("Marked as applied on 2026-10-01")

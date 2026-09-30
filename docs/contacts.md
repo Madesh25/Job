@@ -120,9 +120,21 @@ happen only in prod with `DRY_RUN=false`; elsewhere invented fixtures answer.
 
 ## Telegram
 
-- After **Approve resume** the bot shows two buttons, **I applied** and **Find contacts**;
-  nothing is looked up until you tap **Find contacts**. Then "Finding contacts for ..." and
-  the list, for example
+- **After your review, in one go: `/fetchcontacts`.** After **Approve resume** the bot shows
+  **I applied** and **Not applying**; nothing is looked up while you review. When you are done
+  with the day's jobs, `/fetchcontacts` lists every job you marked I applied today, with how
+  many saved contacts each has, and waits for **Go**. Go then works through the jobs one by
+  one: a job with saved contacts (its Contacts relation) goes straight to the drafts; any
+  other job gets a lookup (the Contacts cache and the job posting first, then the paid
+  providers; it counts against the week's outreach budget like `/contacts`) and then the
+  Gmail drafts with the approved resume attached. A job whose email domain is unknown asks
+  the domain question below; reply to it, then tap **Write Gmail drafts**. It ends with a
+  summary: drafts written, jobs with no contacts, jobs waiting for a domain. Running it again
+  is safe: saved contacts are reused and drafts already written are skipped. The Go button
+  only works on the day it was sent.
+- `/contacts <job>` looks up one job by hand (older messages may still have a **Find
+  contacts** button, which does the same). Then "Finding contacts for ..." and the list, for
+  example
   `4 of 4 found. Credits: Apollo 2/75, Hunter 0/25, Snov 0/50`, or
   `2 of 4 found. Missing: 1 hiring, 1 recruiter.`, or
   `No contacts found. Apply through the portal only.`

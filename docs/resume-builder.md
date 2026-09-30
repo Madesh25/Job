@@ -41,7 +41,8 @@ Rebuild -> "What should change?" (your next message, within 30 minutes, or a rep
 Reply to the preview with a correction ("drop Oracle") -> next revision
 Approve resume -> re-render from the stored plan, save to Drive (or out/), tick Approved
   -> the Apply pack, then "Resume approved and saved. Apply here: <URL>"
-     [I applied] [Not applying] [Find contacts]
+     [I applied] [Not applying]
+     (contacts and drafts come later for all of today's applied jobs: /fetchcontacts)
 I applied -> Status "Applied", Applied date and Last activity date today -> the next job
 Not applying -> "Why?" [the job is closed or expired] [not a fit after all] [another reason]
   -> Status "Declined", Skip reason Expired or Other, a note on the page -> the next job

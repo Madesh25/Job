@@ -103,8 +103,9 @@ Rendering needs WeasyPrint with Pango and the Lato font (use WSL on Windows). Se
 python -m jobengine.contacts --fake --job fixture-clean-pl   # fixture people, no network
 ```
 
-After you approve a resume in Telegram the bot finds 4 contacts at the company (cache first,
-then Apollo, Hunter, Snov). See [docs/contacts.md](docs/contacts.md). Paid lookups go only to
+After your review, `/fetchcontacts` in Telegram finds 4 contacts at each company you applied
+to today (saved contacts first, then Apollo, Hunter, Snov) and writes the Gmail drafts with
+the resume attached; `/contacts <job>` does one job. See [docs/contacts.md](docs/contacts.md). Paid lookups go only to
 the best-ranked jobs the month's credits cover; the rest are apply-only (see
 [docs/outreach.md](docs/outreach.md), `/outreach`).
 
