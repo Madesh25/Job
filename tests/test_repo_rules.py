@@ -298,6 +298,23 @@ def test_dev_service_gets_no_prod_only_secrets():
         assert prod_only not in dev_line, prod_only
 
 
+def test_optional_secrets_are_mounted_only_when_they_exist():
+    text = (ROOT / ".github" / "workflows" / "deploy.yml").read_text(encoding="utf-8")
+    assert 'gcloud secrets describe "$name"' in text
+    lines = [line for line in text.splitlines() if "OPTIONAL=" in line]
+    prod, dev = lines
+    for key in ("JOOBLE_API_KEY=jooble-api-key", "GITHUB_TOKEN=github-token",
+                "PROSPEO_API_KEY=prospeo-api-key", "TOMBA_API_KEY=tomba-api-key",
+                "TOMBA_API_SECRET=tomba-api-secret", "LUSHA_API_KEY=lusha-api-key"):
+        assert key in prod, key
+    assert "JOOBLE_API_KEY=jooble-api-key" in dev
+    for prod_only in ("prospeo", "tomba", "lusha"):
+        assert prod_only not in dev, prod_only
+    example = (ROOT / ".env.example").read_text(encoding="utf-8")
+    for key in ("JOOBLE_API_KEY=", "GITHUB_TOKEN=", "LUSHA_API_KEY=", "PROSPEO_API_KEY="):
+        assert key in example, key
+
+
 def test_only_the_checked_sender_sends_drafts():
     callers = {p.relative_to(ROOT).as_posix() for p in src_files()
                if SEND_DRAFT_CALL in p.read_text(encoding="utf-8")}
