@@ -18,7 +18,17 @@ from jobengine.settings import Settings
 from jobengine.sweep import crossmatch, fakes, fit, fulltext
 from jobengine.sweep.dedupe import IndexRow, create_plan, description_blocks, update_plan
 from jobengine.sweep.gate import strategy_gate
-from jobengine.sweep.models import Job, Skipped, SourceResult, SweepSummary, TargetCompany
+from jobengine.sweep.models import (
+    ALREADY,
+    MERGED,
+    SAVED,
+    SKIP_WORDS,
+    Job,
+    Skipped,
+    SourceResult,
+    SweepSummary,
+    TargetCompany,
+)
 from jobengine.sweep.normalize import (
     Rules,
     detect_location,
@@ -43,6 +53,11 @@ SOURCE_LABELS = {"gmail": "Email alerts", "adzuna": "Adzuna", "jooble": "Jooble"
 PROGRESS_EVERY = 25
 # bot_state key read by /sources and /health (Module 07).
 LAST_SUMMARY = "sweep.last_summary"
+LAST_REPORT = "sweep.last_report"  # the loss report of the last sweep, for /fetchreport
+TOO_OLD = "posted too long ago"
+OTHER_CITY = "same job in another city"
+DAILY_LIMIT = "over the daily limit (weaker match)"
+NOT_WRITTEN = "Notion refused the row"
 # bot_state key for the daily new-job limit: {"date": "2026-09-27", "count": 12}.
 DAY_KEY = "sweep.day"
 DEFAULT_DAILY_NEW_LIMIT = 30
@@ -227,7 +242,9 @@ def not_a_fit(job: Job, rules: FitRules) -> str | None:
     return None
 
 
-def _count(summary: SweepSummary, reason: str) -> None:
+def _count(summary: SweepSummary, reason: str, jobs: list[Job] | None = None) -> None:
+    for job in jobs or []:
+        summary.loss.add(job.source, reason, _label(job))
     if reason == "too senior":
         summary.too_senior += 1
     elif reason == fit.B2B_ONLY:
@@ -246,7 +263,8 @@ def _job_key(dedupe_key: str) -> str:
 
 
 def _one_per_job(
-    ranked: list[list[Job]], index: dict[str, IndexRow]
+    ranked: list[list[Job]], index: dict[str, IndexRow],
+    on_drop: Callable[[list[Job]], None] | None = None,
 ) -> tuple[list[list[Job]], int]:
     """Drop new jobs that are the same company and title as a row already in Notion or a
     better ranked one in this sweep (one posting listed in 8 cities is one job)."""
@@ -256,6 +274,8 @@ def _one_per_job(
         key = _job_key(jobs[0].dedupe_key)
         if key in seen:
             dropped += 1
+            if on_drop is not None:
+                on_drop(jobs)
             continue
         seen.add(key)
         out.append(jobs)
@@ -293,7 +313,7 @@ def _pick(
     for jobs in ranked:  # known from the snippet already: free
         reason = not_a_fit(jobs[0], rules)
         if reason:
-            _count(summary, reason)
+            _count(summary, reason, jobs)
         else:
             pending.append(jobs)
     cfg = fulltext.Config.from_settings(s)
@@ -311,7 +331,7 @@ def _pick(
         for jobs in chunk:
             reason = not_a_fit(jobs[0], rules)
             if reason:
-                _count(summary, reason)
+                _count(summary, reason, jobs)
             else:
                 fits.append(jobs)
     if summary.full_tried:
@@ -353,7 +373,8 @@ def run_sweep(
         country, _ = detect_location(location, rules)
         return title_scope(title, rules) is None and country in active
 
-    summary = SweepSummary(countries=list(active))
+    summary = SweepSummary(countries=list(active), labels=dict(SOURCE_LABELS))
+    loss = summary.loss
     repo = deps.repo
     if repo is None:
         summary.notes.append("DRY RUN: would write to job_opportunities (no rows written)")
@@ -465,20 +486,25 @@ def run_sweep(
                 summary.skipped += 1
                 why = outcome.reason.split(" (")[0]
                 summary.skipped_by[why] = summary.skipped_by.get(why, 0) + 1
+                loss.add(raw.source, SKIP_WORDS.get(why, why),
+                         f"{raw.title} | {raw.company} | {raw.location_text or '(no place)'}")
                 log.debug("skipped %s: %s", raw.title, outcome.reason)
                 continue
             seen.append(outcome)
             row = index.get(outcome.dedupe_key)
             if row is None and too_old(outcome, today, max_age):
                 summary.too_old += 1
+                loss.add(outcome.source, TOO_OLD, _label(outcome))
             elif row is None:
                 candidates.setdefault(outcome.dedupe_key, []).append(outcome)
             else:
                 try:
                     update_existing(row, outcome)
+                    loss.add(outcome.source, ALREADY)
                 except http.HttpError as exc:
                     log.warning("could not update %s: %s", _label(outcome), exc)
                     summary.not_written.append(_label(outcome))
+                    loss.add(outcome.source, NOT_WRITTEN, _label(outcome))
 
     # Pass 2: keep the best new jobs up to what is left of today's limit (free, no LLM).
     limit = max(0, int(s.sweep.get("daily_new_limit", DEFAULT_DAILY_NEW_LIMIT)))
@@ -486,19 +512,31 @@ def run_sweep(
     room = max(0, limit - used)
     ranker = _ranker(deps) if candidates else None
     ranked = _sort(list(candidates.values()), ranker, today)
-    ranked, summary.other_cities = _one_per_job(ranked, index)
+    ranked, summary.other_cities = _one_per_job(
+        ranked, index, lambda jobs: [loss.add(j.source, OTHER_CITY, _label(j)) for j in jobs])
     ranked = _pick(s, deps, ranked, room, ranker, today, summary, say)
     kept = ranked[:room]
     for jobs in kept:
         try:
             create_new(jobs[0])
+            loss.add(jobs[0].source, SAVED)
         except http.HttpError as exc:  # one refused row never stops the other jobs
             log.warning("could not save %s: %s", _label(jobs[0]), exc)
             summary.not_written.append(_label(jobs[0]))
+            for job in jobs:
+                loss.add(job.source, NOT_WRITTEN, _label(job))
             continue
         for extra in jobs[1:]:  # the same job twice in one sweep: a second posting ID
-            update_existing(index[extra.dedupe_key], extra)
+            try:
+                update_existing(index[extra.dedupe_key], extra)
+                loss.add(extra.source, MERGED)
+            except http.HttpError as exc:
+                log.warning("could not update %s: %s", _label(extra), exc)
+                loss.add(extra.source, NOT_WRITTEN, _label(extra))
     summary.not_kept = len(ranked) - len(kept)
+    for jobs in ranked[len(kept):]:
+        for job in jobs:
+            loss.add(job.source, DAILY_LIMIT, _label(job))
     if summary.not_kept:
         summary.notes.append(
             f"Kept the best {len(kept)} of {len(ranked)} new jobs (daily limit {limit}, "
@@ -533,4 +571,8 @@ def run_sweep(
                                      "no_board_sites": summary.no_board_sites})
         except Exception:  # never fail a sweep over the /sources counters
             log.exception("could not store the sweep summary")
+        try:
+            state.set(LAST_REPORT, loss.to_state(today.isoformat()))
+        except Exception:  # never fail a sweep over the loss report
+            log.exception("could not store the loss report")
     return summary

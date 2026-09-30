@@ -801,6 +801,20 @@ class Desk:
             return [Reply(f"No Job Opportunities row found for {args.strip()}")]
         return self.drafts(row.page_id)
 
+    def fetchreport_command(self, args: str = "") -> list[Reply]:
+        """/fetchreport [word]: where the postings of the last /fetch went, per source, and
+        the dropped jobs by reason (FETCH 10)."""
+        from jobengine.sweep.models import LossReport
+        from jobengine.sweep.runner import LAST_REPORT, SOURCE_LABELS
+
+        value = self.state.get(LAST_REPORT)
+        if not value:
+            return [Reply("No /fetch has run yet (or it ran before this report existed). "
+                          "Send /fetch first.")]
+        text = LossReport.from_state(value).report_text(dict(SOURCE_LABELS),
+                                                         str(value.get("at") or "?"), args)
+        return [Reply(text[:MAX_TEXT])]
+
     def alertcheck_command(self) -> list[Reply]:
         """/alertcheck: the alert emails the next /fetch reads and the jobs in each."""
         from jobengine.sweep import fakes
