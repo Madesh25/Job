@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import date
+from typing import Any
 
 COUNTRY_FLAGS = {
     "Poland": "\U0001F1F5\U0001F1F1",
@@ -79,6 +80,80 @@ class SourceResult:
     emails: int | None = None  # gmail only: alert emails read
 
 
+# Where each posting of a sweep ended (FETCH 10). Every posting lands in exactly one bucket,
+# so a source's buckets add up to what it read. The first three are kept, the rest dropped.
+SAVED = "saved as a new job"
+ALREADY = "already in Notion (updated)"
+MERGED = "same job from another posting (merged)"
+KEPT_BUCKETS = (SAVED, ALREADY, MERGED)
+MAX_DROPPED_KEPT = 400  # dropped jobs remembered for /fetchreport
+
+
+@dataclass
+class LossReport:
+    """Per source: bucket -> postings. `dropped`: (source, reason, job) for /fetchreport."""
+
+    by_source: dict[str, dict[str, int]] = field(default_factory=dict)
+    dropped: list[tuple[str, str, str]] = field(default_factory=list)
+
+    def add(self, source: str, bucket: str, job: str = "") -> None:
+        counts = self.by_source.setdefault(source, {})
+        counts[bucket] = counts.get(bucket, 0) + 1
+        if bucket not in KEPT_BUCKETS and job and len(self.dropped) < MAX_DROPPED_KEPT:
+            self.dropped.append((source, bucket, job))
+
+    def read(self, source: str) -> int:
+        return sum(self.by_source.get(source, {}).values())
+
+    def lines(self, labels: dict[str, str]) -> list[str]:
+        out = []
+        for source, counts in self.by_source.items():
+            parts = [f"{counts[b]} {b}" for b in KEPT_BUCKETS if counts.get(b)]
+            parts += [f"{n} {b}" for b, n in sorted(counts.items(), key=lambda i: -i[1])
+                      if b not in KEPT_BUCKETS]
+            lines_label = labels.get(source, source)
+            out.append(f"- {lines_label}: {self.read(source)} read: " + ", ".join(parts))
+        return out
+
+    @classmethod
+    def from_state(cls, value: dict[str, Any]) -> LossReport:
+        return cls(by_source={k: dict(v) for k, v in (value.get("by_source") or {}).items()},
+                   dropped=[tuple(item) for item in value.get("dropped") or []])
+
+    def report_text(self, labels: dict[str, str], when: str, word: str = "",
+                    per_reason: int = 5, max_filtered: int = 40) -> str:
+        """/fetchreport: the per-source lines and the dropped jobs by reason. `word` keeps
+        only reasons or sources that contain it, and then lists more of their jobs."""
+        lines = [f"Last /fetch ({when}), where the postings went:", *self.lines(labels)]
+        word = word.strip().lower()
+        groups: dict[str, list[tuple[str, str]]] = {}
+        for source, reason, job in self.dropped:
+            name = labels.get(source, source)
+            if word and word not in reason.lower() and word not in name.lower():
+                continue
+            groups.setdefault(reason, []).append((name, job))
+        if not groups:
+            lines += ["", f"No dropped jobs match {word!r}." if word else "No jobs were dropped."]
+            return "\n".join(lines)
+        limit = max_filtered if word else per_reason
+        lines += ["", "Dropped jobs by reason" + (f" (matching {word!r})" if word else "")
+                  + ". /fetchreport <word> shows more of one reason, for example "
+                    "/fetchreport skill or /fetchreport adzuna:"]
+        for reason, jobs in sorted(groups.items(), key=lambda item: -len(item[1])):
+            lines.append(f"{reason} ({len(jobs)}):")
+            lines.extend(f"- {job} [{name}]" for name, job in jobs[:limit])
+            if len(jobs) > limit:
+                lines.append(f"- ... and {len(jobs) - limit} more")
+        if len(self.dropped) >= MAX_DROPPED_KEPT:
+            lines.append(f"(Only the first {MAX_DROPPED_KEPT} dropped jobs are kept; the counts "
+                         "above are complete.)")
+        return "\n".join(lines)
+
+    def to_state(self, today: str) -> dict[str, Any]:
+        return {"at": today, "by_source": self.by_source,
+                "dropped": [list(item) for item in self.dropped]}
+
+
 @dataclass
 class SweepSummary:
     new: int = 0
@@ -87,6 +162,8 @@ class SweepSummary:
     skipped: int = 0
     skipped_by: dict[str, int] = field(default_factory=dict)  # reason -> count
     not_written: list[str] = field(default_factory=list)  # jobs Notion refused
+    loss: LossReport = field(default_factory=LossReport)  # every posting, per source
+    labels: dict[str, str] = field(default_factory=dict)  # source -> name for people
     high_ghost: int = 0
     sources: dict[str, int] = field(default_factory=lambda: {"gmail": 0, "adzuna": 0, "ats": 0})
     not_supported: int = 0
@@ -186,6 +263,10 @@ class SweepSummary:
             f"\U0001F501 Already in Notion, seen again: {self.updated + self.reposts}",
             f"\U0001F6AB Not a match (skipped): {self.skipped}{self._skipped_detail()}",
         ]
+        if self.loss.by_source:
+            lines += ["", "\U0001F4CA Where the postings went (per source; /fetchreport "
+                          "lists the dropped jobs):"]
+            lines.extend(self.loss.lines(self.labels))
         if self.high_ghost_jobs:
             lines += ["", f"\u26A0\uFE0F Possible ghost jobs (listed for a long time): "
                           f"{self.high_ghost}"]

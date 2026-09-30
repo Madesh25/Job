@@ -307,6 +307,23 @@ up among this sweep's other postings (company boards, Adzuna, Jooble), in
   waiting for `/jd`.
 - `sweep.crossmatch.enabled: false` turns it off.
 
+## Where the postings went (loss report)
+
+Every posting a `/fetch` reads lands in exactly one bucket, per source, so the buckets add up
+to what each source read and nothing is dropped without a trace:
+
+- kept: saved as a new job; already in Notion (updated); same job from another posting
+  (merged into the row);
+- dropped, with the reason: title not DevOps-type, senior or other excluded title, place not
+  recognised, other country, posted too long ago, same job in another city, too senior, a
+  language other than English, B2B only, no visa sponsorship, low skill match, over the daily
+  limit (weaker match), Notion refused the row.
+
+The `/fetch` summary ends with one line per source ("Where the postings went"). Bot State
+`sweep.last_report` keeps the counts and the first 400 dropped jobs; `/fetchreport` shows them
+by reason (5 per reason), and `/fetchreport <word>` shows up to 40 jobs of the reasons or
+sources containing that word, for example `/fetchreport skill` or `/fetchreport adzuna`.
+
 ## Email alerts setup
 
 1. In the madeshwaranm02 Gmail, create job alerts that send email: IrishJobs.ie, Jobs.ie and
