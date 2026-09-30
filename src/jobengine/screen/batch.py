@@ -83,7 +83,7 @@ def submit(s: Settings, deps: ScreenDeps, today: date, limit: int | None = None)
         return summary
     run = _start(s, deps, today)
     llm = _batch_llm(run.llm)
-    rows = unscreened_rows(deps)
+    rows = unscreened_rows(deps, today)
     workers = max(1, int(s.screening.get("workers", 4)))
     prepared = run_all(lambda row: run.prepare(row, ("New",)), rows, workers)
     send: list[tuple[JobRow, Prepared]] = []
