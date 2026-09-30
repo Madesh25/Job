@@ -30,6 +30,14 @@ for _name in ("httpx", "httpcore"):
 
 TIMEOUT_SECONDS = 20
 MAX_429_RETRIES = 3
+# A short network hiccup (home Wi-Fi, a busy API) should not fail a whole resume build or
+# sweep. Connection errors happen before the request reaches the server, so they are retried
+# for every method; a read timeout or a 502/503/504 only for GET (a POST or PATCH may already
+# have been applied, and repeating it could create a row twice).
+NETWORK_WAITS = (2.0, 5.0)  # seconds before the 2nd and 3rd attempt
+CONNECT_ERRORS = (httpx.ConnectError, httpx.ConnectTimeout, httpx.PoolTimeout)
+GET_ERRORS = (httpx.ReadTimeout, httpx.ReadError, httpx.RemoteProtocolError)
+GET_RETRY_STATUS = (502, 503, 504)
 PAGE_TIMEOUT_SECONDS = 12
 PAGE_MAX_BYTES = 3_000_000
 PAGE_MAX_REDIRECTS = 5
@@ -89,22 +97,41 @@ def _send(
     json: Any = None,
     s: Settings | None = None,
 ) -> tuple[str, httpx.Response]:
-    """Send one request, retrying HTTP 429 up to MAX_429_RETRIES times (Retry-After)."""
+    """Send one request. HTTP 429 is retried up to MAX_429_RETRIES times (Retry-After);
+    network hiccups up to twice (NETWORK_WAITS), see the comment on NETWORK_WAITS."""
     s = s or get_settings()
     assert_fetch_allowed(url, s)
     where = f"{method} {safe_url(url)}"
+    network_tries = 0
     with httpx.Client(transport=_transport, timeout=TIMEOUT_SECONDS) as client:
-        for attempt in range(MAX_429_RETRIES + 1):
+        attempt = 0
+        while attempt <= MAX_429_RETRIES:
             log.debug("%s", where)
             try:
                 resp = client.request(method, url, params=params, headers=headers, json=json)
                 resp.read()
             except httpx.HTTPError as exc:
+                retryable = isinstance(exc, CONNECT_ERRORS) or (
+                    method == "GET" and isinstance(exc, GET_ERRORS))
+                if retryable and network_tries < len(NETWORK_WAITS):
+                    wait = NETWORK_WAITS[network_tries]
+                    network_tries += 1
+                    log.info("%s %s, retrying in %.0fs", where, type(exc).__name__, wait)
+                    _sleep(wait)
+                    continue
                 raise HttpError(f"{where} failed: {type(exc).__name__}") from None
+            if (method == "GET" and resp.status_code in GET_RETRY_STATUS
+                    and network_tries < len(NETWORK_WAITS)):
+                wait = NETWORK_WAITS[network_tries]
+                network_tries += 1
+                log.info("%s HTTP %s, retrying in %.0fs", where, resp.status_code, wait)
+                _sleep(wait)
+                continue
             if resp.status_code == 429 and attempt < MAX_429_RETRIES:
                 wait = _retry_after(resp)
                 log.info("%s rate limited, retrying in %.1fs", where, wait)
                 _sleep(wait)
+                attempt += 1
                 continue
             if resp.status_code >= 400:
                 detail = _error_detail(resp)
