@@ -36,7 +36,7 @@ WD_PAGE_SIZE = 20
 SUPPORTED = ("greenhouse", "lever", "smartrecruiters", "workday", "amazon", "avature")
 # Searches for boards that are too big to read whole (Workday, Amazon).
 DEFAULT_SEARCH_TERMS = ("devops", "site reliability", "sre", "platform engineer",
-                        "cloud engineer", "kubernetes")
+                        "cloud engineer", "kubernetes", "infrastructure engineer", "devsecops")
 # bot_state key: company name -> the board found on its careers page, and when.
 DETECT_KEY = "ats.detected"
 DEFAULT_DETECT_EVERY_DAYS = 7

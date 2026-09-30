@@ -219,9 +219,14 @@ sweep:
   # Network work done at the same time: the sources, careers pages, job boards and job
   # pages. Notion writes stay at about 3 per second whatever this is.
   workers: 8
-  # At most this many NEW jobs are saved per day (all sweeps together). New postings are
-  # ranked by a free match score (sweep/rank.py, no LLM) and only the best are saved.
-  daily_new_limit: 30
+  # At most this many NEW jobs are saved per day (all sweeps together); 0 = no limit.
+  # Your decision of 30 Sep: every job that passes the rules is saved (none is lost to a
+  # daily limit). New postings are ranked by a free match score (sweep/rank.py, no LLM) and
+  # screening takes the best screening.daily_limit (30) first: today's /pending list.
+  daily_new_limit: 0
+  # Remote jobs open in one of these regions ("Remote, EU") are kept as Country Other,
+  # City Remote. Remote jobs that name only other countries are still left out.
+  remote_regions: [eu, europe, european union, emea]
   # Title filters (section 4). Matched as whole words on the canonical (lowercase ASCII) title.
   title_include:
     - devops
@@ -364,7 +369,7 @@ sweep:
       nl: EUR
     results_per_page: 50
     max_days_old: 3
-    what_or: "devops sre kubernetes platform cloud infrastructure"
+    what_or: "devops sre kubernetes platform cloud infrastructure devsecops"
     max_calls_per_run: 12
   ats:
     # SmartRecruiters detail calls per run (each gives one full description).
@@ -373,7 +378,8 @@ sweep:
     workday_detail_calls: 40
     workday_pages_per_term: 1
     # Searches for boards too big to read whole (Workday, amazon.jobs).
-    search_terms: [devops, site reliability, sre, platform engineer, cloud engineer, kubernetes]
+    search_terms: [devops, site reliability, sre, platform engineer, cloud engineer, kubernetes,
+                   infrastructure engineer, devsecops]
     # Companies whose careers URL is their own site: the careers page is read to find the
     # ATS it links to. Cached in bot_state "ats.detected" and checked again after this long.
     detect_every_days: 7
@@ -386,7 +392,8 @@ sweep:
   jooble:
     enabled: true
     countries: [Ireland, Poland, Netherlands]
-    search_terms: [devops engineer, site reliability engineer, platform engineer, cloud engineer]
+    search_terms: [devops engineer, site reliability engineer, platform engineer, cloud engineer,
+                   kubernetes engineer, infrastructure engineer, devsecops engineer]
     results_per_page: 50
   # Full descriptions (sweep/fulltext.py): the job page is read for new jobs near the top of
   # today's list that only have a snippet or nothing. Plain GET, no login or cookies, public

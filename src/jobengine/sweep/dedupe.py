@@ -10,6 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import date
 from typing import Any
+from urllib.parse import urlsplit
 
 from jobengine.sweep.ghost import ghost_risk
 from jobengine.sweep.models import Job
@@ -79,6 +80,31 @@ class UpdatePlan:
     props: dict[str, Any]
     repost: bool  # True for a new posting ID from a source the row already had
     row: IndexRow  # the row as it will be after the update
+    moved_link: str | None = None  # the URL this update replaced (kept on the page)
+
+
+# Which link to keep when a job is on several sites (your decision of 30 Sep): the
+# employer's own page, then a job board, then an aggregator.
+AGGREGATOR_HOSTS = ("adzuna.", "jooble.", "europa.eu")
+BOARD_HOSTS = ("justjoin.it", "nofluffjobs.com", "pracuj.pl", "theprotocol.it", "bulldogjob.pl",
+               "irishjobs.ie", "jobs.ie", "jobsireland.ie", "iamexpat.nl", "indeed.",
+               "nationalevacaturebank.nl", "linkedin.com")
+
+
+def link_rank(url: str | None) -> int:
+    """3 employer page, 2 job board, 1 aggregator, 0 no link."""
+    if not url:
+        return 0
+    host = (urlsplit(url).hostname or "").lower()
+    if any(part in host for part in AGGREGATOR_HOSTS):
+        return 1
+    if any(host == b or host.endswith("." + b) or part_in(host, b) for b in BOARD_HOSTS):
+        return 2
+    return 3
+
+
+def part_in(host: str, board: str) -> bool:
+    return board.endswith(".") and board in host
 
 
 def _source(posting_ref: str) -> str:
@@ -113,6 +139,9 @@ def update_plan(row: IndexRow, job: Job, today: date) -> UpdatePlan:
         if value is not None and value != "" and getattr(row, attr) in (None, ""):
             props[prop] = value
             setattr(after, attr, value)
+    moved = None
+    if row.url and job.url and job.url != row.url and link_rank(job.url) > link_rank(row.url):
+        props["URL"], after.url, moved = job.url, job.url, row.url
     if row.years_required is None and job.years_required is not None:
         props["Years required"] = years_text(job.years_required, job.experience)
         after.years_required = job.years_required
@@ -124,7 +153,7 @@ def update_plan(row: IndexRow, job: Job, today: date) -> UpdatePlan:
     props["Ghost job risk"] = ghost_risk(
         after.times_seen, after.first_seen or today, after.posted_date, today
     )
-    return UpdatePlan(props=props, repost=repost, row=after)
+    return UpdatePlan(props=props, repost=repost, row=after, moved_link=moved)
 
 
 def description_blocks(job: Job) -> list[str]:

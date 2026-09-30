@@ -218,7 +218,7 @@ def test_adzuna_splits_call_limit_between_countries():
     assert len(calls) == 12
     assert calls[0][1] == {
         "app_id": "id", "app_key": "key", "results_per_page": 50, "max_days_old": 3,
-        "what_or": "devops sre kubernetes platform cloud infrastructure",
+        "what_or": "devops sre kubernetes platform cloud infrastructure devsecops",
         "content-type": "application/json",
     }
     # Poland does not use the whole budget: 6 calls each, so the Netherlands is searched.

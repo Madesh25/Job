@@ -442,7 +442,7 @@ def talk(desk, *items):
 
 
 def test_pending_shows_one_card_in_rank_order(desk):
-    fake = talk(desk, "/pending")
+    fake = talk(desk, "/pending all")
     assert len(fake.sent) == 1
     text = fake.sent[0][1]
     assert text.startswith("[LOCAL] [1/")
@@ -563,7 +563,7 @@ def test_desk_failures_are_reported_not_raised(desk):
     def boom(index=0):
         raise RuntimeError("notion down")
 
-    desk.pending = boom
+    desk.pending_command = boom
     fake = talk(desk, "/pending")
     assert fake.sent[0][1] == "[LOCAL] /pending failed: notion down"
 

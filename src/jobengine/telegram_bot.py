@@ -50,7 +50,8 @@ HELP_TEXT = (
     "/autopilot - fetch, screen at half price, approve the best (10 a day), save resumes, "
     "find contacts and write Gmail drafts (never sent)\n"
     "/autopilot when - the morning schedule (Config schedule.autopilot) and the next run\n"
-    "/pending - review screened jobs one at a time (Approve, Skip, Next)\n"
+    "/pending - review screened jobs one at a time, one country at a time (Approve, Skip, "
+    "Next); /pending poland, netherlands, ireland, remote or all\n"
     "/jd <url> - paste a job description (for LinkedIn jobs), then /done\n"
     "/jd - list jobs waiting for a description\n"
     "/screen - screen jobs that are not screened yet\n"
@@ -94,7 +95,8 @@ def bot_commands() -> list[dict[str, str]]:
 
 # Shown at once on a button tap (Telegram's small popup) while the work runs.
 TAP_TOASTS = {"ap": "Approving, building your resume...", "sk": "Skipping...",
-              "nx": "Next job...", "fg": "Adding it and rebuilding...",
+              "nx": "Next job...", "pc": "Loading that country's jobs...",
+              "fg": "Adding it and rebuilding...",
               "fc": "Adding it and rebuilding...", "ct": "Finding contacts...",
               "dr": "Writing Gmail drafts...", "fx": "Finding contacts and writing drafts..."}
 
@@ -538,7 +540,7 @@ def desk_replies(update: dict[str, Any], s: Settings, desk: Desk | None) -> list
         if replies:
             return replies
     if command == "pending":
-        return _guarded("/pending", desk.pending)
+        return _guarded("/pending", lambda: desk.pending_command(args))
     if command == "gaps":
         return _guarded("/gaps", desk.gaps_command)
     if command == "contacts":

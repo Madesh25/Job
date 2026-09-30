@@ -41,7 +41,7 @@ def test_jooble_postings():
     assert (second.company, second.location_text, second.board, second.posted_date) == (
         "(unknown)", "Ireland", "Other", None)
     # 3 countries x 4 terms, the same job twice is kept once
-    assert len(calls) == 12 and len(result.postings) == 2
+    assert len(calls) == 21 and len(result.postings) == 2
     assert calls[0][0] == "https://jooble.org/api/secret-key-123"
     assert calls[0][1] == {"keywords": "devops engineer", "location": "Ireland", "page": "1",
                            "ResultOnPage": "50"}

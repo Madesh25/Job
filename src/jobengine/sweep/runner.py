@@ -15,7 +15,7 @@ from jobengine.parallel import run_all
 from jobengine.reference import Reference
 from jobengine.safety import notion_write_target
 from jobengine.settings import Settings
-from jobengine.sweep import crossmatch, fakes, fit, fulltext
+from jobengine.sweep import best, crossmatch, fakes, fit, fulltext
 from jobengine.sweep.dedupe import IndexRow, create_plan, description_blocks, update_plan
 from jobengine.sweep.gate import strategy_gate
 from jobengine.sweep.models import (
@@ -31,10 +31,11 @@ from jobengine.sweep.models import (
 )
 from jobengine.sweep.normalize import (
     Rules,
-    detect_location,
     index_key,
     normalize,
     parse_active_countries,
+    place,
+    place_allowed,
     senior_in_text,
     title_scope,
 )
@@ -370,8 +371,8 @@ def run_sweep(
     active = parse_active_countries(config.get("countries.active"))
 
     def keep(title: str, location: str) -> bool:
-        country, _ = detect_location(location, rules)
-        return title_scope(title, rules) is None and country in active
+        country, city = place(location, rules)
+        return title_scope(title, rules) is None and place_allowed(country, city, active, rules)
 
     summary = SweepSummary(countries=list(active), labels=dict(SOURCE_LABELS))
     loss = summary.loss
@@ -433,6 +434,8 @@ def run_sweep(
         plan_update = update_plan(row, job, today)
         if repo:
             repo.update(row.page_id, plan_update.props)
+            if plan_update.moved_link:  # a better link replaced it: keep the old one too
+                repo.append_body(row.page_id, [f"Also posted at: {plan_update.moved_link}"])
             if job.description and row.page_id not in with_body:
                 # Only rows seen so far through email alerts can lack a description:
                 # every other source writes one when it creates the row. Checking just
@@ -509,17 +512,21 @@ def run_sweep(
     # Pass 2: keep the best new jobs up to what is left of today's limit (free, no LLM).
     limit = max(0, int(s.sweep.get("daily_new_limit", DEFAULT_DAILY_NEW_LIMIT)))
     used = _used_today(state, today)
-    room = max(0, limit - used)
+    # 0: no daily limit, every new job that passes the rules is saved.
+    room = max(0, limit - used) if limit else sum(len(jobs) for jobs in candidates.values())
     ranker = _ranker(deps) if candidates else None
     ranked = _sort(list(candidates.values()), ranker, today)
     ranked, summary.other_cities = _one_per_job(
         ranked, index, lambda jobs: [loss.add(j.source, OTHER_CITY, _label(j)) for j in jobs])
     ranked = _pick(s, deps, ranked, room, ranker, today, summary, say)
     kept = ranked[:room]
+    saved_scores: dict[str, int] = {}
     for jobs in kept:
         try:
             create_new(jobs[0])
             loss.add(jobs[0].source, SAVED)
+            saved_scores[index[jobs[0].dedupe_key].page_id] = (
+                ranker.score(jobs[0], today) if ranker else 0)
         except http.HttpError as exc:  # one refused row never stops the other jobs
             log.warning("could not save %s: %s", _label(jobs[0]), exc)
             summary.not_written.append(_label(jobs[0]))
@@ -545,8 +552,9 @@ def run_sweep(
     if repo and state is not None and kept:
         try:
             state.set(DAY_KEY, {"date": today.isoformat(), "count": used + len(kept)})
+            best.record(state, today, saved_scores)
         except Exception:  # never fail a sweep over the counter
-            log.exception("could not store the daily new-job count")
+            log.exception("could not store the daily new-job count or today's best jobs")
 
     # Pass 3: LinkedIn rows without a description, from the same job on another site.
     if repo and (s.sweep.get("crossmatch") or {}).get("enabled", True):

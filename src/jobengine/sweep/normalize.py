@@ -257,6 +257,9 @@ class Rules:
     title_exclude: tuple[str, ...]
     # country -> (canonical country names, {display city: canonical aliases})
     locations: Mapping[str, tuple[tuple[str, ...], Mapping[str, tuple[str, ...]]]]
+    # A remote job open in one of these regions ("Remote, EU") is kept as Country Other,
+    # City Remote (your decision of 30 Sep). Empty: remote jobs need one of the countries.
+    remote_regions: tuple[str, ...] = ()
 
     @classmethod
     def from_config(cls, sweep: Mapping[str, Any]) -> Rules:
@@ -272,6 +275,7 @@ class Rules:
             title_include=tuple(sweep.get("title_include") or ()),
             title_exclude=tuple(sweep.get("title_exclude") or ()),
             locations=locations,
+            remote_regions=tuple(canon(r) for r in sweep.get("remote_regions") or ()),
         )
 
 
@@ -315,6 +319,32 @@ def detect_location(
     return None, None
 
 
+REMOTE_COUNTRY = "Other"  # Country option for remote jobs open across the EU or Europe
+REMOTE_CITY = "Remote"
+
+
+def remote_region(text: str, rules: Rules) -> bool:
+    """True for "Remote, EU" style places: remote and one of rules.remote_regions."""
+    value = canon(text)
+    return bool(rules.remote_regions) and _has_term(value, ("remote",)) is not None and \
+        _has_term(value, rules.remote_regions) is not None
+
+
+def place(location_text: str, rules: Rules, area: Iterable[str] = ()
+          ) -> tuple[str | None, str | None]:
+    """detect_location, and a remote EU or Europe job as (Other, Remote)."""
+    country, city = detect_location(location_text, rules, area)
+    if country is None and remote_region(" , ".join([location_text, *area]), rules):
+        return REMOTE_COUNTRY, REMOTE_CITY
+    return country, city
+
+
+def place_allowed(country: str | None, city: str | None, active: Iterable[str],
+                  rules: Rules) -> bool:
+    return country in set(active) or (
+        country == REMOTE_COUNTRY and city == REMOTE_CITY and bool(rules.remote_regions))
+
+
 def normalize(
     raw: RawPosting, rules: Rules, active_countries: Iterable[str]
 ) -> Job | Skipped:
@@ -322,10 +352,10 @@ def normalize(
     reason = title_scope(raw.title, rules)
     if reason:
         return Skipped(raw, reason)
-    country, city = detect_location(raw.location_text, rules, raw.location_area)
+    country, city = place(raw.location_text, rules, raw.location_area)
     if country is None:
         return Skipped(raw, f"location not recognised ({raw.location_text or 'empty'})")
-    if country not in set(active_countries):
+    if not place_allowed(country, city, active_countries, rules):
         return Skipped(raw, f"country not active ({country})")
     return Job(
         source=raw.source,

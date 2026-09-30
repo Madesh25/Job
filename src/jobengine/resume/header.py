@@ -54,6 +54,8 @@ def headline_title(role: str | None, titles: list[str]) -> str | None:
 def place(values: dict[str, Any]) -> str:
     city = (values.get("City") or "").strip()
     country = (values.get("Country") or "").strip()
+    if country == "Other":  # a remote job open across the EU or Europe
+        country = "Europe"
     if not city or city.casefold() == "remote":
         return country
     return f"{city}, {country}" if country and country.casefold() != city.casefold() else city
@@ -66,6 +68,8 @@ def relocation_line(s: Settings, config: ConfigStore, values: dict[str, Any]) ->
     if not template or not where:
         return None
     country = (values.get("Country") or "").strip() or where
+    if country == "Other":  # a remote job open across the EU or Europe
+        country = "Europe"
     city = (values.get("City") or "").strip()
     if not city or city.casefold() == "remote":
         city = country
