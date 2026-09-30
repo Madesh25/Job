@@ -57,6 +57,7 @@ HELP_TEXT = (
     "/screen <url or id> - screen one job again\n"
     "/screen batch - send them at half price, answers later\n"
     "/screen collect - save the answers of that batch\n"
+    "/alertcheck - the job alert emails the next /fetch reads, and the jobs found in each\n"
     "/gaps - skills jobs ask for that you do not have yet (what to learn next)\n"
     "/contacts <url or id> - find contacts for a job (cache first, then Apollo, Hunter, Snov)\n"
     "/credits - show the contact providers' credit counters\n"
@@ -96,7 +97,7 @@ TAP_TOASTS = {"ap": "Approving, building your resume...", "sk": "Skipping...",
               "dr": "Writing Gmail drafts...", "fx": "Finding contacts and writing drafts..."}
 
 DESK_COMMANDS = ("pending", "jd", "done", "screen", "gaps", "contacts", "credits", "outreach",
-                 "drafts", "fetchcontacts", "today",
+                 "drafts", "fetchcontacts", "alertcheck", "today",
                  "followups", "stats", "sources", "health", "digest", "update", "rules")
 
 # (method, payload, http_timeout) -> decoded JSON response
@@ -544,6 +545,8 @@ def desk_replies(update: dict[str, Any], s: Settings, desk: Desk | None) -> list
         return _guarded("/credits", desk.credits)
     if command == "outreach":
         return _guarded("/outreach", desk.outreach_command)
+    if command == "alertcheck":
+        return _guarded("/alertcheck", desk.alertcheck_command)
     if command == "fetchcontacts":
         return _guarded("/fetchcontacts", desk.fetch_contacts_command)
     if command == "drafts":

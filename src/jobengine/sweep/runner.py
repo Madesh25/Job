@@ -387,10 +387,14 @@ def run_sweep(
     for name, result in zip(sources, results, strict=True):
         summary.sources[name] = len(result.postings)
         log.info("%s: %d postings collected", name, len(result.postings))
+        if result.emails is not None:
+            summary.alert_emails = result.emails
+            log.info("%s: %d alert emails read", name, result.emails)
         summary.not_supported += len(result.not_supported)
         summary.blocked_sites.extend(result.blocked)
         summary.no_board_sites.extend(result.no_board)
         if result.skipped_reason:
+            log.warning("%s", result.skipped_reason)
             summary.notes.append(result.skipped_reason)
             problem = "not set up yet" if "missing" in result.skipped_reason else "failed this time"
             summary.not_checked.append(f"{SOURCE_LABELS[name]}: {problem}")

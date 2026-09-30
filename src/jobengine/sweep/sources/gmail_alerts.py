@@ -11,6 +11,7 @@ import re
 from collections.abc import Callable, Mapping
 from email.utils import parseaddr
 from typing import Any
+from urllib.parse import urlsplit
 
 from bs4 import BeautifulSoup, Tag
 
@@ -129,6 +130,37 @@ def collect(messages: list[GmailMessage], gmail_cfg: Mapping[str, Any]) -> list[
     return postings
 
 
+def label_term(label: str) -> str:
+    """Gmail's search term for a label: "Job Alerts" -> label:job-alerts."""
+    return "label:" + re.sub(r"[\s/&]+", "-", label.strip().lower())
+
+
+def alert_query(gmail_cfg: Mapping[str, Any]) -> str:
+    """The Gmail search: the alert label or a known sender, in the last `days` days."""
+    if gmail_cfg.get("query"):
+        return str(gmail_cfg["query"])
+    days = int(gmail_cfg.get("days") or 2)
+    parts = []
+    if gmail_cfg.get("label"):
+        parts.append(label_term(str(gmail_cfg["label"])))
+    senders = list(gmail_cfg.get("sender_boards") or {})
+    if senders:
+        parts.append("from:(" + " OR ".join(senders) + ")")
+    which = f" ({' OR '.join(parts)})" if parts else ""
+    return f"newer_than:{days}d -in:spam -in:trash{which}"
+
+
+def _loader(s: Settings, gmail_cfg: Mapping[str, Any]) -> Callable[[], list[GmailMessage]]:
+    from jobengine import gmail_reader
+
+    def load_messages() -> list[GmailMessage]:
+        service = gmail_reader.build_service(s.gmail_alerts_token_json)
+        return gmail_reader.fetch_messages(
+            service, alert_query(gmail_cfg), int(gmail_cfg.get("max_messages", 100)))
+
+    return load_messages
+
+
 def fetch(
     s: Settings, load_messages: Callable[[], list[GmailMessage]] | None = None
 ) -> SourceResult:
@@ -139,18 +171,55 @@ def fetch(
         if not s.gmail_alerts_token_json:
             result.skipped_reason = "gmail skipped: GMAIL_ALERTS_TOKEN_JSON missing"
             return result
-        from jobengine import gmail_reader
-
-        def load_messages() -> list[GmailMessage]:
-            service = gmail_reader.build_service(s.gmail_alerts_token_json)
-            return gmail_reader.fetch_messages(
-                service, gmail_cfg.get("query", ""), int(gmail_cfg.get("max_messages", 100))
-            )
-
+        load_messages = _loader(s, gmail_cfg)
     try:
         messages = load_messages()
     except Exception as exc:  # the Google client raises many error types
-        result.skipped_reason = f"gmail failed: {type(exc).__name__}"
+        result.skipped_reason = f"gmail failed: {type(exc).__name__}: {str(exc)[:200]}"
         return result
+    result.emails = len(messages)
     result.postings = collect(messages, gmail_cfg)
     return result
+
+
+def _hosts(html: str) -> list[str]:
+    """Link hosts in an email, most frequent first (to see why no job link matched)."""
+    counts: dict[str, int] = {}
+    for anchor in BeautifulSoup(html, "html.parser").find_all("a", href=True):
+        host = (urlsplit(anchor["href"].strip()).hostname or "").lower()
+        if host:
+            counts[host] = counts.get(host, 0) + 1
+    return sorted(counts, key=lambda h: -counts[h])
+
+
+def check(s: Settings, load_messages: Callable[[], list[GmailMessage]] | None = None,
+          limit: int = 20) -> str:
+    """/alertcheck: each alert email the next /fetch would read, and the jobs found in it."""
+    gmail_cfg = s.sweep.get("gmail") or {}
+    if load_messages is None:
+        if not s.gmail_alerts_token_json:
+            return "GMAIL_ALERTS_TOKEN_JSON is not set: email alerts are not read."
+        load_messages = _loader(s, gmail_cfg)
+    try:
+        messages = load_messages()
+    except Exception as exc:  # the Google client raises many error types
+        return f"Reading Gmail failed: {type(exc).__name__}: {str(exc)[:200]}"
+    query = alert_query(gmail_cfg)
+    if not messages:
+        return (f"No alert email found. Gmail search used:\n{query}\nCheck that the alerts "
+                "reach this mailbox and get the label (a Gmail filter).")
+    lines = [f"{len(messages)} alert email(s) found (search: {query})."]
+    total = 0
+    for message in messages[:limit]:
+        board = board_for_sender(message.sender, gmail_cfg.get("sender_boards") or {})
+        jobs = parse_alert(message, gmail_cfg)
+        total += len(jobs)
+        address = parseaddr(message.sender)[1] or message.sender
+        lines.append(f"- {board} | {address} | {message.subject[:70]}: {len(jobs)} job(s)")
+        if not jobs:
+            hosts = ", ".join(_hosts(message.html)[:5]) or "no links"
+            lines.append(f"  no job link recognised; links go to: {hosts}")
+    if len(messages) > limit:
+        lines.append(f"... and {len(messages) - limit} more email(s).")
+    lines.append(f"Jobs found in the emails shown: {total}.")
+    return "\n".join(lines)
