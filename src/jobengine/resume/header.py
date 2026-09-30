@@ -1,12 +1,14 @@
 """The two header lines that change per job (your approval, PR 11). Pure, no AI.
 
-- Headline: the first part (before "|") becomes the job's title when it is one of your
-  approved titles (`resume.headline_titles`, Config key of the same name wins). The approved
-  title is used, never the posting's wording: "Senior Site Reliability Engineer (m/f/d)"
-  gives "Site Reliability Engineer". No approved title in the role: the headline stays.
-- Relocation line (p.reloc): `resume.relocation_template` with {place} = the job's city and
-  country, for example "Chennai, India (relocating to Warsaw, Poland)". Without a template
-  the Config `resume.relocation_line` stays as it is.
+- Headline: the whole headline becomes the job's title when it is one of your approved
+  titles (`resume.headline_titles`, Config key of the same name wins), so "Cloud Engineer"
+  and never "Cloud Engineer | Cloud & Platform Engineering". The approved title is used,
+  never the posting's wording: "Senior Site Reliability Engineer (m/f/d)" gives "Site
+  Reliability Engineer". No approved title in the role: the headline stays as in the master.
+- Relocation line (p.reloc): `resume.relocation_template` with {place} (the job's city and
+  country), {city} and {country}. A "\n" in the template starts a new line, for example
+  "Chennai, India\nOpen to relocate to {country}". Without a template the Config
+  `resume.relocation_line` stays as it is.
 
 The skills and bullets are untouched, so the integrity gate is unchanged.
 """
@@ -25,7 +27,6 @@ from jobengine.settings import Settings
 from jobengine.sweep.normalize import canon, canon_title
 
 HEADLINE_RE = re.compile(r'(<p class="headline">)(.*?)(</p>)', re.DOTALL)
-LEFT_RE = re.compile(r"^(\s*)(.*?)((?:&nbsp;|\s)*)$", re.DOTALL)
 # Short forms a posting uses for an approved title.
 ALIASES = {"sre": "Site Reliability Engineer", "k8s engineer": "Kubernetes Engineer"}
 
@@ -58,29 +59,29 @@ def place(values: dict[str, Any]) -> str:
 
 
 def relocation_line(s: Settings, config: ConfigStore, values: dict[str, Any]) -> str | None:
+    """The relocation text for this job; "\n" separates lines."""
     template = config.get("resume.relocation_template") or s.resume.get("relocation_template")
     where = place(values)
     if not template or not where:
         return None
-    return str(template).replace("{place}", where)
+    country = (values.get("Country") or "").strip() or where
+    city = (values.get("City") or "").strip()
+    if not city or city.casefold() == "remote":
+        city = country
+    text = str(template).replace("\\n", "\n")
+    return text.replace("{place}", where).replace("{country}", country).replace("{city}", city)
 
 
 def _swap_headline(html: str, title: str) -> str:
-    def swap(m: re.Match[str]) -> str:
-        inner = m.group(2)
-        cut = inner.find("|")
-        if cut < 0:
-            return m.group(1) + htmllib.escape(title) + m.group(3)
-        left = LEFT_RE.match(inner[:cut])
-        assert left is not None
-        return (m.group(1) + left.group(1) + htmllib.escape(title) + left.group(3)
-                + inner[cut:] + m.group(3))
-
-    return HEADLINE_RE.sub(swap, html, count=1)
+    """The whole headline becomes the title (no second part after "|")."""
+    return HEADLINE_RE.sub(lambda m: m.group(1) + htmllib.escape(title) + m.group(3), html,
+                           count=1)
 
 
 def _swap_reloc(html: str, line: str) -> str:
-    return RELOC_RE.sub(lambda m: m.group(1) + htmllib.escape(line) + m.group(3), html, count=1)
+    inner = "<br>".join(htmllib.escape(part.strip()) for part in line.split("\n")
+                        if part.strip())
+    return RELOC_RE.sub(lambda m: m.group(1) + inner + m.group(3), html, count=1)
 
 
 def for_job(master: MasterResume, s: Settings, config: ConfigStore,

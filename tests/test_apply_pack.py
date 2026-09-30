@@ -53,16 +53,28 @@ def test_header_changes_per_job_and_keeps_the_rest():
     job = {"Role": "Site Reliability Engineer", "City": "Amsterdam", "Country": "Netherlands"}
     out = header.for_job(MASTER, S, ConfigStore.fake(), job)
     for html in (out.html, out.frozen_html):
-        assert ('<p class="headline">Site Reliability Engineer&nbsp; | &nbsp;Cloud &amp; '
-                'Platform Engineering</p>') in html
-        assert '<p class="reloc">Chennai, India (relocating to Amsterdam, Netherlands)</p>' in html
+        # The whole headline is the job's title: no "| Cloud & Platform Engineering" after it.
+        assert '<p class="headline">Site Reliability Engineer</p>' in html
+        assert ('<p class="reloc">Chennai, India<br>Open to relocate to Netherlands</p>'
+                in html)
     assert out.frozen_html.endswith("{{SKILLS_ZONE}}")
-    assert header.headline_text(out) == ("Site Reliability Engineer | Cloud & Platform "
-                                         "Engineering")
+    assert header.headline_text(out) == "Site Reliability Engineer"
+    cloud = header.for_job(MASTER, S, ConfigStore.fake(), {"Role": "Cloud Engineer (AWS)",
+                                                          "Country": "Poland"})
+    assert header.headline_text(cloud) == "Cloud Engineer"  # never "Cloud ... Cloud"
     # No approved title in the role: the headline stays; no template: the line stays.
     s = S.model_copy(update={"resume": {**S.resume, "relocation_template": ""}})
     same = header.for_job(MASTER, s, ConfigStore.fake(), {"Role": "Java Developer"})
     assert same.html == MASTER.html
+
+
+def test_relocation_template_placeholders_and_config_line_breaks():
+    s = S.model_copy(update={"resume": {**S.resume, "relocation_template":
+                                        "Based in Chennai\\nMoving to {city} ({country})"}})
+    out = header.for_job(MASTER, s, ConfigStore.fake(), {"Role": "x", "City": "Remote",
+                                                         "Country": "Ireland"})
+    # A Notion Config value holds a literal backslash-n: it is a line break too.
+    assert '<p class="reloc">Based in Chennai<br>Moving to Ireland (Ireland)</p>' in out.html
 
 
 def test_config_overrides_the_titles_and_template():
@@ -74,7 +86,7 @@ def test_config_overrides_the_titles_and_template():
                                                    value="Moving to {place}")
     config = ConfigStore(rows)
     out = header.for_job(MASTER, S, config, {"Role": "DevOps Engineer", "Country": "Ireland"})
-    assert "DevOps Engineer&nbsp; |" in out.html  # DevOps is no longer on your list
+    assert "DevOps Engineer&nbsp; |" in out.html  # not on your list: the headline stays
     assert '<p class="reloc">Moving to Ireland</p>' in out.html
 
 
@@ -147,11 +159,11 @@ def test_resume_approval_sends_and_saves_the_pack():
     d.tap("ap:pl-clean")
     log_id = d.resume.resume_log.all_rows()[0][0]
     replies = d.tap("ra:" + log_id.replace("-", ""))
-    assert replies[1].text.startswith("Apply pack (2026-10-01): Vistula Cloud, DevOps Engineer")
+    assert replies[0].text.startswith("Apply pack (2026-10-01): Vistula Cloud, DevOps Engineer")
     body = d.repo.read_body("pl-clean")
     assert any(b.startswith("Apply pack (2026-10-01)") for b in body)
     # The resume itself carries the job's headline and relocation line.
-    assert "relocating to Krak" in rendered[-1]
+    assert "Open to relocate to Poland" in rendered[-1]
 
 
 def test_applypack_command():

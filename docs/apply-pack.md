@@ -38,13 +38,16 @@ without an ICT degree, so the pack uses the General Employment Permit line.
 `resume/header.py`, applied before the resume is rendered (the skills and bullets and their
 integrity gate are unchanged):
 
-- **Headline:** its first part (before `|`) becomes the job's title when the role names one of
-  your approved titles (`resume.headline_titles`: DevOps Engineer, Site Reliability Engineer,
+- **Headline:** the whole headline becomes the job's title when the role names one of your
+  approved titles (`resume.headline_titles`: DevOps Engineer, Site Reliability Engineer,
   Platform Engineer, Cloud Engineer, Infrastructure Engineer, Kubernetes Engineer; "SRE"
-  counts as Site Reliability Engineer). The approved title is used, never the posting's words,
-  so "Senior Site Reliability Engineer (m/f/d)" gives "Site Reliability Engineer". Otherwise
-  the headline stays.
-- **Location line** (`p.reloc`): `resume.relocation_template`, by default
-  `Chennai, India (relocating to {place})` with the job's city and country.
+  counts as Site Reliability Engineer). It is only the title ("Cloud Engineer"), never
+  "Cloud Engineer | Cloud & Platform Engineering". The approved title is used, never the
+  posting's words, so "Senior Site Reliability Engineer (m/f/d)" gives "Site Reliability
+  Engineer". Otherwise the headline stays as in your master.
+- **Location lines** (`p.reloc`): `resume.relocation_template`, by default two lines:
+  `Chennai, India` and `Open to relocate to {country}` (the job's country). Placeholders:
+  `{country}`, `{city}` and `{place}` (city and country); `\n` starts a new line, also in
+  the Notion Config value.
 
 Config keys `resume.headline_titles` and `resume.relocation_template` win when set.
