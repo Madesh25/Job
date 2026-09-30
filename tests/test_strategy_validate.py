@@ -15,11 +15,12 @@ from jobengine.strategy.validate import (
     verified_sources,
 )
 
-FIXTURE = json.loads((ROOT_DIR / "fixtures/llm/strategy/update.json").read_text())
+FIXTURE = json.loads((ROOT_DIR / "fixtures/llm/strategy/update.json").read_text(encoding="utf-8"))
 URLS = FIXTURE["search_urls"]
-PATTERNS = yaml.safe_load((CONFIG_DIR / "base.yaml").read_text())["strategy"]["reject_patterns"]
+BASE = yaml.safe_load((CONFIG_DIR / "base.yaml").read_text(encoding="utf-8"))
+PATTERNS = BASE["strategy"]["reject_patterns"]
 SEED = [r["Tip / rule"] for r in json.loads(
-    (ROOT_DIR / "fixtures/strategy/strategy_seed.json").read_text())]
+    (ROOT_DIR / "fixtures/strategy/strategy_seed.json").read_text(encoding="utf-8"))]
 
 
 def tips():

@@ -29,7 +29,7 @@ STYLE_RE = re.compile(r"<style>.*?</style>", re.DOTALL)
 
 
 def tailor(name):
-    return parse_plan(json.loads((TAILOR / f"{name}.json").read_text()), M)
+    return parse_plan(json.loads((TAILOR / f"{name}.json").read_text(encoding="utf-8")), M)
 
 
 class FakeMeasure:

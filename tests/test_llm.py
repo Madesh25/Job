@@ -116,7 +116,7 @@ def test_prompts_are_never_logged(caplog):
 
 def test_fake_llm_reads_fixtures_and_records_calls(tmp_path):
     (tmp_path / "score").mkdir()
-    (tmp_path / "score" / "job1.json").write_text('{"x": 1}')
+    (tmp_path / "score" / "job1.json").write_text('{"x": 1}', encoding="utf-8")
     fake = FakeLLM(base=tmp_path)
     assert fake.complete_json("score", "s", "u", key="job1") == {"x": 1}
     assert fake.calls[0]["key"] == "job1"

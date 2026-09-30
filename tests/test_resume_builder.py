@@ -161,9 +161,9 @@ def test_skip_and_unapproved_jobs_are_refused(deps, job, text):
 
 def test_gate_failure_retries_then_leaves_out_the_broken_parts(deps, tmp_path):
     (tmp_path / "llm" / "tailor").mkdir(parents=True)
-    bad = (TAILOR / "plan_unbacked_skill.json").read_text()
+    bad = (TAILOR / "plan_unbacked_skill.json").read_text(encoding="utf-8")
     for key in (f"{JOB}-r1", f"{JOB}-r1-a1", f"{JOB}-r1-a2"):
-        (tmp_path / "llm" / "tailor" / f"{key}.json").write_text(bad)
+        (tmp_path / "llm" / "tailor" / f"{key}.json").write_text(bad, encoding="utf-8")
     llm = FakeLLM(tmp_path / "llm")
     deps.llm = lambda config: llm
     out = build_resume(deps, JOB)
