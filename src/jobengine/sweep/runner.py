@@ -474,7 +474,11 @@ def run_sweep(
             elif row is None:
                 candidates.setdefault(outcome.dedupe_key, []).append(outcome)
             else:
-                update_existing(row, outcome)
+                try:
+                    update_existing(row, outcome)
+                except http.HttpError as exc:
+                    log.warning("could not update %s: %s", _label(outcome), exc)
+                    summary.not_written.append(_label(outcome))
 
     # Pass 2: keep the best new jobs up to what is left of today's limit (free, no LLM).
     limit = max(0, int(s.sweep.get("daily_new_limit", DEFAULT_DAILY_NEW_LIMIT)))
@@ -486,7 +490,12 @@ def run_sweep(
     ranked = _pick(s, deps, ranked, room, ranker, today, summary, say)
     kept = ranked[:room]
     for jobs in kept:
-        create_new(jobs[0])
+        try:
+            create_new(jobs[0])
+        except http.HttpError as exc:  # one refused row never stops the other jobs
+            log.warning("could not save %s: %s", _label(jobs[0]), exc)
+            summary.not_written.append(_label(jobs[0]))
+            continue
         for extra in jobs[1:]:  # the same job twice in one sweep: a second posting ID
             update_existing(index[extra.dedupe_key], extra)
     summary.not_kept = len(ranked) - len(kept)

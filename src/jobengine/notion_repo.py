@@ -177,6 +177,33 @@ class JobsRepo(Protocol):
 # ---------------------------------------------------------------- value conversion
 
 
+# Notion allows 2000 characters per rich text item, counted in UTF-16 code units: an emoji
+# or another character outside the Basic Multilingual Plane counts as 2.
+NOTION_TEXT_LIMIT = 2000
+
+
+def text_pieces(text: str, limit: int = NOTION_TEXT_LIMIT) -> list[str]:
+    """The text in pieces of at most `limit` UTF-16 code units, never splitting a character."""
+    pieces: list[str] = []
+    current: list[str] = []
+    size = 0
+    for char in text:
+        width = 2 if ord(char) > 0xFFFF else 1
+        if size + width > limit:
+            pieces.append("".join(current))
+            current, size = [], 0
+        current.append(char)
+        size += width
+    if current:
+        pieces.append("".join(current))
+    return pieces
+
+
+def clip(text: str, limit: int = NOTION_TEXT_LIMIT) -> str:
+    """The text cut to at most `limit` UTF-16 code units."""
+    return text_pieces(text, limit)[0] if text else ""
+
+
 def _text(items: list[dict[str, Any]] | None) -> str:
     return "".join(item.get("plain_text") or item.get("text", {}).get("content", "")
                    for item in items or [])
@@ -205,7 +232,7 @@ def plain_value(prop: dict[str, Any]) -> Any:
 def notion_value(kind: str, value: Any) -> dict[str, Any]:
     """Notion property payload for a plain value."""
     if kind in ("title", "rich_text"):
-        return {kind: [{"type": "text", "text": {"content": str(value)[:2000]}}]}
+        return {kind: [{"type": "text", "text": {"content": clip(str(value))}}]}
     if kind == "select":
         return {"select": {"name": str(value)}}
     if kind == "date":
@@ -232,9 +259,9 @@ def job_properties(plan: dict[str, Any]) -> dict[str, Any]:
 
 
 def rich_text(text: str) -> list[dict[str, Any]]:
-    """Rich text items of at most 2000 characters each (Notion's limit per item)."""
-    return [{"type": "text", "text": {"content": text[i:i + 2000]}}
-            for i in range(0, len(text), 2000)] or [{"type": "text", "text": {"content": ""}}]
+    """Rich text items of at most 2000 characters each (Notion's limit per item, UTF-16)."""
+    return [{"type": "text", "text": {"content": piece}} for piece in text_pieces(text)] or [
+        {"type": "text", "text": {"content": ""}}]
 
 
 def typed_blocks(blocks: list[tuple[str, ...]]) -> list[dict[str, Any]]:
@@ -254,7 +281,7 @@ def paragraph_blocks(texts: list[str]) -> list[dict[str, Any]]:
         {
             "object": "block",
             "type": "paragraph",
-            "paragraph": {"rich_text": [{"type": "text", "text": {"content": text}}]},
+            "paragraph": {"rich_text": rich_text(text)},
         }
         for text in texts
     ]

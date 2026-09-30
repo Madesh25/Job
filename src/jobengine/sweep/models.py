@@ -86,6 +86,7 @@ class SweepSummary:
     reposts: int = 0
     skipped: int = 0
     skipped_by: dict[str, int] = field(default_factory=dict)  # reason -> count
+    not_written: list[str] = field(default_factory=list)  # jobs Notion refused
     high_ghost: int = 0
     sources: dict[str, int] = field(default_factory=lambda: {"gmail": 0, "adzuna": 0, "ats": 0})
     not_supported: int = 0
@@ -198,6 +199,10 @@ class SweepSummary:
             lines.append("Put their job board link (for example the myworkdayjobs.com or "
                          "greenhouse.io page) in Careers URL in Target Companies. /sources "
                          "lists them all.")
+        if self.not_written:
+            lines += ["", f"\u26A0\uFE0F Could not be saved to Notion (the rest were saved; "
+                          f"details in the log): {len(self.not_written)}"]
+            lines.extend(f"- {job}" for job in self.not_written[:10])
         if self.not_checked:
             lines += ["", "\u2139\uFE0F Not checked this time:"]
             lines.extend(f"- {item}" for item in self.not_checked)
