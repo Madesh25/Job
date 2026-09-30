@@ -140,6 +140,13 @@ def match_counts(body: list[str]) -> dict[str, int]:
 ONE_AT_A_TIME = ("Check the resume: tap Approve resume, or Rebuild to change it. Then you "
                  "get the job link to apply, and the next job comes after I applied or Not "
                  "applying.")
+def _agency(values: dict[str, Any]) -> bool:
+    """A recruitment agency's post (Visa flags): no cold mails (decision of 30 Sep)."""
+    from jobengine.screen.visa import AGENCY_FLAGS
+
+    return bool(set(AGENCY_FLAGS) & set(values.get("Visa flags") or []))
+
+
 FETCH_HINT = ("After your last job: /fetchcontacts finds the contacts and writes the Gmail "
               "drafts, with the resume attached, for every job you applied to today.")
 NOT_APPLYING_ASK = "Why are you not applying? (It goes to Notion.)"
@@ -627,6 +634,8 @@ class Desk:
         for _pid, values in jobs:
             count = len(values.get("Contacts") or [])
             what = f"{count} saved contact(s)" if count else "needs a lookup"
+            if _agency(values):
+                what = "agency post, no cold mails"
             lines.append(f"- {values.get('Company')}, {values.get('Role')}: {what}")
         need = len(jobs) - len(saved)
         if need:
@@ -670,10 +679,16 @@ class Desk:
         none: list[str] = []
         waiting: list[str] = []
         failed: list[str] = []
+        agency: list[str] = []
         c = self.contacts
         for index, (job_id, values) in enumerate(jobs, 1):
             job = f"{values.get('Company')}, {values.get('Role')}"
             emit(Reply(f"{index}/{len(jobs)} {job}..."))
+            if _agency(values):
+                emit(Reply(f"{job}: a recruitment agency's post, no cold mails (apply through "
+                           "the agency; /contacts <job> if you still want them)."))
+                agency.append(job)
+                continue
             if not values.get("Contacts"):
                 planner.force(c.state, c.config(), job_id, c.today())  # still counted
                 found = contact_finder.find_contacts(c, job_id)
@@ -708,6 +723,8 @@ class Desk:
                          "Gmail drafts): " + "; ".join(waiting))
         if failed:
             lines.append("Drafts not written (see the message above): " + "; ".join(failed))
+        if agency:
+            lines.append("Agency posts, no cold mails: " + "; ".join(agency))
         return [*out, Reply("\n".join(lines))]
 
     def contacts_command(self, args: str) -> list[Reply]:
