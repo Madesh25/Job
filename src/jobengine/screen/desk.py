@@ -181,6 +181,9 @@ class Desk:
         self.captures = Captures(state, window)
         self._reference: tuple[float, Reference] | None = None
         self._ranker: Ranker | None = None
+        # Reads one public page (the employer's link behind an Adzuna job).
+        self.get_page: Callable[[str], tuple[str, str]] = \
+            lambda url: http.get_page(url, s=self.s)
 
     @property
     def repo(self) -> JobsRepo | None:
@@ -430,13 +433,35 @@ class Desk:
             # Nothing runs by itself: the next steps are buttons.
             job = short_id(result.job_id)
             buttons = [("I applied", f"ia:{job}"), ("Not applying", f"na:{job}")]
-            text = result.message
+            text = self.apply_link_text(result.job_id, result.job_url, result.message)
             text += ("\nWhen you are done, tap I applied (or Not applying): then the next job "
                      "comes.")
             if self.contacts is not None and self.mail is not None:
                 text += f"\n{FETCH_HINT}"
             return [*self.apply_pack(result.job_id), Reply(text, buttons)]
         return [Reply(result.message)]
+
+    def apply_link_text(self, job_id: str, url: str | None, text: str) -> str:
+        """An Adzuna link is swapped for the employer's own page (also on the job's URL, the
+        Adzuna link noted on the page). When that fails, a way around Adzuna's region block."""
+        from jobengine.apply import link
+
+        if not url or not link.is_adzuna(url) or self.repo is None:
+            return text
+        found = link.resolve(url, self.get_page)
+        values = self.repo.get_values(job_id) or {}
+        if found.employer:
+            if self.deps.write:
+                try:
+                    self.repo.update(job_id, {"URL": found.url})
+                    self.repo.append_body(job_id, [f"Adzuna link: {url}"])
+                except http.HttpError as exc:
+                    log.warning("could not save the employer link on %s: %s", job_id, exc)
+            return (text.replace(url, found.url) + "\n(The employer's own page. The Adzuna "
+                    "link is kept on the Notion page.)")
+        return text + "\n" + link.blocked_note(values.get("Company") or "",
+                                               values.get("Role") or "",
+                                               values.get("Country") or "")
 
     def next_job(self) -> list[Reply]:
         """After I applied or Not applying: the next job to review, if any."""
@@ -1210,9 +1235,15 @@ def fake_desk(s: Settings, today: date, now: Callable[[], datetime] | None = Non
     strategy = strategy_runner.fake_deps(s, state=state)
     strategy.today = lambda: today
     strategy.ind_deps.today = lambda: today  # type: ignore[attr-defined]
-    return Desk(s, deps, state, today=lambda: today, now=clock, resume=resume,
+    desk = Desk(s, deps, state, today=lambda: today, now=clock, resume=resume,
                 contacts=contacts, mail=mail, track=track, track_now=lambda: FAKE_NOW,
                 strategy=strategy)
+
+    def no_network(url: str) -> tuple[str, str]:
+        raise http.HttpError(f"GET {url} failed: no network in --fake")
+
+    desk.get_page = no_network
+    return desk
 
 
 def real_desk(s: Settings) -> Desk | None:

@@ -45,9 +45,9 @@ integrity gate are unchanged):
   "Cloud Engineer | Cloud & Platform Engineering". The approved title is used, never the
   posting's words, so "Senior Site Reliability Engineer (m/f/d)" gives "Site Reliability
   Engineer". Otherwise the headline stays as in your master.
-- **Location lines** (`p.reloc`): `resume.relocation_template`, by default two lines:
-  `Chennai, India` and `Open to relocate to {country}` (the job's country). Placeholders:
-  `{country}`, `{city}` and `{place}` (city and country); `\n` starts a new line, also in
-  the Notion Config value.
+- **Location line** (`p.reloc`): `resume.relocation_template`, one line, by default
+  `Chennai, India | Open to relocate to {country}` (the job's country). Placeholders:
+  `{country}`, `{city}` and `{place}` (city and country). A `\n` in the template (also in the
+  Notion Config value) becomes ` | `, so the line never breaks in two.
 
 Config keys `resume.headline_titles` and `resume.relocation_template` win when set.

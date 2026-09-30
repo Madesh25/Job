@@ -55,7 +55,7 @@ def test_header_changes_per_job_and_keeps_the_rest():
     for html in (out.html, out.frozen_html):
         # The whole headline is the job's title: no "| Cloud & Platform Engineering" after it.
         assert '<p class="headline">Site Reliability Engineer</p>' in html
-        assert ('<p class="reloc">Chennai, India<br>Open to relocate to Netherlands</p>'
+        assert ('<p class="reloc">Chennai, India | Open to relocate to Netherlands</p>'
                 in html)
     assert out.frozen_html.endswith("{{SKILLS_ZONE}}")
     assert header.headline_text(out) == "Site Reliability Engineer"
@@ -73,8 +73,8 @@ def test_relocation_template_placeholders_and_config_line_breaks():
                                         "Based in Chennai\\nMoving to {city} ({country})"}})
     out = header.for_job(MASTER, s, ConfigStore.fake(), {"Role": "x", "City": "Remote",
                                                          "Country": "Ireland"})
-    # A Notion Config value holds a literal backslash-n: it is a line break too.
-    assert '<p class="reloc">Based in Chennai<br>Moving to Ireland (Ireland)</p>' in out.html
+    # A Notion Config value holds a literal backslash-n: still one line in the resume.
+    assert '<p class="reloc">Based in Chennai | Moving to Ireland (Ireland)</p>' in out.html
 
 
 def test_config_overrides_the_titles_and_template():

@@ -106,7 +106,7 @@ def build(s: Settings, config: ConfigStore, values: dict[str, Any], details: lis
                                        "own line)"]
     lines += ["", "Resume for this job",
               f"- Headline: {title or 'unchanged (no approved title in this role)'}",
-              f"- Location line: {' / '.join((reloc or 'unchanged').splitlines())}"]
+              f"- Location line: {' | '.join((reloc or 'unchanged').splitlines())}"]
     return "\n".join(lines)
 
 
