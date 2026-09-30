@@ -998,7 +998,7 @@ def test_refused_instruction_offers_add_anyway(desk, tmp_path):
 
     (tmp_path / "tailor").mkdir()
     (tmp_path / "tailor" / "pl-clean-r2.json").write_text(
-        '{"correction_refused": "Istio is not in Skills Inventory or Term Map."}')
+        '{"correction_refused": "Istio is not in Skills Inventory or Term Map."}', encoding="utf-8")
     desk.resume.llm = lambda config: FakeLLM(tmp_path, default={})
     talk(desk, tap(1, "ap:pl-clean"))
     talk(desk, tap(1, "rq:00000001000040008000000000000001"))

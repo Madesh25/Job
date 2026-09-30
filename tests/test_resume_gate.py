@@ -28,7 +28,7 @@ JOB = JobContext(page_id="p1", company="Vistula Cloud", role="DevOps Engineer",
 
 
 def fixture_plan(name):
-    return parse_plan(json.loads((TAILOR / f"{name}.json").read_text()), M)
+    return parse_plan(json.loads((TAILOR / f"{name}.json").read_text(encoding="utf-8")), M)
 
 
 def edit(bullet_id, old, new):
@@ -164,7 +164,8 @@ def test_summary():
 
 def test_make_plan_uses_tailor_stage_and_no_contacts(tmp_path):
     (tmp_path / "tailor").mkdir()
-    (tmp_path / "tailor" / "p1-r1.json").write_text((TAILOR / "plan_valid.json").read_text())
+    plan = (TAILOR / "plan_valid.json").read_text(encoding="utf-8")
+    (tmp_path / "tailor" / "p1-r1.json").write_text(plan, encoding="utf-8")
     llm = FakeLLM(tmp_path)
     p = make_plan(llm, M, JOB, REF, key="p1-r1")
     assert p.priority.bullet_edits[0] == "j0b0"

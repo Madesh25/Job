@@ -232,7 +232,8 @@ def test_protected_notion_pages_are_only_linked_never_targeted():
     NotionClient also refuses any write to them at runtime (check_page_write)."""
     import yaml
 
-    pages = yaml.safe_load((ROOT / "config" / "base.yaml").read_text())["notion"]["pages"]
+    base = (ROOT / "config" / "base.yaml").read_text(encoding="utf-8")
+    pages = yaml.safe_load(base)["notion"]["pages"]
     ids = {pid.replace("-", "").lower() for pid in pages.values()}
     offenders = []
     for p in src_files():
@@ -248,13 +249,14 @@ def test_protected_notion_pages_are_only_linked_never_targeted():
 
 
 def test_dockerignore_keeps_secrets_and_output_out_of_the_image():
-    lines = {line.strip() for line in (ROOT / ".dockerignore").read_text().splitlines()}
+    text = (ROOT / ".dockerignore").read_text(encoding="utf-8")
+    lines = {line.strip() for line in text.splitlines()}
     assert {".env", ".secrets", "out"} <= lines
     assert "!.env" not in lines and "!.secrets" not in lines
 
 
 def test_dockerfile_bakes_in_no_secrets():
-    text = (ROOT / "Dockerfile").read_text()
+    text = (ROOT / "Dockerfile").read_text(encoding="utf-8")
     assert "COPY .env" not in text and "COPY .secrets" not in text
     for line in text.splitlines():
         if line.strip().upper().startswith("ENV"):
@@ -266,7 +268,7 @@ def test_dockerfile_bakes_in_no_secrets():
 def test_deploy_workflow_uses_wif_and_never_turns_dry_run_off():
     import yaml
 
-    text = (ROOT / ".github" / "workflows" / "deploy.yml").read_text()
+    text = (ROOT / ".github" / "workflows" / "deploy.yml").read_text(encoding="utf-8")
     flow = yaml.safe_load(text)
     assert "credentials_json" not in text
     assert "DRY_RUN=false" not in text
@@ -287,7 +289,7 @@ def test_deploy_workflow_uses_wif_and_never_turns_dry_run_off():
 
 
 def test_dev_service_gets_no_prod_only_secrets():
-    text = (ROOT / ".github" / "workflows" / "deploy.yml").read_text()
+    text = (ROOT / ".github" / "workflows" / "deploy.yml").read_text(encoding="utf-8")
     dev_line = next(line for line in text.splitlines()
                     if "SECRETS=" in line and "notion-token-dev" in line)
     for prod_only in ("gmail-main-token", "apollo-api-key", "hunter-api-key", "snov-client",

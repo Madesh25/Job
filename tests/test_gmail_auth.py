@@ -28,7 +28,7 @@ def test_writes_authorised_user_json(tmp_path, capsys):
                 flow=lambda path, hint: hints.append(hint) or creds(),
                 whoami=lambda c: "madeshwaranm02@gmail.com")
     assert code == 0
-    data = json.loads(out.read_text())
+    data = json.loads(out.read_text(encoding="utf-8"))
     assert set(data) == {"client_id", "client_secret", "refresh_token", "token_uri", "scopes"}
     assert data["scopes"] == SENDER_SCOPES
     assert hints == ["madeshwaranm02@gmail.com"]
