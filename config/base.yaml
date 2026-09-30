@@ -281,7 +281,12 @@ sweep:
         Galway: [galway]
         Limerick: [limerick]
   gmail:
-    query: "newer_than:2d -in:spam -in:trash from:(linkedin.com OR justjoin.it OR nofluffjobs.com OR pracuj.pl OR theprotocol.it OR bulldogjob.pl OR indeed.com OR iamexpat.nl OR nationalevacaturebank.nl OR irishjobs.ie OR jobs.ie OR jobsireland.ie)"
+    # Alert emails read on each /fetch: those with this Gmail label (put every job alert under
+    # it with Gmail filters), plus those from a sender domain in sender_boards below, from the
+    # last `days` days. The label works whatever address a board sends from. A `query` key,
+    # when set, replaces the whole search.
+    label: "Job Alerts"
+    days: 2
     max_messages: 100
     # Sender domain (or parent domain) -> Board option in Job Opportunities.
     sender_boards:
@@ -320,6 +325,14 @@ sweep:
       - download
       - app store
       - google play
+      # Polish buttons (Pracuj.pl, theprotocol.it, JustJoin IT)
+      - zobacz
+      - ustawienia
+      - wypisz
+      - zrezygnuj
+      - prywatno
+      - pomoc
+      - zaloguj
   # New jobs are only saved when their posting is at most this many days old: 0 is today
   # only, 1 today and yesterday, 2 the last 3 days (a job posted after a /fetch is not lost).
   # Jobs without a posted date are kept. Rows already in Notion are still updated.
@@ -371,6 +384,7 @@ sweep:
     # full text matches better can still move into the best 30.
     lookahead: 15
     max_pages: 45
-    # Email alert links are tracking links and are not read unless gmail is added here.
-    # LinkedIn is never read, whatever this says.
-    sources: [adzuna, ats, jooble]
+    # gmail: the job links in alert emails (JustJoin IT, NoFluffJobs, Pracuj.pl, ...) are
+    # followed to the real job page, whose link and full description are kept. LinkedIn is
+    # never read, whatever this says.
+    sources: [adzuna, ats, jooble, gmail]

@@ -801,6 +801,15 @@ class Desk:
             return [Reply(f"No Job Opportunities row found for {args.strip()}")]
         return self.drafts(row.page_id)
 
+    def alertcheck_command(self) -> list[Reply]:
+        """/alertcheck: the alert emails the next /fetch reads and the jobs in each."""
+        from jobengine.sweep import fakes
+        from jobengine.sweep.sources import gmail_alerts
+
+        fake = isinstance(self.repo, FakeJobsRepo)
+        text = gmail_alerts.check(self.s, fakes.gmail_messages if fake else None)
+        return [Reply(text[:MAX_TEXT])]
+
     def gaps_command(self, limit: int = 15) -> list[Reply]:
         """Skills jobs asked for that you do not have yet, most common first (from the
         Gaps column that screening and resume building fill)."""

@@ -161,9 +161,23 @@ def test_needs_text_rules():
     assert not fulltext.needs_text(replace(JOB, description=LONG, description_is_snippet=False),
                                    CFG)
     assert fulltext.needs_text(replace(JOB, source="ats", description=None), CFG)
-    assert not fulltext.needs_text(replace(JOB, source="gmail"), CFG)  # tracking links
-    linkedin = fulltext.Config(sources=("gmail",))
-    assert not fulltext.needs_text(replace(JOB, source="gmail", board="LinkedIn"), linkedin)
+    # Alert email links are followed to the real job page; LinkedIn never.
+    assert fulltext.needs_text(replace(JOB, source="gmail", board="JustJoin IT"), CFG)
+    assert not fulltext.needs_text(replace(JOB, source="gmail", board="LinkedIn"), CFG)
+    no_alerts = fulltext.Config(sources=("adzuna",))
+    assert not fulltext.needs_text(replace(JOB, source="gmail", board="JustJoin IT"), no_alerts)
+
+
+def test_alert_tracking_link_becomes_the_real_job_link():
+    alert = replace(JOB, source="gmail", board="IrishJobs.ie",
+                    url="https://click.mailtrack.example.com/ls/click?upn=abc&u=1")
+    page = f"<main><p>{LONG}</p></main>"
+    full = fulltext.read(alert, lambda url: ("https://www.irishjobs.ie/job/sre-1", page))
+    assert full.url == "https://www.irishjobs.ie/job/sre-1"
+    assert full.description_origin == "full page, www.irishjobs.ie"
+    # Nothing better on the page: the real link is still kept.
+    short = fulltext.read(alert, lambda url: ("https://www.irishjobs.ie/job/sre-1", "<p>x</p>"))
+    assert short.url == "https://www.irishjobs.ie/job/sre-1"
 
 
 def test_read_keeps_the_page_host_and_finds_years():

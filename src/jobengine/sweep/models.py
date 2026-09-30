@@ -76,6 +76,7 @@ class SourceResult:
     blocked: list[str] = field(default_factory=list)
     no_board: list[str] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
+    emails: int | None = None  # gmail only: alert emails read
 
 
 @dataclass
@@ -108,6 +109,7 @@ class SweepSummary:
     no_board_sites: list[str] = field(default_factory=list)
     full_tried: int = 0
     linkedin_filled: list[str] = field(default_factory=list)  # sweep/crossmatch.py
+    alert_emails: int | None = None  # email alerts read (None: the source did not run)
 
     def text(self) -> str:
         if self.blocked:
@@ -137,6 +139,10 @@ class SweepSummary:
         for country in self.countries or sorted(self.new_by_country):
             flag = COUNTRY_FLAGS.get(country, "")
             lines.append(f"{flag} {country}: {self.new_by_country.get(country, 0)}".strip())
+        if self.alert_emails is not None:
+            lines.append(f"\U0001F4E7 Email alerts: {self.alert_emails} email(s) read, "
+                         f"{self.sources.get('gmail', 0)} job(s) found in them (/alertcheck "
+                         "shows each email)")
         lines += [
             "",
             f"\U0001F4C9 Weaker matches not saved (daily limit): {self.not_kept}",

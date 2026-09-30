@@ -238,7 +238,10 @@ def test_friendly_summary_counts_new_jobs_per_country(fake_run):
         "\U0001F1EE\U0001F1EA Ireland: 3",
     ]
     assert "- Maas Logistics, Medior DevOps Engineer (Rotterdam)" in lines
-    assert "\U0001F4C4 Full descriptions read from the job page: 2 of 6" in lines
+    assert "\U0001F4C4 Full descriptions read from the job page: 2 of 9" in lines
+    # The 3 alert emails, with the jobs found in them.
+    assert ("\U0001F4E7 Email alerts: 3 email(s) read, 6 job(s) found in them (/alertcheck "
+            "shows each email)") in lines
     assert "Not checked this time" not in text
 
 
@@ -262,8 +265,8 @@ def test_progress_lines_are_plain_language():
         "Searching: 2 of 4 sources done",
         "Searching: 3 of 4 sources done",
         "Found 19 jobs. Saving to your Notion...",
-        "Reading full job descriptions: 1 of 6",
-        "Reading full job descriptions: 5 of 6",
+        "Reading full job descriptions: 1 of 9",
+        "Reading full job descriptions: 5 of 9",
     ]
 
 

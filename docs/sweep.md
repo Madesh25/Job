@@ -65,7 +65,7 @@ careers site that links to no known ATS).
 
 | Source | Needs | Notes |
 |---|---|---|
-| Gmail alerts | `GMAIL_ALERTS_TOKEN_JSON` (madeshwaranm02, `gmail.readonly`) | Query `sweep.gmail.query`. Board from the sender domain. Links are read from the email and never requested, tracking links included. Descriptions are never set (see "Email alerts setup"). |
+| Gmail alerts | `GMAIL_ALERTS_TOKEN_JSON` (madeshwaranm02, `gmail.readonly`) | Emails with the label `sweep.gmail.label` ("Job Alerts") or from a sender in `sweep.gmail.sender_boards`, last `sweep.gmail.days` (2) days. Board from the sender domain. Non-LinkedIn job links are followed to the real job page for its link and full description; LinkedIn links are never requested. `/alertcheck` shows each email. |
 | Adzuna | `ADZUNA_APP_ID`, `ADZUNA_APP_KEY` | `pl` and `nl` only (Adzuna has no Ireland), at most `sweep.adzuna.max_calls_per_run` calls, split evenly between the countries (12 calls, 6 pages of 50 each by default) so every country is searched. The feed gives a snippet; the full text is read from the job page for jobs that may be saved. Predicted salaries are ignored. |
 | Jooble | `JOOBLE_API_KEY` (free, https://jooble.org/api/about) | Job search over many job boards, Ireland included. One call per country and term in `sweep.jooble` (3 x 4 = 12 calls). Board is the site Jooble found the job on when it is a known board (IrishJobs.ie, Indeed and so on, from `sweep.gmail.sender_boards`), else `Other`. The feed gives a snippet; the full text is read from the job page. Skipped without the key. |
 | ATS feeds | nothing | Every active Target Company on Greenhouse, Lever, SmartRecruiters, Workday or amazon.jobs. The board comes from `Careers URL`, from the careers page it links to, or from `sweep.ats_boards`. Board is `Company site`. |
@@ -280,8 +280,8 @@ The page reader (`http.get_page`) is separate from the API client:
 - LinkedIn is never read, not even when a redirect points there
 - only HTML or text answers, at most 3 MB
 - only for jobs that may be saved today, at most `sweep.fulltext.max_pages` (45) per sweep
-- email alert links are not read (`sweep.fulltext.sources` is `[adzuna, ats]`): they are
-  tracking links. Rows already in Notion are not re-read.
+- email alert links (tracking links) are followed to the real job page, whose link replaces
+  the tracking link; LinkedIn links never. Rows already in Notion are not re-read.
 
 Set `sweep.fulltext.enabled: false` to switch it off.
 
@@ -309,12 +309,15 @@ up among this sweep's other postings (company boards, Adzuna, Jooble), in
 
 ## Email alerts setup
 
-The code is ready; only the Gmail side is missing. When you want it:
-
 1. In the madeshwaranm02 Gmail, create job alerts that send email: IrishJobs.ie, Jobs.ie and
    JobsIreland for Ireland (Adzuna has no Ireland), plus LinkedIn, JustJoin IT, NoFluffJobs,
-   Pracuj.pl or IamExpat if you like. The query in `sweep.gmail.query` already matches all of
-   these senders; `sweep.gmail.sender_boards` sets the Board.
+   Pracuj.pl or IamExpat if you like. Alerts that go to another mailbox (Pracuj.pl to
+   madeshwaran.manikam) are forwarded to madeshwaranm02 with a Gmail filter.
+   **Label them:** a Gmail label "Job Alerts" and one filter per board (for example
+   `from:(linkedin.com)`, "Apply the label: Job Alerts", and "Also apply filter to matching
+   conversations"). The bot reads every email with that label, whatever address the board sends
+   from; emails from a sender domain in `sweep.gmail.sender_boards` are read too. A sender not
+   in `sender_boards` gets the Board "Other" (add its domain there to name it).
 2. Create the alerts token with `gmail.readonly` (see `docs/gmail.md`) and put the one-line
    JSON into `.env` as `GMAIL_ALERTS_TOKEN_JSON` (Secret Manager in dev and prod).
 3. Check the parser against the real emails without writing anything:
@@ -322,9 +325,16 @@ The code is ready; only the Gmail side is missing. When you want it:
    location. A board whose cards come out as `(unknown)` can get a pattern in
    `sweep.gmail.job_url_patterns`.
 
-Email alerts give title, company and place only. Those jobs are ranked on that and screening
-asks for the description with `/jd`. To read their pages too, add `gmail` to
-`sweep.fulltext.sources` (LinkedIn links are still never read).
+4. In Telegram, `/alertcheck` lists each alert email the next `/fetch` reads: board, sender,
+   subject and the jobs found in it. For an email with 0 jobs it shows where its links go, so
+   a pattern can be added. The `/fetch` summary has a line "Email alerts: N email(s) read, M
+   job(s) found in them", and a failed Gmail read shows its reason there and in the log.
+
+Email alerts give title, company and place. For every board but LinkedIn the job link is
+followed to the real job page (at most `sweep.fulltext.max_pages` pages per sweep, shared with
+Adzuna and Jooble): the job's URL becomes that page and its full description is kept. LinkedIn
+links are never read; those jobs get a description from the same job on another site, or wait
+for `/jd`.
 
 ## Scope and normalising
 

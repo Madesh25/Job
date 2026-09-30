@@ -10,8 +10,9 @@ size limit) and keeps the whole description:
    element whose id or class names a description)
 3. otherwise the whole visible page text
 
-A page that cannot be read keeps the snippet. Email alert links are not read by default
-(sweep.fulltext.sources): they are tracking links, and LinkedIn is never read at all.
+A page that cannot be read keeps the snippet. Job links in alert emails are tracking links:
+following one ends on the job's real page, whose link replaces the tracking link. LinkedIn
+is never read at all.
 """
 
 from __future__ import annotations
@@ -35,7 +36,7 @@ from jobengine.sweep.normalize import experience, years_required
 log = logging.getLogger("jobengine.sweep")
 
 DEFAULT_MAX_PAGES = 45
-DEFAULT_SOURCES = ("adzuna", "ats", "jooble")
+DEFAULT_SOURCES = ("adzuna", "ats", "jooble", "gmail")
 # Least text accepted: a JobPosting is trusted when short, a guessed block less so and
 # the whole page text only when it is clearly more than a snippet.
 MIN_JSON_LD = 150
@@ -192,7 +193,8 @@ def read(job: Job, get_page: PageGetter) -> Job | None:
     if opened is None:
         return None
     final_url, page = opened
-    moved = _is_adzuna(job.url) and not _is_adzuna(final_url)
+    moved = (_is_adzuna(job.url) and not _is_adzuna(final_url)) or (
+        job.source == "gmail" and final_url != job.url)  # the alert's tracking link
     text = extract(page)
     if not text or len(text) <= len(job.description or ""):
         return replace(job, url=final_url) if moved else None
