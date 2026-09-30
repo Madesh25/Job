@@ -64,7 +64,10 @@ def test_ireland_agency_from_text_or_config():
     assert check(ie("Some Company"), agency).flags == [visa.AGENCY_IE]
     assert check(ie("Liffey Recruitment Ltd")).flags == [visa.AGENCY_IE]
     assert check(ie("Northwind Cloud")).flags == []
-    assert check(ie("Liffey Recruitment"), config=ConfigStore.from_values({})).flags == []
+    # The name alone says recruitment: an agency even without a Config list (30 Sep).
+    assert check(ie("Liffey Recruitment"), config=ConfigStore.from_values({})).flags == [
+        visa.AGENCY_IE]
+    assert check(ie("Liffey Cloud"), config=ConfigStore.from_values({})).flags == []
 
 
 @pytest.mark.parametrize(

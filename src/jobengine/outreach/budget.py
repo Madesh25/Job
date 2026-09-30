@@ -56,6 +56,7 @@ class JobFacts:
     sponsorship: str | None = None
     tier: int | None = None
     on_ind_register: bool = False
+    agency: bool = False  # a recruitment agency's post: apply through them, no cold mails
 
 
 def priority(job: JobFacts) -> str:
@@ -87,6 +88,9 @@ def decide(job: JobFacts, allowance: int, used: int, capacity: int) -> Decision:
     for Apply high; D never automatically. No credits left: nobody."""
     level = priority(job)
     left = max(min(allowance - used, capacity), 0)
+    if job.agency:
+        return Decision(False, level, left, allowance,
+                        "a recruitment agency's post: apply through the agency, no cold mails")
     if left <= 0:
         return Decision(False, level, left, allowance,
                         "this week's outreach budget is used up" if capacity > 0

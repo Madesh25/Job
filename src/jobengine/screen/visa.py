@@ -17,6 +17,22 @@ from jobengine.screen.models import Extraction, JobRow
 ON_IND = "On IND register"
 NOT_ON_IND = "Not on IND register"
 AGENCY_IE = "Agency posting (IE)"
+AGENCY = "Agency posting"  # any other country: kept, but no cold mails (decision of 30 Sep)
+AGENCY_FLAGS = (AGENCY, AGENCY_IE)
+# Recruitment agencies that post DevOps jobs in PL, NL and IE. Config agency_names (and
+# ireland.agency_names) add more, comma-separated.
+KNOWN_AGENCIES = (
+    "Hays", "Randstad", "Michael Page", "Page Personnel", "Robert Walters", "Robert Half",
+    "Hudson RPO", "Adecco", "Antal", "Experis", "ManpowerGroup", "Harvey Nash", "Computer Futures",
+    "Progressive Recruitment", "SThree", "Huxley", "Nigel Frank", "Jefferson Frank",
+    "Frank Recruitment Group", "Grafton Recruitment", "Morgan McKinley", "Sigmar Recruitment",
+    "Cpl Resources", "Cpl", "Reperio Human Capital", "Nicoll Curtin", "Verita HR",
+    "Undutchables", "Independent Recruiters", "YoungCapital", "Brunel", "Olympia",
+    "Understanding Recruitment", "Oliver Bernard", "Stanton House", "Hirecode", "Grafton",
+)
+AGENCY_WORDS = re.compile(r"\b(recruit\w*|staffing|personnel|headhunt\w*|executive search|"
+                          r"talent solutions|talent acquisition|human capital|employment agency)\b",
+                          re.IGNORECASE)
 SALARY_LOW = "Salary below visa minimum"
 IE_LOWER_BAND = "IE lower band - degree risk"
 SPONSORSHIP_STATED = "Sponsorship stated"
@@ -81,8 +97,22 @@ def config_amount(config: ConfigStore, key: str) -> float | None:
 
 
 def _agency_names(config: ConfigStore) -> set[str]:
-    raw = config.get("ireland.agency_names") or ""
-    return {company_key(part) for part in raw.split(",") if part.strip()}
+    raw = f"{config.get('ireland.agency_names') or ''},{config.get('agency_names') or ''}"
+    names = {company_key(part) for part in raw.split(",") if part.strip()}
+    return names | {company_key(name) for name in KNOWN_AGENCIES}
+
+
+def is_agency(company: str | None, ext: Extraction, config: ConfigStore) -> bool:
+    """A recruitment agency's post: the screening answer says so, the company is a known
+    agency, or its name says recruitment, staffing, personnel and the like."""
+    if ext.agency_posting.value is True:
+        return True
+    if not company:
+        return False
+    key = company_key(company)
+    # "Hays Poland", "Verita HR Polska": the agency's name, then a country or a branch.
+    named = any(key == name or key.startswith(name + " ") for name in _agency_names(config))
+    return named or AGENCY_WORDS.search(company) is not None
 
 
 def visa_checks(
@@ -108,9 +138,10 @@ def visa_checks(
             result.add(ON_IND)
         else:
             result.add(NOT_ON_IND)
-    if country == "Ireland":
-        if ext.agency_posting.value is True or company_key(row.company) in _agency_names(config):
-            result.add(AGENCY_IE)
+    if is_agency(row.company, ext, config):
+        # Ireland: an agency cannot hold a Critical Skills permit for you (tiering caps it).
+        # Elsewhere the job is kept as it is, only no cold mails go out for it.
+        result.add(AGENCY_IE if country == "Ireland" else AGENCY)
 
     salary = annual_amount(ext.salary_text.value)
     threshold = config_amount(config, f"visa.salary_threshold.{country.lower()}")

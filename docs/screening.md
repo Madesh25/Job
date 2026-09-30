@@ -197,8 +197,14 @@ risk High -5, Medium -2; posted in the last 7 days +1.
   75 or more) stops a short name matching a longer one only because its words are a subset
   ("Tulip" is not "Tulip Data"). If the page cannot be downloaded or parsed there is no flag
   and the summary says "IND register unavailable".
-- Ireland: `Agency posting (IE)` when the text says it is posted for a client, or the company
-  is listed in Config `ireland.agency_names`.
+- Agency posts (all countries since 30 Sep): the text says it is posted for a client, the
+  company starts with a known agency name (`screen/visa.py` KNOWN_AGENCIES, plus Config
+  `agency_names` and `ireland.agency_names`, comma-separated), or its name says recruitment,
+  staffing, personnel, headhunting, executive search, talent solutions or human capital.
+  Ireland: `Agency posting (IE)` (an agency cannot hold a Critical Skills permit for you, so
+  the job is capped as below). Other countries: `Agency posting`, the job is kept as it is.
+  Either way the outreach planner and `/fetchcontacts` send no cold mails and spend no
+  credits on it (apply through the agency); `/contacts <job>` still works if you want.
 - Salary: `Salary below visa minimum` only when the text states a salary with a clear period
   (per year or per month) and Config has `visa.salary_threshold.<country>`. Ireland also gets
   `IE lower band - degree risk` when Config has `visa.ie_lower_band_max`. Thresholds are never

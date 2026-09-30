@@ -25,6 +25,7 @@ from jobengine.reference import Reference
 STATE_KEY = "outreach.week"
 COST_KEY = "outreach.cost_per_job"
 ON_IND = "On IND register"
+AGENCY_FLAGS = ("Agency posting", "Agency posting (IE)")  # screen/visa.py AGENCY_FLAGS
 
 
 @dataclass
@@ -76,7 +77,8 @@ def facts(values: dict[str, Any], reference: Reference) -> JobFacts:
     company = reference.company(values.get("Company"))
     return JobFacts(verdict=values.get("Screen verdict"), sponsorship=values.get("Sponsorship"),
                     tier=company.tier_number if company else None,
-                    on_ind_register=ON_IND in (values.get("Visa flags") or []))
+                    on_ind_register=ON_IND in (values.get("Visa flags") or []),
+                    agency=bool(set(AGENCY_FLAGS) & set(values.get("Visa flags") or [])))
 
 
 def plan(state: BotState, config: ConfigStore, reference: Reference, values: dict[str, Any],
