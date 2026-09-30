@@ -302,6 +302,19 @@ sweep:
       irishjobs.ie: IrishJobs.ie
       jobs.ie: Jobs.ie
       jobsireland.ie: JobsIreland
+    # Boards that only list one country's jobs: that country is used when a card names only a
+    # city, or no place at all. LinkedIn and Indeed list every country, so they are not here.
+    board_country:
+      JustJoin IT: Poland
+      NoFluffJobs: Poland
+      Pracuj.pl: Poland
+      theprotocol.it: Poland
+      Bulldogjob: Poland
+      IrishJobs.ie: Ireland
+      Jobs.ie: Ireland
+      JobsIreland: Ireland
+      IamExpat: Netherlands
+      Nationale Vacaturebank: Netherlands
     # Board -> job link pattern. The last capturing group is the posting ID.
     # These are only used to recognise links inside emails; links are never requested.
     job_url_patterns:

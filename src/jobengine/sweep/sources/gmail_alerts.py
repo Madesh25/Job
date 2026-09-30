@@ -22,7 +22,11 @@ from jobengine.sweep.normalize import canon
 
 SOURCE = "gmail"
 MAX_CARD_PARENTS = 4
+MAX_CARD_LINES = 10
 MAX_LINE_CHARS = 120
+MAX_DROPPED_SHOWN = 3  # per email in /alertcheck
+# "co.brick · Warsaw, Mazowieckie, Poland (Hybrid)": company and place on one line.
+_JOINED = re.compile(r"\s+[\u00b7\u2022|]\s+")
 
 
 def board_for_sender(sender: str, sender_boards: Mapping[str, str]) -> str:
@@ -37,22 +41,31 @@ def _lines(node: Tag) -> list[str]:
     return [line.strip() for line in node.get_text("\n").split("\n") if line.strip()]
 
 
-def card_fields(anchor: Tag, title: str) -> tuple[str, str]:
-    """(company, location) from the card around an anchor, or ("(unknown)", "")."""
+def card_fields(anchor: Tag, title: str) -> tuple[str, str, tuple[str, ...]]:
+    """(company, location, other card lines) from the card around an anchor, or
+    ("(unknown)", "", ()). The line after the title is the company, the next the place;
+    "Company · Place" on one line (LinkedIn) is split. The other lines are kept so the place
+    can still be found when it is not where expected."""
     node = anchor
     for _ in range(MAX_CARD_PARENTS):
         node = node.parent
         if not isinstance(node, Tag):
             break
         lines = _lines(node)
-        if 2 <= len(lines) <= 6 and all(len(line) < MAX_LINE_CHARS for line in lines):
+        if 2 <= len(lines) <= MAX_CARD_LINES and all(len(line) < MAX_LINE_CHARS
+                                                    for line in lines):
             if title in lines:
                 rest = lines[lines.index(title) + 1:]
-                company = rest[0] if rest else "(unknown)"
-                location = rest[1] if len(rest) > 1 else ""
-                return company, location
+                if not rest:
+                    return "(unknown)", "", ()
+                parts = _JOINED.split(rest[0])
+                if len(parts) > 1:
+                    company, others = parts[0], [*parts[1:], *rest[1:]]
+                else:
+                    company, others = rest[0], rest[1:]
+                return company, (others[0] if others else ""), tuple(others[1:4])
             break
-    return "(unknown)", ""
+    return "(unknown)", "", ()
 
 
 def _looks_like_title(text: str, ignore: list[str]) -> bool:
@@ -72,6 +85,9 @@ def parse_alert(message: GmailMessage, gmail_cfg: Mapping[str, Any]) -> list[Raw
     patterns = gmail_cfg.get("job_url_patterns") or {}
     pattern = re.compile(patterns[board]) if board in patterns else None
     ignore = list(gmail_cfg.get("ignore_link_texts") or [])
+    # A board that only lists one country's jobs (JustJoin IT: Poland) gives that country
+    # when the card names only a city, or no place at all.
+    home = (gmail_cfg.get("board_country") or {}).get(board)
     soup = BeautifulSoup(message.html, "html.parser")
 
     # First pass: group anchors by the job they point to, keeping the one with text.
@@ -100,7 +116,7 @@ def parse_alert(message: GmailMessage, gmail_cfg: Mapping[str, Any]) -> list[Raw
         title = anchor.get_text(" ", strip=True)
         if not title:
             continue
-        company, location = card_fields(anchor, title)
+        company, location, others = card_fields(anchor, title)
         postings.append(
             RawPosting(
                 source=SOURCE,
@@ -111,6 +127,7 @@ def parse_alert(message: GmailMessage, gmail_cfg: Mapping[str, Any]) -> list[Raw
                 url=href,
                 posting_id=posting_id or fallback_posting_id(board, title, company),
                 description=None,
+                location_area=(*others, *([home] if home else [])),
             )
         )
     return postings
@@ -208,18 +225,34 @@ def check(s: Settings, load_messages: Callable[[], list[GmailMessage]] | None = 
     if not messages:
         return (f"No alert email found. Gmail search used:\n{query}\nCheck that the alerts "
                 "reach this mailbox and get the label (a Gmail filter).")
+    from jobengine.sweep.normalize import Rules, Skipped, normalize
+
+    rules = Rules.from_config(s.sweep)
+    countries = list(rules.locations)
     lines = [f"{len(messages)} alert email(s) found (search: {query})."]
-    total = 0
+    total = kept = 0
     for message in messages[:limit]:
         board = board_for_sender(message.sender, gmail_cfg.get("sender_boards") or {})
         jobs = parse_alert(message, gmail_cfg)
         total += len(jobs)
         address = parseaddr(message.sender)[1] or message.sender
-        lines.append(f"- {board} | {address} | {message.subject[:70]}: {len(jobs)} job(s)")
+        dropped = [(job, result.reason) for job in jobs
+                   if isinstance(result := normalize(job, rules, countries), Skipped)]
+        kept += len(jobs) - len(dropped)
+        fate = f", {len(jobs) - len(dropped)} in scope" if jobs else ""
+        lines.append(f"- {board} | {address} | {message.subject[:70]}: {len(jobs)} job(s)"
+                     f"{fate}")
         if not jobs:
             hosts = ", ".join(_hosts(message.html)[:5]) or "no links"
             lines.append(f"  no job link recognised; links go to: {hosts}")
+        for job, reason in dropped[:MAX_DROPPED_SHOWN]:
+            lines.append(f"  dropped: {job.title[:50]} | {job.company[:30]} | "
+                         f"{job.location_text[:40] or '(no place)'}: {reason}")
+        if len(dropped) > MAX_DROPPED_SHOWN:
+            lines.append(f"  ... and {len(dropped) - MAX_DROPPED_SHOWN} more dropped")
     if len(messages) > limit:
         lines.append(f"... and {len(messages) - limit} more email(s).")
-    lines.append(f"Jobs found in the emails shown: {total}.")
+    lines.append(f"Jobs found in the emails shown: {total}, in scope (title and place): {kept}. "
+                 "/fetch then checks age, experience, language, contract, sponsorship, skills "
+                 "and the daily limit.")
     return "\n".join(lines)

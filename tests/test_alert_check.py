@@ -2,11 +2,12 @@
 
 from jobengine import gmail_reader
 from jobengine.settings import load_settings
-from jobengine.sweep import fakes
+from jobengine.sweep import fakes, normalize
 from jobengine.sweep.sources import gmail_alerts
 
 S = load_settings("dev", {})
 CFG = S.sweep["gmail"]
+RULES = normalize.Rules.from_config(S.sweep)
 
 
 def test_label_term():
@@ -45,10 +46,15 @@ def test_alertcheck_lists_each_email_and_why_one_gave_nothing():
     lines = text.splitlines()
     assert lines[0].startswith("4 alert email(s) found (search: newer_than:2d")
     assert lines[1] == ("- LinkedIn | jobalerts-noreply@linkedin.com | DevOps Engineer: 3 new "
-                        "jobs in Europe: 3 job(s)")
+                        "jobs in Europe: 3 job(s), 2 in scope")
+    # Each dropped job says why.
+    assert lines[2] == ("  dropped: Lead Site Reliability Engineer | Maas Logistics | Rotterdam, "
+                        "South Holland, Netherlands: title excluded (lead)")
     # "Zobacz" is a button, not a job.
-    assert "- Other | oferty@grupapracuj.pl | Nowe oferty dla Ciebie: 1 job(s)" in lines
-    assert lines[-1] == "Jobs found in the emails shown: 7."
+    assert ("- Other | oferty@grupapracuj.pl | Nowe oferty dla Ciebie: 1 job(s), 0 in scope"
+            in lines)
+    assert lines[-1].startswith("Jobs found in the emails shown: 7, in scope (title and "
+                                "place): ")
 
 
 def test_alertcheck_explains_an_empty_result_and_a_missing_token():
@@ -78,3 +84,38 @@ def test_alertcheck_in_the_bot():
     d = fake_desk(settings(), FAKE_TODAY, now=Clock())
     assert d.alertcheck_command()[0].text.startswith("3 alert email(s) found")
     assert "alertcheck" in {c["command"] for c in tb.bot_commands()}
+
+
+LINKEDIN_CARD = """
+<table><tr><td><a href="https://www.linkedin.com/comm/jobs/view/4099/?trk=eml">
+<img src="https://media.example.com/logo.png" alt="co.brick"></a></td>
+<td><a href="https://www.linkedin.com/comm/jobs/view/4099/?trk=eml">DevOps Engineer (AWS)</a>
+<p>co.brick \u00b7 Warsaw, Mazowieckie, Poland (Hybrid)</p>
+<p>Actively recruiting</p></td></tr></table>
+"""
+
+
+def test_linkedin_company_and_place_on_one_line():
+    message = gmail_reader.GmailMessage(id="m", sender="x <jobalerts-noreply@linkedin.com>",
+                                        subject="DevOps Engineer (AWS) at co.brick",
+                                        html=LINKEDIN_CARD)
+    [posting] = gmail_alerts.parse_alert(message, CFG)
+    assert (posting.company, posting.location_text) == (
+        "co.brick", "Warsaw, Mazowieckie, Poland (Hybrid)")
+    job = normalize.normalize(posting, RULES, list(RULES.locations))
+    assert (job.country, job.city, job.company) == ("Poland", "Warszawa", "co.brick")
+
+
+JUSTJOIN_CARD = """
+<div><a href="https://justjoin.it/job-offer/acme-kubernetes-engineer-krakow-devops">
+Kubernetes Engineer</a><div>Acme Systems</div><div>Remote</div><div>25 000 PLN</div></div>
+"""
+
+
+def test_single_country_board_gives_its_country():
+    message = gmail_reader.GmailMessage(id="m", sender="JustJoin.IT <no-reply@justjoin.it>",
+                                        subject="New jobs for you", html=JUSTJOIN_CARD)
+    [posting] = gmail_alerts.parse_alert(message, CFG)
+    assert posting.location_area[-1] == "Poland"
+    job = normalize.normalize(posting, RULES, list(RULES.locations))
+    assert (job.country, job.city) == ("Poland", "Remote")
