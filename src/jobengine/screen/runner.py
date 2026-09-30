@@ -389,14 +389,20 @@ def _batch_rows(deps: ScreenDeps) -> set[str]:
     return set((pending or {}).get("rows") or [])
 
 
-def unscreened_rows(deps: ScreenDeps) -> list[JobRow]:
-    """Unscreened rows, newest posting first, without the rows of a waiting batch."""
+def unscreened_rows(deps: ScreenDeps, today: date | None = None) -> list[JobRow]:
+    """Unscreened rows without the rows of a waiting batch: today's best new jobs first (the
+    /fetch match score, sweep/best.py), then the others newest posting first."""
+    from jobengine.sweep import best
+
     assert deps.repo is not None
     waiting = _batch_rows(deps)
     rows = [job_row(pid, v) for pid, v in
             deps.repo.query_rows(select_filter("Screen verdict", "Unscreened"))
             if pid not in waiting]
+    ranked = best.scores(deps.state, today) if today else {}
     rows.sort(key=lambda r: r.posted_date or date.min, reverse=True)
+    rows.sort(key=lambda r: ranked.get(r.page_id.replace("-", ""), float("-inf")),
+              reverse=True)  # stable: equal scores keep the newest first
     return rows
 
 
@@ -417,7 +423,7 @@ def screen_pending(
         return summary
     used = daily.used_today(deps.state, today)
     room = limit if limit is not None else max(0, daily.daily_limit(s) - used)
-    rows = unscreened_rows(deps)
+    rows = unscreened_rows(deps, today)
     in_batch = len(_batch_rows(deps))
     if in_batch:
         summary.errors.append(f"{in_batch} jobs wait in a half-price batch: /screen collect "

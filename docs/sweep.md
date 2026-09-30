@@ -62,9 +62,9 @@ by the strategy gate.
 3. **Collect** from each source: Gmail alerts, Adzuna, ATS feeds (Greenhouse, Lever,
    SmartRecruiters, Workday, amazon.jobs).
 4. **Normalise and scope.** Title filters, country and city, seniority, years required.
-5. **Dedupe and write.** Update the rows already in Notion. New jobs are ranked by a free
-   match score and only the best `sweep.daily_new_limit` (30) per day are created; see
-   "Best matches only" below. Before the cut, the full description of the jobs near the top
+5. **Dedupe and write.** Update the rows already in Notion. Every new job that passes the
+   rules is created (`sweep.daily_new_limit: 0`), ranked by a free match score; screening
+   takes the best 30 first. See "Every job saved, the best 30 screened" below. Before the cut, the full description of the jobs near the top
    is read from the job page ("Full descriptions" below).
 6. **Ghost risk** for every row touched.
 7. **Summary**, for example:
@@ -452,11 +452,28 @@ Lever, SmartRecruiters, Workday and amazon.jobs responses, job and careers pages
 Opportunities rows (a repost, a posting seen again, and an old row that becomes High ghost
 risk). All companies are invented and all email addresses are at `example.com`.
 
-## Best matches only (daily limit)
+## Every job saved, the best 30 screened
 
-A sweep can find hundreds of postings, but only the best 30 new ones per day are saved
-(`sweep.daily_new_limit` in `config/base.yaml`, counted across all sweeps that day in Bot
-State key `sweep.day`). Screening (the paid LLM step) then only ever sees those.
+Your decision of 30 Sep: no job that passes the rules is lost to a daily limit. Every new
+job that passes the title, place, age and fit rules is saved in Notion
+(`sweep.daily_new_limit: 0`; a number above 0 brings back a daily cap, counted across all
+sweeps that day in Bot State key `sweep.day`). Each saved job's match score is kept in Bot
+State `sweep.best_today`, and `/screen` (and `/screen batch`) takes today's best-scored rows
+first, up to `screening.daily_limit` (30): they are today's `/pending` list. The other new
+rows stay Unscreened in Notion, visible in the Today view, and are never dropped.
+
+Rules of 30 Sep that decide what "passes":
+- titles searched: DevOps, Site Reliability, Platform, Cloud, Kubernetes, Infrastructure and
+  DevSecOps Engineer (Adzuna, Jooble and the company job boards);
+- places: Poland, the Netherlands, Ireland, and remote jobs open across the EU or Europe
+  (`sweep.remote_regions`), saved as Country Other, City Remote (the resume says "Open to
+  relocate to Europe");
+- only postings of the last 2 days (`sweep.max_posted_age_days`);
+- B2B-only jobs in Poland, other languages, no sponsorship, too senior and low skill match
+  are still skipped;
+- when a job is on several sites, the best link is kept: the employer's page, then a job
+  board, then an aggregator (Adzuna, Jooble, EURES); a replaced link is added to the page as
+  "Also posted at".
 
 The ranking is free (no LLM, `src/jobengine/sweep/rank.py`) and uses your Skills Inventory,
 Term Map and Target Companies:
@@ -473,7 +490,6 @@ Term Map and Target Companies:
 | full description (not a snippet) | +1 |
 
 Ties go to the newest posting. Jobs already in Notion are always updated (seen again,
-reposts), whatever the limit. Jobs below the cut are not saved; if they are still posted,
-a later sweep can pick them up. The summary says how many were left out, for example
-`Kept the best 30 of 142 new jobs (daily limit 30, 0 already added today). 112 weaker
-matches were not saved.`
+reposts). With a daily cap set, jobs below the cut are not saved and the summary says how
+many, for example `Kept the best 30 of 142 new jobs (daily limit 30, 0 already added today).
+112 weaker matches were not saved.`

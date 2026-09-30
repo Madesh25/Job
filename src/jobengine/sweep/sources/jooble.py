@@ -25,7 +25,8 @@ BOARD = "Other"
 API_URL = "https://jooble.org/api/{key}"
 DEFAULT_COUNTRIES = ("Ireland", "Poland", "Netherlands")
 DEFAULT_TERMS = ("devops engineer", "site reliability engineer", "platform engineer",
-                 "cloud engineer")
+                 "cloud engineer", "kubernetes engineer", "infrastructure engineer",
+                 "devsecops engineer")
 
 Poster = Callable[[str, Any], Any]  # url, JSON body -> JSON answer
 
