@@ -85,6 +85,7 @@ class SweepSummary:
     updated: int = 0
     reposts: int = 0
     skipped: int = 0
+    skipped_by: dict[str, int] = field(default_factory=dict)  # reason -> count
     high_ghost: int = 0
     sources: dict[str, int] = field(default_factory=lambda: {"gmail": 0, "adzuna": 0, "ats": 0})
     not_supported: int = 0
@@ -110,6 +111,12 @@ class SweepSummary:
     full_tried: int = 0
     linkedin_filled: list[str] = field(default_factory=list)  # sweep/crossmatch.py
     alert_emails: int | None = None  # email alerts read (None: the source did not run)
+
+    def _skipped_detail(self) -> str:
+        if not self.skipped_by:
+            return ""
+        parts = sorted(self.skipped_by.items(), key=lambda item: -item[1])
+        return " (" + ", ".join(f"{SKIP_WORDS.get(why, why)}: {n}" for why, n in parts) + ")"
 
     def text(self) -> str:
         if self.blocked:
@@ -176,7 +183,7 @@ class SweepSummary:
             lines.extend(f"- {job}" for job in self.linkedin_filled)
         lines += [
             f"\U0001F501 Already in Notion, seen again: {self.updated + self.reposts}",
-            f"\U0001F6AB Not a match (skipped): {self.skipped}",
+            f"\U0001F6AB Not a match (skipped): {self.skipped}{self._skipped_detail()}",
         ]
         if self.high_ghost_jobs:
             lines += ["", f"\u26A0\uFE0F Possible ghost jobs (listed for a long time): "
@@ -195,6 +202,11 @@ class SweepSummary:
             lines += ["", "\u2139\uFE0F Not checked this time:"]
             lines.extend(f"- {item}" for item in self.not_checked)
         return "\n".join(lines)
+
+
+SKIP_WORDS = {"title not in scope": "title not DevOps-type", "title excluded": "senior or "
+              "other excluded title", "location not recognised": "place not recognised",
+              "country not active": "other country"}
 
 
 def _names(items: list[str], limit: int = 8) -> str:

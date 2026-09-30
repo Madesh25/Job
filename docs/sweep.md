@@ -326,11 +326,19 @@ up among this sweep's other postings (company boards, Adzuna, Jooble), in
    `sweep.gmail.job_url_patterns`.
 
 4. In Telegram, `/alertcheck` lists each alert email the next `/fetch` reads: board, sender,
-   subject and the jobs found in it. For an email with 0 jobs it shows where its links go, so
+   subject, the jobs found in it and how many are in scope (title and place), with up to 3
+   dropped jobs per email and why. For an email with 0 jobs it shows where its links go, so
    a pattern can be added. The `/fetch` summary has a line "Email alerts: N email(s) read, M
    job(s) found in them", and a failed Gmail read shows its reason there and in the log.
 
-Email alerts give title, company and place. For every board but LinkedIn the job link is
+Email alerts give title, company and place. The place is the line after the company, or the
+part after "·" when company and place share a line (LinkedIn: "co.brick · Warsaw, Mazowieckie,
+Poland"); other card lines are searched too. Boards that only list one country
+(`sweep.gmail.board_country`: JustJoin IT, NoFluffJobs, Pracuj.pl, theprotocol.it, Bulldogjob
+for Poland; IrishJobs.ie, Jobs.ie, JobsIreland for Ireland; IamExpat and Nationale
+Vacaturebank for the Netherlands) give that country when a card names only a city or none.
+The `/fetch` summary splits "Not a match" by reason (title, place not recognised, other
+country). For every board but LinkedIn the job link is
 followed to the real job page (at most `sweep.fulltext.max_pages` pages per sweep, shared with
 Adzuna and Jooble): the job's URL becomes that page and its full description is kept. LinkedIn
 links are never read; those jobs get a description from the same job on another site, or wait

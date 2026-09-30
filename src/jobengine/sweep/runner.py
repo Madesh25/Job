@@ -463,6 +463,8 @@ def run_sweep(
             outcome = normalize(raw, rules, active)
             if isinstance(outcome, Skipped):
                 summary.skipped += 1
+                why = outcome.reason.split(" (")[0]
+                summary.skipped_by[why] = summary.skipped_by.get(why, 0) + 1
                 log.debug("skipped %s: %s", raw.title, outcome.reason)
                 continue
             seen.append(outcome)

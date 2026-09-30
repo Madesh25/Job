@@ -242,6 +242,8 @@ def test_friendly_summary_counts_new_jobs_per_country(fake_run):
     # The 3 alert emails, with the jobs found in them.
     assert ("\U0001F4E7 Email alerts: 3 email(s) read, 6 job(s) found in them (/alertcheck "
             "shows each email)") in lines
+    assert ("\U0001F6AB Not a match (skipped): 3 (senior or other excluded title: 2, place not "
+            "recognised: 1)") in lines
     assert "Not checked this time" not in text
 
 
