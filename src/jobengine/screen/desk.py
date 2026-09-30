@@ -140,6 +140,21 @@ def match_counts(body: list[str]) -> dict[str, int]:
 ONE_AT_A_TIME = ("Check the resume: tap Approve resume, or Rebuild to change it. Then you "
                  "get the job link to apply, and the next job comes after I applied or Not "
                  "applying.")
+PENDING_COUNTRY = "pending.country"  # bot_state: {"country": <Country option> | None}
+REMOTE_EU = "Other"  # Country option of remote jobs open across the EU or Europe
+COUNTRY_ORDER = ("Poland", "Netherlands", "Ireland", REMOTE_EU)
+COUNTRY_WORDS = {"pl": "Poland", "poland": "Poland", "polska": "Poland",
+                 "nl": "Netherlands", "netherlands": "Netherlands", "holland": "Netherlands",
+                 "ie": "Ireland", "ireland": "Ireland",
+                 "remote": REMOTE_EU, "eu": REMOTE_EU, "europe": REMOTE_EU, "other": REMOTE_EU}
+CHOOSE_COUNTRY = ("Which country do you want to review now? Only that country's jobs come, "
+                  "one at a time, so you switch the VPN once.")
+
+
+def country_label(country: str | None) -> str:
+    return "Remote EU" if country in (None, "", REMOTE_EU) else country
+
+
 FETCH_HINT = ("After your last job: /fetchcontacts finds the contacts and writes the Gmail "
               "drafts, with the resume attached, for every job you applied to today.")
 NOT_APPLYING_ASK = "Why are you not applying? (It goes to Notion.)"
@@ -197,11 +212,60 @@ class Desk:
 
     # ------------------------------------------------------------ /pending
 
-    def ranked(self) -> list[JobRow]:
+    def all_ranked(self) -> list[JobRow]:
         assert self.repo is not None
         ref, today = self.reference(), self.today()
         rows = pending_rows(self.repo)
         return sorted(rows, key=lambda r: rank_key(r, ref, today), reverse=True)
+
+    def chosen_country(self) -> str | None:
+        """The country /pending shows (None: all), chosen with the country buttons."""
+        value = self.state.get(PENDING_COUNTRY) or {}
+        return value.get("country")
+
+    def choose_country(self, country: str | None) -> None:
+        self.state.set(PENDING_COUNTRY, {"country": country})
+
+    def ranked(self) -> list[JobRow]:
+        """The jobs to review, best first, only the chosen country's when one is chosen."""
+        rows = self.all_ranked()
+        country = self.chosen_country()
+        if not country:
+            return rows
+        return [r for r in rows if (r.country or REMOTE_EU) == country]
+
+    def country_menu(self, rows: list[JobRow] | None = None, text: str = CHOOSE_COUNTRY) -> Reply:
+        rows = self.all_ranked() if rows is None else rows
+        counts: dict[str, int] = {}
+        for row in rows:
+            key = row.country or REMOTE_EU
+            counts[key] = counts.get(key, 0) + 1
+        order = [c for c in COUNTRY_ORDER if c in counts] + sorted(
+            c for c in counts if c not in COUNTRY_ORDER)
+        buttons = [(f"{country_label(c)} ({counts[c]})", f"pc:{c}") for c in order]
+        buttons.append((f"All ({len(rows)})", "pc:all"))
+        return Reply(text, buttons)
+
+    def pending_command(self, args: str = "") -> list[Reply]:
+        """/pending: the country buttons when the jobs are in more than one country, else the
+        first card. /pending <country> (pl, nl, ie, remote, all) goes straight to it."""
+        if self.repo is None:
+            return [Reply(NO_TARGET)]
+        word = args.strip().lower()
+        if word:
+            if word == "all":
+                self.choose_country(None)
+            elif word in COUNTRY_WORDS:
+                self.choose_country(COUNTRY_WORDS[word])
+            else:
+                return [Reply("Send /pending, or /pending poland, netherlands, ireland, remote "
+                              "or all.")]
+            return self.pending(0)
+        rows = self.all_ranked()
+        if len({r.country or REMOTE_EU for r in rows}) <= 1:
+            self.choose_country(None)
+            return self.pending(0, rows)
+        return [self.country_menu(rows)]
 
     def ranker(self) -> Ranker:
         """The free skill matcher (sweep/rank.py), rebuilt when the reference data is."""
@@ -255,6 +319,8 @@ class Desk:
         if buttons:
             pid = short_id(row.page_id)
             keys = [("Approve", f"ap:{pid}"), ("Skip", f"sk:{pid}"), ("Next", f"nx:{index + 1}")]
+            if self.chosen_country():
+                keys.append(("Change country", "pc:menu"))
         return Reply("\n".join(lines), keys)
 
     def waiting_line(self) -> str | None:
@@ -271,6 +337,11 @@ class Desk:
         rows = self.ranked() if rows is None else rows
         waiting = self.waiting_line()
         if not rows:
+            country = self.chosen_country()
+            others = self.all_ranked() if country else []
+            if others:
+                return [self.country_menu(others, f"No more jobs for {country_label(country)}. "
+                                                  "Pick the next country:")]
             text = "Nothing to review right now."
             return [Reply("\n".join(t for t in (text, waiting) if t))]
         index = index % len(rows)
@@ -286,6 +357,11 @@ class Desk:
         action, _, arg = data.partition(":")
         if action == "nx":
             return self.pending(int(arg) if arg.isdigit() else 0)
+        if action == "pc" and arg:  # a country button of /pending
+            if arg == "menu":
+                return [self.country_menu()]
+            self.choose_country(None if arg == "all" else arg)
+            return self.pending(0)
         if action in ("ra", "rb", "rq", "ia", "na", "nr", "fg", "fc") and arg:
             return self.resume_tap(action, arg)
         if action in ("rc", "lk", "rd") and arg:
