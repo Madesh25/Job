@@ -12,7 +12,7 @@ import logging
 from datetime import date
 from typing import Any, Protocol
 
-from jobengine.notion_repo import NotionClient, notion_value, page_values
+from jobengine.notion_repo import NotionClient, notion_value, page_values, text_pieces
 from jobengine.safety import notion_write_target
 from jobengine.settings import Settings
 
@@ -77,7 +77,7 @@ class NotionBotState:
 
 def _long_text(text: str) -> dict[str, Any]:
     """A rich text value longer than 2000 characters: Notion takes up to 100 items of 2000."""
-    items = [text[i:i + TEXT_ITEM_CHARS] for i in range(0, len(text), TEXT_ITEM_CHARS)]
+    items = text_pieces(text, TEXT_ITEM_CHARS)
     if len(items) > MAX_TEXT_ITEMS:
         raise ValueError(f"bot_state value too long ({len(text)} characters)")
     return {"rich_text": [{"type": "text", "text": {"content": item}} for item in items]}
