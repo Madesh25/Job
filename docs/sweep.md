@@ -228,9 +228,15 @@ Adzuna's own job page says "Sorry, this job is not available in your region" whe
 from another country (India, for example). For new Adzuna jobs the sweep asks Adzuna for the
 employer's own job page (`/land/ad/<id>`, the same redirect as Adzuna's Apply button) and, when
 it leads to the employer's site, saves that link as the job's URL and reads the description
-there. When Adzuna refuses that too, the Adzuna link and its text stay. Rows already in Notion
-keep their Adzuna link; open those through a VPN set to the job's country, or search the title
-and company on the employer's site.
+there. When Adzuna refuses that too, the Adzuna link and its text stay.
+
+When you tap **Approve resume** on a job that still has an Adzuna link (rows swept before, or
+where the sweep's try failed), the bot follows the same redirect once more (`apply/link.py`).
+When it reaches the employer's site, "Apply here" shows that link, the job's URL becomes it
+and the Adzuna link is noted on the page. When it does not (Adzuna often refuses requests
+from outside Europe, so a bot running on your PC in India may not get through; the Cloud Run
+bot in Europe usually does), "Apply here" keeps the Adzuna link and adds a web search for the
+job on the company's own site, and a note that a VPN set to the job's country opens it.
 
 ## Seeing jobs day by day in Notion
 

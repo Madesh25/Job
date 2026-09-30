@@ -6,8 +6,9 @@
   never the posting's wording: "Senior Site Reliability Engineer (m/f/d)" gives "Site
   Reliability Engineer". No approved title in the role: the headline stays as in the master.
 - Relocation line (p.reloc): `resume.relocation_template` with {place} (the job's city and
-  country), {city} and {country}. A "\n" in the template starts a new line, for example
-  "Chennai, India\nOpen to relocate to {country}". Without a template the Config
+  country), {city} and {country}, always on one line: a "\n" in the template becomes " | ",
+  so "Chennai, India\nOpen to relocate to {country}" gives "Chennai, India | Open to
+  relocate to Poland". Without a template the Config
   `resume.relocation_line` stays as it is.
 
 The skills and bullets are untouched, so the integrity gate is unchanged.
@@ -79,7 +80,8 @@ def _swap_headline(html: str, title: str) -> str:
 
 
 def _swap_reloc(html: str, line: str) -> str:
-    inner = "<br>".join(htmllib.escape(part.strip()) for part in line.split("\n")
+    """One line in the header: the template's lines are joined with " | "."""
+    inner = " | ".join(htmllib.escape(part.strip()) for part in line.split("\n")
                         if part.strip())
     return RELOC_RE.sub(lambda m: m.group(1) + inner + m.group(3), html, count=1)
 
