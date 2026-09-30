@@ -245,6 +245,13 @@ sets `Status` to `Screened` only if it is `New` or `Screened`, so a row never mo
   already read, so it needs 2 Notion requests instead of 4.
 - `/fetch` runs the sweep, then screening, and ends with `N ready to review: /pending`.
 - `/pending` shows one card at a time, best first, with `Approve`, `Skip` and `Next`.
+- One country at a time (30 Sep): when the jobs waiting are in more than one country,
+  `/pending` first shows a button per country with its count (Poland, Netherlands, Ireland,
+  Remote EU for remote jobs open across Europe) and All. After a tap only that country's
+  jobs come, and the next job after Skip, I applied or Not applying stays in it, so the VPN
+  is switched once per country. Each card has `Change country`; when a country is done the
+  buttons of the others come. `/pending poland` (pl), `netherlands` (nl), `ireland` (ie),
+  `remote` or `all` goes straight to one. The choice is kept in Bot State `pending.country`.
   Below the screening match counts the card shows, from the description and your reference
   data (free, no AI, `sweep/rank.py`):
   - `Skill match: 75% (3 of 4 tools it names)`: the tools the job names that you have.
