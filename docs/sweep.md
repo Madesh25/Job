@@ -17,7 +17,23 @@ python -m jobengine.sweep --source adzuna
 
 # Check the Gmail alert parser against real emails without writing anything
 python -m jobengine.sweep --parse-report
+
+# Measure job sites before a reader is built (FETCH 1); writes nothing to Notion
+python -m jobengine.sweep --probe all
+python -m jobengine.sweep --probe justjoin
 ```
+
+`--probe` runs one search per approved title (DevOps, SRE, Platform, Cloud Engineer), newest
+first, on JustJoin IT (`justjoin`), NoFluffJobs (`nofluffjobs`), Pracuj.pl (`pracuj`),
+theprotocol.it (`theprotocol`), EURES for PL, NL and IE (`eures`), IamExpat (`iamexpat`),
+Nationale Vacaturebank (`nvb`) and IrishJobs.ie (`irishjobs`). Per site and title it prints
+the answer (OK, the HTTP code, or robots.txt disallows), the kind (JSON, page data JSON in a
+web page, plain web page), the size and a rough count of dates in the last 2 days, and saves
+the raw answer to `out/probes/<site>-<title>.json` or `.html` for building the reader. It
+reads robots.txt first, waits a second between requests, sends plain requests only (no
+browser, no login, nothing that works around bot protection) and never probes LinkedIn.
+In Docker: `docker run --rm -it --env-file .env -v "%cd%\out:/app/out" job-engine python -m
+jobengine.sweep --probe all` (cmd; `${PWD}` in PowerShell).
 
 In Telegram, `/fetch` runs the same sweep. It replies at once, keeps one message updated with
 the current step in plain words ("Searching Adzuna...", "Saving to your Notion: 125 of 300

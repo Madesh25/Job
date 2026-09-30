@@ -1,4 +1,5 @@
-"""CLI: python -m jobengine.sweep [--fake] [--source ...] [--today YYYY-MM-DD] [--parse-report]"""
+"""CLI: python -m jobengine.sweep [--fake] [--source ...] [--today YYYY-MM-DD] [--parse-report]
+[--probe SITE|all]"""
 
 from __future__ import annotations
 
@@ -11,7 +12,7 @@ from jobengine import http
 from jobengine.main import banner
 from jobengine.safety import SafetyError, check_startup
 from jobengine.settings import Settings, get_settings
-from jobengine.sweep import fakes
+from jobengine.sweep import fakes, probe
 from jobengine.sweep.runner import SOURCES, SweepError, fake_deps, real_deps, run_sweep
 from jobengine.sweep.sources import gmail_alerts
 
@@ -38,6 +39,9 @@ def main(argv: list[str] | None = None) -> int:
                         help="run as if today were this date (YYYY-MM-DD)")
     parser.add_argument("--parse-report", action="store_true",
                         help="print what the Gmail alert parser extracts, write nothing")
+    parser.add_argument("--probe", choices=[*probe.SITES, "all"],
+                        help="measure a job site (or all) for the approved titles and save "
+                             "samples in out/probes; writes nothing to Notion")
     args = parser.parse_args(argv)
 
     # Progress lines go to stderr; the summary is printed to stdout at the end.
@@ -52,6 +56,10 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.parse_report:
         return parse_report(s, args.fake)
+    if args.probe:
+        names = list(probe.SITES) if args.probe == "all" else [args.probe]
+        print(probe.run(s, names, args.today or date.today()).text())
+        return 0
 
     today = args.today or (fakes.FAKE_TODAY if args.fake else date.today())
     sources = SOURCES if args.source == "all" else (args.source,)

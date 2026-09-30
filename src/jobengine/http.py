@@ -200,16 +200,22 @@ def patch_json(
 
 
 def get_page(
-    url: str, s: Settings | None = None, max_bytes: int = PAGE_MAX_BYTES
+    url: str, s: Settings | None = None, max_bytes: int = PAGE_MAX_BYTES, *,
+    accept_json: bool = False, json_body: Any = None,
 ) -> tuple[str, str]:
     """Read one public job page: (final URL, text). Plain GET, no cookies, no login.
 
     Redirects are followed by hand (at most PAGE_MAX_REDIRECTS) so every hop is checked by
     safety.assert_page_fetch_allowed. Bodies over max_bytes and non HTML answers fail.
     Raises HttpError, never SafetyError (a refused hop is just a page that cannot be read).
+    `accept_json`: a JSON answer is read too (a job board's public search). `json_body`: the
+    request is a POST with that JSON (a public search form); a redirect is then a GET.
     """
     s = s or get_settings()
-    headers = {"User-Agent": PAGE_USER_AGENT, "Accept": "text/html,application/xhtml+xml"}
+    types = (*PAGE_TYPES, "application/json") if accept_json else PAGE_TYPES
+    accept = "application/json,text/html" if accept_json else "text/html,application/xhtml+xml"
+    headers = {"User-Agent": PAGE_USER_AGENT, "Accept": accept}
+    method = "GET" if json_body is None else "POST"
     with httpx.Client(transport=_transport, timeout=PAGE_TIMEOUT_SECONDS,
                       follow_redirects=False) as client:
         for _ in range(PAGE_MAX_REDIRECTS + 1):
@@ -217,21 +223,23 @@ def get_page(
                 assert_page_fetch_allowed(url, s)
             except SafetyError as exc:
                 raise HttpError(f"page not read: {exc}") from None
-            where = f"GET {safe_url(url)}"
+            where = f"{method} {safe_url(url)}"
             client.cookies.clear()
+            body_kw = {"json": json_body} if method == "POST" else {}
             try:
-                with client.stream("GET", url, headers=headers) as resp:
+                with client.stream(method, url, headers=headers, **body_kw) as resp:
                     if resp.is_redirect:
                         location = resp.headers.get("location")
                         if not location:
                             raise HttpError(f"{where} failed: redirect without a location")
                         url = urljoin(url, location)
+                        method = "GET"
                         continue
                     if resp.status_code >= 400:
                         raise HttpError(f"{where} failed: HTTP {resp.status_code}",
                                         resp.status_code)
                     kind = resp.headers.get("content-type", "").split(";")[0].strip().lower()
-                    if kind and kind not in PAGE_TYPES:
+                    if kind and kind not in types:
                         raise HttpError(f"{where} failed: not a web page ({kind})")
                     body = bytearray()
                     for chunk in resp.iter_bytes():
