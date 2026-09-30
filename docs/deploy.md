@@ -58,7 +58,10 @@ PROJECT_NUMBER="$(gcloud projects describe $PROJECT --format='value(projectNumbe
       gcloud iam service-accounts create job-engine-deployer --project $PROJECT
       # job-pipeline-runner (prod runtime) already exists.
       DEPLOYER=job-engine-deployer@$PROJECT.iam.gserviceaccount.com
-      for role in roles/run.admin roles/artifactregistry.writer roles/cloudbuild.builds.editor; do
+      # secretmanager.viewer: the deploy checks which optional secrets exist (names only,
+      # never their values).
+      for role in roles/run.admin roles/artifactregistry.writer roles/cloudbuild.builds.editor \
+                  roles/secretmanager.viewer; do
         gcloud projects add-iam-policy-binding $PROJECT \
           --member serviceAccount:$DEPLOYER --role $role
       done
@@ -112,7 +115,14 @@ or `gcloud secrets versions add NAME --data-file=-` for a new value). Names are 
 | `ADZUNA_APP_ID`, `ADZUNA_APP_KEY` | `adzuna-app-id`, `adzuna-app-key` | same |
 | `APOLLO_API_KEY`, `HUNTER_API_KEY` | not mounted | `apollo-api-key`, `hunter-api-key` |
 | `SNOV_CLIENT_ID`, `SNOV_CLIENT_SECRET` | not mounted | `snov-client-id`, `snov-client-secret` |
-| `PROSPEO_API_KEY`, `TOMBA_API_KEY`, `TOMBA_API_SECRET` | not mounted | `prospeo-api-key`, `tomba-api-key`, `tomba-api-secret` (create them, then add to `SECRETS` in deploy.yml) |
+| `JOOBLE_API_KEY` (optional) | `jooble-api-key` | `jooble-api-key` |
+| `GITHUB_TOKEN` (optional) | `github-token` | `github-token` |
+| `PROSPEO_API_KEY`, `TOMBA_API_KEY`, `TOMBA_API_SECRET` (optional) | not mounted | `prospeo-api-key`, `tomba-api-key`, `tomba-api-secret` |
+| `LUSHA_API_KEY` (optional) | not mounted | `lusha-api-key` |
+
+Optional secrets are mounted only when they exist: the deploy checks each name and logs
+"Mounting optional secret ..." or "... not found: skipped". Create one, give the runtime
+account access (below), and the next deploy picks it up; no change to deploy.yml.
 
 - [ ] Create a DEV bot with @BotFather; store its token as `telegram-token-dev`. The existing
       `telegram-bot-token` value becomes `telegram-token-prod`.
@@ -125,7 +135,8 @@ or `gcloud secrets versions add NAME --data-file=-` for a new value). Names are 
       `gmail-m02-token` only:
       ```bash
       for s in notion-token-dev telegram-token-dev telegram-chat-id telegram-webhook-secret-dev \
-               anthropic-key-dev gmail-m02-token adzuna-app-id adzuna-app-key; do
+               anthropic-key-dev gmail-m02-token adzuna-app-id adzuna-app-key \
+               jooble-api-key github-token; do
         gcloud secrets add-iam-policy-binding $s --project $PROJECT \
           --member serviceAccount:job-engine-dev-runner@$PROJECT.iam.gserviceaccount.com \
           --role roles/secretmanager.secretAccessor
@@ -134,7 +145,10 @@ or `gcloud secrets versions add NAME --data-file=-` for a new value). Names are 
 - [ ] **Access, prod:** `job-pipeline-runner` gets the same role on the prod secrets
       (`notion-token-prod`, `telegram-token-prod`, `telegram-chat-id`,
       `telegram-webhook-secret-prod`, `anthropic-key-prod`, `gmail-m02-token`,
-      `gmail-main-token`, `adzuna-*`, `apollo-api-key`, `hunter-api-key`, `snov-client-*`).
+      `gmail-main-token`, `adzuna-*`, `apollo-api-key`, `hunter-api-key`, `snov-client-*`,
+      and the optional ones you created: `jooble-api-key`, `github-token`,
+      `prospeo-api-key`, `tomba-api-*`, `lusha-api-key`). An optional secret the runtime
+      account cannot read makes the deploy fail, so grant access before the next deploy.
       The dev account must not be able to read any prod secret.
 - [ ] After go-live, delete the old refresh-token-only secrets.
 

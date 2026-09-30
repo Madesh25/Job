@@ -74,6 +74,26 @@ jobs:
             } >> "$GITHUB_ENV"
           fi
 
+      - name: Add the optional secrets that exist
+        run: |
+          # ENV_VAR=secret-name pairs mounted only when the secret exists in Secret Manager,
+          # so a key you have not created yet never breaks the deploy (docs/deploy.md, B2).
+          if [ "$APP_ENV" = "prod" ]; then
+            OPTIONAL="JOOBLE_API_KEY=jooble-api-key GITHUB_TOKEN=github-token PROSPEO_API_KEY=prospeo-api-key TOMBA_API_KEY=tomba-api-key TOMBA_API_SECRET=tomba-api-secret LUSHA_API_KEY=lusha-api-key"
+          else
+            OPTIONAL="JOOBLE_API_KEY=jooble-api-key GITHUB_TOKEN=github-token"
+          fi
+          for pair in $OPTIONAL; do
+            name="${pair#*=}"
+            if gcloud secrets describe "$name" --project "$PROJECT" >/dev/null 2>&1; then
+              SECRETS="${SECRETS},${pair}:latest"
+              echo "Mounting optional secret ${name}"
+            else
+              echo "Optional secret ${name} not found (or not visible to the deployer): skipped"
+            fi
+          done
+          echo "SECRETS=${SECRETS}" >> "$GITHUB_ENV"
+
       - name: Build and push the image
         run: |
           IMAGE="${REGION}-docker.pkg.dev/${PROJECT}/job-engine/job-engine:${SHA}"
