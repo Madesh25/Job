@@ -121,7 +121,8 @@ resume:
   # Config keys resume.headline_titles and resume.relocation_template win when set.
   headline_titles: "DevOps Engineer, Site Reliability Engineer, Platform Engineer, Cloud Engineer,
     Infrastructure Engineer, Kubernetes Engineer"
-  relocation_template: "Chennai, India (relocating to {place})"
+  # {place} = the job's city and country, {city}, {country}; "\n" starts a new line.
+  relocation_template: "Chennai, India\nOpen to relocate to {country}"
 contacts:
   # Title patterns (lowercase regex), checked in this order. Anything else is Other.
   title_patterns:

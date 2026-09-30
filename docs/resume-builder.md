@@ -40,9 +40,17 @@ Rebuild -> "What should change?" (your next message, within 30 minutes, or a rep
   is the instruction) [Rebuild as it is]
 Reply to the preview with a correction ("drop Oracle") -> next revision
 Approve resume -> re-render from the stored plan, save to Drive (or out/), tick Approved
-  -> "Resume approved and saved. Apply here: <URL>" [I applied]
-I applied -> Status "Applied", Applied date and Last activity date today
+  -> the Apply pack, then "Resume approved and saved. Apply here: <URL>"
+     [I applied] [Not applying] [Find contacts]
+I applied -> Status "Applied", Applied date and Last activity date today -> the next job
+Not applying -> "Why?" [the job is closed or expired] [not a fit after all] [another reason]
+  -> Status "Declined", Skip reason Expired or Other, a note on the page -> the next job
 ```
+
+- **One job at a time.** After Approve in /pending the next job is not shown while this
+  job's resume waits for Approve resume or Rebuild, and then for I applied or Not applying.
+  A build that fails leaves nothing to review, so the next job comes at once. Skip still
+  shows the next job at once.
 
 - A second Approve tap shows the latest preview; it does not build again.
 - The preview file is named like the final one (`Madeshwaran_Devops_<Company>.pdf`); the
@@ -129,6 +137,6 @@ renderer) run anywhere; the tests marked `render` are skipped when Pango or Lato
 
 ## Per-job header (PR 11)
 
-The headline's first part and the relocation line change per job (your approved titles and
+The headline and the relocation line change per job (your approved titles and
 `resume.relocation_template`); see [apply-pack.md](apply-pack.md). Skills, bullets and the
 integrity gate are unchanged.

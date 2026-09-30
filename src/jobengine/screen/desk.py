@@ -137,6 +137,16 @@ def match_counts(body: list[str]) -> dict[str, int]:
     return counts
 
 
+ONE_AT_A_TIME = ("Check the resume: tap Approve resume, or Rebuild to change it. Then you "
+                 "get the job link to apply, and the next job comes after I applied or Not "
+                 "applying.")
+NOT_APPLYING_ASK = "Why are you not applying? (It goes to Notion.)"
+# code -> (what you tapped, the Skip reason option)
+NOT_APPLYING = {"c": ("the job is closed or expired", "Expired"),
+                "f": ("not a fit after all", "Other"),
+                "o": ("another reason", "Other")}
+
+
 class Desk:
     def __init__(
         self,
@@ -271,7 +281,7 @@ class Desk:
         action, _, arg = data.partition(":")
         if action == "nx":
             return self.pending(int(arg) if arg.isdigit() else 0)
-        if action in ("ra", "rb", "rq", "ia", "fg", "fc") and arg:
+        if action in ("ra", "rb", "rq", "ia", "na", "nr", "fg", "fc") and arg:
             return self.resume_tap(action, arg)
         if action in ("rc", "lk", "rd") and arg:
             return self.track_tap(action, data)
@@ -309,7 +319,7 @@ class Desk:
         status = (values or {}).get("Status")
         if action == "ap" and self.resume and status in resume_builder.BUILDABLE_STATUSES:
             # A second Approve tap: show the latest preview instead of building again.
-            return [*self.on_job_approved(arg, values or {}), *self.pending(position)]
+            return self.after_build(self.on_job_approved(arg, values or {}), position)
         if not values or status != "Screened":
             return [Reply("Already handled"), *self.pending(position)]
         page_id = next((r.page_id for r in before if same_page(r.page_id, arg)), arg)
@@ -317,11 +327,18 @@ class Desk:
         if action == "ap":
             self.repo.update(page_id, {"Status": "Approved"})
             self.say(Reply(APPROVED_TEXT.format(job=job)))
-            replies = self.on_job_approved(page_id, values)
-        else:
-            self.repo.update(page_id, {"Status": "Declined"})
-            replies = [Reply(f"Skipped: {job}")]
-        return [*replies, *self.pending(position, rest)]
+            return self.after_build(self.on_job_approved(page_id, values), position, rest)
+        self.repo.update(page_id, {"Status": "Declined"})
+        return [Reply(f"Skipped: {job}"), *self.pending(position, rest)]
+
+    def after_build(self, replies: list[Reply], position: int = 0,
+                    rest: list[JobRow] | None = None) -> list[Reply]:
+        """One job at a time: while its resume waits for you (Approve resume or Rebuild) and
+        then for I applied or Not applying, the next job is not shown. A build that failed
+        leaves nothing to review, so the next job comes at once."""
+        if self.resume is None or not any(r.document for r in replies):
+            return [*replies, *self.pending(position, rest)]
+        return [*replies, Reply(ONE_AT_A_TIME)]
 
     # ------------------------------------------------------------ resumes (Module 04)
 
@@ -394,20 +411,59 @@ class Desk:
             return [Reply(REBUILD_ASK.format(ref=resume_builder.short_ref(arg)),
                           [("Rebuild as it is", f"rb:{short_id(job_id)}")])]
         if action == "ia":
-            return [Reply(resume_builder.mark_applied(self.resume, arg))]
+            return [Reply(resume_builder.mark_applied(self.resume, arg)), *self.next_job()]
+        if action == "na":  # "Not applying": why?
+            return [Reply(NOT_APPLYING_ASK, [(label, f"nr:{arg}:{code}")
+                                             for code, (label, _) in NOT_APPLYING.items()])]
+        if action == "nr":
+            job_id, _, code = arg.partition(":")
+            return [Reply(self.not_applying(job_id, code)), *self.next_job()]
         result = resume_builder.finalise(self.resume, arg)
         if result.status == "newer":
             latest = [self.preview(result.latest)] if result.latest else []
             return [Reply(result.message), *latest]
         if result.status == "approved" and result.job_id:
             # Nothing runs by itself: the next steps are buttons.
-            buttons = [("I applied", f"ia:{short_id(result.job_id)}")]
+            job = short_id(result.job_id)
+            buttons = [("I applied", f"ia:{job}"), ("Not applying", f"na:{job}")]
             text = result.message
             if self.contacts is not None:
-                buttons.append(("Find contacts", f"ct:{short_id(result.job_id)}"))
-                text += "\nNext: tap Find contacts for people to write to, or I applied."
-            return [Reply(text, buttons), *self.apply_pack(result.job_id)]
+                buttons.append(("Find contacts", f"ct:{job}"))
+                text += "\nNext: tap Find contacts for people to write to."
+            text += ("\nWhen you are done, tap I applied (or Not applying): then the next job "
+                     "comes.")
+            return [*self.apply_pack(result.job_id), Reply(text, buttons)]
         return [Reply(result.message)]
+
+    def next_job(self) -> list[Reply]:
+        """After I applied or Not applying: the next job to review, if any."""
+        if self.repo is None:
+            return []
+        return self.pending(0)
+
+    def not_applying(self, job_id: str, code: str) -> str:
+        """Not applying after the resume: Status Declined, the reason in Skip reason and a
+        note on the page, so the job leaves every list."""
+        from jobengine.resume.builder import notion_id
+
+        if self.repo is None:
+            return NO_TARGET
+        job_id = notion_id(job_id)
+        values = self.repo.get_values(job_id)
+        if not values:
+            return "That job is no longer in Job Opportunities."
+        if values.get("Status") not in resume_builder.BUILDABLE_STATUSES:
+            return f"Already handled (Status is {values.get('Status') or 'empty'})."
+        label, reason = NOT_APPLYING.get(code, NOT_APPLYING["o"])
+        self.repo.update(job_id, {"Status": "Declined", "Skip reason": reason,
+                                  "Last activity date": self.today()})
+        if self.deps.write:
+            try:
+                self.repo.append_body(job_id, [
+                    f"Not applied ({self.today().isoformat()}): {label}"])
+            except http.HttpError as exc:
+                log.warning("could not note the reason on %s: %s", job_id, exc)
+        return f"Marked as not applied: {values.get('Company')}, {values.get('Role')} ({label})."
 
     # ------------------------------------------------------------ Apply pack (PR 11)
 

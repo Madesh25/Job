@@ -639,15 +639,19 @@ def test_approve_resume_old_revision_rebuild_and_i_applied(desk):
     assert fake.sent[0][1] == "[LOCAL] A newer revision exists"
     assert "(version 2)" in fake.sent[1][1]
     fake = talk(desk, tap(1, f"ra:{new}"))
-    assert fake.sent[0][1] == ("[LOCAL] Resume approved and saved. Apply here: "
+    assert fake.sent[0][1].startswith("[LOCAL] Apply pack (")  # the form answers first
+    assert fake.sent[1][1] == ("[LOCAL] Resume approved and saved. Apply here: "
                                "https://jobs.example.com/pl-clean\nNext: tap Find contacts for "
-                               "people to write to, or I applied.")
-    assert fake.buttons[0] == ["ia:pl-clean", "ct:pl-clean"]
+                               "people to write to.\nWhen you are done, tap I applied (or Not "
+                               "applying): then the next job comes.")
+    assert fake.buttons[1] == ["ia:pl-clean", "na:pl-clean", "ct:pl-clean"]
     row = desk.resume.resume_log.get(new)
     assert row["Approved"] is True and row["File"].startswith("DRY RUN: ")
-    fake = talk(desk, tap(1, "ia:pl-clean"), tap(2, "ia:pl-clean"))
+    fake = talk(desk, tap(1, "ia:pl-clean"))
     assert fake.sent[0][1].startswith("[LOCAL] Marked as applied on 2026-10-01")
-    assert fake.sent[1][1] == "[LOCAL] Already handled (Status is Applied)."
+    assert len(fake.sent) == 2  # then the next job to review (or "Nothing to review")
+    fake = talk(desk, tap(2, "ia:pl-clean"))
+    assert fake.sent[0][1] == "[LOCAL] Already handled (Status is Applied)."
     assert desk.repo.rows["pl-clean"]["Status"] == "Applied"
 
 
@@ -685,9 +689,10 @@ def test_resume_approval_offers_contacts_then_drafts_as_buttons(desk):
     talk(desk, tap(1, "ap:pl-clean"))
     fake = talk(desk, tap(1, "ra:00000001000040008000000000000001"))
     texts = [t for _, t in fake.sent]
-    assert len(texts) == 2 and texts[0].startswith("[LOCAL] Resume approved and saved.")
-    assert texts[1].startswith("[LOCAL] Apply pack (")  # PR 11: ready form answers
-    assert fake.buttons[0] == ["ia:pl-clean", "ct:pl-clean"]  # nothing looked up yet
+    assert len(texts) == 2 and texts[1].startswith("[LOCAL] Resume approved and saved.")
+    assert texts[0].startswith("[LOCAL] Apply pack (")  # PR 11: ready form answers
+    # Nothing looked up yet; the buttons are on the last message.
+    assert fake.buttons[1] == ["ia:pl-clean", "na:pl-clean", "ct:pl-clean"]
     assert not desk.repo.rows["pl-clean"].get("Contacts")
     fake = talk(desk, tap(2, "ct:pl-clean"))
     texts = [t for _, t in fake.sent]
