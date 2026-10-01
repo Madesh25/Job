@@ -50,3 +50,34 @@ def test_fetchcontacts_skips_agency_posts():
     assert texts[1].startswith("Vistula Cloud, DevOps Engineer: a recruitment agency's post")
     assert "Agency posts, no cold mails: Vistula Cloud, DevOps Engineer" in texts[-1]
     assert not d.repo.rows["pl-clean"].get("Contacts")
+
+
+def test_fetch_marks_agency_posts_when_it_saves_them():
+    # 1 Oct test T10: Verks Recruitment and VERITA HR were saved unmarked, and screening
+    # skipped them (Tech mismatch) before the agency check ran. /fetch now marks them.
+    from test_runner import TODAY, S
+
+    from jobengine.bot_state import FakeBotState
+    from jobengine.config_store import ConfigRow, ConfigStore
+    from jobengine.sweep.runner import fake_deps, run_sweep
+
+    deps = fake_deps(S)
+    store = ConfigStore.fake()
+    rows = dict(store._rows)
+    rows["agency_names"] = ConfigRow(key="agency_names", value="Liffey Analytics, Odra Systems")
+    deps.config = lambda: ConfigStore(rows)
+    run_sweep(S, deps, TODAY, state=FakeBotState())
+    flags = {v["Company"]: v.get("Visa flags") for v in deps.repo.rows.values()}
+    assert flags["Liffey Analytics Ltd"] == ["Agency posting (IE)"]
+    assert flags["Odra Systems S.A."] == ["Agency posting"]
+    assert flags["Northwind Cloud"] is None
+
+
+def test_agency_words_in_the_company_name():
+    from jobengine.config_store import ConfigStore
+    from jobengine.screen.visa import agency_by_name
+
+    config = ConfigStore.fake()
+    assert agency_by_name("Verks Recruitment", config)
+    assert agency_by_name("VERITA HR POLSKA", config)
+    assert not agency_by_name("Mastercard", config)

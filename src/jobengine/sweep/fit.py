@@ -78,6 +78,16 @@ _STOPWORDS = {
     "Dutch": frozenset("de het een en van voor met je wij jouw bij ons naar zijn is".split()),
 }
 MIN_WORDS = 15  # fewer common words than this: too short to tell
+# A short text (an Adzuna snippet) needs fewer words but a clearer lead over English
+# (1 Oct test T6: a Dutch and a Polish snippet were saved).
+MIN_WORDS_SHORT = 5
+SHORT_LEAD = 3
+# Words of a job title that only a Polish or Dutch title has ("Inżynier DevOps (k/m)").
+_TITLE_WORDS = {
+    "Polish": re.compile(r"\b(?:in[z\u017c]ynier\w*|specjalist\w*|programist\w*|"
+                         r"administrator\w* system\w*|ds\.)", re.IGNORECASE),
+    "Dutch": re.compile(r"\b(?:medewerker|beheerder|ontwikkelaar|adviseur)\b", re.IGNORECASE),
+}
 
 
 def written_in(text: str | None) -> str | None:
@@ -86,6 +96,17 @@ def written_in(text: str | None) -> str | None:
     counts = {lang: sum(w in stop for w in words) for lang, stop in _STOPWORDS.items()}
     for lang in ("Polish", "Dutch"):
         if counts[lang] >= MIN_WORDS and counts[lang] >= 2 * counts["English"]:
+            return lang
+        if counts[lang] >= MIN_WORDS_SHORT and counts[lang] >= SHORT_LEAD * max(
+                counts["English"], 1):
+            return lang
+    return None
+
+
+def title_written_in(title: str | None) -> str | None:
+    """"Polish" or "Dutch" for a title written in that language, else None."""
+    for lang, pattern in _TITLE_WORDS.items():
+        if title and pattern.search(title):
             return lang
     return None
 
@@ -104,7 +125,7 @@ def title_language(title: str | None) -> str | None:
 
 def language_block(description: str | None, title: str | None = None) -> str | None:
     """The language the job needs that is not English ("Polish", "German"), else None."""
-    lang = title_language(title)
+    lang = title_language(title) or title_written_in(title)
     if lang or not description:
         return lang
     segments = _required_segments(description)

@@ -102,17 +102,24 @@ def _agency_names(config: ConfigStore) -> set[str]:
     return names | {company_key(name) for name in KNOWN_AGENCIES}
 
 
-def is_agency(company: str | None, ext: Extraction, config: ConfigStore) -> bool:
-    """A recruitment agency's post: the screening answer says so, the company is a known
-    agency, or its name says recruitment, staffing, personnel and the like."""
-    if ext.agency_posting.value is True:
-        return True
+def agency_flag(country: str | None) -> str:
+    return AGENCY_IE if country == "Ireland" else AGENCY
+
+
+def agency_by_name(company: str | None, config: ConfigStore) -> bool:
+    """The company is a known agency, or its name says recruitment, staffing, personnel and
+    the like. Used by /fetch, before any AI reads the job."""
     if not company:
         return False
     key = company_key(company)
     # "Hays Poland", "Verita HR Polska": the agency's name, then a country or a branch.
     named = any(key == name or key.startswith(name + " ") for name in _agency_names(config))
     return named or AGENCY_WORDS.search(company) is not None
+
+
+def is_agency(company: str | None, ext: Extraction, config: ConfigStore) -> bool:
+    """A recruitment agency's post: the screening answer says so, or agency_by_name."""
+    return ext.agency_posting.value is True or agency_by_name(company, config)
 
 
 def visa_checks(
@@ -141,7 +148,7 @@ def visa_checks(
     if is_agency(row.company, ext, config):
         # Ireland: an agency cannot hold a Critical Skills permit for you (tiering caps it).
         # Elsewhere the job is kept as it is, only no cold mails go out for it.
-        result.add(AGENCY_IE if country == "Ireland" else AGENCY)
+        result.add(agency_flag(country))
 
     salary = annual_amount(ext.salary_text.value)
     threshold = config_amount(config, f"visa.salary_threshold.{country.lower()}")

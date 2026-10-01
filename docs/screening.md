@@ -203,7 +203,9 @@ risk High -5, Medium -2; posted in the last 7 days +1.
   staffing, personnel, headhunting, executive search, talent solutions or human capital.
   Ireland: `Agency posting (IE)` (an agency cannot hold a Critical Skills permit for you, so
   the job is capped as below). Other countries: `Agency posting`, the job is kept as it is.
-  Either way the outreach planner and `/fetchcontacts` send no cold mails and spend no
+  `/fetch` already marks a new job whose company name is an agency's, and screening marks
+  it even when a skip rule fires (1 Oct: Verks Recruitment and VERITA HR were skipped
+  unmarked). Either way the outreach planner and `/fetchcontacts` send no cold mails and spend no
   credits on it (apply through the agency); `/contacts <job>` still works if you want.
 - Salary: `Salary below visa minimum` only when the text states a salary with a clear period
   (per year or per month) and Config has `visa.salary_threshold.<country>`. Ireland also gets

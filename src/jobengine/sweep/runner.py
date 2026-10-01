@@ -14,6 +14,7 @@ from jobengine.notion_repo import JobsRepo, NotionClient, NotionReader, jobs_rep
 from jobengine.parallel import run_all
 from jobengine.reference import Reference
 from jobengine.safety import notion_write_target
+from jobengine.screen.visa import agency_by_name, agency_flag
 from jobengine.settings import Settings
 from jobengine.sweep import best, crossmatch, fakes, fit, fulltext
 from jobengine.sweep.dedupe import IndexRow, create_plan, description_blocks, update_plan
@@ -455,6 +456,8 @@ def run_sweep(
     def create_new(job: Job) -> None:
         nonlocal dry_ids
         plan = create_plan(job, today)
+        if agency_by_name(job.company, config):  # kept and marked: no cold mails (30 Sep)
+            plan["Visa flags"] = [agency_flag(job.country)]
         blocks = description_blocks(job)
         if repo:
             page_id = repo.create(plan, blocks)
