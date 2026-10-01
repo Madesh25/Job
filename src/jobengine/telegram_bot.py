@@ -83,6 +83,30 @@ HELP_TEXT = (
 )
 
 
+MESSAGE_LIMIT = 4000  # Telegram allows 4096 characters per message
+
+
+def split_text(text: str, limit: int = MESSAGE_LIMIT) -> list[str]:
+    """`text` in parts of at most `limit` characters, cut at line ends where possible."""
+    parts: list[str] = []
+    current = ""
+    for line in text.split("\n"):
+        while len(line) > limit:  # a single very long line: cut it
+            if current:
+                parts.append(current)
+                current = ""
+            parts.append(line[:limit])
+            line = line[limit:]
+        candidate = f"{current}\n{line}" if current else line
+        if len(candidate) > limit:
+            parts.append(current)
+            current = line
+        else:
+            current = candidate
+    parts.append(current)
+    return [p for p in parts if p.strip()] or [text[:limit]]
+
+
 def bot_commands() -> list[dict[str, str]]:
     """The / menu Telegram shows while typing: one entry per command in HELP_TEXT."""
     out: dict[str, str] = {}
@@ -98,7 +122,8 @@ TAP_TOASTS = {"ap": "Approving, building your resume...", "sk": "Skipping...",
               "nx": "Next job...", "pc": "Loading that country's jobs...",
               "fg": "Adding it and rebuilding...",
               "fc": "Adding it and rebuilding...", "ct": "Finding contacts...",
-              "dr": "Writing Gmail drafts...", "fx": "Finding contacts and writing drafts..."}
+              "dr": "Writing Gmail drafts...", "fx": "Finding contacts and writing drafts...",
+              "fr": "Listing those jobs..."}
 
 DESK_COMMANDS = ("pending", "jd", "done", "screen", "gaps", "contacts", "credits", "outreach",
                  "drafts", "fetchcontacts", "alertcheck", "fetchreport", "today",
@@ -262,13 +287,18 @@ class TelegramClient:
         self, chat_id: str, text: str, buttons: list[tuple[str, str]] | None = None
     ) -> int | None:
         """Send a message and return its message_id (None if Telegram did not say).
-        `buttons` are (label, callback data) pairs shown in one row under the message."""
-        payload: dict[str, Any] = {"chat_id": chat_id, "text": text}
-        if buttons:
-            payload["reply_markup"] = {"inline_keyboard": [
-                [{"text": label, "callback_data": data} for label, data in buttons]
-            ]}
-        result = self._call("sendMessage", payload)
+        `buttons` are (label, callback data) pairs shown in one row under the message. A text
+        longer than Telegram allows goes as several messages (the buttons under the last);
+        before 1 Oct long answers such as /alertcheck were cut off."""
+        parts = split_text(text)
+        result: Any = None
+        for i, part in enumerate(parts):
+            payload: dict[str, Any] = {"chat_id": chat_id, "text": part}
+            if buttons and i == len(parts) - 1:
+                payload["reply_markup"] = {"inline_keyboard": [
+                    [{"text": label, "callback_data": data} for label, data in buttons]
+                ]}
+            result = self._call("sendMessage", payload)
         return (result or {}).get("message_id") if isinstance(result, dict) else None
 
     def send_document(

@@ -81,3 +81,24 @@ def test_agency_words_in_the_company_name():
     assert agency_by_name("Verks Recruitment", config)
     assert agency_by_name("VERITA HR POLSKA", config)
     assert not agency_by_name("Mastercard", config)
+
+
+def test_fetch_marks_an_agency_row_saved_before_and_keeps_its_flags():
+    # 1 Oct Phase 2 R4: Verks Recruitment was saved before /fetch marked agencies and was
+    # only updated, so it stayed unmarked.
+    from test_runner import TODAY, S
+
+    from jobengine.bot_state import FakeBotState
+    from jobengine.config_store import ConfigRow, ConfigStore
+    from jobengine.sweep.runner import fake_deps, run_sweep
+
+    deps = fake_deps(S)
+    run_sweep(S, deps, TODAY, state=FakeBotState())  # saves the jobs unmarked
+    page = next(pid for pid, v in deps.repo.rows.items()
+                if v["Company"] == "Liffey Analytics Ltd")
+    deps.repo.rows[page]["Visa flags"] = ["Not on IND register"]
+    rows = dict(ConfigStore.fake()._rows)
+    rows["agency_names"] = ConfigRow(key="agency_names", value="Liffey Analytics")
+    deps.config = lambda: ConfigStore(rows)
+    run_sweep(S, deps, TODAY, state=FakeBotState())  # the same jobs again: updates
+    assert deps.repo.rows[page]["Visa flags"] == ["Not on IND register", "Agency posting (IE)"]

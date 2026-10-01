@@ -341,7 +341,7 @@ The `/fetch` summary ends with one line per source ("Where the postings went"). 
 `sweep.last_report` keeps the counts and up to 25 dropped jobs per source and reason (so every
 reason has examples); `/fetchreport` shows them by reason with the complete counts (5 jobs per
 reason), and `/fetchreport <word>` shows up to 40 jobs of the reasons or
-sources containing that word, for example `/fetchreport skill` or `/fetchreport adzuna`.
+sources containing that word, for example `/fetchreport skill` or `/fetchreport adzuna`; the four biggest reasons also come as buttons under `/fetchreport`. The `/fetch` summary and the report count postings the same way (a job seen on two sites counts twice). Long answers arrive as several Telegram messages instead of being cut off. A job already in Notion whose company is an agency gets the agency flag on its next `/fetch` (its other flags stay).
 
 ## Email alerts setup
 

@@ -14,7 +14,7 @@ from jobengine.notion_repo import JobsRepo, NotionClient, NotionReader, jobs_rep
 from jobengine.parallel import run_all
 from jobengine.reference import Reference
 from jobengine.safety import notion_write_target
-from jobengine.screen.visa import agency_by_name, agency_flag
+from jobengine.screen.visa import AGENCY, AGENCY_IE, agency_by_name, agency_flag
 from jobengine.settings import Settings
 from jobengine.sweep import best, crossmatch, fakes, fit, fulltext
 from jobengine.sweep.dedupe import IndexRow, create_plan, description_blocks, update_plan
@@ -245,18 +245,21 @@ def not_a_fit(job: Job, rules: FitRules) -> str | None:
 
 
 def _count(summary: SweepSummary, reason: str, jobs: list[Job] | None = None) -> None:
+    """Count every posting, like the per-source lines (a job seen on two sites counts twice;
+    on 1 Oct the totals were one lower than /fetchreport)."""
     for job in jobs or []:
         summary.loss.add(job.source, reason, _label(job))
+    n = len(jobs) if jobs else 1
     if reason == "too senior":
-        summary.too_senior += 1
+        summary.too_senior += n
     elif reason == fit.B2B_ONLY:
-        summary.b2b_only += 1
+        summary.b2b_only += n
     elif reason == fit.NO_SPONSORSHIP:
-        summary.no_sponsorship += 1
+        summary.no_sponsorship += n
     elif reason == LOW_MATCH:
-        summary.low_match += 1
+        summary.low_match += n
     else:
-        summary.needs_language += 1
+        summary.needs_language += n
 
 
 def _job_key(dedupe_key: str) -> str:
@@ -275,7 +278,7 @@ def _one_per_job(
     for jobs in ranked:
         key = _job_key(jobs[0].dedupe_key)
         if key in seen:
-            dropped += 1
+            dropped += len(jobs)  # postings, like the per-source lines
             if on_drop is not None:
                 on_drop(jobs)
             continue
@@ -433,6 +436,13 @@ def run_sweep(
 
     def update_existing(row: IndexRow, job: Job) -> None:
         plan_update = update_plan(row, job, today)
+        flag = agency_flag(job.country)
+        if not set(row.visa_flags) & {flag, AGENCY_IE, AGENCY} and agency_by_name(
+                row.company or job.company, config):
+            # Saved before /fetch marked agencies (Verks Recruitment, 1 Oct): mark it now,
+            # keeping the flags it has.
+            plan_update.props["Visa flags"] = [*row.visa_flags, flag]
+            plan_update.row.visa_flags = plan_update.props["Visa flags"]
         if repo:
             repo.update(row.page_id, plan_update.props)
             if plan_update.moved_link:  # a better link replaced it: keep the old one too

@@ -153,6 +153,7 @@ INDEX_PROPERTIES = (
     "URL",
     "Salary",
     "Years required",
+    "Visa flags",
 )
 
 
@@ -338,6 +339,7 @@ def index_row(page_id: str, values: dict[str, Any]) -> IndexRow | None:
         company=values.get("Company") or "",
         role=values.get("Role") or "",
         city=values.get("City"),
+        visa_flags=list(values.get("Visa flags") or []),
     )
 
 

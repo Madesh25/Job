@@ -106,3 +106,27 @@ def test_every_reason_keeps_examples_and_complete_counts():
     assert f"(Up to {MAX_DROPPED_PER_REASON} jobs per source and reason are listed" in text
     assert "Cloud Engineer | Acme" in report.report_text({"adzuna": "Adzuna"}, "x", "skill")
     assert len(report.dropped) == MAX_DROPPED_PER_REASON + 1
+
+
+def test_fetchreport_has_a_button_per_big_reason():
+    # 1 Oct test R3: the / menu cannot suggest "/fetchreport senior"; buttons open a reason.
+    d = fake_desk(settings(), FAKE_TODAY, now=Clock())
+    summary, _ = sweep()
+    d.state.set(LAST_REPORT, summary.loss.to_state("2026-10-01"))
+    [reply] = d.fetchreport_command()
+    assert reply.buttons and all(data.startswith("fr:") for _, data in reply.buttons)
+    reason = reply.buttons[0][1][3:]
+    [detail] = d.tap(reply.buttons[0][1])
+    assert f"(matching {reason!r})" in detail.text and not detail.buttons
+
+
+def test_long_messages_are_split_not_cut():
+    # 1 Oct tests R2, R3: /alertcheck and /fetchreport answers were cut off at 4000 characters.
+    from jobengine.telegram_bot import split_text
+
+    text = "\n".join(f"line {i} " + "x" * 50 for i in range(200))
+    parts = split_text(text)
+    assert len(parts) > 1 and all(len(p) <= 4000 for p in parts)
+    assert "\n".join(parts) == text
+    assert split_text("short") == ["short"]
+    assert all(len(p) <= 4000 for p in split_text("y" * 9000))
