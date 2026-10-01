@@ -275,6 +275,11 @@ sets `Status` to `Screened` only if it is `New` or `Screened`, so a row never mo
   (optionally `Country:` and `City:`). The paste is kept in Bot State (key `jd_capture`), so a
   bot restart does not lose it; after 20 minutes without `/done` it is discarded.
 - `/jd` alone lists the LinkedIn jobs waiting for a description.
+- `/linkedin` (or the "LinkedIn (N)" button in the /pending country menu) shows those jobs
+  one at a time with their link and starts the paste for you: copy the description from
+  LinkedIn, paste it, tap Done. It is saved and screened like `/jd` (one AI call), then the
+  job's card comes for Approve or Skip, and a "Next LinkedIn job" button. "Not interested"
+  Declines the job without any AI call. (Your idea of 1 Oct.)
 - `/screen` screens what is not screened yet; `/screen <url or id>` screens one job again.
 
 In the fake bot (`python -m jobengine.telegram_bot --fake`), `tap <data>` presses a button,

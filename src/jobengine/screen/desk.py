@@ -162,6 +162,9 @@ def _agency(values: dict[str, Any]) -> bool:
     return bool(set(AGENCY_FLAGS) & set(values.get("Visa flags") or []))
 
 
+LINKEDIN_PASTE = ("Open the link, copy the whole job description and paste it here (several "
+                  "messages are fine), then tap Done. The bot saves it in Notion, screens the "
+                  "job (one AI call) and shows its card for Approve or Skip.")
 BUILD_FAILED_HINT = ("The job stays Approved without a resume. Tap Try again to build it again, "
                      "reply with a correction, or tap Not applying to drop it and see the next "
                      "job.")
@@ -263,6 +266,9 @@ class Desk:
             c for c in counts if c not in COUNTRY_ORDER)
         buttons = [(f"{country_label(c)} ({counts[c]})", f"pc:{c}") for c in order]
         buttons.append((f"All ({len(rows)})", "pc:all"))
+        linkedin = len(self.linkedin_rows()) if self.repo is not None else 0
+        if linkedin:  # LinkedIn jobs wait for their description before they can be reviewed
+            buttons.append((f"LinkedIn ({linkedin})", "li:next:0"))
         return Reply(text, buttons)
 
     def pending_command(self, args: str = "") -> list[Reply]:
@@ -396,6 +402,8 @@ class Desk:
             return self.strategy_tap(action, arg)
         if action == "oc" and arg:
             return self.outreach_tap(arg)
+        if action == "li" and arg:  # the LinkedIn queue (/linkedin)
+            return self.linkedin_tap(arg)
         if action == "fx" and arg:  # "Go" under /fetchcontacts
             return self.fetch_contacts_tap(arg)
         if action == "ct" and arg:  # "Find contacts" (older messages; /contacts does the same)
@@ -1268,6 +1276,54 @@ class Desk:
         got = f" Got {capture.chars} characters so far." if capture.chars else ""
         return [Reply(f"Collecting the job description for {name}.{got} Paste the text "
                       "(several messages are fine), then send /done.")]
+
+    # ------------------------------------------------------------ LinkedIn jobs (1 Oct idea)
+
+    def linkedin_rows(self) -> list[JobRow]:
+        """LinkedIn jobs that wait for their description: new, never screened."""
+        assert self.repo is not None
+        rows = [r for r in waiting_for_jd(self.repo) if r.status in (None, "", "New")]
+        rows.sort(key=lambda r: r.swept_date or date.min, reverse=True)
+        return rows
+
+    def linkedin_command(self, index: int = 0) -> list[Reply]:
+        """/linkedin: the LinkedIn jobs one at a time. Each one opens a /jd capture, so you
+        only paste the description and tap Done (saved, screened, then its card)."""
+        if self.repo is None:
+            return [Reply(NO_TARGET)]
+        rows = self.linkedin_rows()
+        if not rows:
+            self.captures.clear()
+            return [Reply("No LinkedIn jobs wait for a description. They come from the "
+                          "LinkedIn alert emails on each /fetch.")]
+        i = index % len(rows)
+        row = rows[i]
+        self.captures.start(row.url or "", self.now(), row.page_id)
+        place = ", ".join(p for p in (row.city, row.country) if p) or "place unknown"
+        text = (f"LinkedIn job {i + 1} of {len(rows)}:\n{row.company}, {row.role}\n{place}\n"
+                f"{row.url or '(no link)'}\n\n{LINKEDIN_PASTE}")
+        pid = short_id(row.page_id)
+        buttons = [("Done", "li:done"), ("Next", f"li:next:{i + 1}"),
+                   ("Not interested", f"li:skip:{pid}")]
+        return [Reply(text, buttons)]
+
+    def linkedin_tap(self, arg: str) -> list[Reply]:
+        action, _, rest = arg.partition(":")
+        if action == "done":
+            replies = self.done()
+            left = len(self.linkedin_rows()) if self.repo is not None else 0
+            if left:
+                replies.append(Reply(f"{left} more LinkedIn job(s) wait for a description.",
+                                     [("Next LinkedIn job", "li:next:0")]))
+            return replies
+        if action == "skip" and rest and self.repo is not None:
+            from jobengine.resume.builder import notion_id
+
+            self.captures.clear()
+            self.repo.update(notion_id(rest), {"Status": "Declined", "Skip reason": "Other"})
+            return [Reply("Skipped that LinkedIn job."), *self.linkedin_command(0)]
+        index = int(rest) if rest.isdigit() else 0
+        return self.linkedin_command(index)
 
     def waiting_list(self) -> Reply:
         assert self.repo is not None

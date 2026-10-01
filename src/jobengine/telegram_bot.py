@@ -54,6 +54,7 @@ HELP_TEXT = (
     "Next); /pending poland, netherlands, ireland, remote or all\n"
     "/jd <url> - paste a job description (for LinkedIn jobs), then /done\n"
     "/jd - list jobs waiting for a description\n"
+    "/linkedin - LinkedIn jobs one at a time: paste each description, tap Done (screened)\n"
     "/screen - screen jobs that are not screened yet\n"
     "/screen <url or id> - screen one job again\n"
     "/screen batch - send them at half price, answers later\n"
@@ -98,10 +99,11 @@ TAP_TOASTS = {"ap": "Approving, building your resume...", "sk": "Skipping...",
               "nx": "Next job...", "pc": "Loading that country's jobs...",
               "fg": "Adding it and rebuilding...",
               "fc": "Adding it and rebuilding...", "ct": "Finding contacts...",
-              "dr": "Writing Gmail drafts...", "fx": "Finding contacts and writing drafts..."}
+              "dr": "Writing Gmail drafts...", "fx": "Finding contacts and writing drafts...",
+              "li": "Working on the LinkedIn job..."}
 
 DESK_COMMANDS = ("pending", "jd", "done", "screen", "gaps", "contacts", "credits", "outreach",
-                 "drafts", "fetchcontacts", "alertcheck", "fetchreport", "today",
+                 "drafts", "fetchcontacts", "alertcheck", "fetchreport", "linkedin", "today",
                  "followups", "stats", "sources", "health", "digest", "update", "rules")
 
 # (method, payload, http_timeout) -> decoded JSON response
@@ -578,6 +580,8 @@ def desk_replies(update: dict[str, Any], s: Settings, desk: Desk | None) -> list
         return _guarded("/jd", lambda: desk.jd(args))
     if command == "done":
         return _guarded("/done", desk.done)
+    if command == "linkedin":
+        return _guarded("/linkedin", desk.linkedin_command)
     if command == "screen":
         return _guarded("/screen", lambda: desk.screen_replies(args))
     if command is None:
