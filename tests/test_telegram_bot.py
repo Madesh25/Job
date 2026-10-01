@@ -660,7 +660,9 @@ def test_approve_resume_old_revision_rebuild_and_i_applied(desk):
 def test_resume_build_failure_is_a_message(desk):
     desk.resume.blocks = lambda: []
     fake = talk(desk, tap(1, "ap:pl-clean"))
-    assert fake.sent[-2][1] == "[LOCAL] Golden Master not found in Notion. Nothing built."
+    assert fake.sent[-1][1].startswith(
+        "[LOCAL] Golden Master not found in Notion. Nothing built.\nThe job stays Approved")
+    assert fake.buttons[-1] == ["rb:pl-clean", "na:pl-clean"]
     assert desk.repo.rows["pl-clean"]["Status"] == "Approved"
 
 

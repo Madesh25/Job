@@ -352,3 +352,18 @@ def test_the_llm_cannot_force_a_skill(tmp_path):
     ctx = builder._context(deps, JOB, deps.jobs.get_values(JOB))
     job = builder._job_context(JOB, deps.jobs.get_values(JOB), deps.jobs.read_body(JOB))
     assert make_plan(llm, ctx.master, job, ctx.reference, key="x").forced_skills == []
+
+
+def test_refusal_without_a_correction_is_ignored(tmp_path):
+    # 1 Oct test T9: on the first Approve the model's answer had a "correction_refused"
+    # note although nothing was asked, and the build stopped with "Correction not applied".
+    deps = make(tmp_path)[0]
+    base = tmp_path / "llm"
+    (base / "tailor").mkdir(parents=True)
+    plan = json.loads((TAILOR / f"{JOB}-r1.json").read_text(encoding="utf-8"))
+    plan["correction_refused"] = "The previous plan attempted to insert non-backed terms."
+    (base / "tailor" / f"{JOB}-r1.json").write_text(json.dumps(plan), encoding="utf-8")
+    deps.llm = lambda config: FakeLLM(base)
+    out = build_resume(deps, JOB)
+    assert out.status == "built"
+    assert "Correction not applied" not in out.message

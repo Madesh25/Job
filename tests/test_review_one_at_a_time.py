@@ -35,12 +35,38 @@ def test_approve_shows_the_resume_and_not_the_next_job():
     assert not any(is_card(r) for r in replies)
 
 
-def test_a_failed_build_moves_on_to_the_next_job():
+def test_a_failed_build_keeps_the_job_with_try_again_and_not_applying():
+    # 1 Oct test T9: a failed build moved on to the next country and left the job Approved
+    # without a resume and without a way back.
     d = make_desk()
-    d.resume.blocks = lambda: []  # no Golden Master: nothing to review
+    d.resume.blocks = lambda: []  # no Golden Master: the build fails
     replies = d.tap("ap:pl-clean")
-    assert replies[0].document is None
-    assert is_card(replies[-1])
+    assert replies[-1].document is None
+    assert "The job stays Approved without a resume" in replies[-1].text
+    assert replies[-1].buttons == [("Try again", "rb:pl-clean"), ("Not applying", "na:pl-clean")]
+    assert not any(is_card(r) for r in replies)
+    assert d.repo.rows["pl-clean"]["Status"] == "Approved"
+
+
+def test_not_applying_after_a_failed_build_brings_the_next_job():
+    d = make_desk()
+    d.resume.blocks = lambda: []
+    d.tap("ap:pl-clean")
+    d.tap("na:pl-clean")
+    after = d.tap("nr:pl-clean:o")
+    assert after[0].text.startswith("Marked as not applied")
+    assert d.repo.rows["pl-clean"]["Status"] == "Declined"
+    assert is_card(after[-1]) or after[-1].text.startswith("Nothing to review")
+
+
+def test_try_again_after_a_failed_build_builds_the_resume():
+    d = make_desk()
+    blocks = d.resume.blocks
+    d.resume.blocks = lambda: []
+    d.tap("ap:pl-clean")
+    d.resume.blocks = blocks  # the Golden Master is back
+    replies = d.tap("rb:pl-clean")
+    assert replies[-1].document is not None
 
 
 def test_approve_resume_gives_the_link_then_i_applied_brings_the_next_job():
@@ -82,3 +108,18 @@ def test_skip_still_shows_the_next_job_at_once():
     replies = d.tap("sk:pl-clean")
     assert replies[0].text.startswith("Skipped: ")
     assert is_card(replies[-1])
+
+
+def test_a_card_without_a_full_description_says_so_instead_of_gaps_none():
+    import dataclasses
+
+    from jobengine.screen.desk import NO_FULL_JD
+    from jobengine.screen.runner import DESCRIPTION_HEADER, SNIPPET_MARK
+
+    d = make_desk()
+    row = dataclasses.replace(d.ranked()[0], gaps=None)
+    empty = {"Strong": 0, "Transferable": 0, "Gap": 0}
+    snippet = [f"{DESCRIPTION_HEADER} adzuna {SNIPPET_MARK}", "We need a DevOps engineer."]
+    assert d.match_lines(row, snippet, empty) == [NO_FULL_JD]
+    found = {"Strong": 2, "Transferable": 0, "Gap": 1}
+    assert d.match_lines(row, snippet, found)[0] == "Match: 2 strong, 0 transferable, 1 gaps"

@@ -50,8 +50,13 @@ Not applying -> "Why?" [the job is closed or expired] [not a fit after all] [ano
 
 - **One job at a time.** After Approve in /pending the next job is not shown while this
   job's resume waits for Approve resume or Rebuild, and then for I applied or Not applying.
-  A build that fails leaves nothing to review, so the next job comes at once. Skip still
-  shows the next job at once.
+  A build that fails keeps the job on screen too: the message says why and gives Try again
+  (build again) and Not applying (asks why, Declines the job, then the next job), so an
+  Approved job is never left without a resume. Skip still shows the next job at once.
+- The model's "correction refused" answer counts only when you sent a correction; on a first
+  build it is ignored and the rule check decides (1 Oct test T9).
+- A /pending card whose job has only a snippet of the description says so instead of an
+  empty match ("Gaps: none").
 
 - A second Approve tap shows the latest preview; it does not build again.
 - The preview file is named like the final one (`Madeshwaran_Devops_<Company>.pdf`); the
