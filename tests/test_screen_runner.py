@@ -41,7 +41,7 @@ def verdicts(summary):
 def test_fake_run_summary(s, deps):
     summary = run(s, deps)
     assert summary.text() == (
-        "Screening done: 14 screened (4 high, 1 normal, 2 low, 1 needs review, 6 skipped), "
+        "Screening done: 14 screened (4 high, 2 normal, 2 low, 1 needs review, 5 skipped), "
         "1 waiting for JD. 4 skipped without the AI."
     )
 
@@ -66,7 +66,7 @@ def test_fixture_verdicts(s, deps):
         "ie-agency": ("Apply low", None),
         "pl-7-years": ("Skip", "Experience >5 yrs"),
         "ie-5-years": ("Skip", "Seniority"),  # 5 years: over the 4-year limit
-        "pl-learning-go": ("Skip", "Tech mismatch"),
+        "pl-learning-go": ("Apply normal", None),  # Go is a gap, not a skip (1 Oct)
         "nl-sponsor-yes": ("Apply high", None),
         "pl-snippet": ("Needs review", None),
         "li-no-jd": ("Unscreened", None),
@@ -113,7 +113,8 @@ def test_written_properties_for_a_clean_job(s, deps):
 def test_skip_rows_record_reason_and_gaps(s, deps):
     run(s, deps)
     go = deps.repo.rows["pl-learning-go"]
-    assert (go["Screen verdict"], go["Skip reason"], go["Gaps"]) == ("Skip", "Tech mismatch", "Go")
+    assert (go["Screen verdict"], go.get("Skip reason")) == ("Apply normal", None)
+    assert go["Gaps"] == "Go services in production"  # the tool once, inside its requirement
     assert go["Contract type"] == "Both"
     polish = deps.repo.rows["pl-polish-required"]  # "Fluent Polish is required": no AI used
     assert (polish["Screen verdict"], polish["Skip reason"]) == ("Skip", "Polish required")
@@ -392,3 +393,12 @@ def test_years_cell_is_raised_to_what_the_description_asks():
     assert years_update(row, jd) == {"Years required": "5 years"}
     assert years_update(JobRow(page_id="p", company="c", role="r", years_required=5), jd) == {}
     assert years_update(row, "Kubernetes and Terraform") == {}
+
+
+def test_tech_mismatch_skips_only_when_switched_on(s, deps):
+    # Your decision of 1 Oct: a required tool you do not have is a gap, not a skip
+    # (DCG and Verks DevOps jobs were skipped for one tool). The old rule stays available.
+    on = s.model_copy(update={"screening": {**s.screening, "tech_mismatch_skips": True}})
+    run(on, deps)
+    go = deps.repo.rows["pl-learning-go"]
+    assert (go["Screen verdict"], go["Skip reason"], go["Gaps"]) == ("Skip", "Tech mismatch", "Go")

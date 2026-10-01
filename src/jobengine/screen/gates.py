@@ -141,14 +141,16 @@ def gate_expired(row: JobRow, ext: Extraction, today: date) -> GateHit | None:
 
 def run_gates(
     row: JobRow, ext: Extraction, ref: Reference, others: Iterable[JobRow], today: date,
-    max_years: int = MAX_YEARS,
+    max_years: int = MAX_YEARS, tech_skips: bool = True,
 ) -> GateHit | None:
-    """The first gate that fires, in V16 order, or None when the row survives."""
+    """The first gate that fires, in V16 order, or None when the row survives. With
+    `tech_skips` False (screening.tech_mismatch_skips, your decision of 1 Oct) a required
+    tool you do not have never skips the job: it is listed in Gaps for you to judge."""
     return (
         gate_seniority(row, ext, max_years)
         or gate_language(ext)
         or gate_b2b_only(row, ext)
-        or gate_tech(ext, ref)
+        or (gate_tech(ext, ref) if tech_skips else None)
         or gate_already_applied(row, others)
         or gate_expired(row, ext, today)
     )

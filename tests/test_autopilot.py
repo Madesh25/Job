@@ -48,7 +48,7 @@ def test_one_run_approves_builds_finds_contacts_and_drafts(tmp_path):
     assert summary.startswith("Job search done: 3 new jobs.")
     assert "Sent 10 jobs to the half-price batch" in summary
     assert batch.COLLECT_HINT not in summary  # autopilot collects by itself
-    assert "Autopilot done: 6 jobs approved (4 Apply high, 2 Apply normal)." in summary
+    assert "Autopilot done: 7 jobs approved (4 Apply high, 3 Apply normal)." in summary
     assert ("2. Vistula Cloud, DevOps Engineer (Apply high): resume saved, 4 contacts, "
             "DRY RUN: 4 drafts not created") in summary
     assert "Drafts are in Gmail and never sent by themselves" in summary
@@ -59,10 +59,10 @@ def test_one_run_approves_builds_finds_contacts_and_drafts(tmp_path):
     status = statuses(desk)
     assert status["pl-clean"] in BUILDABLE_STATUSES
     assert status["nl-sponsor-yes"] in BUILDABLE_STATUSES
-    assert desk.state.get(autopilot.DAY_KEY) == {"date": FAKE_TODAY.isoformat(), "count": 6}
+    assert desk.state.get(autopilot.DAY_KEY) == {"date": FAKE_TODAY.isoformat(), "count": 7}
     # Each saved resume comes as a PDF with an "I applied" button.
     documents = [r for r in replies if r.document]
-    assert len(documents) == 6
+    assert len(documents) == 7
     assert documents[1].document == ("Alex_Devops_VistulaCloud.pdf", b"%PDF-fake")
     assert documents[1].buttons == [("I applied", "ia:pl-clean")]
     assert documents[1].text == "Vistula Cloud, DevOps Engineer: resume saved"
@@ -105,7 +105,7 @@ def test_waits_for_the_batch_then_carries_on(tmp_path):
     llm(desk).batch_ended = True
     replies = desk.autopilot_tick()
     assert replies[0].text.startswith("Autopilot: the half-price batch has answered.")
-    assert "Autopilot done: 6 jobs approved" in replies[0].text
+    assert "Autopilot done: 7 jobs approved" in replies[0].text
     assert desk.state.get(autopilot.RUN_KEY) is None
     assert not batch.waiting_rows(desk.deps)
     assert desk.autopilot_tick() is None  # nothing waits any more

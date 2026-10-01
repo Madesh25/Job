@@ -67,7 +67,7 @@ def test_runs_once_a_morning(tmp_path):
     assert fetch.calls == 1
     assert replies[0].text.startswith("Scheduled autopilot (07:00 Europe/Warsaw):\n\n"
                                       "Job search done: 3 new jobs.")
-    assert "Autopilot done: 6 jobs approved" in replies[0].text
+    assert "Autopilot done: 7 jobs approved" in replies[0].text
     assert d.state.get(schedule.LAST_KEY) == {"date": "2026-10-01"}
     clock.now = clock.now.replace(hour=8)
     assert d.autopilot_scheduled(fetch) is None  # once a day

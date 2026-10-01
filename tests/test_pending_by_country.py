@@ -15,8 +15,8 @@ def test_pending_asks_for_a_country_first():
     d = make_desk()
     [menu] = d.pending_command()
     assert menu.text == CHOOSE_COUNTRY
-    assert menu.buttons == [("Poland (6)", "pc:Poland"), ("Netherlands (3)", "pc:Netherlands"),
-                            ("Ireland (1)", "pc:Ireland"), ("All (10)", "pc:all")]
+    assert menu.buttons == [("Poland (7)", "pc:Poland"), ("Netherlands (3)", "pc:Netherlands"),
+                            ("Ireland (1)", "pc:Ireland"), ("All (11)", "pc:all")]
 
 
 def test_a_country_button_shows_only_that_country():
@@ -38,7 +38,7 @@ def test_the_next_job_after_skip_stays_in_the_country_then_offers_the_rest():
     replies = d.tap(f"sk:{pid}")
     assert replies[0].text.startswith("Skipped: ")
     assert replies[-1].text == "No more jobs for Ireland. Pick the next country:"
-    assert ("Poland (6)", "pc:Poland") in replies[-1].buttons
+    assert ("Poland (7)", "pc:Poland") in replies[-1].buttons
 
 
 def test_pending_with_a_country_word():
