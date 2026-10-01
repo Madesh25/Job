@@ -74,7 +74,9 @@ MATRIX_LINE = re.compile(r"^(Strong|Transferable|Gap) \| ")
 MAX_WAITING_LIST = 10
 REFERENCE_TTL_SECONDS = 600
 NO_TARGET = "DRY RUN: no Job Opportunities target in this environment, nothing to show."
-MAX_TEXT = 4000  # Telegram allows 4096 characters per message
+# The bot sends a long text as several messages (telegram_bot.split_text); this only stops
+# a runaway answer.
+MAX_TEXT = 20000
 HIGH_ALERT = "\U0001F525 Apply high: apply today while the posting is fresh."
 MAX_HIGH_ALERTS = 5
 MAX_KEYWORDS = 6  # missing keywords shown on a /pending card
@@ -162,6 +164,7 @@ def _agency(values: dict[str, Any]) -> bool:
     return bool(set(AGENCY_FLAGS) & set(values.get("Visa flags") or []))
 
 
+REPORT_BUTTONS = 4  # reason buttons under /fetchreport
 LINKEDIN_PASTE = ("Open the link, copy the whole job description and paste it here (several "
                   "messages are fine), then tap Done. The bot saves it in Notion, screens the "
                   "job (one AI call) and shows its card for Approve or Skip.")
@@ -402,6 +405,8 @@ class Desk:
             return self.strategy_tap(action, arg)
         if action == "oc" and arg:
             return self.outreach_tap(arg)
+        if action == "fr" and arg:  # a reason button under /fetchreport
+            return self.fetchreport_command(arg)
         if action == "li" and arg:  # the LinkedIn queue (/linkedin)
             return self.linkedin_tap(arg)
         if action == "fx" and arg:  # "Go" under /fetchcontacts
@@ -939,9 +944,13 @@ class Desk:
         if not value:
             return [Reply("No /fetch has run yet (or it ran before this report existed). "
                           "Send /fetch first.")]
-        text = LossReport.from_state(value).report_text(dict(SOURCE_LABELS),
-                                                         str(value.get("at") or "?"), args)
-        return [Reply(text[:MAX_TEXT])]
+        report = LossReport.from_state(value)
+        text = report.report_text(dict(SOURCE_LABELS), str(value.get("at") or "?"), args)
+        # Telegram's / menu cannot suggest the words after a command: one button per big
+        # reason opens it instead (1 Oct test R3).
+        top = [] if args.strip() else report.reasons()[:REPORT_BUTTONS]
+        buttons = [(f"{reason} ({n})", f"fr:{reason}"[:60]) for reason, n in top]
+        return [Reply(text[:MAX_TEXT], buttons)]
 
     def alertcheck_command(self) -> list[Reply]:
         """/alertcheck: the alert emails the next /fetch reads and the jobs in each."""
@@ -1128,6 +1137,10 @@ class Desk:
     def _summary_text(self, summary: ScreenSummary) -> str:
         assert self.repo is not None
         ready = len(pending_rows(self.repo))
+        if not ready:
+            return summary.text()
+        if not summary.results:  # nothing screened now (stopped, or nothing to do)
+            return f"{summary.text()}\n{ready} screened earlier still wait in /pending."
         return f"{summary.text()}\n{ready} ready to review: /pending"
 
     def screen(self, args: str = "", progress: Callable[[str], None] | None = None) -> str:
