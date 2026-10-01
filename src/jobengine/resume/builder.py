@@ -73,7 +73,7 @@ FORCE_NOTE = (" (The candidate confirms: list the skills named in this request i
               "experience bullets. Do not refuse this.)")
 RULES_FAILED = (
     "Resume could not be built within the rules: {errors}. The job stays Approved; tap "
-    "Rebuild or reply with a correction."
+    "Try again or reply with a correction."
 )
 APPLY_TEXT = "Resume approved and saved. Apply here: {url}"
 NEWER_TEXT = "A newer revision exists"
@@ -505,6 +505,12 @@ def build_resume(
         if force_terms is not None:
             plan.correction_refused = None
             force_skills(plan, ctx.master, ctx.reference, correction or "", force_terms)
+        if plan.correction_refused and not correction:
+            # Nothing was asked: on a retry the model sometimes explains its own earlier
+            # attempt here. That is not a refusal; the rule check below decides.
+            log.info("ignored a refused correction without a correction: %s",
+                     plan.correction_refused)
+            plan.correction_refused = None
         if plan.correction_refused:
             return BuildOutcome(status="correction_refused", job_id=job_id, company=company,
                                 role=role, message=f"Correction not applied: "

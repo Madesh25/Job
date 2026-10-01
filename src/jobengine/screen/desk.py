@@ -162,6 +162,18 @@ def _agency(values: dict[str, Any]) -> bool:
     return bool(set(AGENCY_FLAGS) & set(values.get("Visa flags") or []))
 
 
+BUILD_FAILED_HINT = ("The job stays Approved without a resume. Tap Try again to build it again, "
+                     "reply with a correction, or tap Not applying to drop it and see the next "
+                     "job.")
+NO_FULL_JD = ("Only a short snippet of the job description was found, so the match is not "
+              "checked. Open the link to read the job, or paste it with /jd <link>.")
+
+
+def waits_for_you(reply: Reply) -> bool:
+    """A reply whose buttons keep the job on screen (a failed build, Add anyway)."""
+    return any(data.startswith(("rb:", "fc:")) for _, data in reply.buttons)
+
+
 FETCH_HINT = ("After your last job: /fetchcontacts finds the contacts and writes the Gmail "
               "drafts, with the resume attached, for every job you applied to today.")
 NOT_APPLYING_ASK = "Why are you not applying? (It goes to Notion.)"
@@ -302,6 +314,16 @@ class Desk:
             lines.append(f"Use their word: {pairs}")
         return lines
 
+    def match_lines(self, row: JobRow, body: list[str], counts: dict[str, int]) -> list[str]:
+        """The match lines of a card. With no full description nothing was matched, so the
+        card says so instead of showing an empty match as "Gaps: none"."""
+        _jd, kind = description(body)
+        if kind != "full" and not any(counts.values()) and not row.gaps:
+            return [NO_FULL_JD]
+        return [f"Match: {counts['Strong']} strong, {counts['Transferable']} transferable, "
+                f"{counts['Gap']} gaps", *self.keyword_lines(body),
+                f"Gaps: {row.gaps or 'none'}"]
+
     def card(self, row: JobRow, index: int, total: int, buttons: bool = True) -> Reply:
         assert self.repo is not None
         body = self.repo.read_body(row.page_id)
@@ -315,10 +337,7 @@ class Desk:
             f"ghost {row.ghost_risk or 'Unknown'}",
             f"Contract {row.contract_type or 'Unknown'} | Sponsorship "
             f"{row.sponsorship or 'Not mentioned'} | Visa: {', '.join(row.visa_flags) or 'none'}",
-            f"Match: {counts['Strong']} strong, {counts['Transferable']} transferable, "
-            f"{counts['Gap']} gaps",
-            *self.keyword_lines(body),
-            f"Gaps: {row.gaps or 'none'}",
+            *self.match_lines(row, body, counts),
         ]
         if row.url:
             lines.append(row.url)
@@ -425,9 +444,12 @@ class Desk:
                     rest: list[JobRow] | None = None) -> list[Reply]:
         """One job at a time: while its resume waits for you (Approve resume or Rebuild) and
         then for I applied or Not applying, the next job is not shown. A build that failed
-        leaves nothing to review, so the next job comes at once."""
-        if self.resume is None or not any(r.document for r in replies):
+        waits too (Try again or Not applying); only a job with no resume to build at all
+        lets the next job come at once."""
+        if self.resume is None or not any(r.document or waits_for_you(r) for r in replies):
             return [*replies, *self.pending(position, rest)]
+        if not any(r.document for r in replies):
+            return replies  # a failed build: its buttons say what comes next
         return [*replies, Reply(ONE_AT_A_TIME)]
 
     # ------------------------------------------------------------ resumes (Module 04)
@@ -451,6 +473,11 @@ class Desk:
             self.state.set(FORCE_KEY, {"job": page_id, "text": correction})
             return [Reply(outcome.message,
                           [("Add anyway (I'll learn it)", f"fc:{short_id(page_id)}")])]
+        if outcome.status in ("failed", "correction_refused"):
+            # The job is Approved but has no resume: keep it on screen until you decide.
+            job = short_id(page_id)
+            return [Reply(f"{outcome.message}\n{BUILD_FAILED_HINT}",
+                          [("Try again", f"rb:{job}"), ("Not applying", f"na:{job}")])]
         return [self.preview(outcome)]
 
     def preview(self, outcome: BuildOutcome) -> Reply:
