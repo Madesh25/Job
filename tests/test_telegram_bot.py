@@ -943,7 +943,7 @@ def test_skip_from_the_list_does_not_read_the_page_again(desk):
     assert desk.repo.rows["pl-clean"]["Status"] == "Declined"
     texts = [t for _, t in fake.sent]
     assert texts[0] == "[LOCAL] Skipped: Vistula Cloud, DevOps Engineer"
-    assert texts[1].startswith("[LOCAL] [2/9]")  # the next card, from the same list
+    assert texts[1].startswith("[LOCAL] [2/10]")  # the next card, from the same list
 
 
 def test_rebuild_asks_what_to_change_and_a_reply_is_the_correction(desk):

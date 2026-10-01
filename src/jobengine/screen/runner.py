@@ -27,7 +27,13 @@ from jobengine.reference import Reference
 from jobengine.safety import notion_write_target
 from jobengine.screen import daily, visa
 from jobengine.screen.extract import extract
-from jobengine.screen.gates import APPLIED_STATUSES, MAX_YEARS, pre_gate, run_gates
+from jobengine.screen.gates import (
+    APPLIED_STATUSES,
+    MAX_YEARS,
+    pre_gate,
+    run_gates,
+    unbacked_tools,
+)
 from jobengine.screen.models import Extraction, JobRow, ScreenResult, ScreenSummary
 from jobengine.screen.tiering import build_matrix, contract_type, tier
 from jobengine.settings import ROOT_DIR, Settings
@@ -336,7 +342,8 @@ class _Run:
         result = ScreenResult(page_id=row.page_id, verdict="Skip", matrix=matrix,
                               extraction=ext, description_kind=prepared.kind,
                               tech_terms=tool_terms(ext))
-        hit = run_gates(row, ext, self.ref, self.applied, self.today, prepared.limit)
+        hit = run_gates(row, ext, self.ref, self.applied, self.today, prepared.limit,
+                        tech_skips=bool(self.s.screening.get("tech_mismatch_skips", False)))
         if hit:
             result.skip_reason = hit.reason
             result.gaps = list(hit.gaps) or [m.text for m in matrix if m.strength == "Gap"]
@@ -353,6 +360,9 @@ class _Run:
             result.employer = tiering.employer
             result.visa_flags = flags + [f for f in tiering.flags if f not in flags]
             result.gaps = [m.text for m in matrix if m.strength == "Gap"]
+            named = " | ".join(result.gaps).lower()
+            missing = [t for t in unbacked_tools(ext, self.ref) if t.lower() not in named]
+            result.gaps.extend(missing)  # required tools you do not have: gaps, not a skip
             result.notes.extend(checks.notes)
             result.notes.extend(tiering.notes)
         if self.deps.write:

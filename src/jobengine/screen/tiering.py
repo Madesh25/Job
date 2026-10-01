@@ -7,6 +7,7 @@ from datetime import date
 
 from jobengine.reference import Backing, Reference
 from jobengine.screen import visa
+from jobengine.screen.gates import unbacked_tools
 from jobengine.screen.models import Extraction, JobRow, MatrixItem, Requirement
 
 TIERS = ("Needs review", "Apply low", "Apply normal", "Apply high")  # lowest first
@@ -39,8 +40,8 @@ def build_matrix(ext: Extraction, ref: Reference) -> list[MatrixItem]:
 
 
 def gap_count(matrix: list[MatrixItem]) -> int:
-    """Gaps across mandatory non-tool requirements and nice-to-haves (mandatory tool gaps
-    never get here: gate 4 skips them)."""
+    """Gaps across mandatory non-tool requirements and nice-to-haves (mandatory tools are
+    counted by tier() from unbacked_tools, one gap per tool you do not have)."""
     return sum(
         1 for item in matrix
         if item.strength == "Gap" and not (item.mandatory and item.kind == "tool")
@@ -104,7 +105,8 @@ def tier(
     description_kind: str,
 ) -> Tiering:
     """Section 6.2: base tier from gaps, employer and contract, then the three adjustments."""
-    gaps = gap_count(matrix)
+    # A required tool you do not have is a gap (gate 4 no longer skips it, 1 Oct).
+    gaps = gap_count(matrix) + len(unbacked_tools(ext, ref))
     employer = employer_size(row, ext, ref, flags)
     if gaps == 0 and employer == "large" and permanent_contract(row.country, ext):
         verdict = "Apply high"
