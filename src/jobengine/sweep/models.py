@@ -104,6 +104,15 @@ class LossReport:
         if bucket not in KEPT_BUCKETS and job and counts[bucket] <= MAX_DROPPED_PER_REASON:
             self.dropped.append((source, bucket, job))
 
+    def reasons(self) -> list[tuple[str, int]]:
+        """Drop reasons with their complete counts, the biggest first."""
+        totals: dict[str, int] = {}
+        for counts in self.by_source.values():
+            for reason, n in counts.items():
+                if reason not in KEPT_BUCKETS:
+                    totals[reason] = totals.get(reason, 0) + n
+        return sorted(totals.items(), key=lambda item: -item[1])
+
     def read(self, source: str) -> int:
         return sum(self.by_source.get(source, {}).values())
 

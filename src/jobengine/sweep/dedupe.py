@@ -40,6 +40,7 @@ class IndexRow:
     company: str = ""
     role: str = ""
     city: str | None = None
+    visa_flags: list[str] = field(default_factory=list)
 
 
 def parse_posting_ids(value: str | None) -> list[str]:
