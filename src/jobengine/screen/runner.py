@@ -341,6 +341,8 @@ class _Run:
             result.skip_reason = hit.reason
             result.gaps = list(hit.gaps) or [m.text for m in matrix if m.strength == "Gap"]
             result.notes.append(f"gate {hit.gate}: {hit.detail}")
+            if visa.is_agency(row.company, ext, self.config):  # marked even when skipped
+                result.visa_flags = [visa.agency_flag(row.country)]
         else:
             register = self.register() if self.needs_register(row) else None
             checks = visa.visa_checks(row, ext, self.ref, self.config, register)

@@ -174,7 +174,9 @@ spend its places (or tokens) on jobs it would skip anyway:
   or the posting is written in Polish or Dutch, even when it also asks for English (the
   team works in that language). An English posting with a short Polish privacy note still
   passes: the posting must use at least twice as many Polish or Dutch common words as
-  English ones. "Polish is a
+  English ones (a short Adzuna snippet: at least 5 such words and three times as many as
+  English ones). A title written in Polish or Dutch ("Inżynier DevOps", "Specjalista ds.",
+  "Beheerder") counts too; a city with Polish letters or "(m/v)" does not. "Polish is a
   plus", "nice to have" and "Polish clients" never count. Summary: `Needs a language other
   than English (not saved)`.
 - **Contract** (`sweep/fit.py`). A job in Poland that states B2B (or a `+ VAT` rate) and no
@@ -336,8 +338,9 @@ to what each source read and nothing is dropped without a trace:
   limit (weaker match), Notion refused the row.
 
 The `/fetch` summary ends with one line per source ("Where the postings went"). Bot State
-`sweep.last_report` keeps the counts and the first 400 dropped jobs; `/fetchreport` shows them
-by reason (5 per reason), and `/fetchreport <word>` shows up to 40 jobs of the reasons or
+`sweep.last_report` keeps the counts and up to 25 dropped jobs per source and reason (so every
+reason has examples); `/fetchreport` shows them by reason with the complete counts (5 jobs per
+reason), and `/fetchreport <word>` shows up to 40 jobs of the reasons or
 sources containing that word, for example `/fetchreport skill` or `/fetchreport adzuna`.
 
 ## Email alerts setup

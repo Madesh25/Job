@@ -86,7 +86,9 @@ SAVED = "saved as a new job"
 ALREADY = "already in Notion (updated)"
 MERGED = "same job from another posting (merged)"
 KEPT_BUCKETS = (SAVED, ALREADY, MERGED)
-MAX_DROPPED_KEPT = 400  # dropped jobs remembered for /fetchreport
+# Dropped jobs remembered for /fetchreport, per source and reason, so every reason keeps
+# examples (one cap of 400 for all let the first reasons fill it, 1 Oct test T3).
+MAX_DROPPED_PER_REASON = 25
 
 
 @dataclass
@@ -99,7 +101,7 @@ class LossReport:
     def add(self, source: str, bucket: str, job: str = "") -> None:
         counts = self.by_source.setdefault(source, {})
         counts[bucket] = counts.get(bucket, 0) + 1
-        if bucket not in KEPT_BUCKETS and job and len(self.dropped) < MAX_DROPPED_KEPT:
+        if bucket not in KEPT_BUCKETS and job and counts[bucket] <= MAX_DROPPED_PER_REASON:
             self.dropped.append((source, bucket, job))
 
     def read(self, source: str) -> int:
@@ -139,14 +141,23 @@ class LossReport:
         lines += ["", "Dropped jobs by reason" + (f" (matching {word!r})" if word else "")
                   + ". /fetchreport <word> shows more of one reason, for example "
                     "/fetchreport skill or /fetchreport adzuna:"]
-        for reason, jobs in sorted(groups.items(), key=lambda item: -len(item[1])):
-            lines.append(f"{reason} ({len(jobs)}):")
+        totals: dict[str, int] = {}  # the complete counts (only some jobs are kept)
+        for source, counts in self.by_source.items():
+            name = labels.get(source, source).lower()
+            for reason, n in counts.items():
+                if reason in groups and (word in reason.lower() or word in name):
+                    totals[reason] = totals.get(reason, 0) + n
+        for reason, jobs in groups.items():
+            totals[reason] = max(totals.get(reason, 0), len(jobs))
+        for reason, jobs in sorted(groups.items(), key=lambda item: -totals[item[0]]):
+            lines.append(f"{reason} ({totals[reason]}):")
             lines.extend(f"- {job} [{name}]" for name, job in jobs[:limit])
-            if len(jobs) > limit:
-                lines.append(f"- ... and {len(jobs) - limit} more")
-        if len(self.dropped) >= MAX_DROPPED_KEPT:
-            lines.append(f"(Only the first {MAX_DROPPED_KEPT} dropped jobs are kept; the counts "
-                         "above are complete.)")
+            if totals[reason] > min(len(jobs), limit):
+                lines.append(f"- ... and {totals[reason] - min(len(jobs), limit)} more")
+        if any(n > MAX_DROPPED_PER_REASON for counts in self.by_source.values()
+               for reason, n in counts.items() if reason not in KEPT_BUCKETS):
+            lines.append(f"(Up to {MAX_DROPPED_PER_REASON} jobs per source and reason are "
+                         "listed; the counts are complete.)")
         return "\n".join(lines)
 
     def to_state(self, today: str) -> dict[str, Any]:

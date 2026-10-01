@@ -88,3 +88,21 @@ def test_fetchreport_command():
     text = d.fetchreport_command("adzuna")[0].text
     assert "(matching 'adzuna')" in text and "[Adzuna]" in text
     assert "fetchreport" in {c["command"] for c in tb.bot_commands()}
+
+
+def test_every_reason_keeps_examples_and_complete_counts():
+    # 1 Oct test T3: one cap of 400 dropped jobs let the first reasons fill it, so later
+    # reasons (too senior, B2B, low skill) showed no examples and smaller counts.
+    from jobengine.sweep.models import MAX_DROPPED_PER_REASON, LossReport
+
+    report = LossReport()
+    for i in range(500):
+        report.add("adzuna", "title not DevOps-type", f"Software Engineer {i}")
+    report.add("adzuna", "Low skill match", "Cloud Engineer | Acme")
+    text = report.report_text({"adzuna": "Adzuna"}, "2026-10-01")
+    assert "title not DevOps-type (500):" in text
+    assert f"- ... and {500 - 5} more" in text
+    assert "Low skill match (1):\n- Cloud Engineer | Acme [Adzuna]" in text
+    assert f"(Up to {MAX_DROPPED_PER_REASON} jobs per source and reason are listed" in text
+    assert "Cloud Engineer | Acme" in report.report_text({"adzuna": "Adzuna"}, "x", "skill")
+    assert len(report.dropped) == MAX_DROPPED_PER_REASON + 1
