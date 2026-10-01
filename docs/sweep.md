@@ -370,6 +370,13 @@ Poland"); other card lines are searched too. Boards that only list one country
 (`sweep.gmail.board_country`: JustJoin IT, NoFluffJobs, Pracuj.pl, theprotocol.it, Bulldogjob
 for Poland; IrishJobs.ie, Jobs.ie, JobsIreland for Ireland; IamExpat and Nationale
 Vacaturebank for the Netherlands) give that country when a card names only a city or none.
+When one link holds the whole card (LinkedIn's newer alerts, JustJoin IT), its lines are
+read in the order of `sweep.gmail.card_layouts` (default: title, then "Company · Place";
+JustJoin IT: company, city, title); button lines such as "Easy Apply" are left out. Links
+whose whole text is in `sweep.gmail.ignore_link_exact` ("more" under each IrishJobs card,
+"Contact us", "Change criteria for jobs by email") are never jobs. `sweep.locations` lists
+the cities each country is recognised by (1 Oct: Zeist, Alkmaar, Almere, Leeuwarden, Wicklow
+and others were added after LinkedIn jobs there were dropped as "place not recognised").
 The `/fetch` summary splits "Not a match" by reason (title, place not recognised, other
 country). For every board but LinkedIn the job link is
 followed to the real job page (at most `sweep.fulltext.max_pages` pages per sweep, shared with

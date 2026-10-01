@@ -27,6 +27,10 @@ MAX_LINE_CHARS = 120
 MAX_DROPPED_SHOWN = 3  # per email in /alertcheck
 # "co.brick · Warsaw, Mazowieckie, Poland (Hybrid)": company and place on one line.
 _JOINED = re.compile(r"\s+[\u00b7\u2022|]\s+")
+# Button and badge lines inside a card link, never a place or a company.
+CARD_BUTTONS = {"apply", "easy apply", "be the first to apply", "be the first to apply!",
+                "actively recruiting", "new", "promoted"}
+DEFAULT_LAYOUT = ["title", "company"]
 
 
 def board_for_sender(sender: str, sender_boards: Mapping[str, str]) -> str:
@@ -68,10 +72,31 @@ def card_fields(anchor: Tag, title: str) -> tuple[str, str, tuple[str, ...]]:
     return "(unknown)", "", ()
 
 
-def _looks_like_title(text: str, ignore: list[str]) -> bool:
+def anchor_fields(lines: list[str], layout: list[str]) -> tuple[str, str, str, tuple[str, ...]]:
+    """(title, company, location, other lines) when the link holds the whole card, as in
+    LinkedIn's newer alerts ("DevOps Engineer" / "eir Ireland · Dublin") or JustJoin IT
+    ("EPAM Systems" / "Katowice" / "Lead HPC Kubernetes Engineer" / salary ...). `layout`
+    names the first lines in order (title, company, place); "Company · Place" on one line is
+    split. Lines after the layout are kept as other card lines."""
+    parts: list[str] = []
+    for line in lines:
+        parts.extend(_JOINED.split(line) if len(parts) < len(layout) else [line])
+    fields = dict(zip(layout, parts, strict=False))
+    others = tuple(p for p in parts[len(layout):] if canon(p) not in CARD_BUTTONS)
+    title = fields.get("title", "")
+    company = fields.get("company") or "(unknown)"
+    place = fields.get("place") or (others[0] if others else "")
+    if "place" not in fields and others:
+        others = others[1:]
+    return title, company, place, others[:3]
+
+
+def _looks_like_title(text: str, ignore: list[str], exact: set[str] | None = None) -> bool:
     if not 3 <= len(text) <= MAX_LINE_CHARS or "@" in text or not re.search(r"[A-Za-z]", text):
         return False
     value = canon(text)
+    if exact and value in exact:
+        return False
     return not any(canon(term) in value for term in ignore)
 
 
@@ -85,6 +110,9 @@ def parse_alert(message: GmailMessage, gmail_cfg: Mapping[str, Any]) -> list[Raw
     patterns = gmail_cfg.get("job_url_patterns") or {}
     pattern = re.compile(patterns[board]) if board in patterns else None
     ignore = list(gmail_cfg.get("ignore_link_texts") or [])
+    # Whole link texts that are never jobs ("more" under each IrishJobs card).
+    exact = {canon(t) for t in gmail_cfg.get("ignore_link_exact") or []}
+    layout = list((gmail_cfg.get("card_layouts") or {}).get(board) or DEFAULT_LAYOUT)
     # A board that only lists one country's jobs (JustJoin IT: Poland) gives that country
     # when the card names only a city, or no place at all.
     home = (gmail_cfg.get("board_country") or {}).get(board)
@@ -104,7 +132,7 @@ def parse_alert(message: GmailMessage, gmail_cfg: Mapping[str, Any]) -> list[Raw
         else:
             if not href.lower().startswith(("http://", "https://")):
                 continue
-            if not _looks_like_title(text, ignore):
+            if not _looks_like_title(text, ignore, exact):
                 continue
             posting_id = None
             key = f"url:{href}"
@@ -116,7 +144,13 @@ def parse_alert(message: GmailMessage, gmail_cfg: Mapping[str, Any]) -> list[Raw
         title = anchor.get_text(" ", strip=True)
         if not title:
             continue
-        company, location, others = card_fields(anchor, title)
+        lines = _lines(anchor)
+        if len(lines) >= 2:  # the link holds the whole card
+            title, company, location, others = anchor_fields(lines, layout)
+            if not title:
+                continue
+        else:
+            company, location, others = card_fields(anchor, title)
         postings.append(
             RawPosting(
                 source=SOURCE,
