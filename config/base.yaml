@@ -269,6 +269,18 @@ sweep:
         Gdańsk: [gdansk]
         Łódź: [lodz]
         Katowice: [katowice]
+        Gdynia: [gdynia]
+        Lublin: [lublin]
+        Szczecin: [szczecin]
+        Bydgoszcz: [bydgoszcz]
+        Białystok: [bialystok]
+        Rzeszów: [rzeszow]
+        Gliwice: [gliwice]
+        Toruń: [torun]
+        Opole: [opole]
+        Kielce: [kielce]
+        Olsztyn: [olsztyn]
+        Bielsko-Biała: [bielsko biala]
     Netherlands:
       names: [netherlands, nederland]
       cities:
@@ -278,6 +290,29 @@ sweep:
         Rotterdam: [rotterdam]
         Den Haag: [den haag, the hague, s gravenhage]
         Eindhoven: [eindhoven]
+        Almere: [almere]
+        Alkmaar: [alkmaar]
+        Leeuwarden: [leeuwarden]
+        Zeist: [zeist]
+        Delft: [delft]
+        Leiden: [leiden]
+        Haarlem: [haarlem]
+        Hoofddorp: [hoofddorp, schiphol]
+        Groningen: [groningen]
+        Nijmegen: [nijmegen]
+        Arnhem: [arnhem]
+        Breda: [breda]
+        Den Bosch: [den bosch, s hertogenbosch]
+        Tilburg: [tilburg]
+        Zwolle: [zwolle]
+        Enschede: [enschede]
+        Hilversum: [hilversum]
+        Amersfoort: [amersfoort]
+        Apeldoorn: [apeldoorn]
+        Veenendaal: [veenendaal]
+        Maastricht: [maastricht]
+        Deventer: [deventer]
+        Nieuwegein: [nieuwegein]
     Ireland:
       names: [ireland]
       cities:
@@ -285,6 +320,18 @@ sweep:
         Cork: [cork]
         Galway: [galway]
         Limerick: [limerick]
+        Waterford: [waterford]
+        Wicklow: [wicklow]
+        Kildare: [kildare, naas, maynooth]
+        Athlone: [athlone]
+        Sligo: [sligo]
+        Kerry: [kerry, tralee, killarney]
+        Shannon: [shannon]
+        Letterkenny: [letterkenny]
+        Dundalk: [dundalk]
+        Drogheda: [drogheda]
+        Kilkenny: [kilkenny]
+        Carlow: [carlow]
   gmail:
     # Alert emails read on each /fetch: those with this Gmail label (put every job alert under
     # it with Gmail filters), plus those from a sender domain in sender_boards below, from the
@@ -327,6 +374,18 @@ sweep:
       JustJoin IT: 'justjoin\.it/(job-offer|offers)/([\w-]+)'
       NoFluffJobs: 'nofluffjobs\.com/(pl/)?job/([\w-]+)'
       Pracuj.pl: 'pracuj\.pl/praca/.*,oferta,(\d+)'
+    # Order of the first lines when one link holds the whole job card (default: title, then
+    # "Company · Place"). JustJoin IT cards start with the company and the city.
+    card_layouts:
+      JustJoin IT: [company, place, title]
+    # Whole link texts that are never job titles (IrishJobs puts "more" under every card).
+    ignore_link_exact:
+      - more
+      - new
+      - contact us
+      - change criteria for jobs by email
+      - see all matching jobs
+      - show job offers
     # Anchor texts that are never job titles (generic fallback for other boards).
     ignore_link_texts:
       - unsubscribe
