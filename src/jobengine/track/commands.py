@@ -14,7 +14,7 @@ from jobengine.track.runner import MARKER, TrackDeps
 
 SOURCE_SECRETS = {"gmail": ("GMAIL_ALERTS_TOKEN_JSON",), "adzuna": ("ADZUNA_APP_ID",
                                                                      "ADZUNA_APP_KEY"),
-                  "jooble": ("JOOBLE_API_KEY",), "ats": ()}
+                  "jooble": ("JOOBLE_API_KEY",), "nofluffjobs": (), "ats": ()}
 
 
 def _day(value: Any) -> date | None:
