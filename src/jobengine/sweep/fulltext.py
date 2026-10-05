@@ -36,7 +36,7 @@ from jobengine.sweep.normalize import experience, years_required
 log = logging.getLogger("jobengine.sweep")
 
 DEFAULT_MAX_PAGES = 45
-DEFAULT_SOURCES = ("adzuna", "ats", "jooble", "nofluffjobs", "gmail")
+DEFAULT_SOURCES = ("adzuna", "ats", "jooble", "nofluffjobs", "iamexpat", "gmail")
 # Least text accepted: a JobPosting is trusted when short, a guessed block less so and
 # the whole page text only when it is clearly more than a snippet.
 MIN_JSON_LD = 150

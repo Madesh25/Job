@@ -17,7 +17,7 @@ COUNTRY_FLAGS = {
 class RawPosting:
     """One posting as a source reports it, before any normalising."""
 
-    source: str  # gmail, adzuna, jooble, nofluffjobs or ats
+    source: str  # gmail, adzuna, jooble, nofluffjobs, iamexpat or ats
     board: str  # Board option in Job Opportunities, for example "LinkedIn" or "Company site"
     title: str
     company: str

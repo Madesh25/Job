@@ -41,17 +41,17 @@ from jobengine.sweep.normalize import (
     title_scope,
 )
 from jobengine.sweep.rank import Ranker
-from jobengine.sweep.sources import adzuna, ats, gmail_alerts, jooble, nofluffjobs
+from jobengine.sweep.sources import adzuna, ats, gmail_alerts, iamexpat, jooble, nofluffjobs
 
 log = logging.getLogger("jobengine.sweep")
 
-SOURCES = ("gmail", "adzuna", "jooble", "nofluffjobs", "ats")
+SOURCES = ("gmail", "adzuna", "jooble", "nofluffjobs", "iamexpat", "ats")
 Prefilter = Callable[[str, str], bool]
 Progress = Callable[[str], None]
 
 # Plain names for the Telegram messages.
 SOURCE_LABELS = {"gmail": "Email alerts", "adzuna": "Adzuna", "jooble": "Jooble",
-                 "nofluffjobs": "NoFluffJobs",
+                 "nofluffjobs": "NoFluffJobs", "iamexpat": "IamExpat",
                  "ats": "Company career sites"}
 PROGRESS_EVERY = 25
 # bot_state key read by /sources and /health (Module 07).
@@ -87,6 +87,7 @@ class SweepDeps:
     page: fulltext.PageGetter | None = None
     jooble: Callable[[], SourceResult] = lambda: SourceResult(name="jooble")
     nofluffjobs: Callable[[], SourceResult] = lambda: SourceResult(name="nofluffjobs")
+    iamexpat: Callable[[], SourceResult] = lambda: SourceResult(name="iamexpat")
 
 
 def fake_deps(s: Settings, repo: JobsRepo | None = None) -> SweepDeps:
@@ -130,6 +131,7 @@ def real_deps(s: Settings) -> SweepDeps:
         page=lambda url: http.get_page(url, s=s),
         jooble=lambda: jooble.fetch(s),
         nofluffjobs=lambda: nofluffjobs.fetch(s),
+        iamexpat=lambda: iamexpat.fetch(s),
     )
 
 

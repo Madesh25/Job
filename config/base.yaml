@@ -467,6 +467,11 @@ sweep:
     search_terms: [devops engineer, site reliability engineer, platform engineer, cloud engineer,
                    kubernetes engineer, infrastructure engineer, devsecops engineer]
     pages: 2
+  # IamExpat (FETCH 7, sweep/sources/iamexpat.py): the IT and technology jobs page (its search
+  # box ignores the search word), newest 20 jobs, one request a sweep, robots.txt respected.
+  # Netherlands only; titles outside the target roles are dropped by normalize.
+  iamexpat:
+    enabled: true
   # Full descriptions (sweep/fulltext.py): the job page is read for new jobs near the top of
   # today's list that only have a snippet or nothing. Plain GET, no login or cookies, public
   # https hosts only, never linkedin, at most 3 MB a page.
@@ -479,4 +484,4 @@ sweep:
     # gmail: the job links in alert emails (JustJoin IT, NoFluffJobs, Pracuj.pl, ...) are
     # followed to the real job page, whose link and full description are kept. LinkedIn is
     # never read, whatever this says.
-    sources: [adzuna, ats, jooble, nofluffjobs, gmail]
+    sources: [adzuna, ats, jooble, nofluffjobs, iamexpat, gmail]
