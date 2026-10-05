@@ -124,7 +124,12 @@ TAP_TOASTS = {"ap": "Approving, building your resume...", "sk": "Skipping...",
               "fg": "Adding it and rebuilding...",
               "fc": "Adding it and rebuilding...", "ct": "Finding contacts...",
               "dr": "Writing Gmail drafts...", "fx": "Finding contacts and writing drafts...",
-              "fr": "Listing those jobs...", "li": "Working on the LinkedIn job..."}
+              "fr": "Listing those jobs...", "li": "Working on the LinkedIn job...",
+              "ra": "Saving the resume...", "rb": "Building the resume again...",
+              "rq": "Send what to change...", "ia": "Marking as applied...",
+              "na": "Not applying...", "nr": "Saving the reason..."}
+# Every other button: a tap always gets a sign that the bot is working (5 Oct test notes).
+TAP_DEFAULT = "Working on it..."
 
 DESK_COMMANDS = ("pending", "jd", "done", "screen", "gaps", "contacts", "credits", "outreach",
                  "drafts", "fetchcontacts", "alertcheck", "fetchreport", "linkedin", "today",
@@ -629,7 +634,8 @@ def handle_callback(
     data = str(query.get("data") or "")
     try:
         # Answer at once so the button stops spinning, with a short note of what is happening.
-        client.answer_callback(str(query.get("id", "")), TAP_TOASTS.get(data.partition(":")[0]))
+        client.answer_callback(str(query.get("id", "")),
+                               TAP_TOASTS.get(data.partition(":")[0], TAP_DEFAULT))
     except TelegramError as exc:
         log.warning("answerCallbackQuery failed: %s", exc)
     with Typing(client, sender):

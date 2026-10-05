@@ -244,8 +244,10 @@ def _hosts(html: str) -> list[str]:
 
 
 def check(s: Settings, load_messages: Callable[[], list[GmailMessage]] | None = None,
-          limit: int = 20) -> str:
-    """/alertcheck: each alert email the next /fetch would read, and the jobs found in it."""
+          limit: int = 100) -> str:
+    """/alertcheck: each alert email the next /fetch would read, and the jobs found in it.
+    Every email is listed (a long answer goes as several Telegram messages); before 5 Oct
+    only 20 were, so 3 emails stayed hidden in test P2."""
     gmail_cfg = s.sweep.get("gmail") or {}
     if load_messages is None:
         if not s.gmail_alerts_token_json:
@@ -265,10 +267,12 @@ def check(s: Settings, load_messages: Callable[[], list[GmailMessage]] | None = 
     countries = list(rules.locations)
     lines = [f"{len(messages)} alert email(s) found (search: {query})."]
     total = kept = 0
+    distinct: set[tuple[str, str]] = set()
     for message in messages[:limit]:
         board = board_for_sender(message.sender, gmail_cfg.get("sender_boards") or {})
         jobs = parse_alert(message, gmail_cfg)
         total += len(jobs)
+        distinct.update((job.board, job.posting_id) for job in jobs)
         address = parseaddr(message.sender)[1] or message.sender
         dropped = [(job, result.reason) for job in jobs
                    if isinstance(result := normalize(job, rules, countries), Skipped)]
@@ -287,6 +291,7 @@ def check(s: Settings, load_messages: Callable[[], list[GmailMessage]] | None = 
     if len(messages) > limit:
         lines.append(f"... and {len(messages) - limit} more email(s).")
     lines.append(f"Jobs found in the emails shown: {total}, in scope (title and place): {kept}. "
-                 "/fetch then checks age, experience, language, contract, sponsorship, skills "
-                 "and the daily limit.")
+                 f"Different jobs: {len(distinct)} (the same job in several emails counts once "
+                 "in /fetch). /fetch then checks age, experience, language, contract, "
+                 "sponsorship, skills and the daily limit.")
     return "\n".join(lines)

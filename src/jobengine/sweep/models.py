@@ -91,6 +91,24 @@ KEPT_BUCKETS = (SAVED, ALREADY, MERGED)
 MAX_DROPPED_PER_REASON = 25
 
 
+def _fair_pick(jobs: list[tuple[str, str]], limit: int) -> list[tuple[str, str]]:
+    """Up to `limit` jobs taken in turn from each source, each job once: before 5 Oct the
+    first sources filled the list and Jooble's jobs were never shown (test P3)."""
+    by_source: dict[str, list[tuple[str, str]]] = {}
+    seen: set[tuple[str, str]] = set()
+    for item in jobs:
+        if item not in seen:
+            seen.add(item)
+            by_source.setdefault(item[0], []).append(item)
+    picked: list[tuple[str, str]] = []
+    queues = list(by_source.values())
+    while len(picked) < limit and any(queues):
+        for queue in queues:
+            if queue and len(picked) < limit:
+                picked.append(queue.pop(0))
+    return picked
+
+
 @dataclass
 class LossReport:
     """Per source: bucket -> postings. `dropped`: (source, reason, job) for /fetchreport."""
@@ -159,14 +177,15 @@ class LossReport:
         for reason, jobs in groups.items():
             totals[reason] = max(totals.get(reason, 0), len(jobs))
         for reason, jobs in sorted(groups.items(), key=lambda item: -totals[item[0]]):
+            shown = _fair_pick(jobs, limit)
             lines.append(f"{reason} ({totals[reason]}):")
-            lines.extend(f"- {job} [{name}]" for name, job in jobs[:limit])
-            if totals[reason] > min(len(jobs), limit):
-                lines.append(f"- ... and {totals[reason] - min(len(jobs), limit)} more")
+            lines.extend(f"- {job} [{name}]" for name, job in shown)
+            if totals[reason] > len(shown):
+                lines.append(f"- ... and {totals[reason] - len(shown)} more")
         if any(n > MAX_DROPPED_PER_REASON for counts in self.by_source.values()
                for reason, n in counts.items() if reason not in KEPT_BUCKETS):
-            lines.append(f"(Up to {MAX_DROPPED_PER_REASON} jobs per source and reason are "
-                         "listed; the counts are complete.)")
+            lines.append(f"(The report keeps up to {MAX_DROPPED_PER_REASON} jobs per source and "
+                         "reason; the counts are complete.)")
         return "\n".join(lines)
 
     def to_state(self, today: str) -> dict[str, Any]:

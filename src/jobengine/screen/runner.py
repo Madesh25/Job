@@ -34,7 +34,13 @@ from jobengine.screen.gates import (
     run_gates,
     unbacked_tools,
 )
-from jobengine.screen.models import Extraction, JobRow, ScreenResult, ScreenSummary
+from jobengine.screen.models import (
+    Extraction,
+    JobRow,
+    ScreenResult,
+    ScreenSummary,
+    join_gaps,
+)
 from jobengine.screen.tiering import build_matrix, contract_type, tier
 from jobengine.settings import ROOT_DIR, Settings
 from jobengine.sweep.dedupe import parse_posting_ids
@@ -250,7 +256,7 @@ def plan_props(
     if terms:
         props["Tech stack"] = terms
     if result.gaps:
-        props["Gaps"] = ", ".join(result.gaps)
+        props["Gaps"] = join_gaps(result.gaps)
     return props
 
 

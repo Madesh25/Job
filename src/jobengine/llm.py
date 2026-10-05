@@ -213,6 +213,20 @@ def parse_json_object(text: str) -> dict[str, Any]:
     return value
 
 
+def error_reason(exc: Any) -> str:
+    """Anthropic's own short reason for a refused call ("prompt is too long", "credit balance
+    is too low"...), never the prompt. Before 5 Oct only "HTTP 400" was shown, so the cause of
+    the resume and /update failures was unknown."""
+    body = getattr(exc, "body", None)
+    error = body.get("error") if isinstance(body, dict) else None
+    message = error.get("message") if isinstance(error, dict) else None
+    kind = error.get("type") if isinstance(error, dict) else None
+    text = " ".join(str(message or "").split())[:300]
+    if not text:
+        return ""
+    return f" ({kind}: {text})" if kind else f" ({text})"
+
+
 class AnthropicLLM:
     """Real client over the official anthropic SDK."""
 
@@ -242,7 +256,9 @@ class AnthropicLLM:
                     "(Ctrl+C) and start it again. On Cloud Run: add a new version of the "
                     "Anthropic secret and redeploy."
                 ) from None
-            raise LLMError(f"LLM call failed: HTTP {exc.status_code}") from None
+            reason = error_reason(exc)
+            log.warning("llm call refused: HTTP %s%s", exc.status_code, reason)
+            raise LLMError(f"LLM call failed: HTTP {exc.status_code}{reason}") from None
         except anthropic.APIConnectionError:
             raise LLMError("LLM call failed: connection error") from None
 
@@ -299,7 +315,9 @@ class AnthropicLLM:
             if exc.status_code in (401, 403):
                 raise LLMAuthError(f"Anthropic refused ANTHROPIC_API_KEY (HTTP {exc.status_code})"
                                    ) from None
-            raise LLMError(f"LLM batch call failed: HTTP {exc.status_code}") from None
+            reason = error_reason(exc)
+            log.warning("llm batch call refused: HTTP %s%s", exc.status_code, reason)
+            raise LLMError(f"LLM batch call failed: HTTP {exc.status_code}{reason}") from None
         except anthropic.APIConnectionError:
             raise LLMError("LLM batch call failed: connection error") from None
 

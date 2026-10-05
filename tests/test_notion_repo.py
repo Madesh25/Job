@@ -304,3 +304,13 @@ def test_not_shared_hint_names_the_page_and_the_fix():
     hint = not_shared_hint("/blocks/3e46edc2-b0d4-812b-82ea-d1766061390d/children")
     assert "https://www.notion.so/3e46edc2b0d4812b82ead1766061390d" in hint
     assert "Connections" in hint and "job-engine-dev" in hint
+
+
+def test_not_shared_hint_names_a_table_instead_of_a_broken_link():
+    # 5 Oct test D5: notion.so/<data source id> opened "page not found".
+    from jobengine.notion_repo import not_shared_hint
+    from jobengine.settings import load_settings
+
+    s = load_settings("local", {})
+    hint = not_shared_hint("/data_sources/4097af1c-faaf-455f-9616-728301043408/query", s)
+    assert "the Strategy table" in hint and "notion.so" not in hint

@@ -363,11 +363,23 @@ def check_page_write(method: str, path: str, s: Settings) -> None:
                           "by hand only")
 
 
-def not_shared_hint(path: str) -> str:
+def not_shared_hint(path: str, s: Settings | None = None) -> str:
     """What to do about a 404: almost always a page or database not shared with the
-    integration this env's NOTION_TOKEN belongs to."""
+    integration this env's NOTION_TOKEN belongs to. A data source ID is not a page link
+    (notion.so/<data source id> says "page not found", 5 Oct test D5), so a table is named by
+    its config key instead."""
     match = re.search(r"[0-9a-f]{8}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{12}", path)
-    target = f"https://www.notion.so/{match.group(0).replace('-', '')}" if match else "it"
+    found = match.group(0).replace("-", "").lower() if match else ""
+    if found and "data_sources" in path:
+        pairs = [*(s.notion_read.items() if s else []), *(s.notion_write.items() if s else [])]
+        name = next((key for key, value in pairs
+                     if str(value).replace("-", "").lower() == found), "")
+        table = (f"the {name.replace('_', ' ').title()} table" if name
+                 else f"the table with data source ID {match.group(0)}")
+        return (f"Fix: open {table} in Notion (search for it by name), then ... > Connections "
+                "> Connect to, and pick the integration of this env's NOTION_TOKEN "
+                "(job-engine-dev for local and dev).")
+    target = f"https://www.notion.so/{found}" if found else "it"
     return (f"Fix: open {target} in Notion, then ... > Connections > Connect to, and pick the "
             "integration of this env's NOTION_TOKEN (job-engine-dev for local and dev).")
 
@@ -417,7 +429,7 @@ class NotionClient:
         except http.HttpError as exc:
             if exc.status != 404:
                 raise
-            raise http.HttpError(f"{exc}\n{not_shared_hint(path)}", 404) from None
+            raise http.HttpError(f"{exc}\n{not_shared_hint(path, self._s)}", 404) from None
 
     def property_ids(self, data_source_id: str, names: tuple[str, ...]) -> list[str]:
         schema = self.request("GET", f"/data_sources/{data_source_id}")
