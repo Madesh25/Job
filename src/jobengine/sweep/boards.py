@@ -194,7 +194,7 @@ def check_company(s: Settings, company: TargetCompany, link: str, origin: str, g
     row.result = "OK"
     row.jobs = len(postings)
     row.here = count_here(postings, words)
-    if row.here == 0 and answers:
+    if answers and row.here * 10 < row.jobs:  # fewer than 1 in 10 jobs local
         # Shows the site's own filters (countries, locations) for a better search.
         out_dir.mkdir(parents=True, exist_ok=True)
         saved = out_dir / f"{_slug(company.name)}-answer.json"
