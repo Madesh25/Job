@@ -115,7 +115,8 @@ def _keep_all(title: str, location: str) -> bool:
 
 
 def read_board(s: Settings, company: TargetCompany, board: ats.Board, get: Getter,
-               post: Poster, page: PageGetter, today: date) -> list[RawPosting]:
+               post: Poster, page: PageGetter, today: date,
+               feed: PageGetter | None = None) -> list[RawPosting]:
     """Every posting of a supported board (no detail calls), as /fetch would see it."""
     cfg = s.sweep.get("ats") or {}
     terms = tuple(cfg.get("search_terms") or ats.DEFAULT_SEARCH_TERMS)
@@ -132,6 +133,12 @@ def read_board(s: Settings, company: TargetCompany, board: ats.Board, get: Gette
         postings, _, _ = ats.ashby(company, board, get, _keep_all)
     elif board.ats == "avature":
         postings, _, _ = ats.avature(company, board, page, _keep_all)
+    elif board.ats == "successfactors":
+        postings, _, _ = ats.successfactors(company, board, feed or page, _keep_all, terms)
+    elif board.ats == "phenom":
+        postings, _, _ = ats.phenom(company, board, page, _keep_all, terms)
+    elif board.ats == "oracle":
+        postings, _, _ = ats.oracle(company, board, get, _keep_all, terms)
     else:
         postings, _, _ = ats.amazon(company, get, _keep_all, terms)
     return postings
@@ -250,7 +257,8 @@ def check_all(s: Settings, today: date) -> str:
         return http.post_json(url, json=body, s=s)
 
     def page(url: str) -> tuple[str, str]:
-        return http.get_page(url, s=s)
+        # SuccessFactors job feeds are RSS: accepted here too.
+        return http.get_page(url, s=s, accept_feed=True)
 
     rows = run(s, companies, load_candidates(), get, post, page, today)
     path = save_csv(rows)
