@@ -96,6 +96,8 @@ Fonts, margins and spacing are never changed and no bullet is ever dropped.
 
 ## Sections
 
+**Certifications (since 5 Oct)** come from the Certifications table under Job Engine (Name, Issuer, Status Planned / Studying / Passed, Passed date, Show on resume, Order): only rows with Status Passed AND Show on resume ticked are listed, as "Name, Issuer, Month Year", for every country. Nothing is shown while you are still studying. If that table is not connected to the integration, the Resume Sections row below is used and the log says so.
+
 From the Resume Sections table: Certifications (after Experience; needs a real date instead of
 `<Month Year>`, and shrinks the job in Config `resume.shrink_job_when_certs` to the single
 bullet `resume.ncr_short_bullet`), Languages, and the GDPR line (Poland only, 8pt italic,
