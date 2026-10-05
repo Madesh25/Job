@@ -262,11 +262,12 @@ def test_progress_lines_are_plain_language():
     run_sweep(S, fake_deps(S), TODAY, progress=lines.append)
     assert lines == [
         "Checking what is already in your Notion...",
-        "Searching Email alerts, Adzuna, Jooble, NoFluffJobs, Company career sites...",
-        "Searching: 1 of 5 sources done",
-        "Searching: 2 of 5 sources done",
-        "Searching: 3 of 5 sources done",
-        "Searching: 4 of 5 sources done",
+        "Searching Email alerts, Adzuna, Jooble, NoFluffJobs, IamExpat, Company career sites...",
+        "Searching: 1 of 6 sources done",
+        "Searching: 2 of 6 sources done",
+        "Searching: 3 of 6 sources done",
+        "Searching: 4 of 6 sources done",
+        "Searching: 5 of 6 sources done",
         "Found 19 jobs. Saving to your Notion...",
         "Reading full job descriptions: 1 of 9",
         "Reading full job descriptions: 5 of 9",
