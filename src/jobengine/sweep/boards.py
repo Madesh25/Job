@@ -212,11 +212,17 @@ def run(s: Settings, companies: list[TargetCompany], candidates: Mapping[str, st
     words = place_words(s)
     done: dict[str, Check] = {}
     rows = []
+    own_sites = {ats.canon_name(n)
+                 for n in (s.sweep.get("ats") or {}).get("own_site_companies") or []}
     for company in companies:
         if not company.active:
             continue
         link = candidates.get(company.name) or company.careers_url or ""
         origin = "proposed" if company.name in candidates else "Notion"
+        if ats.canon_name(company.name) in own_sites and ats.board_from_url(link) is None:
+            rows.append(Check(company.name, company.region or "", link, origin,
+                              "own job site, covered by your alerts"))
+            continue
         if link in done:
             first = done[link]
             rows.append(Check(company.name, company.region or "", link, origin, first.result,

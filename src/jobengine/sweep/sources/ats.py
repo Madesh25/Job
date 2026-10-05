@@ -711,6 +711,15 @@ def oracle(company: TargetCompany, board: Board, get: Getter, keep: Prefilter,
         country_ids = [str(f["Id"]) for f in facets
                        if any(str(f.get("Name") or "").strip().endswith(f", {c}")
                               for c in ANY_COUNTRY)][:ORACLE_MAX_PLACES]
+    if not country_ids and terms:
+        # The filter lists only the biggest places (JPMorgan: 40, all in the US on 5 Oct):
+        # a search for the country's name brings that country into the list, with its id.
+        for country in ANY_COUNTRY:
+            answer = search(country)
+            country_ids += [str(f["Id"]) for item in answer.get("items") or []
+                            for f in item.get("locationsFacet") or []
+                            if isinstance(f, Mapping) and f.get("Id")
+                            and str(f.get("Name") or "").strip() == country]
     answers = ((search(term, cid) for term in terms for cid in country_ids) if country_ids
                else (first if n == 0 else search(term) for n, term in enumerate(terms)))
     for data in answers:
@@ -876,6 +885,11 @@ def avature(company: TargetCompany, board: Board, page: PageGetter, keep: Prefil
 NAME_NOISE = {"sp", "z", "o", "oo", "s", "a", "sa", "bv", "b", "v", "nv", "n", "ltd", "limited",
               "inc", "gmbh", "plc", "llc", "group", "the", "ireland", "poland", "netherlands",
               "polska", "nederland", "europe", "emea", "technology", "technologies"}
+
+
+def canon_name(name: str) -> str:
+    """"Infosys (IE)" -> "infosys": the company without its country suffix, lower case."""
+    return " ".join(re.sub(r"\(.*?\)", " ", name).lower().split())
 
 
 def name_slugs(name: str) -> list[str]:
@@ -1091,10 +1105,20 @@ def fetch(
     active = [c for c in companies if c.active]
     # 1. Which board each company uses (careers pages are read several at a time).
     known = {c.name: detect_board(c, overrides) for c in active}
-    found = detector.resolve([c for c in active if known[c.name] is None], workers)
+    # Companies with their own job site and no public job list (your decision of 5 Oct):
+    # kept for contacts and referrals, covered by your alerts, never looked up here.
+    own_sites = {canon_name(n) for n in cfg.get("own_site_companies") or []}
+    for company in active:
+        if known[company.name] is None and canon_name(company.name) in own_sites:
+            result.own_site.append(company.name)
+    skip = set(result.own_site)
+    found = detector.resolve([c for c in active
+                              if known[c.name] is None and c.name not in skip], workers)
     tasks: list[tuple[TargetCompany, Board]] = []
     amazon_done = False
     for company in active:
+        if company.name in skip:
+            continue
         board = known[company.name] or found.get(company.name)
         if board is None or board.ats not in SUPPORTED:
             result.not_supported.append(company.name)
