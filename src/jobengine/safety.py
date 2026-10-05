@@ -88,6 +88,16 @@ def notion_write_target(name: str, s: Settings) -> str | None:
     return ds_id
 
 
+def skills_write_target(s: Settings) -> str | None:
+    """Skills Inventory, for the /gaps "Hands-on" and "Production" buttons only.
+
+    The one deliberate exception to "a test bot never writes the shared tables": your
+    decision of 5 Oct. Skills Inventory is your own reference table (read by every env), a
+    row is added only when you tap a button for that skill, and nothing else is ever
+    written to it."""
+    return s.notion_read.get("skills_inventory")
+
+
 def llm_allowed(s: Settings) -> bool:
     """LLM calls need ANTHROPIC_API_KEY. DRY_RUN does not block them: they cost cents and
     nothing can be tested without them. DRY_RUN blocks Gmail writes, Drive writes and paid

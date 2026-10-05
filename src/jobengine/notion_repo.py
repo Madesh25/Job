@@ -1039,3 +1039,30 @@ def target_companies_writer(s: Settings, client: NotionClient) -> Any:
             for name, value in props.items()}})
 
     return write
+
+
+# ---------------------------------------------------------------- Skills Inventory (/gaps)
+
+
+SKILL_LEVELS = ("Hands-on", "Production")
+
+
+def skill_writer(client: NotionClient, s: Settings) -> Callable[[str, str, str], None] | None:
+    """Adds one Skills Inventory row (Skill, Level, Notes) when you tap a /gaps button.
+    Only through safety.skills_write_target."""
+    from jobengine.safety import skills_write_target
+
+    target = skills_write_target(s)
+    if not target:
+        return None
+
+    def add(name: str, level: str, note: str) -> None:
+        if level not in SKILL_LEVELS:
+            raise ValueError(f"unknown level {level}")
+        body = {"parent": {"type": "data_source_id", "data_source_id": target},
+                "properties": {"Skill": notion_value("title", name),
+                               "Level": notion_value("select", level),
+                               "Notes": notion_value("rich_text", note)}}
+        client.request("POST", "/pages", body)
+
+    return add

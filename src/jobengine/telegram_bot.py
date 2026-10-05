@@ -124,7 +124,8 @@ TAP_TOASTS = {"ap": "Approving, building your resume...", "sk": "Skipping...",
               "fg": "Adding it and rebuilding...",
               "fc": "Adding it and rebuilding...", "ct": "Finding contacts...",
               "dr": "Writing Gmail drafts...", "fx": "Finding contacts and writing drafts...",
-              "fr": "Listing those jobs...", "li": "Working on the LinkedIn job..."}
+              "fr": "Listing those jobs...", "li": "Working on the LinkedIn job...",
+              "gs": "Adding it to your skills..."}
 
 DESK_COMMANDS = ("pending", "jd", "done", "screen", "gaps", "contacts", "credits", "outreach",
                  "drafts", "fetchcontacts", "alertcheck", "fetchreport", "linkedin", "today",

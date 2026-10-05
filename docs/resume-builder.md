@@ -69,7 +69,11 @@ Not applying -> "Why?" [the job is closed or expired] [not a fit after all] [ano
   `forced_skills`, and the skill stays in the job's Gaps. Only your own tap can force a skill;
   a `forced_skills` value in the LLM answer is ignored.
 - Gaps the resume could not cover are added to the job's Gaps column; `/gaps` lists the most
-  common gaps across all jobs (what to learn next).
+  common gaps across all jobs (what to learn next). Under the list, each short gap name you do
+  not have yet (up to 8) comes with **Hands-on** and **Production** buttons: a tap adds it to
+  Skills Inventory at that level (Notes "Added from /gaps on <date>"), and screening, cards and
+  resumes count it at once. This is the only write to Skills Inventory, made only on your tap,
+  from every env (your decision of 5 Oct, `safety.skills_write_target`).
 - Skills Inventory entries that combine names also back their parts:
   `Kubernetes (AKS)` backs Kubernetes and AKS, `GCP Compute Engine / Cloud Storage` backs
   GCP Compute Engine, Compute Engine and Cloud Storage, `AWS EC2` backs EC2. A provider is
