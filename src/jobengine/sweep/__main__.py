@@ -1,5 +1,5 @@
 """CLI: python -m jobengine.sweep [--fake] [--source ...] [--today YYYY-MM-DD] [--parse-report]
-[--probe SITE|all]"""
+[--probe SITE|all] [--check-boards]"""
 
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ from jobengine import http
 from jobengine.main import banner
 from jobengine.safety import SafetyError, check_startup
 from jobengine.settings import Settings, get_settings
-from jobengine.sweep import fakes, probe
+from jobengine.sweep import boards, fakes, probe
 from jobengine.sweep.runner import SOURCES, SweepError, fake_deps, real_deps, run_sweep
 from jobengine.sweep.sources import gmail_alerts
 
@@ -42,6 +42,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--probe", choices=[*probe.SITES, "all"],
                         help="measure a job site (or all) for the approved titles and save "
                              "samples in out/probes; writes nothing to Notion")
+    parser.add_argument("--check-boards", action="store_true",
+                        help="check every Target Company's job board link (proposed links "
+                             "in config/board_candidates.yaml first); writes nothing to "
+                             "Notion, saves out/boards")
     args = parser.parse_args(argv)
 
     # Progress lines go to stderr; the summary is printed to stdout at the end.
@@ -56,6 +60,9 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.parse_report:
         return parse_report(s, args.fake)
+    if args.check_boards:
+        print(boards.check_all(s, args.today or date.today()))
+        return 0
     if args.probe:
         names = list(probe.SITES) if args.probe == "all" else [args.probe]
         print(probe.run(s, names, args.today or date.today()).text())

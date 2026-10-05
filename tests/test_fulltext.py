@@ -326,7 +326,7 @@ def test_careers_page_detection_is_cached_for_a_week():
         result.notes)
     assert state.get(ats.DETECT_KEY)["Shamrock Systems"] == {
         "ats": "lever", "token": "tulipdata", "eu": True, "host": "", "site": "",
-        "checked": "2026-10-01"}
+        "checked": "2026-10-01", "url": "https://careers.shamrock.example.com/jobs"}
 
     ats.fetch(S, [shamrock], keep, get=http_fake, post=http_fake.post, page=page,
               state=state, today=date(2026, 10, 5))
@@ -352,7 +352,8 @@ def test_blocked_careers_pages_are_listed_and_checked_weekly():
     assert result.not_supported == ["Co 0", "Co 1", "Co 2"]
     assert result.blocked == ["Co 0 (HTTP 403)", "Co 1 (HTTP 403)"]  # Co 2: over the budget
     assert state.get(ats.DETECT_KEY)["Co 0"] == {"ats": None, "checked": "2026-10-01",
-                                                 "problem": "HTTP 403"}
+                                                 "problem": "HTTP 403",
+                                                 "url": "https://co0.example.com/careers"}
     again = ats.fetch(s, companies, keep, get=fakes.FixtureHttp(s), page=page, state=state,
                       today=date(2026, 10, 3))
     assert again.blocked == ["Co 0 (HTTP 403)", "Co 1 (HTTP 403)", "Co 2 (HTTP 403)"]

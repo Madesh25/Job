@@ -1,0 +1,67 @@
+# Proposed job board links for Target Companies (FETCH 13, found by web search on 5 Oct).
+# Check them on your PC (writes nothing to Notion):
+#   python -m jobengine.sweep --check-boards
+# A company named here is checked with this link instead of its Careers URL. The links that
+# work are then copied into Target Companies (Careers URL and ATS platform, with your OK) and
+# taken out of this file. Names must match the Company column exactly.
+proposed:
+  # --- Readable by /fetch today (Greenhouse, Lever, SmartRecruiters, Workday, Ashby)
+  Stripe (IE): https://job-boards.greenhouse.io/stripe
+  Miro (NL): https://job-boards.greenhouse.io/realtimeboardglobal
+  Backbase: https://job-boards.greenhouse.io/workatbackbase
+  Bosch: https://jobs.smartrecruiters.com/BoschGroup
+  PayU: https://jobs.lever.co/payugpo
+  Mollie: https://jobs.ashbyhq.com/mollie
+  DocPlanner: https://jobs.ashbyhq.com/docplanner
+  ING: https://ing.wd3.myworkdayjobs.com/ICSGBLCOR
+  Hewlett Packard Enterprise (HPE): https://hpe.wd5.myworkdayjobs.com/Jobsathpe
+  Aptiv: https://aptiv.wd5.myworkdayjobs.com/APTIV_CAREERS
+  Workhuman: https://workhuman.wd1.myworkdayjobs.com/WorkhumanCareers
+
+  # --- SAP SuccessFactors career sites (no reader yet; the check saves a sample)
+  Wipro: https://careers.wipro.com/search/?q=devops
+  Wipro (IE): https://careers.wipro.com/search/?q=devops
+  Wipro (NL): https://careers.wipro.com/search/?q=devops
+  Capgemini: https://careers.capgemini.com/search/?q=devops
+  Capgemini (IE): https://careers.capgemini.com/search/?q=devops
+  Capgemini (NL): https://careers.capgemini.com/search/?q=devops
+  SAP: https://jobs.sap.com/search/?q=devops
+  Nordea: https://careers.nordea.com/search/?q=devops
+  EY: https://careers.ey.com/ey/search/?q=devops
+  Volvo (Tech Hub): https://jobs.volvogroup.com/search/?q=devops
+
+  # --- Phenom career sites (no reader yet)
+  Cisco: https://careers.cisco.com/global/en/search-results?keywords=devops
+  ABB: https://careers.abb/global/en/search-results?keywords=devops
+  Snowflake: https://careers.snowflake.com/us/en/search-results?keywords=devops
+  Just Eat Takeaway.com: https://careers.justeattakeaway.com/global/en/search-results?keywords=devops
+  PwC: https://jobs-cee.pwc.com/ce/en/search-results?keywords=devops
+  Allianz Technology: https://careers.allianz.com/global/en/search-results?keywords=devops
+
+  # --- Oracle Cloud HCM career sites (no reader yet)
+  JPMorgan Chase: https://jpmc.fa.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX_1001/jobs?keyword=devops
+  JPMorgan Chase (IE): https://jpmc.fa.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX_1001/jobs?keyword=devops
+  Nokia: https://jobs.nokia.com/en/sites/CX_1/jobs?keyword=devops
+  Oracle: https://careers.oracle.com/en/sites/jobsearch/jobs?keyword=devops
+  Oracle (IE): https://careers.oracle.com/en/sites/jobsearch/jobs?keyword=devops
+
+  # --- Eightfold career sites (no reader yet)
+  Microsoft: https://apply.careers.microsoft.com/careers?query=devops&domain=microsoft.com
+  Microsoft (IE): https://apply.careers.microsoft.com/careers?query=devops&domain=microsoft.com
+  Microsoft (NL): https://apply.careers.microsoft.com/careers?query=devops&domain=microsoft.com
+  Ericsson (IE): https://jobs.ericsson.com/careers?query=devops&domain=ericsson.com
+
+  # --- Own job sites (custom; the check saves a sample to see if one can be read)
+  IBM: https://careers.ibm.com/
+  IBM (IE): https://careers.ibm.com/
+  Cognizant: https://careers.cognizant.com/global-en/jobs/
+  Cognizant (IE): https://careers.cognizant.com/global-en/jobs/
+  Cognizant (NL): https://careers.cognizant.com/global-en/jobs/
+  HCLTech: https://www.hcltech.com/careers/poland/job-openings
+  Booking.com: https://jobs.booking.com/booking/jobs?keywords=devops
+  Revolut: https://www.revolut.com/careers/?query=devops
+  Goldman Sachs: https://higher.gs.com/results?LOCATION=Warsaw&page=1&sort=RELEVANCE
+  ABN AMRO: https://www.werkenbijabnamro.nl/en/vacancies
+  Rabobank: https://rabobank.jobs/en/vacancies/
+  # Infosys, TCS, Tech Mahindra, LTIMindtree, Google, Meta, Apple, ASML, EPAM, Comarch, Asseco, Samsung R&D, bunq, Uber, Version 1, Brainly, KPMG,
+  # HSBC, UBS and Deloitte (IE): no public job list found yet; checked with their Careers URL.

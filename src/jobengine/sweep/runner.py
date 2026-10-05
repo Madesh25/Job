@@ -199,6 +199,23 @@ def max_posted_age(s: Settings) -> int | None:
     return None if value is None else max(0, int(value))
 
 
+DEFAULT_ATS_MAX_POSTED_AGE = 20
+
+
+def ats_max_posted_age(s: Settings) -> int:
+    """sweep.ats.max_posted_age_days: company career sites list only jobs that are still open,
+    so their new jobs may be this many days old (your decision of 5 Oct: 20)."""
+    value = (s.sweep.get("ats") or {}).get("max_posted_age_days", DEFAULT_ATS_MAX_POSTED_AGE)
+    return max(0, int(value))
+
+
+def age_limit(source: str, max_age: int | None, ats_age: int) -> int | None:
+    """The age limit for one source: company career sites get the longer of the two."""
+    if max_age is None or source != ats.SOURCE:
+        return max_age
+    return max(max_age, ats_age)
+
+
 def too_old(job: Job, today: date, max_age: int | None) -> bool:
     """True for a posting older than max_age days. A job without a posted date is kept."""
     if max_age is None or job.posted_date is None:
@@ -495,6 +512,7 @@ def run_sweep(
     candidates: dict[str, list[Job]] = {}  # dedupe key -> postings, first one creates
     seen: list[Job] = []  # every posting in scope, for the LinkedIn cross-match
     max_age = max_posted_age(s)
+    ats_age = ats_max_posted_age(s)
     summary.max_age_days = max_age
     for result in results:
         for raw in result.postings:
@@ -513,7 +531,8 @@ def run_sweep(
                 continue
             seen.append(outcome)
             row = index.get(outcome.dedupe_key)
-            if row is None and too_old(outcome, today, max_age):
+            if row is None and too_old(outcome, today,
+                                       age_limit(outcome.source, max_age, ats_age)):
                 summary.too_old += 1
                 loss.add(outcome.source, TOO_OLD, _label(outcome))
             elif row is None:
