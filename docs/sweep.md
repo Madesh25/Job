@@ -35,6 +35,21 @@ browser, no login, nothing that works around bot protection) and never probes Li
 In Docker: `docker run --rm -it --env-file .env -v "%cd%\out:/app/out" job-engine python -m
 jobengine.sweep --probe all` (cmd; `${PWD}` in PowerShell).
 
+**Job board check (FETCH 13, 5 Oct).** `python -m jobengine.sweep --check-boards` checks every
+active Target Company's job board link and writes nothing to Notion. The link checked is the
+one proposed in `config/board_candidates.yaml` (found by web search), else the Careers URL. A
+link on a board `/fetch` reads (Greenhouse, Lever, SmartRecruiters, Workday, Ashby, Avature,
+amazon.jobs) is read the way `/fetch` reads it, and its jobs are counted (all, and those in
+Poland, the Netherlands or Ireland). Any other link is opened once: the HTTP answer, the
+platform when it is a known one that `/fetch` cannot read yet (SuccessFactors, Phenom, Oracle
+Cloud HCM, Eightfold, Workable, ...) and a job board linked from the page are noted, and the
+page is saved in `out/boards/<company>.html`. The table is printed and saved as
+`out/boards/report.csv`. A plain HTTP 200 is not enough: a careers landing page answers 200 too,
+so only "OK" with a job count means `/fetch` can read that company. The links that work are
+then put in Target Companies (with your OK) and taken out of the candidates file. In Docker:
+`docker run --rm -it --env-file .env -v "${PWD}/out:/app/out" job-engine python -m
+jobengine.sweep --check-boards`.
+
 In Telegram, `/fetch` runs the same sweep. It replies at once, keeps one message updated with
 the current step in plain words ("Searching Adzuna...", "Saving to your Notion: 125 of 300
 jobs checked"), then sends a short summary: new jobs per country (in Config
@@ -86,7 +101,7 @@ careers site that links to no known ATS).
 | Jooble | `JOOBLE_API_KEY` (free, https://jooble.org/api/about) | Job search over many job boards, Ireland included. One call per country and term in `sweep.jooble` (3 x 4 = 12 calls). Board is the site Jooble found the job on when it is a known board (IrishJobs.ie, Indeed and so on, from `sweep.gmail.sender_boards`), else `Other`. The feed gives a snippet; the full text is read from the job page. Skipped without the key. |
 | NoFluffJobs | none | FETCH 4 (5 Oct): the public search page (`sweep.nofluffjobs`, newest first, `pages` pages per term, one request a second, robots.txt respected) carries its jobs as page data (`serverApp-state`): title, company, cities, posted date, salary. Poland. The description is read from the job page. A 403 or a changed page stops it quietly with a note in the summary. |
 | IamExpat | none | FETCH 7 (5 Oct): the IT and technology jobs page (`sweep.iamexpat`), because the site search ignores the search word. One request a sweep, robots.txt respected; the page data (Next.js `initialJobAds`) gives the newest 20 IT jobs with title, company, city, posted date, salary and a short description. Netherlands. Most titles are dropped by the title filter (on 5 Oct, 1 of 20 was a target role). A 403 or a changed page stops it quietly with a note. EURES was probed too and is not used: its search matches any one word and ignores the date filter (2 of 50 results were relevant). |
-| ATS feeds | nothing | Every active Target Company on Greenhouse, Lever, SmartRecruiters, Workday or amazon.jobs. The board comes from `Careers URL`, from the careers page it links to, or from `sweep.ats_boards`. Board is `Company site`. |
+| ATS feeds | nothing | Every active Target Company on Greenhouse, Lever, SmartRecruiters, Workday, Ashby, Avature or amazon.jobs. The board comes from `Careers URL`, from the careers page it links to, from the company name on Greenhouse, Lever, SmartRecruiters or Ashby, or from `sweep.ats_boards`. A company whose Careers URL changed is checked again at the next `/fetch` (the weekly cache notes the link). A Workday search word the site refuses (Dell answered HTTP 422) only loses that word. Board is `Company site`. |
 
 A source whose secret is missing is skipped with a line in the summary; the run continues.
 
@@ -154,8 +169,10 @@ spend its places (or tokens) on jobs it would skip anyway:
 - **Fresh postings.** A new job is only saved when its posting is at most
   `sweep.max_posted_age_days` (2) days old: posted in the last 3 days, so a job posted after
   the last `/fetch` is not lost. 0 keeps today's postings only, 1 today and yesterday; an
-  empty value keeps any age. Company sites often list jobs that are weeks old; those are not
-  saved. Jobs without a posted date are kept, and rows already in Notion are still updated.
+  empty value keeps any age. Company career sites list only jobs that are still open, so
+  their new jobs are saved when posted in the last `sweep.ats.max_posted_age_days` (20) days
+  (your decision of 5 Oct; on 1 Oct 23 of 28 company-site jobs were lost to the 3-day limit).
+  Jobs without a posted date are kept, and rows already in Notion are still updated.
   Summary: `Posted more than 2 days ago (not saved)`.
 - **Experience.** `screening.max_years_required` (4) is the most years a saved job may ask
   for. The years come from the description: `2-3 years`, `3+ years`, `at least 4 years`,

@@ -1,6 +1,7 @@
 """ATS job feeds for Target Companies (spec section 3.3).
 
-Supported: Greenhouse, Lever, SmartRecruiters, Workday and Amazon (amazon.jobs). The board
+Supported: Greenhouse, Lever, SmartRecruiters, Workday, Ashby, Avature and Amazon
+(amazon.jobs). The board
 is found from the careers URL; when that is the company's own site, the careers page is read
 once a week (http.get_page) and the ATS it links to is used (cached in bot_state
 "ats.detected"). Companies whose board still cannot be found are only counted. Each feed is
@@ -33,7 +34,7 @@ BOARD = "Company site"
 SR_PAGE_SIZE = 100
 SR_MAX_PAGES = 10
 WD_PAGE_SIZE = 20
-SUPPORTED = ("greenhouse", "lever", "smartrecruiters", "workday", "amazon", "avature")
+SUPPORTED = ("greenhouse", "lever", "smartrecruiters", "workday", "amazon", "avature", "ashby")
 # Searches for boards that are too big to read whole (Workday, Amazon).
 DEFAULT_SEARCH_TERMS = ("devops", "site reliability", "sre", "platform engineer",
                         "cloud engineer", "kubernetes", "infrastructure engineer", "devsecops")
@@ -49,6 +50,7 @@ WORKDAY_URL = re.compile(
     r"([\w-]+)\.(wd\d+)\.myworkdayjobs\.com/(?:[a-z]{2}-[a-z]{2}/)?([\w-]+)", re.I
 )
 AMAZON_URL = re.compile(r"(?:www\.)?amazon\.jobs\b", re.I)
+ASHBY_URL = re.compile(r"jobs\.ashbyhq\.com/([\w.-]+)", re.I)
 # Avature career sites list jobs on a server-rendered SearchJobs page, for example
 # https://apply.deloittece.com/en_US/careers/SearchJobs/?523=[5515]
 AVATURE_URL = re.compile(r"^https://[^/\s]+/[a-z]{2}_[A-Z]{2}/[\w-]+/SearchJobs\b", re.I)
@@ -67,7 +69,7 @@ Prefilter = Callable[[str, str], bool]
 
 @dataclass(frozen=True)
 class Board:
-    ats: str  # greenhouse, lever, smartrecruiters, workday or amazon
+    ats: str  # greenhouse, lever, smartrecruiters, workday, ashby, avature or amazon
     token: str  # Workday: the tenant
     eu: bool = False
     host: str = ""  # Workday only: <tenant>.wd3.myworkdayjobs.com
@@ -104,6 +106,9 @@ def board_from_url(url: str) -> Board | None:
             return None
         return Board("workday", tenant.lower(), host=f"{tenant}.{shard}.myworkdayjobs.com".lower(),
                      site=site)
+    if match := ASHBY_URL.search(url):
+        token = match.group(1)
+        return None if token.lower() in NOT_TOKENS else Board("ashby", token)
     if AMAZON_URL.search(url):
         return Board("amazon", "amazon")
     if AVATURE_URL.search(url):
@@ -348,12 +353,20 @@ def workday(
     budget = detail_budget if isinstance(detail_budget, Budget) else Budget(detail_budget)
     base = f"https://{board.host}/wday/cxs/{board.token}/{board.site}"
     listed: dict[str, Mapping[str, Any]] = {}
+    failed: list[http.HttpError] = []
     for term in terms:
         offset = 0
         for _ in range(max_pages):
             body = {"appliedFacets": {}, "limit": WD_PAGE_SIZE, "offset": offset,
                     "searchText": term}
-            data = post(f"{base}/jobs", body) or {}
+            try:
+                data = post(f"{base}/jobs", body) or {}
+            except http.HttpError as exc:
+                # One search word the site refuses (Dell answered HTTP 422 on 1 Oct) must
+                # not lose the other words' jobs; only all words failing is an error.
+                log.info("workday search %r failed for %s: %s", term, company.name, exc)
+                failed.append(exc)
+                break
             items = data.get("jobPostings") or []
             for item in items:
                 if item.get("externalPath"):
@@ -361,6 +374,8 @@ def workday(
             offset += len(items)
             if not items or offset >= int(data.get("total") or 0):
                 break
+    if failed and len(failed) == len(terms):
+        raise failed[-1]
 
     postings, dropped, calls = [], 0, 0
     for path, item in listed.items():
@@ -397,6 +412,58 @@ def workday(
             )
         )
     return postings, dropped, calls
+
+
+# ---------------------------------------------------------------- Ashby
+
+ASHBY_API = "https://api.ashbyhq.com/posting-api/job-board/{token}"
+
+
+def _ashby_location(job: Mapping[str, Any]) -> str:
+    places = [job.get("location") or ""]
+    places += [(extra or {}).get("location") or "" for extra in job.get("secondaryLocations") or []]
+    country = (((job.get("address") or {}).get("postalAddress") or {}).get("addressCountry")
+               or "")
+    text = " / ".join(dict.fromkeys(p for p in places if p))
+    if country and country.lower() not in text.lower():
+        text = f"{text}, {country}" if text else country
+    if job.get("isRemote"):
+        text = f"{text} (Remote)".strip()
+    return text
+
+
+def _ashby_salary(job: Mapping[str, Any]) -> str | None:
+    summary = (job.get("compensation") or {}).get("compensationTierSummary")
+    return f"{summary} (Ashby)" if summary else None
+
+
+def ashby(company: TargetCompany, board: Board, get: Getter, keep: Prefilter):
+    """Ashby's public job board API (the one the hosted board page reads)."""
+    data = get(ASHBY_API.format(token=board.token), {"includeCompensation": "true"}) or {}
+    postings, dropped = [], 0
+    for job in data.get("jobs") or []:
+        if job.get("isListed") is False:
+            continue
+        title = job.get("title") or ""
+        location = _ashby_location(job)
+        if not keep(title, location):
+            dropped += 1
+            continue
+        postings.append(
+            RawPosting(
+                source=SOURCE,
+                board=BOARD,
+                title=title,
+                company=company.name,
+                location_text=location,
+                url=job.get("jobUrl") or job.get("applyUrl") or "",
+                posting_id=f"ashby-{board.token}-{job.get('id')}",
+                posted_date=_iso_date(job.get("publishedAt")),
+                salary_text=_ashby_salary(job),
+                description=job.get("descriptionPlain") or html_to_text(job.get("descriptionHtml")),
+            )
+        )
+    return postings, dropped, 0
 
 
 # ---------------------------------------------------------------- Amazon
@@ -556,8 +623,9 @@ class Detector:
     """Finds the job board of companies whose careers URL is their own site.
 
     1. Read the careers page and use the ATS it redirects to or links to.
-    2. Otherwise try the company name on the public Greenhouse, Lever and SmartRecruiters
-       APIs (many career sites block robots, but their ATS answers).
+    2. Otherwise try the company name on the public Greenhouse, Lever, SmartRecruiters and
+       Ashby APIs (many career sites block robots, but their ATS answers).
+    A company whose Careers URL changed since is checked again at once.
     Results, also "nothing found" and the reason, are kept in bot_state for a week. Sites that
     refused us are listed so their job board link can be put in Careers URL."""
 
@@ -594,6 +662,8 @@ class Detector:
         """(True, board) when the cache or the run budget decides; (False, None) when the
         careers page must be read."""
         entry = self.cache.get(company.name)
+        if entry and entry.get("url") != (company.careers_url or ""):
+            entry = None  # the Careers URL changed since (or was never noted): check again
         checked = _iso_date(entry.get("checked")) if entry else None
         if entry and checked and self.today - checked < self.every:
             self._note(company, entry)
@@ -621,7 +691,7 @@ class Detector:
     def _record(self, company: TargetCompany, board: Board | None,
                 problem: str | None) -> Board | None:
         entry = {**(board.as_dict() if board else {"ats": None}),
-                 "checked": self.today.isoformat()}
+                 "checked": self.today.isoformat(), "url": company.careers_url or ""}
         if board is None and problem:
             entry["problem"] = problem
         self.cache[company.name] = entry
@@ -654,8 +724,8 @@ class Detector:
         return out
 
     def guess(self, company: TargetCompany) -> Board | None:
-        """The company name as a Greenhouse, Lever or SmartRecruiters board, when one exists
-        and lists at least one job."""
+        """The company name as a Greenhouse, Lever, SmartRecruiters or Ashby board, when one
+        exists and lists at least one job."""
         if self.get is None:
             return None
         for slug in name_slugs(company.name):
@@ -668,6 +738,7 @@ class Detector:
                  {"mode": "json", "limit": 1}),
                 (Board("smartrecruiters", slug),
                  f"https://api.smartrecruiters.com/v1/companies/{slug}/postings", {"limit": 1}),
+                (Board("ashby", slug), ASHBY_API.format(token=slug), {}),
             )
             for board, url, params in probes:
                 try:
@@ -770,6 +841,8 @@ def fetch(
                 postings, dropped, _ = avature(company, board, page, keep)
             elif board.ats == "amazon":
                 postings, dropped, _ = amazon(company, get, keep, terms)
+            elif board.ats == "ashby":
+                postings, dropped, _ = ashby(company, board, get, keep)
             else:
                 postings, dropped, _ = smartrecruiters(company, board, get, keep, sr_budget)
         except http.HttpError as exc:

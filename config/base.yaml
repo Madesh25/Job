@@ -28,6 +28,7 @@ safety:
     - api.lever.co
     - api.eu.lever.co
     - api.smartrecruiters.com
+    - api.ashbyhq.com
     - jooble.org
     - www.amazon.jobs
     - ind.nl
@@ -437,6 +438,9 @@ sweep:
     what_or: "devops sre kubernetes platform cloud infrastructure devsecops"
     max_calls_per_run: 12
   ats:
+    # Company career sites list only jobs that are still open: their new jobs are saved when
+    # posted in the last this many days (your decision of 5 Oct), not only the last 3 days.
+    max_posted_age_days: 20
     # SmartRecruiters detail calls per run (each gives one full description).
     max_detail_calls: 20
     # Workday: one search per term (20 results each), then a detail call per kept posting.
