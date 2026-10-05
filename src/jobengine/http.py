@@ -43,6 +43,7 @@ PAGE_MAX_BYTES = 3_000_000
 PAGE_MAX_REDIRECTS = 5
 PAGE_USER_AGENT = "Mozilla/5.0 (compatible; JobEngine/1.0; personal job search)"
 PAGE_TYPES = ("text/html", "application/xhtml+xml", "text/plain")
+FEED_TYPES = ("application/rss+xml", "application/xml", "text/xml", "application/atom+xml")
 
 # Tests replace these with httpx.MockTransport and a no-op sleep.
 _transport: httpx.BaseTransport | None = None
@@ -201,7 +202,7 @@ def patch_json(
 
 def get_page(
     url: str, s: Settings | None = None, max_bytes: int = PAGE_MAX_BYTES, *,
-    accept_json: bool = False, json_body: Any = None,
+    accept_json: bool = False, json_body: Any = None, accept_feed: bool = False,
 ) -> tuple[str, str]:
     """Read one public job page: (final URL, text). Plain GET, no cookies, no login.
 
@@ -210,9 +211,12 @@ def get_page(
     Raises HttpError, never SafetyError (a refused hop is just a page that cannot be read).
     `accept_json`: a JSON answer is read too (a job board's public search). `json_body`: the
     request is a POST with that JSON (a public search form); a redirect is then a GET.
+    `accept_feed`: an RSS or XML answer is read too (a career site's job feed).
     """
     s = s or get_settings()
     types = (*PAGE_TYPES, "application/json") if accept_json else PAGE_TYPES
+    if accept_feed:
+        types = (*types, *FEED_TYPES)
     accept = "application/json,text/html" if accept_json else "text/html,application/xhtml+xml"
     headers = {"User-Agent": PAGE_USER_AGENT, "Accept": accept}
     method = "GET" if json_body is None else "POST"

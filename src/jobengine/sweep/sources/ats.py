@@ -11,6 +11,7 @@ filtered by title and location before any per-posting detail call.
 from __future__ import annotations
 
 import html
+import json
 import logging
 import re
 from collections import Counter
@@ -19,6 +20,7 @@ from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
 from urllib.parse import parse_qs, urlencode, urljoin, urlsplit, urlunsplit
+from xml.etree import ElementTree
 
 from bs4 import BeautifulSoup
 
@@ -34,7 +36,8 @@ BOARD = "Company site"
 SR_PAGE_SIZE = 100
 SR_MAX_PAGES = 10
 WD_PAGE_SIZE = 20
-SUPPORTED = ("greenhouse", "lever", "smartrecruiters", "workday", "amazon", "avature", "ashby")
+SUPPORTED = ("greenhouse", "lever", "smartrecruiters", "workday", "amazon", "avature", "ashby",
+             "successfactors", "phenom", "oracle")
 # Searches for boards that are too big to read whole (Workday, Amazon).
 DEFAULT_SEARCH_TERMS = ("devops", "site reliability", "sre", "platform engineer",
                         "cloud engineer", "kubernetes", "infrastructure engineer", "devsecops")
@@ -51,6 +54,15 @@ WORKDAY_URL = re.compile(
 )
 AMAZON_URL = re.compile(r"(?:www\.)?amazon\.jobs\b", re.I)
 ASHBY_URL = re.compile(r"jobs\.ashbyhq\.com/([\w.-]+)", re.I)
+# SAP SuccessFactors career sites publish a job feed, for example
+# https://careers.capgemini.com/services/rss/job/?locale=en_US&keywords=(devops)
+SUCCESSFACTORS_URL = re.compile(r"^(https://[^/\s]+)/services/rss/job/?(?:\?(.*))?$", re.I)
+# Phenom career sites: https://careers.allianz.com/global/en/search-results?keywords=devops
+PHENOM_URL = re.compile(r"^(https://[^/\s]+/(?:global|[a-z]{2})/[a-z]{2})/search-results\b", re.I)
+# Oracle Cloud HCM: https://jpmc.fa.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX_1001
+ORACLE_URL = re.compile(
+    r"^https://([\w.-]+\.oraclecloud\.com)/hcmUI/CandidateExperience/[a-z]{2}(?:-[A-Z]{2})?/"
+    r"sites/(CX_\d+)", re.I)
 # Avature career sites list jobs on a server-rendered SearchJobs page, for example
 # https://apply.deloittece.com/en_US/careers/SearchJobs/?523=[5515]
 AVATURE_URL = re.compile(r"^https://[^/\s]+/[a-z]{2}_[A-Z]{2}/[\w-]+/SearchJobs\b", re.I)
@@ -69,7 +81,8 @@ Prefilter = Callable[[str, str], bool]
 
 @dataclass(frozen=True)
 class Board:
-    ats: str  # greenhouse, lever, smartrecruiters, workday, ashby, avature or amazon
+    ats: str  # greenhouse, lever, smartrecruiters, workday, ashby, avature, successfactors,
+    # phenom, oracle or amazon
     token: str  # Workday: the tenant
     eu: bool = False
     host: str = ""  # Workday only: <tenant>.wd3.myworkdayjobs.com
@@ -109,6 +122,13 @@ def board_from_url(url: str) -> Board | None:
     if match := ASHBY_URL.search(url):
         token = match.group(1)
         return None if token.lower() in NOT_TOKENS else Board("ashby", token)
+    if match := SUCCESSFACTORS_URL.search(url):
+        locale = (parse_qs(match.group(2) or "").get("locale") or ["en_US"])[0]
+        return Board("successfactors", match.group(1), site=locale)
+    if match := PHENOM_URL.search(url):
+        return Board("phenom", match.group(1))
+    if match := ORACLE_URL.search(url):
+        return Board("oracle", match.group(2), host=match.group(1).lower())
     if AMAZON_URL.search(url):
         return Board("amazon", "amazon")
     if AVATURE_URL.search(url):
@@ -344,23 +364,60 @@ def _wd_location(info: Mapping[str, Any]) -> str:
     return text
 
 
+def _country_facets(facets: Any) -> dict[str, list[str]]:
+    """{facet parameter: [value ids]} of the country facet values for Poland, the
+    Netherlands and Ireland in a Workday answer (the facet may sit inside a group)."""
+    found: dict[str, list[str]] = {}
+    for facet in facets or []:
+        if not isinstance(facet, Mapping):
+            continue
+        param = str(facet.get("facetParameter") or "")
+        values = facet.get("values") or []
+        if "country" in param.lower():
+            ids = [str(v.get("id")) for v in values if isinstance(v, Mapping) and v.get("id")
+                   and str(v.get("descriptor") or "").strip() in ANY_COUNTRY]
+            if ids:
+                found[param] = ids
+        else:
+            found.update(_country_facets(values))
+    return found
+
+
 def workday(
     company: TargetCompany, board: Board, get: Getter, post: Poster, keep: Prefilter,
     detail_budget: int | Budget, today: date, terms: tuple[str, ...], max_pages: int,
 ):
     """Workday career site search (the JSON the site's own page uses). Detail calls give
-    the full description, the start date and every location."""
+    the full description, the start date and every location.
+
+    Big sites list hundreds of matches from all over the world, so the first page of a
+    search held no job in Poland, the Netherlands or Ireland (Accenture, HPE, Shell on
+    5 Oct). The site's own country filter is therefore read from the first answer and every
+    search is limited to those three countries when the site offers that filter."""
     budget = detail_budget if isinstance(detail_budget, Budget) else Budget(detail_budget)
     base = f"https://{board.host}/wday/cxs/{board.token}/{board.site}"
     listed: dict[str, Mapping[str, Any]] = {}
     failed: list[http.HttpError] = []
+    countries: dict[str, list[str]] | None = None
+    first: Mapping[str, Any] | None = None  # the unfiltered first answer, reused when no filter
     for term in terms:
+        if countries is None:
+            try:
+                first = post(f"{base}/jobs", {"appliedFacets": {}, "limit": WD_PAGE_SIZE,
+                                              "offset": 0, "searchText": term}) or {}
+                countries = _country_facets(first.get("facets"))
+            except http.HttpError:
+                countries = {}  # the term's own search below reports the failure
         offset = 0
         for _ in range(max_pages):
-            body = {"appliedFacets": {}, "limit": WD_PAGE_SIZE, "offset": offset,
+            body = {"appliedFacets": countries or {}, "limit": WD_PAGE_SIZE, "offset": offset,
                     "searchText": term}
             try:
-                data = post(f"{base}/jobs", body) or {}
+                if first is not None and not countries and offset == 0:
+                    data, first = first, None  # the same search was just made
+                else:
+                    first = None
+                    data = post(f"{base}/jobs", body) or {}
             except http.HttpError as exc:
                 # One search word the site refuses (Dell answered HTTP 422 on 1 Oct) must
                 # not lose the other words' jobs; only all words failing is an error.
@@ -463,6 +520,175 @@ def ashby(company: TargetCompany, board: Board, get: Getter, keep: Prefilter):
                 description=job.get("descriptionPlain") or html_to_text(job.get("descriptionHtml")),
             )
         )
+    return postings, dropped, 0
+
+
+# ---------------------------------------------------------------- SuccessFactors
+
+SF_LOCATION = re.compile(r"\(([^()]*)\)\s*$")
+SF_COUNTRY_CODES = {"PL": "Poland", "NL": "Netherlands", "IE": "Ireland"}
+
+
+def _sf_location(text: str) -> str:
+    """"Utrecht, NL, 3542 AB" -> "Utrecht, Netherlands" (the feed gives country codes)."""
+    parts = [p.strip() for p in text.split(",") if p.strip()]
+    out = []
+    for part in parts:
+        if re.fullmatch(r"[A-Z]{2}", part):
+            out.append(SF_COUNTRY_CODES.get(part, part))
+        elif not re.search(r"\d", part):
+            out.append(part)
+    return ", ".join(dict.fromkeys(out))
+
+
+def feed_items(text: str) -> list[dict[str, str]]:
+    """The <item>s of an RSS feed as {tag: text}; [] when it is not a readable feed."""
+    try:
+        root = ElementTree.fromstring(text.encode("utf-8") if isinstance(text, str) else text)
+    except ElementTree.ParseError:
+        return []
+    items = []
+    for item in root.iter("item"):
+        items.append({child.tag: (child.text or "").strip() for child in item})
+    return items
+
+
+def _sf_date(text: str | None) -> date | None:
+    try:
+        return datetime.strptime((text or "").strip()[:16], "%a, %d %b %Y").date()
+    except ValueError:
+        return None
+
+
+def successfactors(company: TargetCompany, board: Board, page: PageGetter, keep: Prefilter,
+                   terms: tuple[str, ...]):
+    """A SuccessFactors career site's job feed, one search per term (newest first). The
+    title carries the place in brackets: "DevOps Engineer (Utrecht, NL, 3542 AB)"."""
+    postings, dropped, seen = [], 0, set()
+    for term in terms:
+        query = urlencode({"locale": board.site or "en_US", "keywords": f"({term})",
+                           "sortColumn": "referencedate", "sortDirection": "desc"})
+        _, text = page(f"{board.token}/services/rss/job/?{query}")
+        for item in feed_items(text):
+            link = item.get("link") or item.get("guid") or ""
+            raw_title = " ".join((item.get("title") or "").split())
+            if not link or not raw_title or link in seen:
+                continue
+            seen.add(link)
+            place = SF_LOCATION.search(raw_title)
+            title = SF_LOCATION.sub("", raw_title).strip() if place else raw_title
+            location = _sf_location(place.group(1)) if place else ""
+            if not keep(title, location):
+                dropped += 1
+                continue
+            job_id = re.search(r"/(\d{5,})/?$", link)
+            postings.append(RawPosting(
+                source=SOURCE, board=BOARD, title=title, company=company.name,
+                location_text=location, url=link,
+                posting_id=f"sf-{job_id.group(1) if job_id else link}",
+                posted_date=_sf_date(item.get("pubDate")),
+                description=html_to_text(item.get("description")),
+            ))
+    return postings, dropped, 0
+
+
+# ---------------------------------------------------------------- Phenom
+
+PHENOM_DATA = '"eagerLoadRefineSearch":'
+PHENOM_PAGE_SIZE = 10
+PHENOM_MAX_PAGES = 2
+
+
+def phenom_jobs(text: str) -> list[Mapping[str, Any]]:
+    """The jobs a Phenom search results page carries in its page data, or []."""
+    start = text.find(PHENOM_DATA)
+    if start < 0:
+        return []
+    try:
+        data, _ = json.JSONDecoder().raw_decode(text, start + len(PHENOM_DATA))
+    except ValueError:
+        return []
+    jobs = ((data or {}).get("data") or {}).get("jobs") if isinstance(data, dict) else None
+    return [j for j in jobs or [] if isinstance(j, Mapping)]
+
+
+def _phenom_slug(title: str) -> str:
+    return re.sub(r"[^A-Za-z0-9]+", "-", title).strip("-") or "job"
+
+
+def phenom(company: TargetCompany, board: Board, page: PageGetter, keep: Prefilter,
+           terms: tuple[str, ...]):
+    """Jobs on a Phenom career site's search results pages (10 a page, two pages a term)."""
+    postings, dropped, seen = [], 0, set()
+    for term in terms:
+        for n in range(PHENOM_MAX_PAGES):
+            query = urlencode({"keywords": term, "from": n * PHENOM_PAGE_SIZE})
+            _, text = page(f"{board.token}/search-results?{query}")
+            jobs = phenom_jobs(text)
+            for job in jobs:
+                job_id = str(job.get("jobId") or job.get("reqId") or job.get("jobSeqNo") or "")
+                title = str(job.get("title") or "")
+                if not job_id or not title or job_id in seen:
+                    continue
+                seen.add(job_id)
+                location = str(job.get("cityStateCountry") or job.get("location") or "")
+                if job.get("country") and str(job["country"]) not in location:
+                    location = f"{location}, {job['country']}" if location else str(job["country"])
+                if not keep(title, location):
+                    dropped += 1
+                    continue
+                postings.append(RawPosting(
+                    source=SOURCE, board=BOARD, title=title, company=company.name,
+                    location_text=location,
+                    url=f"{board.token}/job/{job_id}/{_phenom_slug(title)}",
+                    posting_id=f"phenom-{job.get('jobSeqNo') or job_id}",
+                    posted_date=_iso_date(job.get("postedDate")),
+                    description=job.get("descriptionTeaser") or None,
+                ))
+            if len(jobs) < PHENOM_PAGE_SIZE:
+                break
+    return postings, dropped, 0
+
+
+# ---------------------------------------------------------------- Oracle Cloud HCM
+
+ORACLE_PAGE_SIZE = 25
+
+
+def oracle(company: TargetCompany, board: Board, get: Getter, keep: Prefilter,
+           terms: tuple[str, ...]):
+    """Oracle Cloud HCM candidate site search (the public REST call its own page makes),
+    newest first, one search per term."""
+    api = f"https://{board.host}/hcmRestApi/resources/latest/recruitingCEJobRequisitions"
+    postings, dropped, seen = [], 0, set()
+    for term in terms:
+        finder = (f'findReqs;siteNumber={board.token},facetsList=LOCATIONS,'
+                  f'limit={ORACLE_PAGE_SIZE},keyword="{term}",sortBy=POSTING_DATES_DESC')
+        data = get(api, {"onlyData": "true", "expand": "requisitionList.secondaryLocations",
+                         "finder": finder}) or {}
+        for found in data.get("items") or []:
+            for job in found.get("requisitionList") or []:
+                job_id = str(job.get("Id") or "")
+                title = str(job.get("Title") or "")
+                if not job_id or not title or job_id in seen:
+                    continue
+                seen.add(job_id)
+                places = [str(job.get("PrimaryLocation") or "")]
+                places += [str(x.get("Name") or "") for x in job.get("secondaryLocations") or []
+                           if isinstance(x, Mapping)]
+                location = " / ".join(dict.fromkeys(p for p in places if p))
+                if not keep(title, location):
+                    dropped += 1
+                    continue
+                postings.append(RawPosting(
+                    source=SOURCE, board=BOARD, title=title, company=company.name,
+                    location_text=location,
+                    url=(f"https://{board.host}/hcmUI/CandidateExperience/en/sites/"
+                         f"{board.token}/job/{job_id}"),
+                    posting_id=f"oracle-{board.host.split('.')[0]}-{job_id}",
+                    posted_date=_iso_date(job.get("PostedDate")),
+                    description=job.get("ShortDescriptionStr") or None,
+                ))
     return postings, dropped, 0
 
 
@@ -800,6 +1026,11 @@ def fetch(
         def page(url: str) -> tuple[str, str]:
             return http.get_page(url, s=s)
 
+        def feed(url: str) -> tuple[str, str]:
+            return http.get_page(url, s=s, accept_feed=True)
+    else:
+        feed = page
+
     today = today or date.today()
     cfg = s.sweep.get("ats") or {}
     overrides = s.sweep.get("ats_boards") or {}
@@ -843,6 +1074,12 @@ def fetch(
                 postings, dropped, _ = amazon(company, get, keep, terms)
             elif board.ats == "ashby":
                 postings, dropped, _ = ashby(company, board, get, keep)
+            elif board.ats == "successfactors":
+                postings, dropped, _ = successfactors(company, board, feed, keep, terms)
+            elif board.ats == "phenom":
+                postings, dropped, _ = phenom(company, board, page, keep, terms)
+            elif board.ats == "oracle":
+                postings, dropped, _ = oracle(company, board, get, keep, terms)
             else:
                 postings, dropped, _ = smartrecruiters(company, board, get, keep, sr_budget)
         except http.HttpError as exc:

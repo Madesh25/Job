@@ -42,6 +42,8 @@ safety:
   # Any subdomain of these (Workday boards are <tenant>.<wdN>.myworkdayjobs.com).
   allowed_host_suffixes:
     - myworkdayjobs.com
+    # Oracle Cloud HCM career sites (<tenant>.fa.<region>.oraclecloud.com)
+    - oraclecloud.com
 screening:
   # Your experience window: jobs asking for more years than this are not saved by the sweep
   # and are skipped by screening before any AI call. Senior titles count as too senior

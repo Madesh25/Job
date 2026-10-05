@@ -132,7 +132,9 @@ def test_candidates_file_is_read(tmp_path):
     assert boards.load_candidates(path) == {"Mollie": "https://jobs.ashbyhq.com/mollie"}
     assert boards.load_candidates(tmp_path / "missing.yaml") == {}
     real = boards.load_candidates()
-    assert real["Mollie"] == "https://jobs.ashbyhq.com/mollie"
+    assert real["Adyen"] == "https://job-boards.greenhouse.io/adyen"
+    # Every proposed link is one /fetch can read (a reader exists for it).
+    assert [n for n, link in real.items() if ats.board_from_url(link) is None] == []
 
 
 def test_check_reads_boards_counts_jobs_and_saves_other_pages(tmp_path):
@@ -184,3 +186,117 @@ def test_a_board_linked_from_a_careers_page_is_read(tmp_path):
     rows = boards.run(S, [company], {}, lambda u, p: ASHBY_ANSWER, lambda u, b: {}, page,
                       TODAY, tmp_path)
     assert (rows[0].result, rows[0].platform, rows[0].found_link) == ("OK", "ashby", "acme")
+
+
+# ---------------------------------------------------------------- FETCH 13b readers
+
+
+def test_new_board_links_are_recognised():
+    sf = ats.board_from_url("https://careers.capgemini.com/services/rss/job/"
+                            "?locale=en_GB&keywords=(devops)")
+    assert sf == ats.Board("successfactors", "https://careers.capgemini.com", site="en_GB")
+    ph = ats.board_from_url("https://careers.allianz.com/global/en/search-results?keywords=x")
+    assert ph == ats.Board("phenom", "https://careers.allianz.com/global/en")
+    oc = ats.board_from_url("https://jpmc.fa.oraclecloud.com/hcmUI/CandidateExperience/en/"
+                            "sites/CX_1001/jobs?keyword=devops")
+    assert oc == ats.Board("oracle", "CX_1001", host="jpmc.fa.oraclecloud.com")
+    assert "oraclecloud.com" in S.allowed_host_suffixes
+
+
+def test_workday_searches_only_poland_netherlands_ireland_when_the_site_allows():
+    bodies = []
+    facets = [{"facetParameter": "locationMainGroup", "values": [
+        {"facetParameter": "locationCountry", "values": [
+            {"descriptor": "Poland", "id": "pl1", "count": 4},
+            {"descriptor": "India", "id": "in1", "count": 90},
+            {"descriptor": "Ireland", "id": "ie1", "count": 2}]}]}]
+
+    def post(url, body):
+        bodies.append(body)
+        return {"total": 0, "jobPostings": [], "facets": facets}
+
+    ats.workday(DELL, WD, lambda u, p: {}, post, keep_all, 0, TODAY, ("devops", "sre"), 1)
+    assert bodies[0]["appliedFacets"] == {}  # the first answer names the filter
+    assert [b["appliedFacets"] for b in bodies[1:]] == [{"locationCountry": ["pl1", "ie1"]}] * 2
+
+
+FEED = """<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0"><channel><title>Jobs</title>
+<item><title>DevOps Engineer Medior (Utrecht, NL, 3542 AB)</title>
+<link>https://careers.capgemini.com/job/Utrecht-DevOps-Engineer-Medior/1378157633/</link>
+<description>&lt;p&gt;Run &lt;b&gt;Kubernetes&lt;/b&gt; pipelines.&lt;/p&gt;</description>
+<pubDate>Sat, 04 Oct 2026 08:00:00 GMT</pubDate></item>
+<item><title>Data Engineer (Aguascalientes, MX)</title>
+<link>https://careers.capgemini.com/job/Aguascalientes-Data-Engineer/1439116633/</link>
+</item></channel></rss>"""
+
+
+def test_successfactors_job_feed_is_read():
+    asked = []
+
+    def page(url):
+        asked.append(url)
+        return url, FEED
+
+    board = ats.Board("successfactors", "https://careers.capgemini.com", site="en_US")
+    postings, _, _ = ats.successfactors(MOLLIE, board, page, keep_all, ("devops", "sre"))
+    assert asked[0].startswith("https://careers.capgemini.com/services/rss/job/?locale=en_US"
+                               "&keywords=%28devops%29")
+    assert len(postings) == 2  # the same jobs in the second search count once
+    p = postings[0]
+    assert (p.title, p.location_text) == ("DevOps Engineer Medior", "Utrecht, Netherlands")
+    assert p.posted_date == date(2026, 10, 4) and p.posting_id == "sf-1378157633"
+    assert "Kubernetes" in p.description and "<b>" not in p.description
+    assert ats.feed_items("<html>not a feed</html>") == []
+
+
+PHENOM_PAGE = ('<script>phApp.ddo = {"eagerLoadRefineSearch":{"status":200,"hits":1,'
+               '"totalHits":1,"data":{"jobs":[{"title":"DevOps Engineer (m/f/d)",'
+               '"jobId":"106048","jobSeqNo":"AISAIPGB106048EXTERNALENGLOBAL",'
+               '"cityStateCountry":"WARSZAWA, Mazowieckie, Poland","country":"Poland",'
+               '"postedDate":"2026-09-11T06:58:16.000+0000",'
+               '"descriptionTeaser":"Build CI/CD on Azure."}]}}};</script>')
+
+
+def test_phenom_page_data_is_read():
+    board = ats.Board("phenom", "https://careers.allianz.com/global/en")
+    asked = []
+
+    def page(url):
+        asked.append(url)
+        return url, PHENOM_PAGE
+
+    postings, _, _ = ats.phenom(MOLLIE, board, page, keep_all, ("devops",))
+    assert asked == ["https://careers.allianz.com/global/en/search-results?keywords=devops&from=0"]
+    p = postings[0]
+    assert p.location_text == "WARSZAWA, Mazowieckie, Poland"
+    assert p.url == "https://careers.allianz.com/global/en/job/106048/DevOps-Engineer-m-f-d"
+    assert p.posted_date == date(2026, 9, 11) and p.description == "Build CI/CD on Azure."
+    assert ats.phenom_jobs("<html></html>") == []
+
+
+ORACLE_ANSWER = {"items": [{"TotalJobsCount": 1, "requisitionList": [
+    {"Id": "210744868", "Title": "Site Reliability Engineer III", "PostedDate": "2026-09-30",
+     "PrimaryLocation": "Warsaw, Poland",
+     "secondaryLocations": [{"Name": "Glasgow, United Kingdom"}],
+     "ShortDescriptionStr": "Keep trading systems up."}]}]}
+
+
+def test_oracle_candidate_site_search_is_read():
+    board = ats.Board("oracle", "CX_1001", host="jpmc.fa.oraclecloud.com")
+    asked = []
+
+    def get(url, params):
+        asked.append((url, params))
+        return ORACLE_ANSWER
+
+    postings, _, _ = ats.oracle(MOLLIE, board, get, keep_all, ("devops", "sre"))
+    url, params = asked[0]
+    assert url == ("https://jpmc.fa.oraclecloud.com/hcmRestApi/resources/latest/"
+                   "recruitingCEJobRequisitions")
+    assert 'siteNumber=CX_1001' in params["finder"] and 'keyword="devops"' in params["finder"]
+    assert len(postings) == 1
+    p = postings[0]
+    assert p.location_text == "Warsaw, Poland / Glasgow, United Kingdom"
+    assert p.url.endswith("/sites/CX_1001/job/210744868")
+    assert p.posted_date == date(2026, 9, 30) and p.posting_id == "oracle-jpmc-210744868"
