@@ -15,6 +15,7 @@ out/boards/report.csv.
 from __future__ import annotations
 
 import csv
+import json
 import logging
 import re
 from collections.abc import Callable, Mapping
@@ -173,14 +174,33 @@ def check_company(s: Settings, company: TargetCompany, link: str, origin: str, g
             return row
         row.found_link = board.host or board.token
     row.platform = board.ats
+    answers: list[Any] = []  # the board's first JSON answer, kept when no job is local
+
+    def get_kept(url: str, params: Mapping[str, Any]) -> Any:
+        data = get(url, params)
+        answers.append(data)
+        return data
+
+    def post_kept(url: str, body: Any) -> Any:
+        data = post(url, body)
+        answers.append(data)
+        return data
+
     try:
-        postings = read_board(s, company, board, get, post, page, today)
+        postings = read_board(s, company, board, get_kept, post_kept, page, today)
     except http.HttpError as exc:
         row.result = _problem(exc)
         return row
     row.result = "OK"
     row.jobs = len(postings)
     row.here = count_here(postings, words)
+    if row.here == 0 and answers:
+        # Shows the site's own filters (countries, locations) for a better search.
+        out_dir.mkdir(parents=True, exist_ok=True)
+        saved = out_dir / f"{_slug(company.name)}-answer.json"
+        saved.write_text(json.dumps(answers[0], ensure_ascii=False, indent=1)[:2_000_000],
+                         encoding="utf-8")
+        row.saved = str(saved)
     return row
 
 
