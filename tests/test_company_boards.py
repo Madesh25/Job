@@ -132,7 +132,7 @@ def test_candidates_file_is_read(tmp_path):
     assert boards.load_candidates(path) == {"Mollie": "https://jobs.ashbyhq.com/mollie"}
     assert boards.load_candidates(tmp_path / "missing.yaml") == {}
     real = boards.load_candidates()
-    assert real["Dell Technologies"].startswith("https://enterpriseplatform.dell.com/")
+    assert real == {}  # every proposed link has been checked and moved to Notion (5 Oct)
     # Every proposed link is one /fetch can read (a reader exists for it).
     assert [n for n, link in real.items() if ats.board_from_url(link) is None] == []
 
@@ -450,3 +450,75 @@ def test_oracle_places_named_with_their_country_are_searched():
     ats.oracle(MOLLIE, ats.Board("oracle", "careers", host="enterpriseplatform.dell.com"), get,
                keep_all, ("devops",))
     assert [f.split("selectedLocationsFacet=")[1] for f in finders[1:]] == ["1", "3"]
+
+
+# ---------------------------------------------------------------- own sites, Oracle lookup
+
+
+def test_own_site_companies_are_not_looked_up_and_only_counted():
+    from jobengine.sweep.models import SweepSummary
+
+    cfg = {**S.sweep, "ats": {**(S.sweep.get("ats") or {}),
+                              "own_site_companies": ["Infosys", "Google"]}}
+    s = S.model_copy(update={"sweep": cfg})
+    companies = [
+        TargetCompany("Infosys (IE)", "https://www.infosys.com/careers", "Custom", True),
+        TargetCompany("Google", "https://www.google.com/about/careers/", "Custom", True),
+        # On the list, but its Careers URL is a readable board: read anyway.
+        TargetCompany("Infosys", "https://jobs.ashbyhq.com/infosys", "Custom", True),
+    ]
+    pages = []
+
+    def page(url):
+        pages.append(url)
+        return url, "<html></html>"
+
+    result = ats.fetch(s, companies, keep_all, get=lambda u, p=None: ASHBY_ANSWER,
+                       post=lambda u, b: {}, page=page, state=FakeBotState(), today=TODAY)
+    assert result.own_site == ["Infosys (IE)", "Google"]
+    assert pages == []  # their careers pages are not read
+    assert result.no_board == [] and result.not_supported == []
+    assert [p.company for p in result.postings] == ["Infosys"]
+    summary = SweepSummary()
+    summary.own_site_count = 2
+    assert "Own job sites, covered by your alerts (not read here): 2 companies" in \
+        summary.friendly_text()
+
+
+def test_real_config_names_the_own_site_companies():
+    names = {ats.canon_name(n) for n in S.sweep["ats"]["own_site_companies"]}
+    assert {"google", "infosys", "tata consultancy services", "microsoft"} <= names
+    assert ats.canon_name("Tech Mahindra (NL)") in names
+
+
+def test_oracle_finds_a_country_missing_from_the_biggest_places():
+    finders = []
+    us_only = {"items": [{"requisitionList": [], "locationsFacet": [
+        {"Id": 1, "Name": "United States"}, {"Id": 2, "Name": "NY, United States"}]}]}
+
+    def get(url, params):
+        finders.append(params["finder"])
+        if 'keyword="Poland"' in params["finder"]:
+            return {"items": [{"locationsFacet": [{"Id": 77, "Name": "Poland"},
+                                                  {"Id": 78, "Name": "Warsaw, Poland"}]}]}
+        if 'keyword="Netherlands"' in params["finder"] or 'keyword="Ireland"' in params["finder"]:
+            return {"items": [{"locationsFacet": [{"Id": 1, "Name": "United States"}]}]}
+        return us_only if len(finders) == 1 else {}
+
+    ats.oracle(MOLLIE, ats.Board("oracle", "CX_1001", host="jpmc.fa.oraclecloud.com"), get,
+               keep_all, ("devops",))
+    searched = [f for f in finders if "selectedLocationsFacet" in f]
+    assert len(searched) == 1 and searched[0].endswith("selectedLocationsFacet=77")
+    assert 'keyword="devops"' in searched[0]
+
+
+def test_check_names_own_site_companies_without_reading_them(tmp_path):
+    company = TargetCompany("Google (IE)", "https://www.google.com/about/careers/", "Custom",
+                            True)
+
+    def page(url):
+        raise AssertionError("an own job site is not read by the check")
+
+    rows = boards.run(S, [company], {}, lambda u, p: {}, lambda u, b: {}, page, TODAY,
+                      tmp_path)
+    assert rows[0].result == "own job site, covered by your alerts"

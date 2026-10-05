@@ -457,6 +457,18 @@ sweep:
     # ATS it links to. Cached in bot_state "ats.detected" and checked again after this long.
     detect_every_days: 7
     max_detect_per_run: 25
+    # Companies with their own job site and no public job list /fetch can read (board
+    # checks of 5 Oct; your choice C): they stay in Target Companies for contacts and
+    # referrals, their jobs come from your alerts, and the sweep neither looks for their job
+    # board nor lists them under "No job board found" (one count line instead). Names
+    # without the country suffix: "Infosys" covers Infosys, Infosys (IE) and Infosys (NL).
+    # A company whose Careers URL is a readable board is read anyway.
+    own_site_companies: [Google, Meta, Apple, IBM, Microsoft, Infosys, TCS,
+                         Tata Consultancy Services (TCS), Tech Mahindra, LTIMindtree,
+                         Cognizant, Ericsson, Booking.com, ASML, EPAM Systems, Comarch,
+                         Asseco Poland, Samsung R&D, bunq, Uber, Version 1, Brainly, KPMG,
+                         UBS, Revolut, Rabobank, Goldman Sachs, ABN AMRO, SAP, HSBC,
+                         Deloitte]
   # Company name -> {ats, token} for companies whose careers URL is their own domain and whose
   # board is not found automatically. Workday also needs host and site.
   ats_boards: {}

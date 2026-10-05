@@ -441,6 +441,7 @@ def run_sweep(
         summary.not_supported += len(result.not_supported)
         summary.blocked_sites.extend(result.blocked)
         summary.no_board_sites.extend(result.no_board)
+        summary.own_site_count += len(result.own_site)
         if result.skipped_reason:
             log.warning("%s", result.skipped_reason)
             summary.notes.append(result.skipped_reason)

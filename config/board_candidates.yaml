@@ -5,14 +5,7 @@
 # work are then copied into Target Companies (Careers URL and ATS platform, with your OK) and
 # taken out of this file. Names must match the Company column exactly.
 #
-# Rounds 1 to 3 (5 Oct): 42 links worked and are in Target Companies (79 of 109 companies
-# now point at a board /fetch reads). Round 4 below: Dell, which moved from Workday to an
-# Oracle Cloud HCM site on its own domain (link from you, 5 Oct).
-proposed:
-  Dell Technologies: https://enterpriseplatform.dell.com/hcmUI/CandidateExperience/en/sites/careers
-  Dell Technologies (IE): https://enterpriseplatform.dell.com/hcmUI/CandidateExperience/en/sites/careers
-
-  # Not readable yet: Microsoft and Ericsson (Eightfold), Booking.com (iCIMS). Own sites, no
-  # public list: Google, Meta, Apple, IBM, Infosys, TCS, Tech Mahindra, LTIMindtree,
-  # Cognizant, ASML, EPAM, Comarch, Asseco, Samsung R&D, bunq, Uber, Version 1, Brainly, KPMG,
-  # UBS, Revolut, Rabobank, Goldman Sachs, ABN AMRO, SAP, HSBC and Deloitte (IE).
+# Rounds 1 to 4 (5 Oct): 44 links worked and are in Target Companies (Dell last, on its
+# Oracle site). Companies with their own job site are listed in sweep.ats.own_site_companies
+# (config/base.yaml, your choice C of 5 Oct). Nothing is waiting for a check now.
+proposed: {}

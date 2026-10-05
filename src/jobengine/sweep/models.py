@@ -76,6 +76,7 @@ class SourceResult:
     # ATS only: careers pages that refused us ("Name (HTTP 403)"), and pages with no known board.
     blocked: list[str] = field(default_factory=list)
     no_board: list[str] = field(default_factory=list)
+    own_site: list[str] = field(default_factory=list)  # ATS only: sweep.ats.own_site_companies
     notes: list[str] = field(default_factory=list)
     emails: int | None = None  # gmail only: alert emails read
 
@@ -225,6 +226,7 @@ class SweepSummary:
     full_read: int = 0  # job pages that gave a full description (sweep/fulltext.py)
     blocked_sites: list[str] = field(default_factory=list)  # "Name (HTTP 403)"
     no_board_sites: list[str] = field(default_factory=list)
+    own_site_count: int = 0  # companies with their own job site, covered by alerts
     full_tried: int = 0
     linkedin_filled: list[str] = field(default_factory=list)  # sweep/crossmatch.py
     alert_emails: int | None = None  # email alerts read (None: the source did not run)
@@ -319,6 +321,9 @@ class SweepSummary:
             lines.append("Put their job board link (for example the myworkdayjobs.com or "
                          "greenhouse.io page) in Careers URL in Target Companies. /sources "
                          "lists them all.")
+        if self.own_site_count:
+            lines += ["", f"\U0001F3E0 Own job sites, covered by your alerts (not read here): "
+                          f"{self.own_site_count} companies"]
         if self.not_written:
             lines += ["", f"\u26A0\uFE0F Could not be saved to Notion (the rest were saved; "
                           f"details in the log): {len(self.not_written)}"]
