@@ -59,10 +59,12 @@ ASHBY_URL = re.compile(r"jobs\.ashbyhq\.com/([\w.-]+)", re.I)
 SUCCESSFACTORS_URL = re.compile(r"^(https://[^/\s]+)/services/rss/job/?(?:\?(.*))?$", re.I)
 # Phenom career sites: https://careers.allianz.com/global/en/search-results?keywords=devops
 PHENOM_URL = re.compile(r"^(https://[^/\s]+/(?:global|[a-z]{2})/[a-z]{2})/search-results\b", re.I)
-# Oracle Cloud HCM: https://jpmc.fa.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX_1001
+# Oracle Cloud HCM: https://jpmc.fa.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX_1001,
+# also on a company's own domain (Dell: enterpriseplatform.dell.com/.../sites/careers). The
+# host must still be allowed (safety.allowed_hosts or allowed_host_suffixes) to be read.
 ORACLE_URL = re.compile(
-    r"^https://([\w.-]+\.oraclecloud\.com)/hcmUI/CandidateExperience/[a-z]{2}(?:-[A-Z]{2})?/"
-    r"sites/(CX_\d+)", re.I)
+    r"^https://([\w.-]+)/hcmUI/CandidateExperience/[a-z]{2}(?:-[A-Z]{2})?/sites/([\w-]+)",
+    re.I)
 # Avature career sites list jobs on a server-rendered SearchJobs page, for example
 # https://apply.deloittece.com/en_US/careers/SearchJobs/?523=[5515]
 AVATURE_URL = re.compile(r"^https://[^/\s]+/[a-z]{2}_[A-Z]{2}/[\w-]+/SearchJobs\b", re.I)
@@ -464,7 +466,8 @@ def workday(
     for path, item in listed.items():
         title = item.get("title") or ""
         location = item.get("locationsText") or ""
-        many = bool(MANY_LOCATIONS.match(location))
+        # "3 Locations", or no place at all (Accenture lists none): only the detail says where.
+        many = not location.strip() or bool(MANY_LOCATIONS.match(location))
         if not (_title_ok(keep, title) if many else keep(title, location)):
             dropped += 1
             continue
@@ -679,6 +682,7 @@ def phenom(company: TargetCompany, board: Board, page: PageGetter, keep: Prefilt
 # ---------------------------------------------------------------- Oracle Cloud HCM
 
 ORACLE_PAGE_SIZE = 25
+ORACLE_MAX_PLACES = 6  # cities searched one by one when a site names no country
 
 
 def oracle(company: TargetCompany, board: Board, get: Getter, keep: Prefilter,
@@ -700,10 +704,13 @@ def oracle(company: TargetCompany, board: Board, get: Getter, keep: Prefilter,
     # Ireland on 5 Oct), so each search is made once per country the site's own location
     # filter names; without that filter, once for all places.
     first = search(terms[0]) if terms else {}
-    country_ids = [str(f.get("Id")) for item in first.get("items") or []
-                   for f in item.get("locationsFacet") or []
-                   if isinstance(f, Mapping) and f.get("Id")
-                   and str(f.get("Name") or "").strip() in ANY_COUNTRY]
+    facets = [f for item in first.get("items") or [] for f in item.get("locationsFacet") or []
+              if isinstance(f, Mapping) and f.get("Id")]
+    country_ids = [str(f["Id"]) for f in facets if str(f.get("Name") or "").strip() in ANY_COUNTRY]
+    if not country_ids:  # places named with their country ("Warsaw, Poland")
+        country_ids = [str(f["Id"]) for f in facets
+                       if any(str(f.get("Name") or "").strip().endswith(f", {c}")
+                              for c in ANY_COUNTRY)][:ORACLE_MAX_PLACES]
     answers = ((search(term, cid) for term in terms for cid in country_ids) if country_ids
                else (first if n == 0 else search(term) for n, term in enumerate(terms)))
     for data in answers:

@@ -29,6 +29,8 @@ safety:
     - api.eu.lever.co
     - api.smartrecruiters.com
     - api.ashbyhq.com
+    # Dell's Oracle Cloud HCM career site on its own domain (5 Oct)
+    - enterpriseplatform.dell.com
     - jooble.org
     - www.amazon.jobs
     - ind.nl

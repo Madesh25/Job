@@ -5,27 +5,14 @@
 # work are then copied into Target Companies (Careers URL and ATS platform, with your OK) and
 # taken out of this file. Names must match the Company column exactly.
 #
-# Round 1 (5 Oct): 16 links worked, now in Target Companies. Round 2 (5 Oct): 14 more worked
-# (Adyen, bol.com, Databricks x2, Picnic, Allegro, TomTom, Just Eat Takeaway, Allianz,
-# JPMorgan x2, Nokia, Oracle x2), now in Target Companies. SAP's feed answered HTTP 404 and
-# HSBC's job list showed 0 jobs: both left out. Round 3 below: the SuccessFactors feeds, which
-# answered HTTP 406 because the request did not say it accepts RSS (fixed in FETCH 13c).
+# Rounds 1 to 3 (5 Oct): 42 links worked and are in Target Companies (79 of 109 companies
+# now point at a board /fetch reads). Round 4 below: Dell, which moved from Workday to an
+# Oracle Cloud HCM site on its own domain (link from you, 5 Oct).
 proposed:
-  Wipro: https://careers.wipro.com/services/rss/job/?locale=en_US
-  Wipro (IE): https://careers.wipro.com/services/rss/job/?locale=en_US
-  Wipro (NL): https://careers.wipro.com/services/rss/job/?locale=en_US
-  Capgemini: https://careers.capgemini.com/services/rss/job/?locale=en_US
-  Capgemini (IE): https://careers.capgemini.com/services/rss/job/?locale=en_US
-  Capgemini (NL): https://careers.capgemini.com/services/rss/job/?locale=en_US
-  Nordea: https://careers.nordea.com/services/rss/job/?locale=en_GB
-  EY: https://careers.ey.com/services/rss/job/?locale=en_US
-  Volvo (Tech Hub): https://jobs.volvogroup.com/services/rss/job/?locale=en_US
-  HCLTech: https://careers.hcltech.com/services/rss/job/?locale=en_US
-  HCLTech (IE): https://careers.hcltech.com/services/rss/job/?locale=en_US
-  HCLTech (NL): https://careers.hcltech.com/services/rss/job/?locale=en_US
+  Dell Technologies: https://enterpriseplatform.dell.com/hcmUI/CandidateExperience/en/sites/careers
+  Dell Technologies (IE): https://enterpriseplatform.dell.com/hcmUI/CandidateExperience/en/sites/careers
 
-  # Not readable yet: Microsoft and Ericsson (Eightfold), Booking.com (iCIMS), Dell (Workday
-  # answers HTTP 422 to every search: the right link is needed). Own sites, no public list:
-  # Google, Meta, Apple, IBM, Infosys, TCS, Tech Mahindra, LTIMindtree, Cognizant, ASML,
-  # EPAM, Comarch, Asseco, Samsung R&D, bunq, Uber, Version 1, Brainly, KPMG, UBS, Revolut,
-  # Rabobank, Goldman Sachs, ABN AMRO, SAP, HSBC and Deloitte (IE).
+  # Not readable yet: Microsoft and Ericsson (Eightfold), Booking.com (iCIMS). Own sites, no
+  # public list: Google, Meta, Apple, IBM, Infosys, TCS, Tech Mahindra, LTIMindtree,
+  # Cognizant, ASML, EPAM, Comarch, Asseco, Samsung R&D, bunq, Uber, Version 1, Brainly, KPMG,
+  # UBS, Revolut, Rabobank, Goldman Sachs, ABN AMRO, SAP, HSBC and Deloitte (IE).

@@ -42,8 +42,9 @@ def test_same_job_from_adzuna_and_gmail_gives_one_row(fake_run):
     assert row["Posting IDs"] == (
         "gmail:vistula-cloud-devops-engineer-krakow-devops, adzuna:4300000001"
     )
-    # Created from the email (no salary), then the Adzuna salary and date filled the gaps.
-    assert row["Salary"] == "18000 - 24000 PLN (Adzuna)"
+    # Created from the email with the salary on its card (read since FETCH 13d), then the
+    # Adzuna date filled the gap.
+    assert row["Salary"] == "18 000 - 24 000 PLN (JustJoin IT)"
     assert row["Posted date"] == date(2026, 9, 29)
     assert row["body"][0] == "Description source: adzuna (snippet only)"
 

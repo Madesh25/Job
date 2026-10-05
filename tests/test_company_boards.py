@@ -132,7 +132,7 @@ def test_candidates_file_is_read(tmp_path):
     assert boards.load_candidates(path) == {"Mollie": "https://jobs.ashbyhq.com/mollie"}
     assert boards.load_candidates(tmp_path / "missing.yaml") == {}
     real = boards.load_candidates()
-    assert real["Nordea"] == "https://careers.nordea.com/services/rss/job/?locale=en_GB"
+    assert real["Dell Technologies"].startswith("https://enterpriseplatform.dell.com/")
     # Every proposed link is one /fetch can read (a reader exists for it).
     assert [n for n, link in real.items() if ats.board_from_url(link) is None] == []
 
@@ -367,3 +367,86 @@ def test_check_keeps_the_first_answer_when_no_job_is_local(tmp_path):
                       lambda u: (u, ""), TODAY, tmp_path)
     assert (rows[0].jobs, rows[0].here) == (1, 0)
     assert (tmp_path / "far-away-answer.json").read_text().startswith("{")
+
+
+# ---------------------------------------------------------------- FETCH 13d
+
+
+def _pracuj_card(job_id, lines_before, title, lines_after):
+    link = f"https://pracuj.pl/praca/x,oferta,{job_id}?sendid=1&utm_source=rekomendacje"
+    before = "".join(f"<div>{line}</div>" for line in lines_before)
+    after = "".join(f"<div>{line}</div>" for line in lines_after)
+    return (f'<table><tr><td><a href="{link}"><img src="logo.png"></a></td><td>'
+            f'<div><a href="{link}">{before}<span>{title}</span></a></div>{after}'
+            f'<a href="{link}">{lines_after[-2] if len(lines_after) > 1 else ""}</a>'
+            f"</td></tr></table>")
+
+
+PRACUJ = "<html><body>" + "".join([
+    _pracuj_card("1005093474", ["!"], "DevOps Engineer (Mid/Senior)",
+                 ["Najlepiej dopasowana", "20400-28800 zł netto (+ VAT) / mies.",
+                  "CodeTalent Sp. z o.o.", "Warszawa"]),
+    _pracuj_card("1005075978", ["!"], "DevOps Engineer (LLM Platform)",
+                 ["Śpiesz się!", "NATEK POLAND", "Warszawa"]),
+    _pracuj_card("1005111810", [], "Administrator IT K/M",
+                 ["Nowość!", "8000-10000 zł brutto / mies.", "Comp S.A.", "Zabrze"]),
+]) + "</body></html>"
+
+
+def test_pracuj_alert_cards_skip_badges_and_keep_the_salary():
+    from jobengine.gmail_reader import GmailMessage
+    from jobengine.sweep.sources import gmail_alerts
+
+    message = GmailMessage(id="p1", sender='"Pracuj.pl" <rekomendacje@wysylka.pracuj.pl>',
+                           subject="DevOps Engineer (Mid/Senior) - oferta", html=PRACUJ)
+    postings = gmail_alerts.parse_alert(message, S.sweep["gmail"])
+    got = [(p.board, p.title, p.company, p.location_text, p.posting_id) for p in postings]
+    assert got == [
+        ("Pracuj.pl", "DevOps Engineer (Mid/Senior)", "CodeTalent Sp. z o.o.", "Warszawa",
+         "1005093474"),
+        ("Pracuj.pl", "DevOps Engineer (LLM Platform)", "NATEK POLAND", "Warszawa",
+         "1005075978"),
+        ("Pracuj.pl", "Administrator IT K/M", "Comp S.A.", "Zabrze", "1005111810"),
+    ]
+    assert postings[0].salary_text == "20400-28800 zł netto (+ VAT) / mies. (Pracuj.pl)"
+    assert postings[1].salary_text is None
+
+
+def test_a_workday_job_without_a_place_is_placed_by_its_detail():
+    def post(url, body):
+        return {"total": 1, "jobPostings": [
+            {"title": "DevOps Engineer", "externalPath": "/job/x/DevOps_R9"}]}
+
+    def get(url, params):
+        return {"jobPostingInfo": {"title": "DevOps Engineer", "location": "Warsaw",
+                                   "country": {"descriptor": "Poland"}}}
+
+    def in_poland(title, location):
+        return "Poland" in location
+
+    postings, dropped, _ = ats.workday(DELL, WD, get, post, in_poland, 5, TODAY, ("devops",), 1)
+    assert [p.location_text for p in postings] == ["Warsaw, Poland"] and dropped == 0
+    postings, dropped, _ = ats.workday(DELL, WD, get, post, in_poland, 0, TODAY, ("devops",), 1)
+    assert postings == [] and dropped == 1  # no detail call left: where it is stays unknown
+
+
+def test_dell_oracle_site_on_its_own_domain():
+    board = ats.board_from_url("https://enterpriseplatform.dell.com/hcmUI/CandidateExperience/"
+                               "en/sites/careers/job/295767/?utm_medium=jobshare")
+    assert board == ats.Board("oracle", "careers", host="enterpriseplatform.dell.com")
+    assert "enterpriseplatform.dell.com" in S.allowed_hosts
+
+
+def test_oracle_places_named_with_their_country_are_searched():
+    finders = []
+    first = {"items": [{"requisitionList": [], "locationsFacet": [
+        {"Id": 1, "Name": "Warsaw, Poland"}, {"Id": 2, "Name": "Pune, India"},
+        {"Id": 3, "Name": "Dublin, Ireland"}]}]}
+
+    def get(url, params):
+        finders.append(params["finder"])
+        return first if len(finders) == 1 else {}
+
+    ats.oracle(MOLLIE, ats.Board("oracle", "careers", host="enterpriseplatform.dell.com"), get,
+               keep_all, ("devops",))
+    assert [f.split("selectedLocationsFacet=")[1] for f in finders[1:]] == ["1", "3"]

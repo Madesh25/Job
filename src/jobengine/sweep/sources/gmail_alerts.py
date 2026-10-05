@@ -30,6 +30,13 @@ _JOINED = re.compile(r"\s+[\u00b7\u2022|]\s+")
 # Button and badge lines inside a card link, never a place or a company.
 CARD_BUTTONS = {"apply", "easy apply", "be the first to apply", "be the first to apply!",
                 "actively recruiting", "new", "promoted"}
+# Badge lines in a card, never a title, company or place (compared after canon): Pracuj.pl
+# puts "!" before the title and "Najlepiej dopasowana", "Nowosc!" or "Hit!" after it.
+CARD_BADGES = {"", "new", "promoted", "najlepiej dopasowana", "nowosc", "hit", "pilne",
+               "nowa oferta", "polecana", "top", "wyprzedz innych kandydatow"}
+# A salary line in a card ("20400-28800 zl netto (+ VAT) / mies.", "130 zl / godz.").
+_SALARY = re.compile(r"\d.*(?:z\u0142|pln|eur|\u20ac|/\s*(?:mies|godz|month|hour|h)\b)",
+                     re.IGNORECASE)
 DEFAULT_LAYOUT = ["title", "company"]
 
 
@@ -42,14 +49,25 @@ def board_for_sender(sender: str, sender_boards: Mapping[str, str]) -> str:
 
 
 def _lines(node: Tag) -> list[str]:
-    return [line.strip() for line in node.get_text("\n").split("\n") if line.strip()]
+    """The text lines of a node, without badge lines ("!", "Hit!") that are never a field."""
+    lines = [line.strip() for line in node.get_text("\n").split("\n") if line.strip()]
+    return [line for line in lines if canon(line) not in CARD_BADGES]
 
 
-def card_fields(anchor: Tag, title: str) -> tuple[str, str, tuple[str, ...]]:
-    """(company, location, other card lines) from the card around an anchor, or
-    ("(unknown)", "", ()). The line after the title is the company, the next the place;
-    "Company · Place" on one line (LinkedIn) is split. The other lines are kept so the place
-    can still be found when it is not where expected."""
+def _split_salary(lines: list[str]) -> tuple[list[str], str | None]:
+    """The card lines after the title without salary lines and without lines ending in "!"
+    (Pracuj.pl badges: "Spiesz sie!", "Tu zarobisz najwiecej!"), and the first salary."""
+    salary = next((line for line in lines if _SALARY.search(line)), None)
+    return [line for line in lines
+            if not _SALARY.search(line) and not line.endswith("!")], salary
+
+
+def card_fields(anchor: Tag, title: str) -> tuple[str, str, tuple[str, ...], str | None]:
+    """(company, location, other card lines, salary) from the card around an anchor, or
+    ("(unknown)", "", (), None). The line after the title is the company, the next the place;
+    "Company · Place" on one line (LinkedIn) is split, and a salary line between them
+    (Pracuj.pl) is taken out. The other lines are kept so the place can still be found when
+    it is not where expected."""
     node = anchor
     for _ in range(MAX_CARD_PARENTS):
         node = node.parent
@@ -59,17 +77,17 @@ def card_fields(anchor: Tag, title: str) -> tuple[str, str, tuple[str, ...]]:
         if 2 <= len(lines) <= MAX_CARD_LINES and all(len(line) < MAX_LINE_CHARS
                                                     for line in lines):
             if title in lines:
-                rest = lines[lines.index(title) + 1:]
+                rest, salary = _split_salary(lines[lines.index(title) + 1:])
                 if not rest:
-                    return "(unknown)", "", ()
+                    continue  # only the title and a badge here: the card is further up
                 parts = _JOINED.split(rest[0])
                 if len(parts) > 1:
                     company, others = parts[0], [*parts[1:], *rest[1:]]
                 else:
                     company, others = rest[0], rest[1:]
-                return company, (others[0] if others else ""), tuple(others[1:4])
+                return company, (others[0] if others else ""), tuple(others[1:4]), salary
             break
-    return "(unknown)", "", ()
+    return "(unknown)", "", (), None
 
 
 def anchor_fields(lines: list[str], layout: list[str]) -> tuple[str, str, str, tuple[str, ...]]:
@@ -141,16 +159,17 @@ def parse_alert(message: GmailMessage, gmail_cfg: Mapping[str, Any]) -> list[Raw
 
     postings = []
     for anchor, href, posting_id in found.values():
-        title = anchor.get_text(" ", strip=True)
-        if not title:
-            continue
         lines = _lines(anchor)
+        if not lines:
+            continue
+        salary = None
         if len(lines) >= 2:  # the link holds the whole card
             title, company, location, others = anchor_fields(lines, layout)
             if not title:
                 continue
         else:
-            company, location, others = card_fields(anchor, title)
+            title = lines[0]
+            company, location, others, salary = card_fields(anchor, title)
         postings.append(
             RawPosting(
                 source=SOURCE,
@@ -160,6 +179,7 @@ def parse_alert(message: GmailMessage, gmail_cfg: Mapping[str, Any]) -> list[Raw
                 location_text=location,
                 url=href,
                 posting_id=posting_id or fallback_posting_id(board, title, company),
+                salary_text=f"{salary} ({board})" if salary else None,
                 description=None,
                 location_area=(*others, *([home] if home else [])),
             )
