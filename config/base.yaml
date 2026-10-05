@@ -9,6 +9,8 @@ notion:
     evidence_library: "78b711ac-4374-4296-b822-58fc6c28008a"
     project_registry: "7dc5a9ec-33b6-4118-b857-e6f9d0adf44e"
     resume_sections: "e4f4f4e9-bbfd-47a8-8e78-4c90de8409ec"
+    # Certifications (5 Oct): only Status Passed AND Show on resume rows reach the resume.
+    certifications: "933a3929-09e2-4750-a189-f14a6756d445"
   pages:
     resume_build_spec: "3e46edc2-b0d4-812b-82ea-d1766061390d"
     cold_mail_templates: "3e46edc2-b0d4-8130-bdee-c62ac751d774"

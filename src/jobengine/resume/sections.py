@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import html as htmllib
 import json
+import logging
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -20,6 +21,7 @@ if TYPE_CHECKING:
     from jobengine.notion_repo import NotionClient
     from jobengine.settings import Settings
 
+log = logging.getLogger("jobengine.resume")
 FIXTURES = ROOT_DIR / "fixtures" / "resume"
 PLACEHOLDER_DATE = "<Month Year>"
 CERT_TITLE = "<h2>Certifications</h2>"
@@ -135,11 +137,51 @@ def _row(values: dict[str, Any]) -> SectionRow:
     )
 
 
+def certification_lines(certs: list[dict[str, Any]]) -> str:
+    """The Certifications section text from the Certifications table: only rows with Status
+    Passed AND Show on resume ticked (your decision of 5 Oct: nothing while still studying),
+    in Order, one "Name, Issuer, Month Year" line each."""
+    shown = [c for c in certs if c.get("Status") == "Passed" and c.get("Show on resume")
+             and c.get("Name")]
+    shown.sort(key=lambda c: (c.get("Order") is None, c.get("Order") or 0, c.get("Name")))
+    lines = []
+    for cert in shown:
+        parts = [str(cert["Name"]).strip()]
+        if cert.get("Issuer"):
+            parts.append(str(cert["Issuer"]).strip())
+        passed = cert.get("Passed")
+        if passed:
+            parts.append(passed.strftime("%B %Y") if hasattr(passed, "strftime") else str(passed))
+        lines.append(", ".join(parts))
+    return "\n".join(lines)
+
+
+def with_certifications(rows: list[SectionRow], certs: list[dict[str, Any]]) -> list[SectionRow]:
+    """The Resume Sections rows with the Certifications row taken from the Certifications
+    table: enabled for every country when at least one certification is shown, else off."""
+    content = certification_lines(certs)
+    old = next((r for r in rows if r.kind == "certifications"), None)
+    row = SectionRow(section="Certifications", enabled=bool(content),
+                     order=old.order if old else None, countries=("All",), content=content)
+    return [r for r in rows if r.kind != "certifications"] + [row]
+
+
 def load_rows(client: NotionClient, s: Settings) -> list[SectionRow]:
     from jobengine.notion_repo import page_values
 
-    return [_row(page_values(page)) for page in client.query(s.notion_read["resume_sections"])
+    rows = [_row(page_values(page)) for page in client.query(s.notion_read["resume_sections"])
             if page_values(page).get("Section")]
+    certifications = s.notion_read.get("certifications")
+    if certifications:
+        from jobengine import http
+
+        try:
+            certs = [page_values(page) for page in client.query(certifications)]
+        except http.HttpError as exc:  # not shared yet: the resume keeps Resume Sections
+            log.warning("Certifications table not read, Resume Sections used: %s", exc)
+        else:
+            rows = with_certifications(rows, certs)
+    return rows
 
 
 def fake_rows(path: Path = FIXTURES / "resume_sections.json") -> list[SectionRow]:
