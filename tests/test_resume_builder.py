@@ -114,7 +114,7 @@ def test_caption_is_cut_to_telegram_limit():
 def test_merge_gaps_adds_each_gap_once():
     from jobengine.resume.builder import merge_gaps
 
-    assert merge_gaps("Istio, Go", ["go", "PowerShell"]) == "Istio, Go, PowerShell"
+    assert merge_gaps("Istio, Go", ["go", "PowerShell"]) == "Istio; Go; PowerShell"
     assert merge_gaps(None, ["PowerShell"]) == "PowerShell"
     assert merge_gaps("", []) == ""
 

@@ -13,6 +13,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta, timezone
 from typing import Any
+from urllib.parse import urlsplit
 
 from jobengine import http
 from jobengine.bot_state import BotState, FakeBotState
@@ -29,7 +30,7 @@ from jobengine.resume import builder as resume_builder
 from jobengine.resume.builder import BuildOutcome, ResumeDeps
 from jobengine.screen import autopilot, batch, jd_capture
 from jobengine.screen.jd_capture import Capture, Captures
-from jobengine.screen.models import JobRow, ScreenSummary
+from jobengine.screen.models import JobRow, ScreenSummary, split_gaps
 from jobengine.screen.runner import (
     SECTION_PREFIX,
     ScreenDeps,
@@ -112,7 +113,7 @@ def requested_terms(text: str, known: str | None = None) -> list[str]:
     match = REQUEST_RE.match(text or "")
     if not match:
         return []
-    spelled = {g.strip().casefold(): g.strip() for g in (known or "").split(",") if g.strip()}
+    spelled = {g.casefold(): g for g in split_gaps(known)}
     terms = []
     for part in re.split(r",|\band\b|&", match.group(1)):
         words = [w for w in part.split() if w.casefold() not in FILLER]
@@ -173,6 +174,15 @@ BUILD_FAILED_HINT = ("The job stays Approved without a resume. Tap Try again to 
                      "job.")
 NO_FULL_JD = ("Only a short snippet of the job description was found, so the match is not "
               "checked. Open the link to read the job, or paste it with /jd <link>.")
+
+
+def short_link(url: str | None) -> str | None:
+    """A LinkedIn alert link without its tracking query (it made the /pending card huge,
+    5 Oct test P7); any other link as it is."""
+    if url and jd_capture.linkedin_posting_id(url):
+        parts = urlsplit(url)
+        return f"{parts.scheme}://{parts.netloc}{parts.path}"
+    return url
 
 
 def waits_for_you(reply: Reply) -> bool:
@@ -331,7 +341,7 @@ class Desk:
             return [NO_FULL_JD]
         return [f"Match: {counts['Strong']} strong, {counts['Transferable']} transferable, "
                 f"{counts['Gap']} gaps", *self.keyword_lines(body),
-                f"Gaps: {row.gaps or 'none'}"]
+                f"Gaps: {'; '.join(split_gaps(row.gaps)) or 'none'}"]
 
     def card(self, row: JobRow, index: int, total: int, buttons: bool = True) -> Reply:
         assert self.repo is not None
@@ -349,7 +359,7 @@ class Desk:
             *self.match_lines(row, body, counts),
         ]
         if row.url:
-            lines.append(row.url)
+            lines.append(short_link(row.url) or row.url)
         keys = []
         if buttons:
             pid = short_id(row.page_id)
@@ -970,7 +980,7 @@ class Desk:
         names: dict[str, str] = {}
         rows = 0
         for _pid, values in self.repo.query_rows():
-            gaps = [g.strip() for g in str(values.get("Gaps") or "").split(",") if g.strip()]
+            gaps = split_gaps(values.get("Gaps"))
             if not gaps:
                 continue
             rows += 1
@@ -1314,7 +1324,7 @@ class Desk:
         self.captures.start(row.url or "", self.now(), row.page_id)
         place = ", ".join(p for p in (row.city, row.country) if p) or "place unknown"
         text = (f"LinkedIn job {i + 1} of {len(rows)}:\n{row.company}, {row.role}\n{place}\n"
-                f"{row.url or '(no link)'}\n\n{LINKEDIN_PASTE}")
+                f"{short_link(row.url) or '(no link)'}\n\n{LINKEDIN_PASTE}")
         pid = short_id(row.page_id)
         buttons = [("Done", "li:done"), ("Next", f"li:next:{i + 1}"),
                    ("Not interested", f"li:skip:{pid}")]

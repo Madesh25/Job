@@ -263,13 +263,9 @@ def _skill_lines(skills: list[str]) -> list[str]:
 
 def merge_gaps(existing: str | None, new: list[str]) -> str:
     """The job's Gaps text with the resume's reported gaps added once (case-insensitive)."""
-    items = [g.strip() for g in (existing or "").split(",") if g.strip()]
-    seen = {g.casefold() for g in items}
-    for gap in new:
-        if gap.strip() and gap.strip().casefold() not in seen:
-            items.append(gap.strip())
-            seen.add(gap.strip().casefold())
-    return ", ".join(items)
+    from jobengine.screen.models import join_gaps, split_gaps
+
+    return join_gaps([*split_gaps(existing), *new])
 
 
 def caption(

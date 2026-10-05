@@ -1060,3 +1060,13 @@ def test_forced_skill_is_saved_to_gaps(desk):
     assert "PowerShell" not in (desk.repo.rows["pl-clean"].get("Gaps") or "")
     talk(desk, tap(1, "fg:pl-clean:PowerShell"))  # the plan does not report it as a gap
     assert "PowerShell" in desk.repo.rows["pl-clean"]["Gaps"]
+
+
+def test_every_button_gets_a_working_note(desk):
+    # 5 Oct test notes: some buttons gave no sign that the bot was working.
+    fake = talk(desk, tap(1, "pc:all"))
+    answer = next(p for m, p in fake.calls if m == "answerCallbackQuery")
+    assert answer["text"] == "Loading that country's jobs..."
+    fake = talk(desk, tap(1, "zz:unknown"))
+    answer = next(p for m, p in fake.calls if m == "answerCallbackQuery")
+    assert answer["text"] == tb.TAP_DEFAULT
