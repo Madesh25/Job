@@ -218,6 +218,9 @@ def get_page(
     if accept_feed:
         types = (*types, *FEED_TYPES)
     accept = "application/json,text/html" if accept_json else "text/html,application/xhtml+xml"
+    if accept_feed:
+        # SuccessFactors answers HTTP 406 to a feed request that only accepts web pages.
+        accept = "application/rss+xml,application/xml;q=0.9,text/xml;q=0.9,*/*;q=0.8"
     headers = {"User-Agent": PAGE_USER_AGENT, "Accept": accept}
     method = "GET" if json_body is None else "POST"
     with httpx.Client(transport=_transport, timeout=PAGE_TIMEOUT_SECONDS,

@@ -132,7 +132,7 @@ def test_candidates_file_is_read(tmp_path):
     assert boards.load_candidates(path) == {"Mollie": "https://jobs.ashbyhq.com/mollie"}
     assert boards.load_candidates(tmp_path / "missing.yaml") == {}
     real = boards.load_candidates()
-    assert real["Adyen"] == "https://job-boards.greenhouse.io/adyen"
+    assert real["Nordea"] == "https://careers.nordea.com/services/rss/job/?locale=en_GB"
     # Every proposed link is one /fetch can read (a reader exists for it).
     assert [n for n, link in real.items() if ats.board_from_url(link) is None] == []
 
@@ -300,3 +300,70 @@ def test_oracle_candidate_site_search_is_read():
     assert p.location_text == "Warsaw, Poland / Glasgow, United Kingdom"
     assert p.url.endswith("/sites/CX_1001/job/210744868")
     assert p.posted_date == date(2026, 9, 30) and p.posting_id == "oracle-jpmc-210744868"
+
+
+# ---------------------------------------------------------------- FETCH 13c fixes
+
+
+def test_a_job_feed_request_accepts_rss():
+    import httpx
+
+    seen = []
+
+    def answer(request):
+        seen.append(request.headers["accept"])
+        if "rss+xml" not in request.headers["accept"]:
+            return httpx.Response(406)
+        return httpx.Response(200, headers={"content-type": "application/rss+xml"},
+                              content=FEED.encode())
+
+    http.set_transport(httpx.MockTransport(answer))
+    try:
+        _, text = http.get_page("https://careers.capgemini.com/services/rss/job/?q=x", s=S,
+                                accept_feed=True)
+        with pytest.raises(http.HttpError):  # a web page request is refused, as on 5 Oct
+            http.get_page("https://careers.capgemini.com/services/rss/job/?q=x", s=S)
+    finally:
+        http.set_transport(None)
+    assert "<item>" in text and "application/rss+xml" in seen[0]
+
+
+def test_workday_without_a_country_filter_uses_hub_city_locations():
+    bodies = []
+    facets = [{"facetParameter": "locations", "values": [
+        {"descriptor": "Warsaw, Poland", "id": "w1"}, {"descriptor": "Bengaluru", "id": "b1"},
+        {"descriptor": "Dublin", "id": "d1"}, {"descriptor": "Amsterdam Zuid", "id": "a1"}]}]
+
+    def post(url, body):
+        bodies.append(body)
+        return {"total": 0, "jobPostings": [], "facets": facets}
+
+    ats.workday(DELL, WD, lambda u, p: {}, post, keep_all, 0, TODAY, ("devops",), 1)
+    assert bodies[1]["appliedFacets"] == {"locations": ["w1", "d1", "a1"]}
+
+
+def test_oracle_searches_each_of_our_countries_when_the_site_names_them():
+    finders = []
+    first = {"items": [{"requisitionList": [], "locationsFacet": [
+        {"Id": 111, "Name": "Poland"}, {"Id": 222, "Name": "India"},
+        {"Id": 333, "Name": "Ireland"}]}]}
+
+    def get(url, params):
+        finders.append(params["finder"])
+        return first if len(finders) == 1 else ORACLE_ANSWER
+
+    board = ats.Board("oracle", "CX_1001", host="jpmc.fa.oraclecloud.com")
+    postings, _, _ = ats.oracle(MOLLIE, board, get, keep_all, ("devops", "sre"))
+    assert "selectedLocationsFacet" not in finders[0]
+    assert [f.split("selectedLocationsFacet=")[1] for f in finders[1:]] == \
+        ["111", "333", "111", "333"]
+    assert len(postings) == 1  # the same job found in each search counts once
+
+
+def test_check_keeps_the_first_answer_when_no_job_is_local(tmp_path):
+    company = TargetCompany("Far Away", "https://jobs.ashbyhq.com/far", "Unknown", True)
+    answer = {"jobs": [{"id": "x", "title": "DevOps Engineer", "location": "Bengaluru"}]}
+    rows = boards.run(S, [company], {}, lambda u, p: answer, lambda u, b: {},
+                      lambda u: (u, ""), TODAY, tmp_path)
+    assert (rows[0].jobs, rows[0].here) == (1, 0)
+    assert (tmp_path / "far-away-answer.json").read_text().startswith("{")

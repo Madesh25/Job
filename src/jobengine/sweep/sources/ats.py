@@ -364,23 +364,49 @@ def _wd_location(info: Mapping[str, Any]) -> str:
     return text
 
 
-def _country_facets(facets: Any) -> dict[str, list[str]]:
-    """{facet parameter: [value ids]} of the country facet values for Poland, the
-    Netherlands and Ireland in a Workday answer (the facet may sit inside a group)."""
+# Hub cities named in Workday location filters when a site has no country filter.
+HUB_CITIES = ("warsaw", "warszawa", "krakow", "kraków", "wroclaw", "wrocław", "gdansk",
+              "gdańsk", "poznan", "poznań", "lodz", "łódź", "katowice", "amsterdam",
+              "rotterdam", "utrecht", "eindhoven", "the hague", "den haag", "dublin", "cork",
+              "galway", "limerick")
+
+
+def _facet_values(facets: Any, wanted: Callable[[str, str], bool]) -> dict[str, list[str]]:
+    """{facet parameter: [value ids]} of the facet values `wanted(parameter, name)` keeps
+    (a facet may sit inside a group)."""
     found: dict[str, list[str]] = {}
     for facet in facets or []:
         if not isinstance(facet, Mapping):
             continue
         param = str(facet.get("facetParameter") or "")
         values = facet.get("values") or []
-        if "country" in param.lower():
-            ids = [str(v.get("id")) for v in values if isinstance(v, Mapping) and v.get("id")
-                   and str(v.get("descriptor") or "").strip() in ANY_COUNTRY]
-            if ids:
-                found[param] = ids
-        else:
-            found.update(_country_facets(values))
+        ids = [str(v.get("id")) for v in values if isinstance(v, Mapping) and v.get("id")
+               and not v.get("facetParameter")
+               and wanted(param, str(v.get("descriptor") or "").strip())]
+        if ids:
+            found.setdefault(param, []).extend(ids)
+        for param_inner, inner in _facet_values(
+                [v for v in values if isinstance(v, Mapping) and v.get("facetParameter")],
+                wanted).items():
+            found.setdefault(param_inner, []).extend(inner)
     return found
+
+
+def _country_facets(facets: Any) -> dict[str, list[str]]:
+    """The Workday filter for Poland, the Netherlands and Ireland: the country facet when
+    the site has one, else the location facet values in those countries' hub cities
+    (Accenture, HPE and Shell had no country facet on 5 Oct)."""
+    countries = _facet_values(
+        facets, lambda p, name: "country" in p.lower() and name in ANY_COUNTRY)
+    if countries:
+        return countries
+
+    def in_hub(param: str, name: str) -> bool:
+        low = name.lower()
+        return "location" in param.lower() and (
+            any(c.lower() in low for c in ANY_COUNTRY) or any(c in low for c in HUB_CITIES))
+
+    return _facet_values(facets, in_hub)
 
 
 def workday(
@@ -660,12 +686,27 @@ def oracle(company: TargetCompany, board: Board, get: Getter, keep: Prefilter,
     """Oracle Cloud HCM candidate site search (the public REST call its own page makes),
     newest first, one search per term."""
     api = f"https://{board.host}/hcmRestApi/resources/latest/recruitingCEJobRequisitions"
-    postings, dropped, seen = [], 0, set()
-    for term in terms:
+    params = {"onlyData": "true", "expand": "requisitionList.secondaryLocations"}
+
+    def search(term: str, location_id: str = "") -> Mapping[str, Any]:
         finder = (f'findReqs;siteNumber={board.token},facetsList=LOCATIONS,'
                   f'limit={ORACLE_PAGE_SIZE},keyword="{term}",sortBy=POSTING_DATES_DESC')
-        data = get(api, {"onlyData": "true", "expand": "requisitionList.secondaryLocations",
-                         "finder": finder}) or {}
+        if location_id:
+            finder += f",selectedLocationsFacet={location_id}"
+        return get(api, {**params, "finder": finder}) or {}
+
+    postings, dropped, seen = [], 0, set()
+    # Big sites list jobs from everywhere (JPMorgan: 1 of 128 in Poland, the Netherlands or
+    # Ireland on 5 Oct), so each search is made once per country the site's own location
+    # filter names; without that filter, once for all places.
+    first = search(terms[0]) if terms else {}
+    country_ids = [str(f.get("Id")) for item in first.get("items") or []
+                   for f in item.get("locationsFacet") or []
+                   if isinstance(f, Mapping) and f.get("Id")
+                   and str(f.get("Name") or "").strip() in ANY_COUNTRY]
+    answers = ((search(term, cid) for term in terms for cid in country_ids) if country_ids
+               else (first if n == 0 else search(term) for n, term in enumerate(terms)))
+    for data in answers:
         for found in data.get("items") or []:
             for job in found.get("requisitionList") or []:
                 job_id = str(job.get("Id") or "")

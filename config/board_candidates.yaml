@@ -5,20 +5,12 @@
 # work are then copied into Target Companies (Careers URL and ATS platform, with your OK) and
 # taken out of this file. Names must match the Company column exactly.
 #
-# Round 1 (5 Oct): 16 links worked and are now in Target Companies (Stripe, Miro, Backbase,
-# Bosch, PayU, Mollie, DocPlanner, Snowflake, ING, HPE, Aptiv, Workhuman, Cisco, PwC, ABB,
-# Sabre). Round 2 below: the new readers of FETCH 13b and boards found by company name.
+# Round 1 (5 Oct): 16 links worked, now in Target Companies. Round 2 (5 Oct): 14 more worked
+# (Adyen, bol.com, Databricks x2, Picnic, Allegro, TomTom, Just Eat Takeaway, Allianz,
+# JPMorgan x2, Nokia, Oracle x2), now in Target Companies. SAP's feed answered HTTP 404 and
+# HSBC's job list showed 0 jobs: both left out. Round 3 below: the SuccessFactors feeds, which
+# answered HTTP 406 because the request did not say it accepts RSS (fixed in FETCH 13c).
 proposed:
-  # --- Found by company name by /fetch on 28 Sep (Greenhouse, Lever, SmartRecruiters)
-  Adyen: https://job-boards.greenhouse.io/adyen
-  bol.com: https://job-boards.greenhouse.io/bolcom
-  Databricks: https://job-boards.greenhouse.io/databricks
-  Databricks (NL): https://job-boards.greenhouse.io/databricks
-  Picnic: https://jobs.smartrecruiters.com/picnic
-  Allegro: https://jobs.smartrecruiters.com/allegro
-  TomTom: https://jobs.eu.lever.co/tomtom
-
-  # --- SAP SuccessFactors job feeds (new reader)
   Wipro: https://careers.wipro.com/services/rss/job/?locale=en_US
   Wipro (IE): https://careers.wipro.com/services/rss/job/?locale=en_US
   Wipro (NL): https://careers.wipro.com/services/rss/job/?locale=en_US
@@ -28,26 +20,12 @@ proposed:
   Nordea: https://careers.nordea.com/services/rss/job/?locale=en_GB
   EY: https://careers.ey.com/services/rss/job/?locale=en_US
   Volvo (Tech Hub): https://jobs.volvogroup.com/services/rss/job/?locale=en_US
-  SAP: https://jobs.sap.com/services/rss/job/?locale=en_US
   HCLTech: https://careers.hcltech.com/services/rss/job/?locale=en_US
   HCLTech (IE): https://careers.hcltech.com/services/rss/job/?locale=en_US
   HCLTech (NL): https://careers.hcltech.com/services/rss/job/?locale=en_US
 
-  # --- Phenom career sites (new reader)
-  Allianz Technology: https://careers.allianz.com/global/en/search-results
-  Just Eat Takeaway.com: https://careers.justeattakeaway.com/global/en/search-results
-
-  # --- Oracle Cloud HCM (new reader; server and site number read from your saved pages)
-  JPMorgan Chase: https://jpmc.fa.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX_1001
-  JPMorgan Chase (IE): https://jpmc.fa.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX_1001
-  Nokia: https://fa-evmr-saasfaprod1.fa.ocs.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX_1
-  Oracle: https://eeho.fa.us2.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX_45001
-  Oracle (IE): https://eeho.fa.us2.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX_45001
-
-  # --- Avature (HSBC's page linked a filtered list with 0 jobs; the plain list instead)
-  HSBC: https://mycareer.hsbc.com/en_GB/external/SearchJobs/
-
-  # Not readable yet: Microsoft and Ericsson (Eightfold), Booking.com (iCIMS). Own sites, no
-  # public list: Google, Meta, Apple, IBM, Infosys, TCS, Tech Mahindra, LTIMindtree,
-  # Cognizant, ASML, EPAM, Comarch, Asseco, Samsung R&D, bunq, Uber, Version 1, Brainly, KPMG,
-  # UBS, Revolut, Rabobank, Goldman Sachs, ABN AMRO and Deloitte (IE).
+  # Not readable yet: Microsoft and Ericsson (Eightfold), Booking.com (iCIMS), Dell (Workday
+  # answers HTTP 422 to every search: the right link is needed). Own sites, no public list:
+  # Google, Meta, Apple, IBM, Infosys, TCS, Tech Mahindra, LTIMindtree, Cognizant, ASML,
+  # EPAM, Comarch, Asseco, Samsung R&D, bunq, Uber, Version 1, Brainly, KPMG, UBS, Revolut,
+  # Rabobank, Goldman Sachs, ABN AMRO, SAP, HSBC and Deloitte (IE).
