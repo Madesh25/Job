@@ -163,3 +163,32 @@ class JobRow:
     contract_type: str | None = None
     gaps: str | None = None
     swept_date: date | None = None
+
+
+# ---------------------------------------------------------------- the Gaps column
+
+GAP_SEPARATOR = "; "
+
+
+def split_gaps(text: str | None) -> list[str]:
+    """The gaps in a Gaps cell. Since 5 Oct they are separated by ";" because one gap can hold
+    commas ("monitoring, logging, and observability"); older cells use ",". Each gap once."""
+    raw = str(text or "")
+    parts = raw.split(";") if ";" in raw else raw.split(",")
+    return join_list([p.strip() for p in parts if p.strip()])
+
+
+def join_list(gaps: list[str]) -> list[str]:
+    seen: set[str] = set()
+    out = []
+    for gap in gaps:
+        key = gap.strip().casefold()
+        if key and key not in seen:
+            seen.add(key)
+            out.append(gap.strip())
+    return out
+
+
+def join_gaps(gaps: list[str]) -> str:
+    """A Gaps cell: each gap once (5 Oct test P7 showed one twice), ";" between them."""
+    return GAP_SEPARATOR.join(join_list(gaps))

@@ -193,3 +193,26 @@ def test_refused_key_is_an_auth_error():
     llm = AnthropicLLM(settings(), CONFIG, client=Refusing([]))
     with pytest.raises(LLMAuthError, match="refused ANTHROPIC_API_KEY \\(HTTP 401\\)"):
         llm.complete_json("score", "system", "job text", key="k")
+
+
+def test_a_refused_call_shows_anthropics_reason_not_only_the_code(caplog):
+    # 5 Oct Phase 3 P8 and D5: "LLM call failed: HTTP 400" gave no cause.
+    import anthropic
+    import httpx
+
+    from jobengine.llm import LLMError
+
+    class BadRequest(FakeSDK):
+        def create(self, **kwargs):
+            request = httpx.Request("POST", "https://api.anthropic.com/v1/messages")
+            raise anthropic.BadRequestError(
+                "bad", response=httpx.Response(400, request=request),
+                body={"type": "error", "error": {"type": "invalid_request_error",
+                                                 "message": "prompt is too long"}})
+
+    llm = AnthropicLLM(settings(), CONFIG, client=BadRequest([]))
+    with pytest.raises(LLMError) as raised:
+        llm.complete_json("tailor", "system", "job text", key="k")
+    assert str(raised.value) == ("LLM call failed: HTTP 400 (invalid_request_error: prompt is "
+                                 "too long)")
+    assert "prompt is too long" in caplog.text and "job text" not in caplog.text

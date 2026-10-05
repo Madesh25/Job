@@ -103,7 +103,7 @@ def test_every_reason_keeps_examples_and_complete_counts():
     assert "title not DevOps-type (500):" in text
     assert f"- ... and {500 - 5} more" in text
     assert "Low skill match (1):\n- Cloud Engineer | Acme [Adzuna]" in text
-    assert f"(Up to {MAX_DROPPED_PER_REASON} jobs per source and reason are listed" in text
+    assert f"(The report keeps up to {MAX_DROPPED_PER_REASON} jobs per source and reason" in text
     assert "Cloud Engineer | Acme" in report.report_text({"adzuna": "Adzuna"}, "x", "skill")
     assert len(report.dropped) == MAX_DROPPED_PER_REASON + 1
 
@@ -130,3 +130,19 @@ def test_long_messages_are_split_not_cut():
     assert "\n".join(parts) == text
     assert split_text("short") == ["short"]
     assert all(len(p) <= 4000 for p in split_text("y" * 9000))
+
+
+def test_a_reason_list_takes_jobs_from_every_source_and_each_job_once():
+    # 5 Oct test P3: Email alerts and Adzuna filled the 40 lines, Jooble never showed, and
+    # one Kalepa job was listed twice.
+    from jobengine.sweep.models import LossReport
+
+    report = LossReport()
+    for i in range(30):
+        report.add("gmail", "title not DevOps-type", f"Mail job {i}")
+        report.add("adzuna", "title not DevOps-type", f"Adzuna job {i}")
+        report.add("jooble", "title not DevOps-type", f"Jooble job {i}")
+    report.add("gmail", "title not DevOps-type", "Mail job 0")
+    labels = {"gmail": "Email alerts", "adzuna": "Adzuna", "jooble": "Jooble"}
+    text = report.report_text(labels, "2026-10-05", "devops")
+    assert "[Jooble]" in text and text.count("- Mail job 0 [Email alerts]") == 1
