@@ -44,10 +44,12 @@ class Site:
     body: Callable[[str], Any] | None = None  # POST with this JSON (EURES)
 
 
-def _eures_body(title: str) -> dict[str, Any]:
+def _eures_body(title: str, where: str = "EVERYWHERE", quoted: bool = False,
+                period: str | None = None) -> dict[str, Any]:
+    keyword = f'"{title.lower()}"' if quoted else title.lower()
     return {"resultsPerPage": 50, "page": 1, "sortSearch": "MOST_RECENT",
-            "keywords": [{"keyword": title.lower(), "specificSearchCode": "EVERYWHERE"}],
-            "publicationPeriod": None, "occupationUris": [], "skillUris": [],
+            "keywords": [{"keyword": keyword, "specificSearchCode": where}],
+            "publicationPeriod": period, "occupationUris": [], "skillUris": [],
             "requiredExperienceCodes": [], "positionScheduleCodes": [], "sectorCodes": [],
             "educationAndQualificationLevelCodes": [], "positionOfferingCodes": [],
             "locationCodes": ["pl", "nl", "ie"], "euresFlagCodes": [], "otherBenefitsCodes": [],
@@ -65,8 +67,20 @@ SITES = {site.name: site for site in (
     Site("theprotocol", "theprotocol.it", "https://theprotocol.it/filtry/{path};kw?sort=date"),
     Site("eures", "EURES (PL, NL, IE)",
          "https://europa.eu/eures/api/jv-searchengine/public/jv-search/search", _eures_body),
+    # 5 Oct: the plain search matched any word (31,000 mostly unrelated Polish jobs, not by
+    # date). Two tighter searches to compare: title only, and the exact phrase; last 3 days.
+    Site("eures_title", "EURES title, 3 days",
+         "https://europa.eu/eures/api/jv-searchengine/public/jv-search/search",
+         lambda t: _eures_body(t, "TITLE", period="LAST_THREE_DAYS")),
+    Site("eures_phrase", "EURES phrase, 3 days",
+         "https://europa.eu/eures/api/jv-searchengine/public/jv-search/search",
+         lambda t: _eures_body(t, quoted=True, period="LAST_THREE_DAYS")),
     Site("iamexpat", "IamExpat",
          "https://www.iamexpat.nl/career/jobs-netherlands?search={q}&language=english"),
+    # 5 Oct: the search word is ignored (every title gave the same newest 20 jobs); the IT
+    # category page lists only IT jobs, which the reader then filters by title.
+    Site("iamexpat_it", "IamExpat IT jobs",
+         "https://www.iamexpat.nl/career/jobs-netherlands/it-technology-positions"),
     Site("nvb", "Nationale Vacaturebank",
          "https://www.nationalevacaturebank.nl/vacatures/zoeken?query={q}&sort=date"),
     Site("irishjobs", "IrishJobs.ie", "https://www.irishjobs.ie/jobs/{path}?sort=2"),
@@ -172,7 +186,9 @@ def run(s: Settings, names: list[str], today: date, *, get: Getter | None = None
     out_dir.mkdir(parents=True, exist_ok=True)
     for name in names:
         site = SITES[name]
-        for title in titles:
+        # A page without a search word in it is the same for every title: read it once.
+        once = site.body is None and "{q}" not in site.url and "{path}" not in site.url
+        for title in titles[:1] if once else titles:
             url = search_url(site, title)
             result = Result(site=site.label, title=title, status="OK")
             report.results.append(result)

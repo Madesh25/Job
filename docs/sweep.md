@@ -26,7 +26,7 @@ python -m jobengine.sweep --probe justjoin
 `--probe` runs one search per approved title (DevOps, SRE, Platform, Cloud Engineer), newest
 first, on JustJoin IT (`justjoin`), NoFluffJobs (`nofluffjobs`), Pracuj.pl (`pracuj`),
 theprotocol.it (`theprotocol`), EURES for PL, NL and IE (`eures`), IamExpat (`iamexpat`),
-Nationale Vacaturebank (`nvb`) and IrishJobs.ie (`irishjobs`). Per site and title it prints
+Nationale Vacaturebank (`nvb`) and IrishJobs.ie (`irishjobs`). Since 5 Oct also `eures_title` and `eures_phrase` (title-only and exact-phrase EURES searches of the last 3 days) and `iamexpat_it` (IamExpat's IT jobs page, read once). Per site and title it prints
 the answer (OK, the HTTP code, or robots.txt disallows), the kind (JSON, page data JSON in a
 web page, plain web page), the size and a rough count of dates in the last 2 days, and saves
 the raw answer to `out/probes/<site>-<title>.json` or `.html` for building the reader. It
@@ -84,6 +84,7 @@ careers site that links to no known ATS).
 | Gmail alerts | `GMAIL_ALERTS_TOKEN_JSON` (madeshwaranm02, `gmail.readonly`) | Emails with the label `sweep.gmail.label` ("Job Alerts") or from a sender in `sweep.gmail.sender_boards`, last `sweep.gmail.days` (2) days. Board from the sender domain. Non-LinkedIn job links are followed to the real job page for its link and full description; LinkedIn links are never requested. `/alertcheck` shows each email. |
 | Adzuna | `ADZUNA_APP_ID`, `ADZUNA_APP_KEY` | `pl` and `nl` only (Adzuna has no Ireland), at most `sweep.adzuna.max_calls_per_run` calls, split evenly between the countries (12 calls, 6 pages of 50 each by default) so every country is searched. The feed gives a snippet; the full text is read from the job page for jobs that may be saved. Predicted salaries are ignored. |
 | Jooble | `JOOBLE_API_KEY` (free, https://jooble.org/api/about) | Job search over many job boards, Ireland included. One call per country and term in `sweep.jooble` (3 x 4 = 12 calls). Board is the site Jooble found the job on when it is a known board (IrishJobs.ie, Indeed and so on, from `sweep.gmail.sender_boards`), else `Other`. The feed gives a snippet; the full text is read from the job page. Skipped without the key. |
+| NoFluffJobs | none | FETCH 4 (5 Oct): the public search page (`sweep.nofluffjobs`, newest first, `pages` pages per term, one request a second, robots.txt respected) carries its jobs as page data (`serverApp-state`): title, company, cities, posted date, salary. Poland. The description is read from the job page. A 403 or a changed page stops it quietly with a note in the summary. |
 | ATS feeds | nothing | Every active Target Company on Greenhouse, Lever, SmartRecruiters, Workday or amazon.jobs. The board comes from `Careers URL`, from the careers page it links to, or from `sweep.ats_boards`. Board is `Company site`. |
 
 A source whose secret is missing is skipped with a line in the summary; the run continues.

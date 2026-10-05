@@ -460,6 +460,13 @@ sweep:
     search_terms: [devops engineer, site reliability engineer, platform engineer, cloud engineer,
                    kubernetes engineer, infrastructure engineer, devsecops engineer]
     results_per_page: 50
+  # NoFluffJobs (FETCH 4, sweep/sources/nofluffjobs.py): the public search page, newest first,
+  # `pages` pages per search term, one request a second, robots.txt respected. Poland only.
+  nofluffjobs:
+    enabled: true
+    search_terms: [devops engineer, site reliability engineer, platform engineer, cloud engineer,
+                   kubernetes engineer, infrastructure engineer, devsecops engineer]
+    pages: 2
   # Full descriptions (sweep/fulltext.py): the job page is read for new jobs near the top of
   # today's list that only have a snippet or nothing. Plain GET, no login or cookies, public
   # https hosts only, never linkedin, at most 3 MB a page.
@@ -472,4 +479,4 @@ sweep:
     # gmail: the job links in alert emails (JustJoin IT, NoFluffJobs, Pracuj.pl, ...) are
     # followed to the real job page, whose link and full description are kept. LinkedIn is
     # never read, whatever this says.
-    sources: [adzuna, ats, jooble, gmail]
+    sources: [adzuna, ats, jooble, nofluffjobs, gmail]
