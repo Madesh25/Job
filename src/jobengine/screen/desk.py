@@ -166,6 +166,8 @@ def _agency(values: dict[str, Any]) -> bool:
 
 
 REPORT_BUTTONS = 4  # reason buttons under /fetchreport
+MAX_SKILL_BUTTONS = 8  # skills offered under /gaps
+MAX_SKILL_WORDS = 3  # longer gaps are sentences ("Experience designing CI/CD pipelines")
 LINKEDIN_PASTE = ("Open the link, copy the whole job description and paste it here (several "
                   "messages are fine), then tap Done. The bot saves it in Notion, screens the "
                   "job (one AI call) and shows its card for Approve or Skip.")
@@ -223,6 +225,9 @@ class Desk:
         self._track_now = track_now
         self.strategy = strategy
         self.state = state
+        # /gaps "Hands-on" / "Production" buttons: adds a Skills Inventory row (real_desk and
+        # fake_desk set it; None means the buttons are not offered).
+        self.add_skill: Callable[[str, str, str], None] | None = None
         # Set by the bot for each update: sends a reply at once (before a long build).
         self.notify: Callable[[Reply], None] | None = None
         self.today = today
@@ -419,6 +424,8 @@ class Desk:
             return self.fetchreport_command(arg)
         if action == "li" and arg:  # the LinkedIn queue (/linkedin)
             return self.linkedin_tap(arg)
+        if action == "gs" and arg:  # a skill button under /gaps
+            return self.skill_tap(arg)
         if action == "fx" and arg:  # "Go" under /fetchcontacts
             return self.fetch_contacts_tap(arg)
         if action == "ct" and arg:  # "Find contacts" (older messages; /contacts does the same)
@@ -1000,7 +1007,45 @@ class Desk:
         lines.append("")
         lines.append("Learned one? Add it to Skills Inventory as Hands-on or Production: "
                      "screening and resumes then count it as yours.")
-        return [Reply("\n".join(lines)[:MAX_TEXT])]
+        replies = [Reply("\n".join(lines)[:MAX_TEXT])]
+        if self.add_skill is not None:
+            replies += self._skill_buttons([names[key] for key, _ in ranked])
+        return replies
+
+    def _skill_buttons(self, gaps: list[str]) -> list[Reply]:
+        """One small message per short gap name with Hands-on and Production buttons (your
+        idea of 5 Oct): only you decide which skills you have and at which level."""
+        ref = self.reference()
+        out: list[Reply] = []
+        for name in gaps:
+            data = f"gs:p:{name}"
+            if (len(name.split()) > MAX_SKILL_WORDS or len(data.encode()) > 64
+                    or ref.lookup(name) is not None):
+                continue  # a sentence, not a skill name; or already yours
+            out.append(Reply(f"{name}: do you have it?",
+                             [("Hands-on", f"gs:h:{name}"), ("Production", data)]))
+            if len(out) >= MAX_SKILL_BUTTONS:
+                break
+        if out:
+            out.insert(0, Reply("Tap Hands-on (projects or labs) or Production (used at work) for "
+                                "a skill you already have. Skip the ones you do not."))
+        return out
+
+    def skill_tap(self, arg: str) -> list[Reply]:
+        code, _, name = arg.partition(":")
+        level = {"h": "Hands-on", "p": "Production"}.get(code)
+        if self.add_skill is None or not level or not name:
+            return [Reply("That button is no longer valid. Send /gaps.")]
+        if self.reference().lookup(name) is not None:
+            return [Reply(f"{name} is already in your skills.")]
+        try:
+            self.add_skill(name, level, f"Added from /gaps on {self.today().isoformat()}.")
+        except http.HttpError as exc:
+            return [Reply(f"Could not add {name} to Skills Inventory: {exc}")]
+        self._reference = None  # screening and resumes see it at once
+        return [Reply(f"Added {name} to Skills Inventory as {level}. Screening, /pending cards "
+                      "and resumes count it from now on. Category and Where used can be filled "
+                      "in Notion.")]
 
     def correction(self, replied_to: str, text: str) -> list[Reply] | None:
         """A reply to a preview ("Ref RL-xxxxxxxx" in it) builds the next revision. None when
@@ -1465,6 +1510,9 @@ def fake_desk(s: Settings, today: date, now: Callable[[], datetime] | None = Non
         raise http.HttpError(f"GET {url} failed: no network in --fake")
 
     desk.get_page = no_network
+    desk.skills_added = []  # type: ignore[attr-defined]
+    desk.add_skill = lambda name, level, note: desk.skills_added.append(  # type: ignore[attr-defined]
+        (name, level, note))
     return desk
 
 
@@ -1511,5 +1559,9 @@ def real_desk(s: Settings) -> Desk | None:
     from jobengine.track import costs
 
     set_cost_sink(costs.sink(state, date.today))  # the month's Claude cost (digest)
-    return Desk(s, real_deps(s), state, resume=resume, contacts=contacts, mail=mail,
+    desk = Desk(s, real_deps(s), state, resume=resume, contacts=contacts, mail=mail,
                 track=track, strategy=strategy)
+    from jobengine.notion_repo import skill_writer
+
+    desk.add_skill = skill_writer(client, s)
+    return desk

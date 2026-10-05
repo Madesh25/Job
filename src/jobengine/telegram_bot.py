@@ -127,7 +127,8 @@ TAP_TOASTS = {"ap": "Approving, building your resume...", "sk": "Skipping...",
               "fr": "Listing those jobs...", "li": "Working on the LinkedIn job...",
               "ra": "Saving the resume...", "rb": "Building the resume again...",
               "rq": "Send what to change...", "ia": "Marking as applied...",
-              "na": "Not applying...", "nr": "Saving the reason..."}
+              "na": "Not applying...", "nr": "Saving the reason...",
+              "gs": "Adding it to your skills..."}
 # Every other button: a tap always gets a sign that the bot is working (5 Oct test notes).
 TAP_DEFAULT = "Working on it..."
 
