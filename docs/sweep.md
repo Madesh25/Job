@@ -96,7 +96,7 @@ careers site that links to no known ATS).
 
 | Source | Needs | Notes |
 |---|---|---|
-| Gmail alerts | `GMAIL_ALERTS_TOKEN_JSON` (madeshwaranm02, `gmail.readonly`) | Emails with the label `sweep.gmail.label` ("Job Alerts") or from a sender in `sweep.gmail.sender_boards`, last `sweep.gmail.days` (2) days. Board from the sender domain. Non-LinkedIn job links are followed to the real job page for its link and full description; LinkedIn links are never requested. `/alertcheck` shows each email. |
+| Gmail alerts | `GMAIL_ALERTS_TOKEN_JSON_m02` and `GMAIL_ALERTS_TOKEN_JSON_mm` (madeshwaranm02 and madeshwaranmm, `gmail.readonly`; the old `GMAIL_ALERTS_TOKEN_JSON` is read as m02) | Both mailboxes are read; one failing is a note and the other is still read. Emails with the label `sweep.gmail.label` ("Job Alerts") or from a sender in `sweep.gmail.sender_boards`, last `sweep.gmail.days` (2) days. Board from the sender domain. Non-LinkedIn job links are followed to the real job page for its link and full description; LinkedIn links are never requested. `/alertcheck` shows each email. |
 | Adzuna | `ADZUNA_APP_ID`, `ADZUNA_APP_KEY` | `pl` and `nl` only (Adzuna has no Ireland), at most `sweep.adzuna.max_calls_per_run` calls, split evenly between the countries (12 calls, 6 pages of 50 each by default) so every country is searched. The feed gives a snippet; the full text is read from the job page for jobs that may be saved. Predicted salaries are ignored. |
 | Jooble | `JOOBLE_API_KEY` (free, https://jooble.org/api/about) | Job search over many job boards, Ireland included. One call per country and term in `sweep.jooble` (3 x 4 = 12 calls). Board is the site Jooble found the job on when it is a known board (IrishJobs.ie, Indeed and so on, from `sweep.gmail.sender_boards`), else `Other`. The feed gives a snippet; the full text is read from the job page. Skipped without the key. |
 | NoFluffJobs | none | FETCH 4 (5 Oct): the public search page (`sweep.nofluffjobs`, newest first, `pages` pages per term, one request a second, robots.txt respected) carries its jobs as page data (`serverApp-state`): title, company, cities, posted date, salary. Poland. The description is read from the job page. A 403 or a changed page stops it quietly with a note in the summary. |
@@ -382,7 +382,9 @@ ds. ...") still count as Polish required.
    from; emails from a sender domain in `sweep.gmail.sender_boards` are read too. A sender not
    in `sender_boards` gets the Board "Other" (add its domain there to name it).
 2. Create the alerts token with `gmail.readonly` (see `docs/gmail.md`) and put the one-line
-   JSON into `.env` as `GMAIL_ALERTS_TOKEN_JSON` (Secret Manager in dev and prod).
+   JSON into `.env` as `GMAIL_ALERTS_TOKEN_JSON_m02` (and the second mailbox's token as
+   `GMAIL_ALERTS_TOKEN_JSON_mm`; Secret Manager in dev and prod). Each mailbox needs its own
+   "Job Alerts" filter. `/sources` lists the mailboxes with a token, `/health` checks each.
 3. Check the parser against the real emails without writing anything:
    `python -m jobengine.sweep --parse-report`. Each line shows board, title, company and
    location. A board whose cards come out as `(unknown)` can get a pattern in

@@ -30,7 +30,10 @@ SECRET_VARS = {
     "TELEGRAM_BOT_TOKEN": "telegram_bot_token",
     "TELEGRAM_CHAT_ID": "telegram_chat_id",
     "ANTHROPIC_API_KEY": "anthropic_api_key",
-    "GMAIL_ALERTS_TOKEN_JSON": "gmail_alerts_token_json",
+    "GMAIL_ALERTS_TOKEN_JSON": "gmail_alerts_token_json",  # old name, read as the m02 mailbox
+    # The two job-alert mailboxes (6 Oct): madeshwaranm02 and madeshwaranmm.
+    "GMAIL_ALERTS_TOKEN_JSON_m02": "gmail_alerts_token_json_m02",
+    "GMAIL_ALERTS_TOKEN_JSON_mm": "gmail_alerts_token_json_mm",
     "GMAIL_SENDER_TOKEN_JSON": "gmail_sender_token_json",
     "ADZUNA_APP_ID": "adzuna_app_id",
     "ADZUNA_APP_KEY": "adzuna_app_key",
@@ -83,6 +86,8 @@ class Settings(BaseModel):
     telegram_chat_id: str | None = None
     anthropic_api_key: str | None = None
     gmail_alerts_token_json: str | None = None
+    gmail_alerts_token_json_m02: str | None = None
+    gmail_alerts_token_json_mm: str | None = None
     gmail_sender_token_json: str | None = None
     adzuna_app_id: str | None = None
     adzuna_app_key: str | None = None

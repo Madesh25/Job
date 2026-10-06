@@ -110,7 +110,8 @@ or `gcloud secrets versions add NAME --data-file=-` for a new value). Names are 
 | `TELEGRAM_CHAT_ID` | `telegram-chat-id` | `telegram-chat-id` |
 | `TELEGRAM_WEBHOOK_SECRET` | `telegram-webhook-secret-dev` | `telegram-webhook-secret-prod` |
 | `ANTHROPIC_API_KEY` | `anthropic-key-dev` | `anthropic-key-prod` |
-| `GMAIL_ALERTS_TOKEN_JSON` | `gmail-m02-token` | `gmail-m02-token` |
+| `GMAIL_ALERTS_TOKEN_JSON` (read as the m02 alerts mailbox) | `gmail-m02-token` | `gmail-m02-token` |
+| `GMAIL_ALERTS_TOKEN_JSON_mm` (second alerts mailbox) | not mounted yet: create `gmail-mm-token`, then add it to `deploy.yml` | same |
 | `GMAIL_SENDER_TOKEN_JSON` | `gmail-m02-token` | `gmail-main-token` |
 | `ADZUNA_APP_ID`, `ADZUNA_APP_KEY` | `adzuna-app-id`, `adzuna-app-key` | same |
 | `APOLLO_API_KEY`, `HUNTER_API_KEY` | not mounted | `apollo-api-key`, `hunter-api-key` |

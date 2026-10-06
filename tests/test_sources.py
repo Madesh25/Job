@@ -116,7 +116,7 @@ def test_same_link_across_messages_kept_once():
 
 def test_gmail_fetch_skips_without_token():
     result = gmail_alerts.fetch(S)
-    assert result.skipped_reason == "gmail skipped: GMAIL_ALERTS_TOKEN_JSON missing"
+    assert result.skipped_reason == f"gmail skipped: {gmail_alerts.MISSING}"
 
 
 def test_gmail_fetch_with_fake_loader():
