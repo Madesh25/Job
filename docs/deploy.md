@@ -27,6 +27,10 @@ code. A task failure returns 500 (Scheduler records it) and sends you a Telegram
 Local runs keep long polling: `python -m jobengine.telegram_bot` (and `--fake`). With
 `BOT_MODE=webhook` the polling bot refuses to start.
 
+`/end` is answered by the webhook itself, before the worker queue, so it can stop a running
+`/fetch`, `/screen` or `/autopilot` at its next step. `/restart` only applies to the bot on
+your PC; on Cloud Run each deploy starts a new instance.
+
 ## Settings used below
 
 ```bash

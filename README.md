@@ -49,6 +49,12 @@ python -m jobengine.telegram_bot
 It sends `[LOCAL] Job Engine bot started.` to your chat and answers `/start`, `/status` and
 `/help`. Messages from any other chat are ignored. Stop it with Ctrl+C.
 
+While a long run goes (`/fetch`, `/screen`, `/autopilot`) the bot keeps reading your messages:
+other commands wait their turn, and `/end` stops the run at its next step (what is already
+saved stays). `/restart` stops the running job, then starts the bot again in the same process
+(fresh code, Notion settings and state). Values in `.env` are read when the bot or container
+starts, so after changing `.env` stop the container and `docker run` it again.
+
 ## Run the job sweep
 
 ```bash

@@ -186,6 +186,8 @@ def create_app(
             return JSONResponse({"ok": True, "ignored": "not an update"})
         if recent.seen(update_id):
             return JSONResponse({"ok": True, "duplicate": True})
+        if tb.end_now(client, s, update):  # /end must not wait behind the run it stops
+            return JSONResponse({"ok": True})
         # Answer Telegram at once; the worker runs the (possibly long) handler.
         worker.submit(lambda: tb.handle_one(client, s, update, fetch, desk))
         return JSONResponse({"ok": True})

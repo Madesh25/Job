@@ -16,6 +16,7 @@ import argparse
 import faulthandler
 import json
 import logging
+import os
 import re
 import sys
 import threading
@@ -23,11 +24,13 @@ import time
 import urllib.error
 import urllib.request
 import uuid
+from collections import deque
 from collections.abc import Callable
 from datetime import date
 from pathlib import Path
 from typing import Any, TextIO
 
+from jobengine.jobctl import CONTROL, Stopped, end_text
 from jobengine.main import banner
 from jobengine.safety import SafetyError, check_startup, telegram_text
 from jobengine.screen import autopilot
@@ -81,6 +84,8 @@ HELP_TEXT = (
     "/digest - the weekly digest now\n"
     "/update - monthly strategy research for your review (opens /fetch); /update new again\n"
     "/rules - V16 non-negotiables, thresholds, adopted tips and the /fetch gate\n"
+    "/end - stop the running /fetch, /screen or /autopilot at its next step\n"
+    "/restart - restart the bot (reloads its code and Notion settings)\n"
     "/help - show this list"
 )
 
@@ -381,6 +386,7 @@ class ProgressMessage:
         self.last_edit = self.clock()
 
     def update(self, status: str) -> None:
+        CONTROL.check()  # a safe point: /end stops the run here
         self.status = status
         if self.clock() - self.last_edit >= PROGRESS_EDIT_SECONDS:
             self._edit(f"\U0001F50E {self.name} running (started {self.started})\n{status}")
@@ -425,6 +431,11 @@ def reply_for(text: str, s: Settings, fetch: Fetcher | None = None) -> str:
         return status_text(s)
     if command == "help":
         return HELP_TEXT
+    if command == "end":
+        return end_text()
+    if command == "restart":
+        return ("/restart restarts the bot running on your PC. On Cloud Run each deploy starts "
+                "the bot again; the --fake bot has nothing to restart.")
     if command is None:
         return "I only understand commands for now. Send /help to see them."
     return f"Unknown command /{command}. Send /help to see the commands."
@@ -451,7 +462,7 @@ def handle_update(
 # Commands that run for minutes or cost money. Telegram delivers a message again when the bot
 # stopped before confirming it (Ctrl+C in the middle of /fetch), so one sent before this bot
 # started is not run again by itself.
-STALE_COMMANDS = ("fetch", "screen", "update", "autopilot")
+STALE_COMMANDS = ("fetch", "screen", "update", "autopilot", "restart")
 
 
 def _stale_command(update: dict[str, Any], started: float | None) -> str | None:
@@ -463,6 +474,25 @@ def _stale_command(update: dict[str, Any], started: float | None) -> str | None:
     return command if sent is not None and int(sent) < int(started) else None
 
 
+def end_now(client: TelegramClient, s: Settings, update: dict[str, Any]) -> bool:
+    """The webhook answers /end at once, before the worker queue (where it would wait behind
+    the very run it should stop). True when the update was /end from the configured chat."""
+    message = update.get("message") or {}
+    chat = str((message.get("chat") or {}).get("id", ""))
+    if chat != str(s.telegram_chat_id) or parse_command(message.get("text") or "") != "end":
+        return False
+    client.send_message(chat, telegram_text(end_text(), s))
+    return True
+
+
+class Restart(Exception):  # noqa: N818 (a request, not an error)
+    """/restart was sent; `offset` confirms it to Telegram so it is not delivered again."""
+
+    def __init__(self, offset: int) -> None:
+        super().__init__("restart")
+        self.offset = offset
+
+
 def poll_once(
     client: TelegramClient,
     s: Settings,
@@ -470,21 +500,80 @@ def poll_once(
     fetch: Fetcher | None = None,
     desk: Desk | None = None,
     started: float | None = None,
+    dispatch: Callable[[dict[str, Any]], None] | None = None,
+    timeout: int = POLL_TIMEOUT,
 ) -> int | None:
     """Fetch one batch of updates, answer them, and return the next offset. With `started`
-    (the bot's start time), /fetch, /screen and /update sent before it are not run."""
-    for update in client.get_updates(offset):
+    (the bot's start time), /fetch, /screen and /update sent before it are not run. With
+    `dispatch` (the bot's background thread) updates are handed over instead of answered
+    here, except /end and /restart, which act at once. /restart raises Restart."""
+    for update in client.get_updates(offset, timeout):
         offset = update["update_id"] + 1
         command = _stale_command(update, started)
         chat = str((update.get("message") or {}).get("chat", {}).get("id", ""))
-        if command and chat == str(s.telegram_chat_id):
+        mine = chat == str(s.telegram_chat_id)
+        now = parse_command((update.get("message") or {}).get("text") or "") if mine else None
+        if now == "restart" and dispatch is not None:
+            if command is None:
+                raise Restart(offset)
+            continue  # a /restart from before this start: already done
+        if now == "end" and dispatch is not None:
+            client.send_message(chat, telegram_text(end_text(), s))
+            continue
+        if command and mine:
             log.info("not running /%s sent before the bot started", command)
             client.send_message(chat, telegram_text(
                 f"Not running /{command}: it was sent before the bot started (maybe a run you "
                 f"stopped). Send /{command} again to run it.", s))
             continue
-        handle_one(client, s, update, fetch, desk)
+        if dispatch is not None:
+            dispatch(update)
+        else:
+            handle_one(client, s, update, fetch, desk)
     return offset
+
+
+class Background:
+    """Long polling answers each update on one background thread, so the bot keeps reading
+    messages while a /fetch runs and /end can stop it. Updates that come meanwhile wait their
+    turn, as before; one thread at a time keeps the bot's state single-threaded."""
+
+    def __init__(self, handle: Callable[[dict[str, Any]], None],
+                 note: Callable[[dict[str, Any], str], None] | None = None) -> None:
+        self.handle, self.note = handle, note
+        self.waiting: deque[dict[str, Any]] = deque()
+        self.thread: threading.Thread | None = None
+
+    def busy(self) -> bool:
+        return self.thread is not None and self.thread.is_alive()
+
+    def idle(self) -> bool:
+        return not self.busy() and not self.waiting
+
+    def submit(self, update: dict[str, Any]) -> None:
+        if CONTROL.running and self.note is not None and "message" in update:
+            self.note(update, CONTROL.running)
+        self.waiting.append(update)
+        self.pump()
+
+    def pump(self) -> None:
+        """Start the next waiting update when the thread is free."""
+        if self.busy() or not self.waiting:
+            return
+        update = self.waiting.popleft()
+        self.thread = threading.Thread(target=self._run, args=(update,), name="jobengine-job",
+                                       daemon=True)
+        self.thread.start()
+
+    def _run(self, update: dict[str, Any]) -> None:
+        try:
+            self.handle(update)
+        except Exception:  # one failed update never stops the bot
+            log.exception("answering an update failed")
+
+    def join(self, timeout: float | None = None) -> None:
+        if self.thread is not None:
+            self.thread.join(timeout)
 
 
 def handle_one(
@@ -665,7 +754,11 @@ def run_fetch(
     """/fetch: reply at once, keep one progress message updated, then send the summary."""
     progress = ProgressMessage(client, chat_id, s, clock=clock)
     try:
-        summary = fetch(progress.update)
+        with CONTROL.job("/fetch"):
+            summary = fetch(progress.update)
+    except Stopped:
+        _stopped(client, s, chat_id, "/fetch", progress)
+        return
     except Exception as exc:  # report any sweep failure instead of stopping the bot
         log.exception("/fetch failed")
         progress.finish(ok=False)
@@ -673,6 +766,16 @@ def run_fetch(
         return
     progress.finish(ok=True)
     client.send_message(chat_id, telegram_text(summary, s))
+
+
+def _stopped(client: TelegramClient, s: Settings, chat_id: str, name: str,
+             progress: ProgressMessage) -> None:
+    log.info("%s stopped by /end", name)
+    progress.status = "stopped by /end"
+    progress.finish(ok=False)
+    client.send_message(chat_id, telegram_text(
+        f"{name} stopped by /end after {progress.elapsed()}. What was done before it stopped "
+        "is kept.", s))
 
 
 def run_screen(
@@ -683,7 +786,11 @@ def run_screen(
     progress = ProgressMessage(client, chat_id, s, clock=clock, name="Screening",
                                first="Screening new jobs")
     try:
-        replies = desk.screen_replies("", progress.update)
+        with CONTROL.job("/screen"):
+            replies = desk.screen_replies("", progress.update)
+    except Stopped:
+        _stopped(client, s, chat_id, "/screen", progress)
+        return
     except Exception as exc:  # report the failure instead of stopping the bot
         log.exception("/screen failed")
         progress.finish(ok=False)
@@ -715,7 +822,11 @@ def run_autopilot(
     progress = ProgressMessage(client, chat_id, s, clock=clock, name="Autopilot",
                                first="Autopilot started")
     try:
-        replies = desk.autopilot(autopilot_fetch(fetch), progress.update)
+        with CONTROL.job("/autopilot"):
+            replies = desk.autopilot(autopilot_fetch(fetch), progress.update)
+    except Stopped:
+        _stopped(client, s, chat_id, "/autopilot", progress)
+        return
     except Exception as exc:  # report the failure instead of stopping the bot
         log.exception("/autopilot failed")
         progress.finish(ok=False)
@@ -837,10 +948,14 @@ def run(
     fetch: Fetcher | None = None,
     desk: Desk | None = None,
     clock: Callable[[], float] = time.monotonic,
+    background: bool = False,
+    restart: Callable[[], None] | None = None,
 ) -> None:
     """Register the / menu, announce startup, then poll forever (or max_polls times).
     Between polls, every few minutes: a waiting /autopilot batch is checked, and the morning's
-    scheduled /autopilot starts when it is due."""
+    scheduled /autopilot starts when it is due. With `background` (the real bot) updates are
+    answered on a background thread so /end can stop a long run; /restart stops the running
+    job, then calls `restart`."""
     try:
         client.set_commands(bot_commands())
     except TelegramError as exc:  # the menu is a convenience: never stop the bot over it
@@ -850,16 +965,63 @@ def run(
     started = time.time()
     polls = 0
     next_check = clock()
+    chat = str(s.telegram_chat_id)
+    bg = None
+    if background:
+        bg = Background(lambda update: handle_one(client, s, update, fetch, desk),
+                        lambda update, name: client.send_message(chat, telegram_text(
+                            f"Waiting: this runs after {name} (/end stops {name}).", s)))
     while max_polls is None or polls < max_polls:
         polls += 1
         try:
-            offset = poll_once(client, s, offset, fetch, desk, started=started)
-            if desk is not None and clock() >= next_check:
+            offset = poll_once(client, s, offset, fetch, desk, started=started,
+                               dispatch=bg.submit if bg else None,
+                               timeout=WAITING_POLL if bg and bg.waiting else POLL_TIMEOUT)
+            if bg is not None:
+                bg.pump()
+            if desk is not None and clock() >= next_check and (bg is None or bg.idle()):
                 next_check = clock() + autopilot.check_seconds(desk)
                 autopilot_check(client, s, desk, fetch)
+        except Restart as request:
+            _restart(client, s, bg, request.offset, restart)
+            return
         except TelegramError as exc:
             log.error("%s, retrying in 5s", exc)
             sleep(5)
+    while bg is not None and not bg.idle():  # max_polls reached (tests): finish the queue
+        bg.join()
+        bg.pump()
+
+
+RESTART_WAIT = 60.0  # seconds a running job gets to reach its next step before the restart
+WAITING_POLL = 2  # a short poll while updates wait for the background thread
+
+
+def _restart(client: TelegramClient, s: Settings, bg: Background | None, offset: int,
+             restart: Callable[[], None] | None) -> None:
+    chat = str(s.telegram_chat_id)
+    name = CONTROL.request_stop()
+    if bg is not None:
+        if name:
+            client.send_message(chat, telegram_text(f"Stopping {name} first...", s))
+        bg.join(RESTART_WAIT)
+        if bg.busy():
+            log.warning("restart: the running job did not stop in %.0fs", RESTART_WAIT)
+    try:
+        client.get_updates(offset, 0)  # confirm /restart so it is not delivered again
+    except TelegramError as exc:
+        log.warning("could not confirm /restart: %s", exc)
+    client.send_message(chat, telegram_text("Restarting the bot...", s))
+    if restart is not None:
+        restart()
+
+
+def restart_process(argv: list[str]) -> None:
+    """Start the bot again in this process: fresh code, Notion settings and state. Values
+    from --env-file are read when the container starts, so a changed .env needs a new
+    docker run instead."""
+    logging.shutdown()
+    os.execv(sys.executable, [sys.executable, "-m", "jobengine.telegram_bot", *argv])
 
 
 def make_fetcher(s: Settings, fake: bool, desk: Desk | None = None) -> Fetcher:
@@ -912,7 +1074,8 @@ def main(argv: list[str] | None = None) -> int:
 
     desk = fake_desk(s, fakes.FAKE_TODAY) if args.fake else real_desk(s)
     try:
-        run(s, client, fetch=make_fetcher(s, args.fake, desk), desk=desk)
+        run(s, client, fetch=make_fetcher(s, args.fake, desk), desk=desk, background=not args.fake,
+            restart=lambda: restart_process(sys.argv[1:] if argv is None else argv))
     except TelegramError as exc:
         print(f"Job Engine bot stopped: {exc}", file=sys.stderr)
         return 1
