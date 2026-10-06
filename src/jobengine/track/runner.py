@@ -730,7 +730,19 @@ def real_deps(s: Settings, state: BotState, write: bool = True) -> TrackDeps:
     if not s.notion_token:
         raise ValueError("daily check cannot run: NOTION_TOKEN missing")
     client = NotionClient(s.notion_token, s)
-    tokens = {"alerts": s.gmail_alerts_token_json, "sender": s.gmail_sender_token_json}
+    from jobengine.sweep.sources.gmail_alerts import mailboxes
+
+    def token_check(name: str) -> str | None:
+        """None when every token of that kind refreshes, else the reasons ("mm: ...")."""
+        if name == "sender":
+            return refresh_error(s.gmail_sender_token_json)
+        boxes = mailboxes(s)
+        if not boxes:
+            return refresh_error(None)
+        reasons = [f"{box}: {reason}" for box, token in boxes
+                   if (reason := refresh_error(token)) is not None]
+        return "; ".join(reasons) or None
+
     page = s.notion_pages.get("cold_mail_templates", "")
     return TrackDeps(
         s=s, config=lambda: ConfigStore.load(client, s), jobs=jobs_repo_for(s, client),
@@ -738,5 +750,5 @@ def real_deps(s: Settings, state: BotState, write: bool = True) -> TrackDeps:
         gmail=lambda: GmailClient.from_settings(s), reference=lambda: Reference.load(client, s),
         templates=lambda: load_templates(client, page),
         llm=lambda config: AnthropicLLM(s, config) if llm_allowed(s) else None,
-        token_check=lambda name: refresh_error(tokens[name]), write=write,
+        token_check=token_check, write=write,
     )

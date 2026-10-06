@@ -9,6 +9,7 @@ from jobengine.sweep import fakes
 from jobengine.sweep.__main__ import main as sweep_main
 from jobengine.sweep.models import RawPosting, SourceResult
 from jobengine.sweep.runner import SweepDeps, SweepError, fake_deps, real_deps, run_sweep
+from jobengine.sweep.sources import gmail_alerts
 
 TODAY = date(2026, 10, 1)
 S = load_settings("local", {})
@@ -145,7 +146,7 @@ def test_single_source_and_skipped_sources():
 def test_real_mode_skips_sources_without_secrets():
     s = load_settings("local", {"NOTION_TOKEN": "dummy"})
     deps = real_deps(s)
-    assert deps.gmail().skipped_reason == "gmail skipped: GMAIL_ALERTS_TOKEN_JSON missing"
+    assert deps.gmail().skipped_reason == f"gmail skipped: {gmail_alerts.MISSING}"
     assert deps.adzuna().skipped_reason.startswith("adzuna skipped")
     with pytest.raises(SweepError, match="NOTION_TOKEN missing"):
         real_deps(S)
@@ -251,7 +252,7 @@ def test_friendly_summary_counts_new_jobs_per_country(fake_run):
 def test_friendly_summary_lists_sources_not_checked():
     deps = fake_deps(S)
     deps.gmail = lambda: SourceResult(
-        "gmail", skipped_reason="gmail skipped: GMAIL_ALERTS_TOKEN_JSON missing"
+        "gmail", skipped_reason=f"gmail skipped: {gmail_alerts.MISSING}"
     )
     text = run_sweep(S, deps, TODAY).friendly_text()
     assert "\u2139\uFE0F Not checked this time:\n- Email alerts: not set up yet" in text

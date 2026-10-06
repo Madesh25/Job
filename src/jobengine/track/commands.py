@@ -12,7 +12,8 @@ from jobengine.sweep.runner import LAST_SUMMARY as SWEEP_SUMMARY
 from jobengine.track.followup import NOTE as FOLLOWUP_NOTE
 from jobengine.track.runner import MARKER, TrackDeps
 
-SOURCE_SECRETS = {"gmail": ("GMAIL_ALERTS_TOKEN_JSON",), "adzuna": ("ADZUNA_APP_ID",
+SOURCE_SECRETS = {"gmail": ("GMAIL_ALERTS_TOKEN_JSON_m02", "GMAIL_ALERTS_TOKEN_JSON_mm"),
+                  "adzuna": ("ADZUNA_APP_ID",
                                                                      "ADZUNA_APP_KEY"),
                   "jooble": ("JOOBLE_API_KEY",), "nofluffjobs": (), "iamexpat": (),
                   "ats": ()}
@@ -90,6 +91,14 @@ def _secret_set(s: Settings, var: str) -> bool:
     return bool(getattr(s, SECRET_VARS[var]))
 
 
+def _mailboxes(s: Settings) -> str:
+    """The alert mailboxes with a token ("mailboxes m02, mm"), or the missing names."""
+    from jobengine.sweep.sources.gmail_alerts import TOKEN_NAMES, mailboxes
+
+    names = [name for name, _ in mailboxes(s)]
+    return f"mailboxes {', '.join(names)}" if names else f"missing {TOKEN_NAMES}"
+
+
 def sources_text(deps: TrackDeps) -> str:
     s = deps.s
     last = deps.state.get(SWEEP_SUMMARY) or {}
@@ -97,7 +106,9 @@ def sources_text(deps: TrackDeps) -> str:
     lines = [f"Sweep sources (last sweep: {last.get('at') or 'never'}):"]
     for name, secrets in SOURCE_SECRETS.items():
         enabled = (s.sweep.get(name) or {}).get("enabled", True)
-        if secrets:
+        if name == "gmail":
+            secret = _mailboxes(s)
+        elif secrets:
             secret = "secret set" if all(_secret_set(s, v) for v in secrets) else \
                 f"missing {', '.join(v for v in secrets if not _secret_set(s, v))}"
         else:

@@ -224,35 +224,83 @@ def alert_query(gmail_cfg: Mapping[str, Any]) -> str:
     return f"newer_than:{days}d -in:spam -in:trash{which}"
 
 
-def _loader(s: Settings, gmail_cfg: Mapping[str, Any]) -> Callable[[], list[GmailMessage]]:
+TOKEN_NAMES = "GMAIL_ALERTS_TOKEN_JSON_m02 and GMAIL_ALERTS_TOKEN_JSON_mm"
+MISSING = f"{TOKEN_NAMES} missing"
+
+
+def mailboxes(s: Settings) -> list[tuple[str, str]]:
+    """The alert mailboxes that have a token, as (name, token JSON): m02 (or the old
+    GMAIL_ALERTS_TOKEN_JSON) and mm (two mailboxes since 6 Oct). The same token twice is
+    read once."""
+    found: list[tuple[str, str]] = []
+    for name, token in (("m02", s.gmail_alerts_token_json_m02 or s.gmail_alerts_token_json),
+                        ("mm", s.gmail_alerts_token_json_mm)):
+        if token and all(token != known for _, known in found):
+            found.append((name, token))
+    return found
+
+
+def _loader(token_json: str, gmail_cfg: Mapping[str, Any]) -> Callable[[], list[GmailMessage]]:
     from jobengine import gmail_reader
 
     def load_messages() -> list[GmailMessage]:
-        service = gmail_reader.build_service(s.gmail_alerts_token_json)
+        service = gmail_reader.build_service(token_json)
         return gmail_reader.fetch_messages(
             service, alert_query(gmail_cfg), int(gmail_cfg.get("max_messages", 100)))
 
     return load_messages
 
 
+Loaders = list[tuple[str, Callable[[], list[GmailMessage]]]]
+
+
+def _loaders(s: Settings, gmail_cfg: Mapping[str, Any],
+             load_messages: Callable[[], list[GmailMessage]] | None) -> Loaders:
+    if load_messages is not None:
+        return [("", load_messages)]
+    return [(name, _loader(token, gmail_cfg)) for name, token in mailboxes(s)]
+
+
+def _failure(exc: Exception) -> str:
+    return f"{type(exc).__name__}: {str(exc)[:200]}"
+
+
+def _read(loaders: Loaders) -> tuple[list[tuple[str, GmailMessage]], dict[str, int],
+                                     list[str]]:
+    """Every mailbox's emails as (mailbox, message), the count per mailbox, and the
+    failures ("mm: HttpError: ..."). One mailbox failing does not stop the other."""
+    messages: list[tuple[str, GmailMessage]] = []
+    counts: dict[str, int] = {}
+    failures = []
+    for name, load in loaders:
+        try:
+            found = load()
+        except Exception as exc:  # the Google client raises many error types
+            failures.append(f"{name}: {_failure(exc)}" if name else _failure(exc))
+            continue
+        counts[name] = len(found)
+        messages.extend((name, message) for message in found)
+    return messages, counts, failures
+
+
 def fetch(
     s: Settings, load_messages: Callable[[], list[GmailMessage]] | None = None
 ) -> SourceResult:
-    """Gmail source. load_messages is the fake; without it the real Gmail API is used."""
+    """Gmail source. load_messages is the fake; without it the real Gmail API is used for
+    each alert mailbox."""
     gmail_cfg = s.sweep.get("gmail") or {}
     result = SourceResult(name=SOURCE)
-    if load_messages is None:
-        if not s.gmail_alerts_token_json:
-            result.skipped_reason = "gmail skipped: GMAIL_ALERTS_TOKEN_JSON missing"
-            return result
-        load_messages = _loader(s, gmail_cfg)
-    try:
-        messages = load_messages()
-    except Exception as exc:  # the Google client raises many error types
-        result.skipped_reason = f"gmail failed: {type(exc).__name__}: {str(exc)[:200]}"
+    loaders = _loaders(s, gmail_cfg, load_messages)
+    if not loaders:
+        result.skipped_reason = f"gmail skipped: {MISSING}"
         return result
+    messages, _, failures = _read(loaders)
+    if failures and len(failures) == len(loaders):
+        result.skipped_reason = f"gmail failed: {'; '.join(failures)}"
+        return result
+    result.notes.extend(f"gmail mailbox {failure}" for failure in failures)
     result.emails = len(messages)
-    result.postings = collect(messages, gmail_cfg)
+    result.postings = collect([message for _, message in messages], gmail_cfg)
     return result
 
 
@@ -272,26 +320,30 @@ def check(s: Settings, load_messages: Callable[[], list[GmailMessage]] | None = 
     Every email is listed (a long answer goes as several Telegram messages); before 5 Oct
     only 20 were, so 3 emails stayed hidden in test P2."""
     gmail_cfg = s.sweep.get("gmail") or {}
-    if load_messages is None:
-        if not s.gmail_alerts_token_json:
-            return "GMAIL_ALERTS_TOKEN_JSON is not set: email alerts are not read."
-        load_messages = _loader(s, gmail_cfg)
-    try:
-        messages = load_messages()
-    except Exception as exc:  # the Google client raises many error types
-        return f"Reading Gmail failed: {type(exc).__name__}: {str(exc)[:200]}"
+    loaders = _loaders(s, gmail_cfg, load_messages)
+    if not loaders:
+        return f"{MISSING}: email alerts are not read."
+    found, counts, failures = _read(loaders)
+    if failures and len(failures) == len(loaders):
+        return f"Reading Gmail failed: {'; '.join(failures)}"
+    failed = "".join(f"\nMailbox {failure} (failed)" for failure in failures)
     query = alert_query(gmail_cfg)
-    if not messages:
+    if not found:
         return (f"No alert email found. Gmail search used:\n{query}\nCheck that the alerts "
-                "reach this mailbox and get the label (a Gmail filter).")
+                f"reach the mailbox and get the label (a Gmail filter).{failed}")
+    named = len(loaders) > 1
+    messages = [message for _, message in found]
     from jobengine.sweep.normalize import Rules, Skipped, normalize
 
     rules = Rules.from_config(s.sweep)
     countries = list(rules.locations)
     lines = [f"{len(messages)} alert email(s) found (search: {query})."]
+    if named or failures:
+        lines.append("Mailboxes: " + ", ".join(f"{name} {count}" for name, count in
+                                               counts.items()) + failed)
     total = kept = 0
     distinct: set[tuple[str, str]] = set()
-    for message in messages[:limit]:
+    for box, message in found[:limit]:
         board = board_for_sender(message.sender, gmail_cfg.get("sender_boards") or {})
         jobs = parse_alert(message, gmail_cfg)
         total += len(jobs)
@@ -301,7 +353,8 @@ def check(s: Settings, load_messages: Callable[[], list[GmailMessage]] | None = 
                    if isinstance(result := normalize(job, rules, countries), Skipped)]
         kept += len(jobs) - len(dropped)
         fate = f", {len(jobs) - len(dropped)} in scope" if jobs else ""
-        lines.append(f"- {board} | {address} | {message.subject[:70]}: {len(jobs)} job(s)"
+        where = f"[{box}] " if named else ""
+        lines.append(f"- {where}{board} | {address} | {message.subject[:70]}: {len(jobs)} job(s)"
                      f"{fate}")
         if not jobs:
             hosts = ", ".join(_hosts(message.html)[:5]) or "no links"

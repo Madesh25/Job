@@ -61,7 +61,7 @@ def test_alertcheck_explains_an_empty_result_and_a_missing_token():
     assert gmail_alerts.check(S, lambda: []).startswith(
         "No alert email found. Gmail search used:\nnewer_than:2d")
     assert gmail_alerts.check(load_settings("dev", {"GMAIL_ALERTS_TOKEN_JSON": ""})).startswith(
-        "GMAIL_ALERTS_TOKEN_JSON is not set")
+        "GMAIL_ALERTS_TOKEN_JSON_m02 and GMAIL_ALERTS_TOKEN_JSON_mm missing")
 
 
 def test_no_job_link_shows_where_the_links_go():
