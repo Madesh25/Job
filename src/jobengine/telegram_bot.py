@@ -13,6 +13,7 @@ example `tap ap:pl-clean`. No token and no network are needed.
 from __future__ import annotations
 
 import argparse
+import faulthandler
 import json
 import logging
 import re
@@ -639,7 +640,7 @@ def handle_callback(
                                TAP_TOASTS.get(data.partition(":")[0], TAP_DEFAULT))
     except TelegramError as exc:
         log.warning("answerCallbackQuery failed: %s", exc)
-    with Typing(client, sender):
+    with Typing(client, sender), SlowWatch(client, sender, data):
         if desk is None:
             replies = [Reply("Buttons are not available in this bot.")]
         else:
@@ -739,6 +740,46 @@ def autopilot_check(client: TelegramClient, s: Settings, desk: Desk | None,
     replies += _guarded("Reply check", desk.reply_ping_tick)
     if replies:
         send_replies(client, s, str(s.telegram_chat_id), replies)
+
+
+SLOW_SECONDS = 90.0
+SLOW_TEXT = ("Still working on it (over {seconds} seconds). Where it is now has been written "
+             "to the bot window. If nothing comes in 5 more minutes, restart the bot and send "
+             "Claude Code the bot window lines.")
+
+
+class SlowWatch:
+    """A button still running after SLOW_SECONDS: tell the chat once and write every thread's
+    stack to the log (stderr), so a hang shows where it is (6 Oct: Approve resume showed
+    "typing" for minutes with nothing in the log)."""
+
+    def __init__(self, client: TelegramClient, chat_id: str, what: str,
+                 seconds: float = SLOW_SECONDS):
+        self.client, self.chat_id, self.what, self.seconds = client, chat_id, what, seconds
+        self._timer: threading.Timer | None = None
+
+    def _fire(self) -> None:
+        log.warning("button %s still running after %.0f s; stacks follow", self.what,
+                    self.seconds)
+        try:
+            faulthandler.dump_traceback(all_threads=True)
+        except (RuntimeError, ValueError, OSError):  # stderr closed or not a real file
+            log.exception("could not write the stacks")
+        try:
+            self.client.send_message(self.chat_id,
+                                     SLOW_TEXT.format(seconds=int(self.seconds)))
+        except TelegramError as exc:
+            log.warning("could not send the slow note: %s", exc)
+
+    def __enter__(self) -> SlowWatch:
+        self._timer = threading.Timer(self.seconds, self._fire)
+        self._timer.daemon = True
+        self._timer.start()
+        return self
+
+    def __exit__(self, *exc: object) -> None:
+        if self._timer is not None:
+            self._timer.cancel()
 
 
 class Typing:

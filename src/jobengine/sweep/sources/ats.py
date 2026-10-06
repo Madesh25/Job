@@ -16,7 +16,7 @@ import logging
 import re
 from collections import Counter
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
 from urllib.parse import parse_qs, urlencode, urljoin, urlsplit, urlunsplit
@@ -28,6 +28,7 @@ from jobengine import http
 from jobengine.parallel import Budget, run_all
 from jobengine.settings import Settings
 from jobengine.sweep.models import RawPosting, SourceResult, TargetCompany
+from jobengine.sweep.normalize import without_region
 
 log = logging.getLogger("jobengine.sweep")
 
@@ -1115,7 +1116,9 @@ def fetch(
     found = detector.resolve([c for c in active
                               if known[c.name] is None and c.name not in skip], workers)
     tasks: list[tuple[TargetCompany, Board]] = []
-    amazon_done = False
+    # A board shared by several rows (Capgemini, Capgemini (IE) and Capgemini (NL); Amazon and
+    # AWS) is read once: every row gave the same jobs again on 6 Oct, three reads for one.
+    read: set[tuple[Any, ...]] = set()
     for company in active:
         if company.name in skip:
             continue
@@ -1123,11 +1126,13 @@ def fetch(
         if board is None or board.ats not in SUPPORTED:
             result.not_supported.append(company.name)
             continue
-        if board.ats == "amazon":
-            if amazon_done:  # Amazon and AWS share one board: searched once
-                continue
-            amazon_done = True
-        tasks.append((company, board))
+        key = ("amazon",) if board.ats == "amazon" else (
+            board.ats, board.token.lower(), board.host, board.site, board.eu)
+        if key in read:
+            continue
+        read.add(key)
+        name = without_region(company.name).strip() or company.name
+        tasks.append((replace(company, name=name), board))
 
     # 2. Every board's feed, several at a time; results are kept in company order.
     def read_board(task: tuple[TargetCompany, Board]) -> tuple[list[RawPosting], int] | str:

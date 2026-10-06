@@ -416,7 +416,7 @@ class Desk:
             return self.resume_tap(action, arg)
         if action in ("rc", "lk", "rd") and arg:
             return self.track_tap(action, data)
-        if action in ("sa", "sr", "sc") and arg:
+        if action in ("sa", "sr", "sc", "sx") and arg:
             return self.strategy_tap(action, arg)
         if action == "oc" and arg:
             return self.outreach_tap(arg)
@@ -573,7 +573,9 @@ class Desk:
             # Nothing runs by itself: the next steps are buttons.
             job = short_id(result.job_id)
             buttons = [("I applied", f"ia:{job}"), ("Not applying", f"na:{job}")]
+            log.info("approve resume: finding the apply link for %s", result.job_id)
             text = self.apply_link_text(result.job_id, result.job_url, result.message)
+            log.info("approve resume: writing the apply pack for %s", result.job_id)
             text += ("\nWhen you are done, tap I applied (or Not applying): then the next job "
                      "comes.")
             if self.contacts is not None and self.mail is not None:
@@ -1166,9 +1168,15 @@ class Desk:
             return [Reply("/update is not available in this bot.")]
         if action == "sc":
             messages = strategy_runner.confirm_review(self.strategy, arg)
+        elif action == "sx":
+            messages = strategy_runner.reject_rest(self.strategy, arg)
         else:
             messages = strategy_runner.decide(self.strategy, arg, adopt=action == "sa")
-        return [Reply(m[:MAX_TEXT]) for m in messages]
+        replies = [Reply(m[:MAX_TEXT]) for m in messages]
+        run_id, left = strategy_runner.open_count(self.strategy)
+        if left and replies:  # the last message gets the way to close the review at once
+            replies[-1] = Reply(replies[-1].text, [(f"Reject the rest ({left})", f"sx:{run_id}")])
+        return replies
 
     def strategy_note(self, replied_to: str, text: str) -> list[Reply] | None:
         """A reply to a tip card (Ref ST-...) is stored in that tip's Notes."""

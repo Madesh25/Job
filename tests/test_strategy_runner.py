@@ -60,7 +60,8 @@ def test_gate_opens_only_after_every_tip_is_decided():
         d.s)
     assert blocked_before is not None
     ids = hexes(result)
-    assert runner.decide(d, ids[0], adopt=True)[0].endswith("2 left to review.")
+    assert "2 left to review. The strategy date (and /fetch) moves only" in \
+        runner.decide(d, ids[0], adopt=True)[0]
     assert d.state.get("last_strategy_update") is None
     runner.decide(d, ids[1], adopt=False)
     assert d.state.get("last_strategy_update") is None
@@ -157,3 +158,17 @@ def test_rules_view():
     assert "follow-up after 7 days, ghosted after 14 more" in text
     assert "- Ask a peer engineer for a referral before you apply" in text
     assert "/fetch is open until" in text or "/fetch is blocked" in text
+
+
+def test_reject_the_rest_closes_the_review_and_moves_the_date():
+    d = deps()
+    ids = hexes(runner.run_update(d))
+    runner.decide(d, ids[0], adopt=True)
+    run_id, left = runner.open_count(d)
+    assert left == 2 and run_id
+    messages = runner.reject_rest(d, run_id)
+    assert messages[0] == "Rejected the other 2 tips."
+    assert "Strategy updated. /fetch is open until 2026-10-31." in messages[1]
+    assert d.state.get("last_strategy_update") == {"date": "2026-10-01"}
+    assert runner.open_count(d) == ("", 0)
+    assert runner.reject_rest(d, run_id) == ["That review is no longer open. Send /update."]
