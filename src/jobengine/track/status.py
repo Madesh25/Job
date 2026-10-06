@@ -25,10 +25,10 @@ JOB_ORDER = ("New", "Screened", "Approved", "Resume built", "Applied", "Followed
 JOB_TERMINAL = ("Rejected", "Ghosted", "Withdrawn", "Declined", "Expired")
 # Never overwritten by the daily run (Offer is the last forward step, not terminal).
 NEVER_CHANGED = (*JOB_TERMINAL, "Offer")
-# Contacts: Ghosted can still turn into Replied (a late answer); Bounced and Do not contact
-# are final.
+# Contacts: Ghosted and Dead end can still turn into Replied (a late answer); Bounced and Do
+# not contact are final.
 CONTACT_ORDER = ("Unverified", "Verified", "Drafted", "Contacted", "Followed up", "Ghosted",
-                 "Replied")
+                 "Dead end", "Replied")
 CONTACT_FINAL = ("Bounced", "Do not contact")
 APPLIED_OR_LATER = JOB_ORDER[JOB_ORDER.index("Applied"):]
 REPLIED_OR_BETTER = JOB_ORDER[JOB_ORDER.index("Replied"):]

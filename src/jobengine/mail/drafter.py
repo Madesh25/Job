@@ -51,7 +51,7 @@ from jobengine.settings import ROOT_DIR, Settings
 log = logging.getLogger("jobengine.mail")
 
 ORDER = (HIRING, RECRUITER, PEER, OTHER)
-BLOCKED_STATUSES = ("Bounced", "Do not contact")
+BLOCKED_STATUSES = ("Bounced", "Do not contact", "Dead end")
 DRAFTABLE_STATUSES = ("Unverified", "Verified")
 NO_RESUME = "No approved resume for this job"
 DRAFTED_RE = re.compile(r"drafted for (.+?) (\d{4}-\d{2}-\d{2})")

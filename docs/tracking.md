@@ -120,6 +120,23 @@ terminal.
 | application confirmation (`ack`) | `Last activity date` only | none |
 | follow-up sent | `Followed up` if `Applied` | `Followed up` |
 
+## Contacts memory: Replied, Mails sent, Dead end
+
+All contacts stay in the one Contacts database (DEV and prod); **Source** says which site
+gave the email (Apollo, Hunter, Snov, Prospeo, Tomba, GitHub, Job posting), and Notes say
+"found with Hunter-2" for a second account. Three fields remember how each person answered:
+
+- **Mails sent**: every first mail and follow-up the daily run sees sent, for all jobs. A new
+  draft for someone you mailed before (another job at the company) counts too when you send
+  it; deleting that draft only clears it.
+- **Replied** (checkbox): ticked when the person answers (any reply but an opt-out). They are
+  then reused first for the company's next jobs, however long ago they were found, and are
+  never marked Dead end or listed for deletion.
+- **Status "Dead end"**: after `dead_end_after` (5) mails with no answer. A Dead end contact
+  is never drafted again and never picked from the cache; it is kept so it is never found
+  and mailed again. A late answer still turns it into Replied. Notion Config
+  `contacts.dead_end_after` changes the number.
+
 ## Reply classification
 
 Only the subject, the sender's domain and the new part of the reply (quoted history cut,

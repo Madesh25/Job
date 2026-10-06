@@ -9,7 +9,7 @@ from typing import Any
 from jobengine.contacts.models import TYPE_ORDER, Chosen, Mix
 from jobengine.sweep.normalize import canon_company
 
-BLOCKED = frozenset({"Bounced", "Do not contact"})
+BLOCKED = frozenset({"Bounced", "Do not contact", "Dead end"})
 
 
 def months_before(day: date, months: int) -> date:
@@ -52,9 +52,12 @@ def company_rows(rows: list[tuple[str, dict[str, Any]]], company: str) -> list[C
 
 
 def usable(row: CachedRow, today: date, months: int, job_id: str | None = None) -> bool:
-    """Not Bounced or Do not contact, and found within `months` (or already on this job)."""
+    """Not Bounced, Do not contact or Dead end, and found within `months` (or already on
+    this job, or someone who answered you before: kept for the company's next jobs)."""
     if row.blocked:
         return False
+    if row.values.get("Replied"):
+        return True
     if job_id and job_id in (row.values.get("Related jobs") or []):
         return True
     found = row.values.get("Date found")
@@ -65,10 +68,12 @@ def pick(
     rows: list[CachedRow], mix: Mix, country: str, today: date, months: int,
     job_id: str | None = None,
 ) -> list[Chosen]:
-    """Cached contacts for the mix: the job's country first, then the most recent."""
+    """Cached contacts for the mix: people who answered you before first, then the job's
+    country, then the most recent."""
     slots = mix.slots()
     fresh = [r for r in rows if usable(r, today, months, job_id)]
     fresh.sort(key=lambda r: (
+        not r.values.get("Replied"),
         (r.values.get("Country") or "") != country,
         -(r.values.get("Date found") or date.min).toordinal(),
     ))
