@@ -79,9 +79,9 @@ jobs:
           # ENV_VAR=secret-name pairs mounted only when the secret exists in Secret Manager,
           # so a key you have not created yet never breaks the deploy (docs/deploy.md, B2).
           if [ "$APP_ENV" = "prod" ]; then
-            OPTIONAL="JOOBLE_API_KEY=jooble-api-key GITHUB_TOKEN=github-token PROSPEO_API_KEY=prospeo-api-key TOMBA_API_KEY=tomba-api-key TOMBA_API_SECRET=tomba-api-secret LUSHA_API_KEY=lusha-api-key"
+            OPTIONAL="JOOBLE_API_KEY=jooble-api-key GITHUB_TOKEN=github-token PROSPEO_API_KEY=prospeo-api-key TOMBA_API_KEY=tomba-api-key TOMBA_API_SECRET=tomba-api-secret LUSHA_API_KEY=lusha-api-key APOLLO_API_KEY_2=apollo-api-key-2 HUNTER_API_KEY_2=hunter-api-key-2 SNOV_CLIENT_ID_2=snov-client-id-2 SNOV_CLIENT_SECRET_2=snov-client-secret-2 PROSPEO_API_KEY_2=prospeo-api-key-2 GMAIL_ALERTS_TOKEN_JSON_mm=gmail-mm-token"
           else
-            OPTIONAL="JOOBLE_API_KEY=jooble-api-key GITHUB_TOKEN=github-token"
+            OPTIONAL="JOOBLE_API_KEY=jooble-api-key GITHUB_TOKEN=github-token GMAIL_ALERTS_TOKEN_JSON_mm=gmail-mm-token"
           fi
           for pair in $OPTIONAL; do
             name="${pair#*=}"

@@ -20,6 +20,8 @@ log = logging.getLogger("jobengine.contacts.credits")
 PROVIDERS = ("apollo", "hunter", "snov", "prospeo", "tomba")
 # Free plans added later: left out of the credits line until their Config counter exists.
 OPTIONAL = ("prospeo", "tomba")
+# Second accounts (6 Oct): `credits.<provider>_2`, used when the first runs out.
+SECOND = ("apollo_2", "hunter_2", "snov_2", "prospeo_2")
 COUNTER_RE = re.compile(r"^\s*(\d+)\s*/\s*(\d+)")
 
 
@@ -55,6 +57,12 @@ def monthly_reset(counter: Counter, today: date) -> Counter:
     return counter
 
 
+def account_label(account: str) -> str:
+    """"hunter" -> "Hunter", "hunter_2" -> "Hunter-2"."""
+    name, _, number = account.partition("_")
+    return name.capitalize() + (f"-{number}" if number else "")
+
+
 ConfigWriter = Callable[[str, str, date], None]
 
 
@@ -65,7 +73,8 @@ class CreditBook:
         self.today = today
         self.writer = writer
         self.counters: dict[str, Counter | None] = {}
-        for provider in PROVIDERS:
+        self.untracked: set[str] = set()  # second accounts without a Config row
+        for provider in (*PROVIDERS, *SECOND):
             key = f"credits.{provider}"
             counter = parse_counter(config.get(key), config.updated(key))
             self.counters[provider] = monthly_reset(counter, today) if counter else None
@@ -74,13 +83,24 @@ class CreditBook:
         counter = self.counters.get(provider)
         return counter.left if counter else 0
 
+    def ensure(self, account: str, like: str) -> None:
+        """A second account with no Config `credits.<account>` row gets the first account's
+        monthly limit, counted for this run only (add the row to keep its count)."""
+        if self.counters.get(account) is None:
+            first = self.counters.get(like)
+            self.counters[account] = Counter(used=0, limit=first.limit if first else 0)
+            self.untracked.add(account)
+
     def spend(self, provider: str, credits: int) -> None:
         counter = self.counters.get(provider)
         if counter is None or credits <= 0:
             return
         counter.used += credits
         counter.updated = self.today
-        if self.writer is not None:
+        if provider in self.untracked:
+            log.info("credits.%s is now %s (no Config row, not written)", provider,
+                     counter.text())
+        elif self.writer is not None:
             key = f"credits.{provider}"
             check_config_write(key)
             self.writer(key, counter.text(), self.today)
@@ -89,11 +109,11 @@ class CreditBook:
 
     def line(self) -> str:
         parts = []
-        for provider in PROVIDERS:
+        for provider in (*PROVIDERS, *SECOND):
             counter = self.counters.get(provider)
-            if counter is None and provider in OPTIONAL:
+            if counter is None and (provider in OPTIONAL or provider in SECOND):
                 continue
-            name = provider.capitalize()
+            name = account_label(provider)
             parts.append(f"{name} {counter.short()}" if counter else f"{name} n/a")
         return "Credits: " + ", ".join(parts)
 
