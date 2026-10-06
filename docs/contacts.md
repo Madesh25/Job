@@ -26,6 +26,29 @@ provider waterfall) runs only for jobs within the outreach budget
   phone numbers, no personal addresses (gmail.com, outlook.com, yahoo.com, hotmail.com,
   icloud.com, proton.me), no LinkedIn URLs, no photos.
 
+## Second accounts (Apollo, Hunter, Snov, Prospeo)
+
+Each of the four can have a second (free) account. Put its keys in `.env` (Secret Manager in
+prod, mounted when the secret exists):
+
+| Provider | Second account keys | Config counter |
+|---|---|---|
+| Apollo | `APOLLO_API_KEY_2` | `credits.apollo_2` |
+| Hunter | `HUNTER_API_KEY_2` | `credits.hunter_2` |
+| Snov | `SNOV_CLIENT_ID_2`, `SNOV_CLIENT_SECRET_2` | `credits.snov_2` |
+| Prospeo | `PROSPEO_API_KEY_2` | `credits.prospeo_2` |
+
+- The first account is always used first. The second is used only when the first has no
+  credits left this month, or when its search fails (a refused key or an exhausted plan).
+  Never both for one job: they see the same people.
+- Add a Config row `credits.<provider>_2` (`0 / <limit> per month`) to keep the second
+  account's count. Without it the second account gets the first one's monthly limit, counted
+  for one run only.
+- Contacts found with a second account say so in Notes ("found with Hunter-2"). `/credits`
+  shows the second accounts that have a key or a Config row.
+- No IP switching or other tricks: each account is a normal free account used within its
+  own limits.
+
 ## Free plans: Prospeo and Tomba
 
 They run after Apollo, Hunter and Snov, only for slots still open, and roughly double the
@@ -114,8 +137,8 @@ happen only in prod with `DRY_RUN=false`; elsewhere invented fixtures answer.
   from the JD, `Not found` when nobody was found), Contact person (up to 5 names).
 - **Config** (prod only): after each paid call the provider's `credits.<provider>` row
   (`<used> / <limit> per month`) and its Updated date. A counter updated in an earlier month
-  starts again at 0. Only `credits.apollo`, `credits.hunter` and `credits.snov` can ever be
-  written (`safety.config_writable_keys`); any other key raises `SafetyError`. Outside prod the
+  starts again at 0. Only the `credits.*` rows of the providers and their second accounts
+  can ever be written (`safety.config_writable_keys`); any other key raises `SafetyError`. Outside prod the
   counters are simulated in memory.
 
 ## Telegram

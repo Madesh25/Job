@@ -874,27 +874,40 @@ class Desk:
 
     def credits(self) -> list[Reply]:
         """/credits: each provider's counter, when it was updated, and whether its key is set."""
-        from jobengine.contacts.credits import PROVIDERS, monthly_reset, parse_counter
+        from jobengine.contacts.credits import (
+            PROVIDERS,
+            SECOND,
+            account_label,
+            monthly_reset,
+            parse_counter,
+        )
 
         config = (self.contacts.config if self.contacts else self.deps.config)()
         keys = {"apollo": self.s.apollo_api_key, "hunter": self.s.hunter_api_key,
                 "snov": self.s.snov_client_id and self.s.snov_client_secret,
                 "prospeo": self.s.prospeo_api_key,
-                "tomba": self.s.tomba_api_key and self.s.tomba_api_secret}
+                "tomba": self.s.tomba_api_key and self.s.tomba_api_secret,
+                "apollo_2": self.s.apollo_api_key_2, "hunter_2": self.s.hunter_api_key_2,
+                "snov_2": self.s.snov_client_id_2 and self.s.snov_client_secret_2,
+                "prospeo_2": self.s.prospeo_api_key_2}
         lines = ["Provider credits (reset on the 1st):"]
-        for provider in PROVIDERS:
+        for provider in (*PROVIDERS, *SECOND):
             key = f"credits.{provider}"
+            if provider in SECOND and not keys[provider] and not config.get(key):
+                continue  # no second account for this provider
             counter = parse_counter(config.get(key), config.updated(key))
             updated = config.updated(key)
             if counter:
                 reset = monthly_reset(counter, self.today())
                 value = reset.text() + (" (reset for this month)" if reset.used != counter.used
                                         else "")
+            elif provider in SECOND:
+                value = f"no Config {key} row (counted per run only)"
             else:
                 value = config.get(key) or "not set"
             when = f", updated {updated.isoformat()}" if updated else ""
             key_state = "key set" if keys[provider] else "no key"
-            lines.append(f"{provider.capitalize()}: {value}{when}, {key_state}")
+            lines.append(f"{account_label(provider)}: {value}{when}, {key_state}")
         if self.s.app_env != "prod" or self.s.dry_run:
             lines.append("Paid calls are off here (only prod with DRY_RUN=false); lookups use "
                          "test data outside prod.")

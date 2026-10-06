@@ -43,6 +43,12 @@ SECRET_VARS = {
     "SNOV_CLIENT_ID": "snov_client_id",
     "SNOV_CLIENT_SECRET": "snov_client_secret",
     "PROSPEO_API_KEY": "prospeo_api_key",
+    # Second accounts (6 Oct): used when the first account's credits run out.
+    "APOLLO_API_KEY_2": "apollo_api_key_2",
+    "HUNTER_API_KEY_2": "hunter_api_key_2",
+    "SNOV_CLIENT_ID_2": "snov_client_id_2",
+    "SNOV_CLIENT_SECRET_2": "snov_client_secret_2",
+    "PROSPEO_API_KEY_2": "prospeo_api_key_2",
     "TOMBA_API_KEY": "tomba_api_key",
     "TOMBA_API_SECRET": "tomba_api_secret",
     "LUSHA_API_KEY": "lusha_api_key",
@@ -97,6 +103,11 @@ class Settings(BaseModel):
     snov_client_id: str | None = None
     snov_client_secret: str | None = None
     prospeo_api_key: str | None = None
+    apollo_api_key_2: str | None = None
+    hunter_api_key_2: str | None = None
+    snov_client_id_2: str | None = None
+    snov_client_secret_2: str | None = None
+    prospeo_api_key_2: str | None = None
     tomba_api_key: str | None = None
     tomba_api_secret: str | None = None
     github_token: str | None = None

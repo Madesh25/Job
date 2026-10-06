@@ -24,7 +24,7 @@ from jobengine.contacts.classify import (
     keep,
     parse_mix,
 )
-from jobengine.contacts.credits import OPTIONAL, CreditBook
+from jobengine.contacts.credits import OPTIONAL, CreditBook, account_label
 from jobengine.contacts.models import (
     HIRING,
     NOTION_COUNTRIES,
@@ -267,38 +267,85 @@ def find_contacts(deps: ContactDeps, job_id: str, paid: bool = True) -> Contacts
             _github_step(deps, config, company, domain, country, result, chosen, seen,
                          by_email, open_slots, patterns, personal)
         for name, provider in WATERFALL:
-            slots = open_slots()
-            if not slots:
+            if not open_slots():
                 break
             if deps.s.app_env == "prod" and not paid_api_allowed(name, deps.s):
                 result.notes.append(f"{name}: paid calls are off (DRY_RUN), skipped")
                 continue
             if book.counters.get(name) is None and name in OPTIONAL:
                 continue  # a free plan you have not set up (no Config credits.<name>)
-            left = book.available(name)
-            if left <= 0:
-                result.notes.append(f"{name}: no credits left this month, skipped")
-                continue
-            s = deps.s if paid_api_allowed(name, deps.s) else deps.s.model_copy(
-                update=FIXTURE_KEYS)
-            pdeps = ProviderDeps(s=s, request=deps.request(name),
-                                 search_titles=deps.s.contacts.get("search_titles") or {},
-                                 credits_left=left, patterns=patterns)
-            deps.calls.append(name)
-            found_result = provider.search(company, domain, country, slots, pdeps)
-            book.spend(name, found_result.credits_used)
-            if found_result.skipped_reason:
-                result.notes.append(found_result.skipped_reason)
-            result.notes.extend(found_result.notes)
-            for candidate, kind, note in fill_slots(found_result.candidates, slots, country,
-                                                    domain, seen, patterns, personal):
-                chosen.append(_chosen(candidate, kind, note, by_email, country))
+            _provider_step(deps, book, name, provider, company, domain, country, result,
+                           chosen, seen, by_email, open_slots, patterns, personal)
 
     result.contacts = chosen
     result.missing = open_slots()
     _write(deps, job_id, values, chosen, generic, today)
     result.message = _summary(result, generic, book.line())
     return result
+
+
+# Second accounts (6 Oct): Settings field -> its account-2 field. An account is used when all
+# its fields are set; the second only when the first has no credits left or fails.
+SECOND_FIELDS = {
+    "apollo": {"apollo_api_key": "apollo_api_key_2"},
+    "hunter": {"hunter_api_key": "hunter_api_key_2"},
+    "snov": {"snov_client_id": "snov_client_id_2", "snov_client_secret": "snov_client_secret_2"},
+    "prospeo": {"prospeo_api_key": "prospeo_api_key_2"},
+}
+
+
+def accounts(name: str, s: Settings) -> list[tuple[str, Settings]]:
+    """(account, settings with that account's keys): the first, then the second if set."""
+    found = [(name, s)]
+    fields = SECOND_FIELDS.get(name)
+    if fields and all(getattr(s, second) for second in fields.values()):
+        found.append((f"{name}_2", s.model_copy(
+            update={first: getattr(s, second) for first, second in fields.items()})))
+    return found
+
+
+def _provider_step(deps: ContactDeps, book: CreditBook, name: str, provider: Any,
+                   company: str, domain: str, country: str, result: ContactsResult,
+                   chosen: list[Chosen], seen: set[str],
+                   by_email: dict[str, tuple[str, dict[str, Any]]],
+                   open_slots: Callable[[], dict[str, int]], patterns: Any,
+                   personal: Any) -> None:
+    """One provider: its first account, and its second when the first has no credits left
+    or its search fails (a refused key, an exhausted plan). Never both when the first
+    answered: the second account sees the same people."""
+    options = accounts(name, deps.s)
+    for index, (account, s) in enumerate(options):
+        label = account_label(account)
+        has_next = index + 1 < len(options)
+        if index:
+            book.ensure(account, name)
+        left = book.available(account)
+        if left <= 0:
+            result.notes.append(f"{account}: no credits left this month"
+                                + (", trying the second account" if has_next else ", skipped"))
+            continue
+        if not paid_api_allowed(name, deps.s):
+            s = s.model_copy(update=FIXTURE_KEYS)
+        pdeps = ProviderDeps(s=s, request=deps.request(name),
+                             search_titles=deps.s.contacts.get("search_titles") or {},
+                             credits_left=left, patterns=patterns)
+        deps.calls.append(account)
+        found = provider.search(company, domain, country, open_slots(), pdeps)
+        book.spend(account, found.credits_used)
+        result.notes.extend(found.notes)
+        if found.skipped_reason:
+            failed_over = has_next and not found.candidates
+            result.notes.append(found.skipped_reason
+                                + (" (trying the second account)" if failed_over else ""))
+            if failed_over:
+                continue
+        for candidate, kind, note in fill_slots(found.candidates, open_slots(), country,
+                                                domain, seen, patterns, personal):
+            picked = _chosen(candidate, kind, note, by_email, country)
+            if index and not picked.cached:
+                picked.notes = "; ".join(p for p in (picked.notes, f"found with {label}") if p)
+            chosen.append(picked)
+        return
 
 
 GITHUB_SWITCH = "contacts.github"  # Notion Config: "on" reads the company's GitHub org first

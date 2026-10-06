@@ -52,7 +52,7 @@ workflow maps them with `--set-secrets`); nothing is baked into the image or the
 | `TELEGRAM_WEBHOOK_SECRET` | not needed | `telegram-webhook-secret-dev` | `telegram-webhook-secret-prod` | random, 32+ letters and digits |
 | `ANTHROPIC_API_KEY` | dev key | `anthropic-key-dev` | `anthropic-key-prod` | may be the same key at first |
 | `GMAIL_ALERTS_TOKEN_JSON_m02` (old name `GMAIL_ALERTS_TOKEN_JSON` still read) | m02 token | `gmail-m02-token` | `gmail-m02-token` | authorised-user JSON from `jobengine.gmail_auth` |
-| `GMAIL_ALERTS_TOKEN_JSON_mm` | mm token | not mounted yet | not mounted yet | second job-alert mailbox, same scope |
+| `GMAIL_ALERTS_TOKEN_JSON_mm` | mm token | `gmail-mm-token` (optional) | `gmail-mm-token` (optional) | second job-alert mailbox, same scope |
 | `GMAIL_SENDER_TOKEN_JSON` | m02 token | `gmail-m02-token` | `gmail-main-token` | the main account token exists only for prod |
 | `ADZUNA_APP_ID`, `ADZUNA_APP_KEY` | your keys | `adzuna-app-id`, `adzuna-app-key` | same | exist |
 | `JOOBLE_API_KEY` | your key (optional) | not wired yet: create `jooble-api-key` and add it to `deploy.yml` first | same | optional |
