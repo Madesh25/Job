@@ -180,6 +180,9 @@ def parse_alert(message: GmailMessage, gmail_cfg: Mapping[str, Any]) -> list[Raw
                 url=href,
                 posting_id=posting_id or fallback_posting_id(board, title, company),
                 salary_text=f"{salary} ({board})" if salary else None,
+                # The alert does not say when the job was posted: the day the email came is
+                # the latest it can be (14 of 36 rows had no Posted date on 6 Oct).
+                posted_date=message.received,
                 description=None,
                 location_area=(*others, *([home] if home else [])),
             )

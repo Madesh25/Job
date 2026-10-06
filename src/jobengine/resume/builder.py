@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import date
@@ -681,14 +682,21 @@ def finalise(deps: ResumeDeps, log_id: str) -> FinaliseOutcome:
     if row.get("Approved"):
         return FinaliseOutcome(status="approved", job_id=job_id, job_url=url, file=row.get("File"),
                                message=APPLY_TEXT.format(url=url))
+    # Each step is logged with its time: Approve resume once hung with nothing in the log.
+    started = time.monotonic()
     try:
+        log.info("approve resume %s: reading the job and the plan", log_id)
         ctx = _context(deps, job_id, values)
         plan = stored_plan(deps, log_id, ctx.master)
         errors = _gate(deps, ctx, plan)
         if errors:
             return FinaliseOutcome(status="failed", job_id=job_id,
                                    message=RULES_FAILED.format(errors="; ".join(errors)))
+        log.info("approve resume %s: rendering the final PDF (%.1f s so far)", log_id,
+                 time.monotonic() - started)
         _html, pdf, _fill = _render_checked(deps, ctx, plan)
+        log.info("approve resume %s: PDF rendered and checked (%.1f s so far)", log_id,
+                 time.monotonic() - started)
     except (MasterError, SectionError, PlanError, RenderError) as exc:
         return FinaliseOutcome(status="failed", message=str(exc), job_id=job_id)
     name = (row.get("Resume name") or "resume.pdf").rsplit(" r", 1)[0]
@@ -703,6 +711,8 @@ def finalise(deps: ResumeDeps, log_id: str) -> FinaliseOutcome:
         file_value = f"DRY RUN: {Path(rel).as_posix()}"
         log.warning("DRY RUN: would upload %s to Drive, saved to %s instead", name, rel)
     deps.resume_log.update(log_id, {"Approved": True, "File": file_value})
+    log.info("approve resume %s: saved and marked approved (%.1f s)", log_id,
+             time.monotonic() - started)
     on_resume_approved(job_id, log_id)
     return FinaliseOutcome(status="approved", job_id=job_id, job_url=url, file=file_value,
                            message=APPLY_TEXT.format(url=url))

@@ -441,7 +441,9 @@ def run_sweep(
         summary.not_supported += len(result.not_supported)
         summary.blocked_sites.extend(result.blocked)
         summary.no_board_sites.extend(result.no_board)
-        summary.own_site_count += len(result.own_site)
+        # Companies, not rows: Infosys, Infosys (IE) and Infosys (NL) count once (43 rows
+        # were shown as 43 companies on 6 Oct).
+        summary.own_site_count += len({ats.canon_name(n) for n in result.own_site})
         if result.skipped_reason:
             log.warning("%s", result.skipped_reason)
             summary.notes.append(result.skipped_reason)
@@ -515,6 +517,7 @@ def run_sweep(
     max_age = max_posted_age(s)
     ats_age = ats_max_posted_age(s)
     summary.max_age_days = max_age
+    summary.ats_age_days = ats_age if ats.SOURCE in sources else None
     for result in results:
         for raw in result.postings:
             done += 1

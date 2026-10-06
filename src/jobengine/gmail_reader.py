@@ -13,6 +13,7 @@ from __future__ import annotations
 import base64
 import json
 from dataclasses import dataclass
+from datetime import UTC, date, datetime
 from typing import Any
 
 SCOPES = ["https://www.googleapis.com/auth/gmail.readonly"]
@@ -36,6 +37,7 @@ class GmailMessage:
     sender: str
     subject: str
     html: str
+    received: date | None = None  # when Gmail received it (internalDate)
 
 
 def build_service(token_json: str) -> Any:
@@ -86,7 +88,16 @@ def to_message(raw: dict[str, Any]) -> GmailMessage | None:
         sender=_header(payload, "From"),
         subject=_header(payload, "Subject"),
         html=html,
+        received=_received(raw.get("internalDate")),
     )
+
+
+def _received(value: Any) -> date | None:
+    """Gmail's internalDate (milliseconds since 1970, UTC) as a date."""
+    try:
+        return datetime.fromtimestamp(int(value) / 1000, tz=UTC).date()
+    except (TypeError, ValueError, OverflowError, OSError):
+        return None
 
 
 def fetch_messages(service: Any, query: str, max_messages: int = 100) -> list[GmailMessage]:

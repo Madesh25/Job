@@ -219,6 +219,7 @@ class SweepSummary:
     too_senior: int = 0  # asked for more years than screening.max_years_required
     too_old: int = 0  # new postings older than sweep.max_posted_age_days
     max_age_days: int | None = None
+    ats_age_days: int | None = None  # company career sites (sweep.ats.max_posted_age_days)
     needs_language: int = 0  # needs a language other than English (sweep/fit.py)
     b2b_only: int = 0  # Poland, B2B contract only (sweep/fit.py)
     no_sponsorship: int = 0  # no visa sponsorship or relocation stated (sweep/fit.py)
@@ -277,8 +278,11 @@ class SweepSummary:
             lines.append(f"\U0001F6B7 Asked for more experience than you have (not saved): "
                          f"{self.too_senior}")
         if self.too_old:
-            when = {0: "before today", 1: "before yesterday"}.get(
-                self.max_age_days or 0, f"more than {self.max_age_days} days ago")
+            # max_age_days 2 keeps today and the 2 days before: "the last 3 days".
+            days = (self.max_age_days or 0) + 1
+            when = "before today" if days == 1 else f"before the last {days} days"
+            if self.ats_age_days:
+                when += f" (company sites: {self.ats_age_days} days)"
             lines.append(f"\U0001F5D3 Posted {when} (not saved): {self.too_old}")
         if self.needs_language:
             lines.append(f"\U0001F5E3 Needs a language other than English (not saved): "

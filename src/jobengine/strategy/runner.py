@@ -33,6 +33,8 @@ MAX_TOKENS = 4000
 REF_RE = re.compile(r"Ref ST-([0-9a-f]{8})")
 STARTED = "Researching current practice. This takes a minute."
 FOLD_REMINDER = "Adopted tips are not in V16 yet. Ask Claude to fold them in."
+OPEN_TIPS = ("The strategy date (and /fetch) moves only when every tip is adopted or rejected; "
+             "Reject the rest closes the review at once.")
 
 SYSTEM_PROMPT = """You research current job search practice for one candidate: a DevOps
 engineer with about 3 years of experience, an Indian national who needs a work permit,
@@ -171,8 +173,8 @@ def run_update(deps: StrategyDeps, force: bool = False) -> UpdateResult:
                                        if not run.get("tips") else [])
         if cards:
             return UpdateResult([f"You still have {len(cards)} to review from the run of "
-                                 f"{run.get('started')}. Send /update new to research again."],
-                                cards)
+                                 f"{run.get('started')}. {OPEN_TIPS} Send /update new to "
+                                 "research again."], cards)
     config = deps.config()
     today = deps.today()
     llm = deps.llm(config)
@@ -297,8 +299,35 @@ def decide(deps: StrategyDeps, page_hex: str, adopt: bool) -> list[str]:
         deps.state.set(RUN_KEY, run)
     left = len(run["tips"]) - len(decided)
     if left:
-        return [f"{status}: {item['tip']}\n{left} left to review."]
+        return [f"{status}: {item['tip']}\n{left} left to review. {OPEN_TIPS}"]
     return [f"{status}: {item['tip']}", *_finish(deps, run)]
+
+
+def open_count(deps: StrategyDeps) -> tuple[str, int]:
+    """(run id, tips still undecided) of the open review, or ("", 0)."""
+    run = deps.state.get(RUN_KEY) or {}
+    if not run or run.get("complete"):
+        return "", 0
+    decided = run.get("decided") or {}
+    return run.get("run_id", ""), sum(1 for i in run.get("tips") or [] if i["id"] not in decided)
+
+
+def reject_rest(deps: StrategyDeps, run_id: str) -> list[str]:
+    """sx:<run id>: every tip still undecided is Rejected, which closes the review and moves
+    the strategy date (6 Oct: 3 of 8 adopted, 5 left open, so /fetch kept its old date)."""
+    run = deps.state.get(RUN_KEY) or {}
+    if run.get("run_id") != run_id or run.get("complete"):
+        return ["That review is no longer open. Send /update."]
+    decided = run.setdefault("decided", {})
+    rest = [i for i in run.get("tips") or [] if i["id"] not in decided]
+    for item in rest:
+        if deps.repo is not None and deps.write:
+            deps.repo.update(item["id"], {"Status": "Rejected"})
+        decided[item["id"]] = "Rejected"
+    if deps.write:
+        deps.state.set(RUN_KEY, run)
+    return [f"Rejected the other {len(rest)} tip{'s' if len(rest) != 1 else ''}.",
+            *_finish(deps, run)]
 
 
 def confirm_review(deps: StrategyDeps, run_id: str) -> list[str]:
