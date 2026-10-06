@@ -374,8 +374,9 @@ ds. ...") still count as Polish required.
 
 1. In the madeshwaranm02 Gmail, create job alerts that send email: IrishJobs.ie, Jobs.ie and
    JobsIreland for Ireland (Adzuna has no Ireland), plus LinkedIn, JustJoin IT, NoFluffJobs,
-   Pracuj.pl or IamExpat if you like. Alerts that go to another mailbox (Pracuj.pl to
-   madeshwaran.manikam) are forwarded to madeshwaranm02 with a Gmail filter.
+   Pracuj.pl or IamExpat if you like. Alerts that go to madeshwaran.manikam (Pracuj.pl) are
+   read there directly when `GMAIL_ALERTS_TOKEN_JSON_mm` is set (give that mailbox the same
+   "Job Alerts" label); without it, forward them to madeshwaranm02 with a Gmail filter.
    **Label them:** a Gmail label "Job Alerts" and one filter per board (for example
    `from:(linkedin.com)`, "Apply the label: Job Alerts", and "Also apply filter to matching
    conversations"). The bot reads every email with that label, whatever address the board sends
