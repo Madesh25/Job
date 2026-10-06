@@ -92,6 +92,10 @@ CONTACT_PROPERTY_TYPES = {
     "Gmail thread ID": "rich_text",
     "Last contacted": "date",
     "Follow-up draft ID": "rich_text",
+    # 6 Oct: a contact who answered is reused for the company's next jobs; one who never
+    # answers becomes Status "Dead end" after `tracking.dead_end_after` mails.
+    "Replied": "checkbox",
+    "Mails sent": "number",
 }
 
 # Resume Log property name -> Notion property type.

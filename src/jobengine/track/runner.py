@@ -48,7 +48,10 @@ PREVIEW_CHARS = 300
 DEFAULT_ATS = ("greenhouse.io", "lever.co", "smartrecruiters.com", "myworkday.com",
                "workday.com", "teamtailor.com", "recruitee.com", "personio.de",
                "successfactors.com", "icims.com")
-CLOSED_CONTACTS = ("Ghosted", "Bounced", "Do not contact")
+CLOSED_CONTACTS = ("Ghosted", "Bounced", "Do not contact", "Dead end")
+DEAD_END = "Dead end"
+# A draft for a contact already mailed (another job at the company) is sent from these.
+REMAILED = ("Contacted", "Followed up", "Ghosted", "Replied")
 # Buttons on a low-confidence card: (label, class). "positive" means Replied.
 CHOICES = (("Screening", "screening"), ("Interview", "interview"), ("Rejected", "rejection"),
            ("Offer", "offer"), ("Replied", "positive"), ("Do not contact", "opt_out"),
@@ -186,6 +189,8 @@ class Run:
         self.ghosted_days = self._int("ghosted.days", t.get("ghosted_days", 14))
         self.retention_months = self._int("contacts.retention_months",
                                           t.get("retention_months", 12))
+        self.dead_end_after = self._int("contacts.dead_end_after",
+                                        t.get("dead_end_after", 5))
         self.phrases = t.get("opt_out_phrases") or list(DEFAULT_OPT_OUT)
         self.ats = list(t.get("ats_sender_domains") or DEFAULT_ATS)
 
@@ -280,19 +285,58 @@ class Run:
 # ---------------------------------------------------------------- steps
 
 
+def mailed(run: Run, c: dict[str, Any], when: date) -> dict[str, Any]:
+    """Contact properties after one more mail to them: the count, the date, and Status
+    "Dead end" once `dead_end_after` mails got no answer (never mailed again)."""
+    sent = int(c.get("Mails sent") or 0) + 1
+    props: dict[str, Any] = {"Mails sent": sent, "Last contacted": when}
+    if sent >= run.dead_end_after and not c.get("Replied") \
+            and c.get("Status") not in ("Bounced", "Do not contact", DEAD_END, "Replied"):
+        props["Status"] = DEAD_END
+    return props
+
+
+def _remail_sent_or_deleted(run: Run, pid: str, c: dict[str, Any],
+                            report: DailyReport) -> None:
+    """A draft written for a contact you had mailed before (another job at the company):
+    sent counts one more mail; deleted only clears the draft."""
+    name = c.get("Name") or c.get("Email") or pid
+    thread = run.gmail.thread(c.get("Gmail thread ID") or "") if c.get("Gmail thread ID") \
+        else []
+    last = _day(c.get("Last contacted"))
+    later = [m for m in thread if m.sent and (last is None or m.when.date() > last)]
+    if not later:
+        run.set_contact(pid, {"Gmail draft ID": "", "Notes": _append(
+            c.get("Notes"), f"draft deleted {run.today}")})
+        report.deleted_drafts.append(name)
+        return
+    when = later[-1].when.date()
+    props: dict[str, Any] = {"Gmail draft ID": ""}
+    if c.get("Status") == "Ghosted":
+        props["Status"] = "Contacted"
+    props.update(mailed(run, {**c, **props}, when))
+    run.set_contact(pid, props)
+    for job_id in run.related_jobs(c):
+        run.set_job(job_id, {"Last activity date": when})
+    report.sent.append(f"{name} (mail {props['Mails sent']})")
+
+
 def detect_sent(run: Run, report: DailyReport) -> None:
     """Step 2: drafts you sent or deleted, first mails and follow-ups."""
     for pid, c in list(run.contacts.items()):
         name = c.get("Name") or c.get("Email") or pid
         draft = c.get("Gmail draft ID")
-        if c.get("Status") == "Drafted" and draft and not run.gmail.draft_exists(draft):
+        status = c.get("Status")
+        if status in REMAILED and draft and not run.gmail.draft_exists(draft):
+            _remail_sent_or_deleted(run, pid, c, report)
+        elif status == "Drafted" and draft and not run.gmail.draft_exists(draft):
             thread = run.gmail.thread(c.get("Gmail thread ID") or "") \
                 if c.get("Gmail thread ID") else []
             sent = [m for m in thread if m.sent]
             if sent:
                 when = sent[-1].when.date()
-                run.set_contact(pid, {"Status": "Contacted", "Last contacted": when,
-                                      "Gmail draft ID": ""})
+                run.set_contact(pid, {"Status": "Contacted", "Gmail draft ID": "",
+                                      **mailed(run, c, when)})
                 for job_id in run.related_jobs(c):
                     run.set_job(job_id, {"Last activity date": when})
                 report.sent.append(name)
@@ -312,10 +356,11 @@ def detect_sent(run: Run, report: DailyReport) -> None:
             later = [m for m in thread if m.sent and (last is None or m.when.date() > last)]
             if later:
                 when = later[-1].when.date()
-                props: dict[str, Any] = {"Last contacted": when, "Follow-up draft ID": ""}
+                props: dict[str, Any] = {"Follow-up draft ID": ""}
                 new = advance_contact(c.get("Status"), "Followed up")
                 if new:
                     props["Status"] = new
+                props.update(mailed(run, {**c, **props}, when))
                 run.set_contact(pid, props)
                 for job_id in run.related_jobs(c):
                     fx = effect(FOLLOWUP_SENT, run.jobs[job_id].get("Status"), cold_mail=False)
@@ -356,6 +401,8 @@ def apply_contact_class(run: Run, pid: str, kind: str, report: DailyReport | Non
     new = advance_contact(c.get("Status"), target)
     if new:
         props["Status"] = new
+    if kind != OPT_OUT and not c.get("Replied"):
+        props["Replied"] = True  # reused for the company's next jobs
     if c.get("Follow-up draft ID"):
         props["Follow-up draft ID"] = ""
         if report is not None:
@@ -559,11 +606,12 @@ def months_ago(day: date, months: int) -> date:
 
 def retention_candidates(contacts: dict[str, dict[str, Any]], today: date,
                          months: int) -> list[str]:
-    """Contacts that never replied, found more than `months` ago. Do not contact rows are
-    kept (so they are never contacted again)."""
+    """Contacts that never replied, found more than `months` ago. Do not contact and Dead
+    end rows are kept (so they are never contacted again)."""
     cutoff = months_ago(today, months)
     return [pid for pid, c in contacts.items()
-            if c.get("Status") not in ("Replied", "Do not contact")
+            if c.get("Status") not in ("Replied", "Do not contact", DEAD_END)
+            and not c.get("Replied")
             and _day(c.get("Date found")) is not None and _day(c.get("Date found")) < cutoff]
 
 

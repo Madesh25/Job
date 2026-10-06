@@ -169,6 +169,10 @@ tracking:
   min_confidence: 0.8
   followup_days: 7
   ghosted_days: 14
+  # A contact who never answered becomes Status "Dead end" after this many mails (first mails
+  # and follow-ups, all jobs) and is never mailed again. Notion Config contacts.dead_end_after
+  # wins when set. Someone who answered (Contacts "Replied" ticked) is reused for new jobs.
+  dead_end_after: 5
   retention_months: 12
   # Instant reply ping (track/ping.py): the inbox is searched this often for replies from
   # contacts and employers; each new one is sent to Telegram at once (no AI, no Notion write).
