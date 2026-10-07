@@ -57,6 +57,8 @@ from jobengine.resume.sections import SectionError, SectionPlan, SectionRow, fak
 from jobengine.safety import drive_write_allowed
 from jobengine.screen.runner import description
 from jobengine.settings import ROOT_DIR, Settings
+from jobengine.strategy import tips as tips_mod
+from jobengine.strategy.tips import AdoptedTip
 from jobengine.sweep.normalize import canon, canon_company
 
 log = logging.getLogger("jobengine.resume")
@@ -96,6 +98,8 @@ class ResumeDeps:
     out_dir: Path = ROOT_DIR / "out"
     today: Callable[[], date] = date.today
     write: bool = True  # False: --no-write, render only
+    # Adopted strategy tips (strategy/tips.py): Resume and ATS ones go to the tailoring AI.
+    tips: Callable[[], list[AdoptedTip]] = lambda: []
 
 
 @dataclass
@@ -189,7 +193,24 @@ def real_deps(s: Settings, write: bool = True) -> ResumeDeps:
         llm=lambda config: AnthropicLLM(s, config),
         drive=lambda: GoogleDrive.from_settings(s),
         write=write,
+        tips=lambda: load_tips(s, client),
     )
+
+
+def load_tips(s: Settings, client: NotionClient) -> list[AdoptedTip]:
+    """The adopted strategy tips, or none when the Strategy table cannot be read."""
+    from jobengine.notion_repo import page_values, strategy_repo_for
+
+    try:  # the same tables /rules reads: Strategy, plus the DEV copy you adopt tips in
+        read_id = s.notion_read.get("strategy", "")
+        rows = [(p["id"], page_values(p)) for p in client.query(read_id)] if read_id else []
+        repo = strategy_repo_for(s, client)
+        if repo is not None and repo.data_source_id != read_id:
+            rows += repo.all_rows()
+        return tips_mod.adopted(rows)
+    except Exception as exc:  # tips are extra: never stop a resume over them
+        log.warning("strategy tips not read: %s", exc)
+        return []
 
 
 # ---------------------------------------------------------------- helpers
@@ -541,13 +562,15 @@ def build_resume(
     retries = int(deps.s.resume.get("gate_retries", 2))
     errors: list[str] = []
     plan: Plan | None = None
+    resume_tips = tips_mod.pick(deps.tips(), tips_mod.RESUME, values.get("Country"))
     for attempt in range(retries + 1):
         key = f"{job_id}-r{revision}" + (f"-a{attempt}" if attempt else "")
         try:
             plan = make_plan(llm, ctx.master, job, ctx.reference,
                              correction=(correction or "") + FORCE_NOTE
                              if force_terms is not None else correction,
-                             previous=plan or previous, errors=errors or None, key=key)
+                             previous=plan or previous, errors=errors or None, key=key,
+                             tips=resume_tips)
         except (LLMError, PlanError) as exc:
             return failed(str(exc))
         if force_terms is not None:

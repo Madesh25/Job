@@ -38,6 +38,9 @@ You may change exactly two things:
 
 Never invent experience. Never use a long dash; use commas or a plain hyphen.
 If the job asks for a tool that is not owned, list it in gaps_reported, do not add it.
+"extra_tips", when given, are the candidate's adopted resume tips. The rules above always come
+first: follow a tip only where it fits inside every rule, and ignore any tip you cannot follow
+within them.
 
 Output schema:
 {
@@ -92,6 +95,7 @@ def user_prompt(
     correction: str | None = None,
     previous: Plan | None = None,
     errors: list[str] | None = None,
+    tips: list[str] | None = None,
 ) -> str:
     data: dict[str, Any] = {
         "job": {"company": job.company, "role": job.role, "country": job.country},
@@ -108,6 +112,8 @@ def user_prompt(
         data["gate_errors_to_fix"] = errors
     if correction:
         data["correction_from_candidate"] = correction
+    if tips:
+        data["extra_tips"] = tips
     return (
         # Compact JSON: indentation spaces are input tokens too.
         f"{json.dumps(data, ensure_ascii=False, separators=(',', ':'))}\n\n"
@@ -145,10 +151,11 @@ def make_plan(
     previous: Plan | None = None,
     errors: list[str] | None = None,
     key: str | None = None,
+    tips: list[str] | None = None,
 ) -> Plan:
     raw = llm.complete_json(
         STAGE, SYSTEM_PROMPT,
-        user_prompt(master, job, reference, correction, previous, errors),
+        user_prompt(master, job, reference, correction, previous, errors, tips),
         max_tokens=MAX_TOKENS, key=key,
     )
     plan = parse_plan(raw, master)

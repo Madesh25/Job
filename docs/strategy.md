@@ -40,6 +40,23 @@ automatic rejections), `Source` (one URL per line), `Date added`, and `Notes`
 (`countries: ...; why: ...; run <id>`, plus `auto-rejected: <reason>`). Prod writes Strategy;
 local and dev write Strategy (DEV).
 
+## How adopted tips are used
+
+V16 is the main rule set and never changes. Adopted tips come on top of it, only where they do
+not break V16 (`strategy/tips.py`, your decision of 7 Oct). A tip counts for a job when its
+countries (Notes "countries: ...") are All or include the job's country; at most 10, newest
+first.
+
+| Category | Where | V16 first because |
+|---|---|---|
+| Resume, ATS | Sent to the tailoring AI as `extra_tips`: "follow a tip only where it fits inside every rule" | the V16 resume gate still checks the plan; anything that breaks a rule is removed |
+| Application | Shown in the Apply pack message ("Tips for this application") | advice only |
+| Outreach | Shown under the mail drafts | templates and mail rules unchanged |
+| Interview | Shown with a reply that may be about an interview | advice only |
+| Other | Only in /rules | nothing changes |
+
+A Strategy table that cannot be read gives no tips; nothing else changes.
+
 ## Telegram
 
 ```
