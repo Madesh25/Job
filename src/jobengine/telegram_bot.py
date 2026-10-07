@@ -32,6 +32,7 @@ from typing import Any, TextIO
 
 from jobengine.jobctl import CONTROL, Stopped, end_text
 from jobengine.main import banner
+from jobengine.resume import builder as resume_builder
 from jobengine.safety import SafetyError, check_startup, telegram_text
 from jobengine.screen import autopilot
 from jobengine.screen.desk import Desk, Reply, fake_desk, real_desk
@@ -590,7 +591,8 @@ def handle_one(
         handle_callback(client, s, update["callback_query"], desk)
         return
     if fetch is not None and _is_fetch(update, s):
-        run_fetch(client, s, str(s.telegram_chat_id), fetch)
+        with Typing(client, str(s.telegram_chat_id)):  # "typing..." until the summary
+            run_fetch(client, s, str(s.telegram_chat_id), fetch)
         return
     chat = str(s.telegram_chat_id)
     message = update.get("message") or {}
@@ -604,10 +606,12 @@ def handle_one(
         if text.split()[1:2] in (["when"], ["schedule"]):
             send_replies(client, s, chat, _guarded("/autopilot when", desk.autopilot_when))
         else:
-            run_autopilot(client, s, chat, desk, fetch)
+            with Typing(client, chat):
+                run_autopilot(client, s, chat, desk, fetch)
         return
     if desk is not None and parse_command(text) == "screen" and len(text.split()) == 1:
-        run_screen(client, s, chat, desk)
+        with Typing(client, chat):
+            run_screen(client, s, chat, desk)
         return
     with Typing(client, chat):
         replies = desk_replies(update, s, desk)
@@ -983,8 +987,9 @@ def run(
                 next_check = clock() + autopilot.check_seconds(desk)
                 autopilot_check(client, s, desk, fetch)
         except Restart as request:
-            _restart(client, s, bg, request.offset, restart)
-            return
+            offset = request.offset
+            if _restart(client, s, bg, request.offset, restart):
+                return
         except TelegramError as exc:
             log.error("%s, retrying in 5s", exc)
             sleep(5)
@@ -998,7 +1003,9 @@ WAITING_POLL = 2  # a short poll while updates wait for the background thread
 
 
 def _restart(client: TelegramClient, s: Settings, bg: Background | None, offset: int,
-             restart: Callable[[], None] | None) -> None:
+             restart: Callable[[], None] | None) -> bool:
+    """Stop the running job, confirm /restart, then restart. False (and the bot keeps
+    running) when a job is still stuck."""
     chat = str(s.telegram_chat_id)
     name = CONTROL.request_stop()
     if bg is not None:
@@ -1011,9 +1018,24 @@ def _restart(client: TelegramClient, s: Settings, bg: Background | None, offset:
         client.get_updates(offset, 0)  # confirm /restart so it is not delivered again
     except TelegramError as exc:
         log.warning("could not confirm /restart: %s", exc)
+    stuck = (bg is not None and bg.busy()) or bool(resume_builder.STUCK_SAVES)
+    if stuck:
+        # A thread waiting on a file in the shared out folder cannot be stopped, and a
+        # restart in this process would wait for it for ever (7 Oct).
+        log.warning("restart refused: a job is still stuck (%s)",
+                    ", ".join(resume_builder.STUCK_SAVES) or "a button")
+        client.send_message(chat, telegram_text(STUCK_RESTART, s))
+        return False
     client.send_message(chat, telegram_text("Restarting the bot...", s))
     if restart is not None:
         restart()
+    return True
+
+
+STUCK_RESTART = ("Cannot restart from Telegram: a job is still stuck (it waits on a file in "
+                 "the out folder or on the network). In the bot window press Ctrl+C, or run "
+                 "docker ps and docker stop <id>, then start the bot again. Close any PDF "
+                 "from the out folder that is open in a viewer first.")
 
 
 def restart_process(argv: list[str]) -> None:

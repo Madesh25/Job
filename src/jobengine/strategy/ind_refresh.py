@@ -23,6 +23,10 @@ log = logging.getLogger("jobengine.strategy")
 
 VERIFIED, NOT_LISTED = "Verified", "Not listed"
 REGION = "Netherlands"
+# 7 Oct: one run turned all 28 Verified companies (ASML, Adyen, ING...) into Not listed, a
+# failed read of the register page, not 28 real changes. When this many Verified companies
+# (and more than half of them) would drop at once, nothing is changed and it is reported.
+MASS_DEMOTION = 3
 
 
 @dataclass(frozen=True)
@@ -42,6 +46,7 @@ class IndReport:
     changes: list[IndChange] = field(default_factory=list)
     error: str | None = None
     written: bool = False
+    names: int = 0  # organisations read from the register page
 
     def text(self) -> str:
         if self.error:
@@ -51,6 +56,7 @@ class IndReport:
                 + (f" ({changed})" if changed else "") + ".")
         if self.changes and not self.written:
             line += " Not written outside prod."
+        line += f" ({self.names} names read from the register.)"
         lines = [line]
         for c in self.changes:
             if c.demoted:
@@ -81,9 +87,11 @@ def refresh(deps: IndDeps) -> IndReport:
     except (http.HttpError, ValueError) as exc:
         report.error = str(exc)
         return report
+    report.names = len(register.names)
     today = deps.today()
     writes: list[tuple[str, dict[str, Any]]] = []
-    for company in deps.companies():
+    companies = deps.companies()
+    for company in companies:
         if company.region != REGION:
             continue
         report.checked += 1
@@ -93,6 +101,16 @@ def refresh(deps: IndDeps) -> IndReport:
             report.changes.append(IndChange(company.name, company.ind_sponsor, new))
             props["IND sponsor"] = new
         writes.append((company.row_id, props))
+    verified = sum(1 for c in companies if c.region == REGION
+                   and c.ind_sponsor == VERIFIED)
+    dropped = sum(1 for c in report.changes if c.demoted)
+    if dropped >= MASS_DEMOTION and dropped * 2 > verified:
+        report.error = (f"{dropped} of {verified} Verified companies would become Not listed "
+                        f"at once ({report.names} names read from {url}); that looks like a "
+                        "changed or partly loaded register page, not real changes")
+        report.changes = []
+        log.warning("IND refresh refused: %s", report.error)
+        return report
     if deps.writer is not None and deps.write and deps.s.app_env == "prod":
         for page_id, props in writes:
             deps.writer(page_id, props)

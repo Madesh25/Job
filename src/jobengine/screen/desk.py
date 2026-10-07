@@ -201,6 +201,15 @@ NOT_APPLYING = {"c": ("the job is closed or expired", "Expired"),
                 "o": ("another reason", "Other")}
 
 
+TOKEN_ERRORS = ("invalid_grant", "expired or revoked")
+TOKEN_ALERT_KEY = "gmail_token_alert"
+TOKEN_ALERT = ("\u26a0\ufe0f A Gmail token has expired (invalid_grant): replies and sent mails "
+               "are not checked. Send /health to see which one. Make it again with "
+               "jobengine.gmail_auth (docs/gmail.md), put the new JSON in .env, then stop and "
+               "start the bot. While the Google OAuth app is in Testing, tokens expire every "
+               "7 days: Publish the app (OAuth consent screen, Audience) to stop that.")
+
+
 class Desk:
     def __init__(
         self,
@@ -1118,8 +1127,18 @@ class Desk:
             texts = ping.check(self.track, now)
         except Exception as exc:
             log.warning("reply check failed: %s", exc)
-            return []
+            return self._token_alert(str(exc), now.date())
         return [Reply(text[:MAX_TEXT]) for text in texts]
+
+    def _token_alert(self, error: str, today: date) -> list[Reply]:
+        """An expired Gmail token (invalid_grant) is told in Telegram once a day; before
+        7 Oct it only filled the log every 5 minutes and /health was the only way to see it."""
+        if not any(word in error for word in TOKEN_ERRORS):
+            return []
+        if (self.state.get(TOKEN_ALERT_KEY) or {}).get("day") == today.isoformat():
+            return []
+        self.state.set(TOKEN_ALERT_KEY, {"day": today.isoformat()})
+        return [Reply(TOKEN_ALERT)]
 
     def track_tap(self, action: str, data: str) -> list[Reply]:
         if self.track is None:
