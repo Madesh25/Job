@@ -119,6 +119,44 @@ def from_json_ld(soup: BeautifulSoup) -> str | None:
     return None
 
 
+# Keys of a Next.js page's data (`__NEXT_DATA__`) that hold job text. Pracuj.pl alert jobs
+# had no description on 7 Oct although their pages opened: the text is in that data, not in
+# the visible HTML or a JSON-LD JobPosting.
+TEXT_KEYS = re.compile(r"description|responsibilit|requirement|qualification|duties|tasks|"
+                       r"offered|benefit|textelements|plaintext|bullets", re.I)
+MIN_PIECE = 30
+
+
+def _texts(node: Any, wanted: bool = False) -> Iterator[str]:
+    """Strings under job-text keys (and every string below such a key)."""
+    if isinstance(node, dict):
+        for key, value in node.items():
+            yield from _texts(value, wanted or bool(TEXT_KEYS.search(str(key))))
+    elif isinstance(node, list):
+        for item in node:
+            yield from _texts(item, wanted)
+    elif wanted and isinstance(node, str):
+        yield node
+
+
+def from_next_data(soup: BeautifulSoup) -> str | None:
+    """The job text in a Next.js page's `__NEXT_DATA__` JSON, or None."""
+    script = soup.find("script", id="__NEXT_DATA__")
+    if script is None:
+        return None
+    try:
+        data = json.loads(script.string or script.get_text() or "")
+    except ValueError:
+        return None
+    pieces: list[str] = []
+    for raw in _texts(data):
+        text = _html_text(raw) if "<" in raw else _clean(raw)
+        if len(text) >= MIN_PIECE and text not in pieces:
+            pieces.append(text)
+    joined = "\n".join(pieces)
+    return joined[:MAX_CHARS] if len(joined) >= MIN_BLOCK else None
+
+
 def _blocks(soup: BeautifulSoup) -> Iterator[Tag]:
     yield from soup.find_all(["main", "article"])
     for tag in soup.find_all(True):
@@ -133,6 +171,9 @@ def extract(page: str) -> str | None:
     text = from_json_ld(soup)
     if text and len(text) >= MIN_JSON_LD:
         return text
+    data_text = from_next_data(soup)
+    if data_text:
+        return data_text
     for tag in soup.find_all(DROP_TAGS):
         tag.decompose()
     best = max((_clean(tag.get_text("\n")) for tag in _blocks(soup)), key=len, default="")
@@ -186,6 +227,11 @@ def _open(job: Job, get_page: PageGetter) -> tuple[str, str] | None:
         return None
 
 
+def _title(page: str) -> str:
+    match = re.search(r"<title[^>]*>(.*?)</title>", page, re.I | re.S)
+    return " ".join(match.group(1).split())[:80] if match else ""
+
+
 def read(job: Job, get_page: PageGetter) -> Job | None:
     """The job with its full description (and, for Adzuna, the employer's own link), or
     None when the pages gave nothing better."""
@@ -196,9 +242,13 @@ def read(job: Job, get_page: PageGetter) -> Job | None:
     moved = (_is_adzuna(job.url) and not _is_adzuna(final_url)) or (
         job.source == "gmail" and final_url != job.url)  # the alert's tracking link
     text = extract(page)
-    if not text or len(text) <= len(job.description or ""):
-        return replace(job, url=final_url) if moved else None
     host = (urlsplit(final_url).hostname or "").lower()
+    if not text or len(text) <= len(job.description or ""):
+        # Before 7 Oct this was silent: Pracuj.pl pages opened but gave nothing, and the log
+        # had no line at all. The page title shows a block or consent page at once.
+        log.info("page read but no job description found for %s: %s, %d characters, "
+                 "title %r", job.company, host, len(page), _title(page))
+        return replace(job, url=final_url) if moved else None
     # The full text states every requirement; the snippet may show only the smaller one.
     years = years_required(text)
     posted = experience(text)
