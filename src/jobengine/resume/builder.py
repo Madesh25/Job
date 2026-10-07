@@ -385,6 +385,57 @@ def _save_local(deps: ResumeDeps, name: str, pdf: bytes) -> Path:
     return path
 
 
+# The out folder is shared with Windows in Docker. On 7 Oct writing the approved PDF there
+# waited for ever (the stack stopped in open()), so Approve resume never answered and even
+# /restart hung. The copy is only a convenience (the PDF is already in Telegram): it is
+# written on its own thread, never over an existing file, and given LOCAL_SAVE_SECONDS.
+LOCAL_SAVE_SECONDS = 15.0
+STUCK_SAVES: list[str] = []  # files whose save never finished (telegram_bot /restart reads it)
+
+
+def free_name(folder: Path, name: str) -> str:
+    """`name`, or `<stem>_2.pdf`, `_3` ... when a file of that name is already there (it may
+    be open in a PDF viewer, which can block a write over it)."""
+    stem, dot, ext = name.rpartition(".")
+    stem, dot = (stem, dot) if dot else (name, "")
+    candidate, n = name, 1
+    while (folder / candidate).exists():
+        n += 1
+        candidate = f"{stem}_{n}{dot}{ext}"
+    return candidate
+
+
+def save_local_bounded(deps: ResumeDeps, name: str, pdf: bytes,
+                       seconds: float | None = None) -> tuple[Path | None, str]:
+    """(path, "") when saved within `seconds` (LOCAL_SAVE_SECONDS), else (None, why).
+    Never raises."""
+    import threading
+
+    seconds = LOCAL_SAVE_SECONDS if seconds is None else seconds
+
+    done: list[Path] = []
+    failed: list[str] = []
+
+    def write() -> None:
+        try:
+            deps.out_dir.mkdir(parents=True, exist_ok=True)
+            done.append(_save_local(deps, free_name(deps.out_dir, name), pdf))
+        except OSError as exc:
+            failed.append(str(exc))
+
+    worker = threading.Thread(target=write, name="resume-local-save", daemon=True)
+    worker.start()
+    worker.join(seconds)
+    if done:
+        return done[0], ""
+    if failed:
+        return None, f"could not save it to the out folder ({failed[0]})"
+    STUCK_SAVES.append(name)
+    log.warning("saving %s to the out folder did not finish in %.0f s; going on without it "
+                "(is the folder or the file open in another program?)", name, seconds)
+    return None, f"the out folder did not answer in {seconds:.0f} s"
+
+
 # ---------------------------------------------------------------- build
 
 
@@ -706,10 +757,15 @@ def finalise(deps: ResumeDeps, log_id: str) -> FinaliseOutcome:
         except DriveError as exc:
             return FinaliseOutcome(status="failed", message=str(exc), job_id=job_id)
     else:
-        path = _save_local(deps, name, pdf)
-        rel = path.relative_to(ROOT_DIR) if path.is_relative_to(ROOT_DIR) else path
-        file_value = f"DRY RUN: {Path(rel).as_posix()}"
-        log.warning("DRY RUN: would upload %s to Drive, saved to %s instead", name, rel)
+        log.info("approve resume %s: saving the PDF to the out folder", log_id)
+        path, why = save_local_bounded(deps, name, pdf)
+        if path is None:
+            file_value = f"DRY RUN: not saved locally ({why}); the PDF is in Telegram"
+            log.warning("DRY RUN: would upload %s to Drive; local copy skipped: %s", name, why)
+        else:
+            rel = path.relative_to(ROOT_DIR) if path.is_relative_to(ROOT_DIR) else path
+            file_value = f"DRY RUN: {Path(rel).as_posix()}"
+            log.warning("DRY RUN: would upload %s to Drive, saved to %s instead", name, rel)
     deps.resume_log.update(log_id, {"Approved": True, "File": file_value})
     log.info("approve resume %s: saved and marked approved (%.1f s)", log_id,
              time.monotonic() - started)

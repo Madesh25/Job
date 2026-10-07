@@ -343,6 +343,7 @@ def check(s: Settings, load_messages: Callable[[], list[GmailMessage]] | None = 
                                                counts.items()) + failed)
     total = kept = 0
     distinct: set[tuple[str, str]] = set()
+    distinct_kept: set[tuple[str, str]] = set()  # 7 Oct: "135 different" vs "113 in scope"
     for box, message in found[:limit]:
         board = board_for_sender(message.sender, gmail_cfg.get("sender_boards") or {})
         jobs = parse_alert(message, gmail_cfg)
@@ -352,6 +353,8 @@ def check(s: Settings, load_messages: Callable[[], list[GmailMessage]] | None = 
         dropped = [(job, result.reason) for job in jobs
                    if isinstance(result := normalize(job, rules, countries), Skipped)]
         kept += len(jobs) - len(dropped)
+        out = {id(job) for job, _ in dropped}
+        distinct_kept.update((job.board, job.posting_id) for job in jobs if id(job) not in out)
         fate = f", {len(jobs) - len(dropped)} in scope" if jobs else ""
         where = f"[{box}] " if named else ""
         lines.append(f"- {where}{board} | {address} | {message.subject[:70]}: {len(jobs)} job(s)"
@@ -367,7 +370,8 @@ def check(s: Settings, load_messages: Callable[[], list[GmailMessage]] | None = 
     if len(messages) > limit:
         lines.append(f"... and {len(messages) - limit} more email(s).")
     lines.append(f"Jobs found in the emails shown: {total}, in scope (title and place): {kept}. "
-                 f"Different jobs: {len(distinct)} (the same job in several emails counts once "
-                 "in /fetch). /fetch then checks age, experience, language, contract, "
-                 "sponsorship, skills and the daily limit.")
+                 f"Different jobs: {len(distinct)}, of them in scope: {len(distinct_kept)} "
+                 "(the same job in several emails counts once in /fetch). /fetch then checks "
+                 "age, experience, language, contract, sponsorship, skills and the daily "
+                 "limit.")
     return "\n".join(lines)
