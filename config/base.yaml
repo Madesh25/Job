@@ -535,6 +535,9 @@ sweep:
     # full text matches better can still move into the best 30.
     lookahead: 15
     max_pages: 45
+    # Jobs about to be saved whose page the rounds above never reached are read too (at most
+    # this many), so no saved job is left without a description (Pracuj.pl alerts, 7 Oct).
+    saved_max_pages: 30
     # gmail: the job links in alert emails (JustJoin IT, NoFluffJobs, Pracuj.pl, ...) are
     # followed to the real job page, whose link and full description are kept. LinkedIn is
     # never read, whatever this says.

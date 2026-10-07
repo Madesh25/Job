@@ -269,3 +269,23 @@ def test_sweep_counts_old_postings_and_still_updates_known_rows():
     assert f"Posted before today (not saved): {summary.too_old}" in summary.friendly_text()
     s.sweep["max_posted_age_days"] = None
     assert max_posted_age(s) is None
+
+
+def test_every_saved_job_gets_its_page_read():
+    """7 Oct: jobs below the reading rounds were saved without a description (Pracuj.pl)."""
+    from jobengine.sweep.models import SweepSummary
+    from jobengine.sweep.runner import _pick
+
+    s = load_settings("local", {})
+    s.sweep["fulltext"] = {"lookahead": 0, "max_pages": 1, "saved_max_pages": 5}
+    deps = fake_deps(s)
+    long = " ".join(["Kubernetes and Terraform on AWS every day."] * 20)
+    read = []
+    deps.page = lambda url: read.append(url) or (url, f"<main>{long} 2 years.</main>")
+    ranked = [[replace(BASE, dedupe_key=str(i), url=f"https://j.example.com/{i}")]
+              for i in range(3)]
+    summary = SweepSummary()
+    picked = _pick(s, deps, ranked, 3, None, TODAY, summary, lambda line: None)
+    assert len(picked) == 3 and sorted(read) == [f"https://j.example.com/{i}" for i in range(3)]
+    assert all(not g[0].description_is_snippet for g in picked)
+    assert summary.full_tried == 3
