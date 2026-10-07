@@ -53,11 +53,14 @@ def due(deps: TrackDeps, now: datetime) -> bool:
         return True
 
 
+INTERVIEW_HINT = "It may be about an interview or a call: answer soon."
+
+
 def _ping(message: Message, who: str, what: str) -> str:
     preview = strip_preview(message.text or message.snippet)
     hint = ""
     if INTERVIEW_RE.search(f"{message.subject} {message.text or message.snippet}"):
-        hint = "\nIt may be about an interview or a call: answer soon."
+        hint = "\n" + INTERVIEW_HINT
     return (f"\U0001F4E9 New reply from {who} ({what})\nFrom: {message.sender}\n"
             f"Subject: {message.subject}\n{preview}{hint}\n"
             "The daily check records it; send /today to record it now.")

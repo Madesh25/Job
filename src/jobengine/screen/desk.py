@@ -46,6 +46,7 @@ from jobengine.screen.runner import (
 from jobengine.screen.tiering import rank_key
 from jobengine.settings import ROOT_DIR, Settings
 from jobengine.strategy import runner as strategy_runner
+from jobengine.strategy import tips as tips_mod
 from jobengine.strategy.runner import StrategyDeps
 from jobengine.sweep.normalize import dedupe_key
 from jobengine.sweep.rank import Ranker
@@ -663,7 +664,21 @@ class Desk:
                 self.repo.append_body(job_id, pack.blocks(text))
             except http.HttpError as exc:  # the answers still reach you in Telegram
                 log.warning("could not save the apply pack on %s: %s", job_id, exc)
+        text += tips_mod.lines("Tips for this application",
+                               self.tips(tips_mod.APPLICATION, values.get("Country")))
         return [Reply(text[:MAX_TEXT])]
+
+    def tips(self, categories: tuple[str, ...], country: str | None) -> list[str]:
+        """Adopted strategy tips of these categories for this country (strategy/tips.py);
+        none when the Strategy table cannot be read."""
+        if self.strategy is None:
+            return []
+        try:
+            return tips_mod.pick(tips_mod.adopted(self.strategy.existing()), categories,
+                                 country)
+        except Exception as exc:  # tips are extra: never fail a reply over them
+            log.warning("strategy tips not read: %s", exc)
+            return []
 
     def applypack_command(self, args: str) -> list[Reply]:
         """/applypack <job>: the Apply pack again."""
@@ -947,7 +962,12 @@ class Desk:
         if self.sending() and result.ok and result.drafted:
             sent = mail_sender.send_checked(self.mail, self.state, result)
             return [Reply(sent.message[:MAX_TEXT])]
-        return [Reply(result.message[:MAX_TEXT])]
+        message = result.message
+        if result.drafted:
+            values = (self.repo.get_values(job_id) if self.repo else None) or {}
+            message += tips_mod.lines("Outreach tips",
+                                      self.tips(tips_mod.OUTREACH, values.get("Country")))
+        return [Reply(message[:MAX_TEXT])]
 
     def mail_queue_tick(self) -> list[Reply]:
         """Every few minutes: send one queued mail whose recipient's morning has come."""
@@ -1128,6 +1148,9 @@ class Desk:
         except Exception as exc:
             log.warning("reply check failed: %s", exc)
             return self._token_alert(str(exc), now.date())
+        if any(ping.INTERVIEW_HINT in text for text in texts):
+            extra = tips_mod.lines("Interview tips", self.tips(tips_mod.INTERVIEW, None))
+            texts = [text + extra if ping.INTERVIEW_HINT in text else text for text in texts]
         return [Reply(text[:MAX_TEXT]) for text in texts]
 
     def _token_alert(self, error: str, today: date) -> list[Reply]:
