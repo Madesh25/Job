@@ -348,10 +348,12 @@ def _pick(
         return pending
     want = room + int((s.sweep.get("fulltext") or {}).get("lookahead", 15))
     budget, i = cfg.max_pages, 0
+    looked: set[int] = set()  # groups whose page was tried above
     while i < len(pending) and len(fits) < want and budget > 0:
         chunk = pending[i:i + want - len(fits)]
         i += len(chunk)
         outcome = fulltext.fill(chunk, replace(cfg, max_pages=budget), deps.page, progress=say)
+        looked |= outcome.opened
         budget -= outcome.tried
         summary.full_tried += outcome.tried
         summary.full_read += outcome.read
@@ -361,12 +363,38 @@ def _pick(
                 _count(summary, reason, jobs)
             else:
                 fits.append(jobs)
+    result = _sort(fits, ranker, today) + pending[i:]
+    result = _read_saved(s, deps, cfg, rules, result, room, looked, summary, say)
     if summary.full_tried:
         summary.notes.append(
             f"Full descriptions: read {summary.full_read} of {summary.full_tried} job pages "
             f"(the others kept the short text from their source)."
         )
-    return _sort(fits, ranker, today) + pending[i:]
+    return result
+
+
+def _read_saved(s: Settings, deps: SweepDeps, cfg: fulltext.Config, rules: FitRules,
+                result: list[list[Job]], room: int, looked: set[int], summary: SweepSummary,
+                say: Progress) -> list[list[Job]]:
+    """The jobs about to be saved whose page was never read get it read now (at most
+    sweep.fulltext.saved_max_pages), then are checked again. Before 7 Oct a job below the
+    rounds above was saved with no description at all: every Pracuj.pl alert job (the email
+    gives no text, so they ranked low) waited for a JD and was never screened."""
+    unread = [jobs for jobs in result[:room]
+              if id(jobs) not in looked and fulltext.needs_text(jobs[0], cfg)]
+    most = int((s.sweep.get("fulltext") or {}).get("saved_max_pages", 30))
+    if not unread or most <= 0 or deps.page is None:
+        return result
+    outcome = fulltext.fill(unread, replace(cfg, max_pages=most), deps.page, progress=say)
+    summary.full_tried += outcome.tried
+    summary.full_read += outcome.read
+    dropped: set[int] = set()
+    for jobs in unread:
+        reason = not_a_fit(jobs[0], rules)
+        if reason:
+            _count(summary, reason, jobs)
+            dropped.add(id(jobs))
+    return [jobs for jobs in result if id(jobs) not in dropped]
 
 
 def run_sweep(

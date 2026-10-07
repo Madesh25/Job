@@ -21,7 +21,7 @@ import json
 import logging
 import re
 from collections.abc import Callable, Iterator
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from typing import Any
 from urllib.parse import urlsplit
 
@@ -249,6 +249,7 @@ def read(job: Job, get_page: PageGetter) -> Job | None:
         log.info("page read but no job description found for %s: %s, %d characters, "
                  "title %r", job.company, host, len(page), _title(page))
         return replace(job, url=final_url) if moved else None
+    log.info("full text read for %s: %s, %d characters", job.company, host, len(text))
     # The full text states every requirement; the snippet may show only the smaller one.
     years = years_required(text)
     posted = experience(text)
@@ -264,6 +265,7 @@ def read(job: Job, get_page: PageGetter) -> Job | None:
 class Outcome:
     tried: int = 0
     read: int = 0
+    opened: set[int] = field(default_factory=set)  # id() of the groups whose page was tried
 
 
 def fill(
@@ -285,6 +287,7 @@ def fill(
     fulls = run_all(lambda group: read(group[0], get_page), todo, cfg.workers, done)
     for group, full in zip(todo, fulls, strict=True):
         outcome.tried += 1
+        outcome.opened.add(id(group))
         if full is not None:
             if full.description != group[0].description:
                 outcome.read += 1
