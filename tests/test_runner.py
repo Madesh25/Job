@@ -273,6 +273,9 @@ def test_progress_lines_are_plain_language():
         "Found 19 jobs. Saving to your Notion...",
         "Reading full job descriptions: 1 of 9",
         "Reading full job descriptions: 5 of 9",
+        # saved rows still waiting for a description (sweep/backfill.py)
+        "Descriptions for saved jobs: reading Odra Systems S.A.",
+        "Descriptions for saved jobs: reading Liffey Analytics Ltd",
     ]
 
 

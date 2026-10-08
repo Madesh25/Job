@@ -277,12 +277,13 @@ sweep:
     Poland:
       names: [poland, polska]
       cities:
-        Warszawa: [warszawa, warsaw]
-        Kraków: [krakow, cracow]
-        Wrocław: [wroclaw]
-        Poznań: [poznan]
-        Gdańsk: [gdansk]
-        Łódź: [lodz]
+        # LinkedIn sometimes names the county around the city ("Krakowski (Hybrid)", 8 Oct).
+        Warszawa: [warszawa, warsaw, warszawski]
+        Kraków: [krakow, cracow, krakowski]
+        Wrocław: [wroclaw, wroclawski]
+        Poznań: [poznan, poznanski]
+        Gdańsk: [gdansk, gdanski]
+        Łódź: [lodz, lodzki]
         Katowice: [katowice]
         Gdynia: [gdynia]
         Lublin: [lublin]
@@ -431,6 +432,14 @@ sweep:
       - change criteria for jobs by email
       - see all matching jobs
       - show job offers
+      # Indeed "match" emails (8 Oct): feedback buttons, not job titles
+      - view job
+      - view jobs
+      - this is a bad match
+      - this is a good match
+      - 'yes'
+      - 'no'
+      - not interested
     # Anchor texts that are never job titles (generic fallback for other boards).
     ignore_link_texts:
       - unsubscribe
@@ -538,6 +547,9 @@ sweep:
     # Jobs about to be saved whose page the rounds above never reached are read too (at most
     # this many), so no saved job is left without a description (Pracuj.pl alerts, 7 Oct).
     saved_max_pages: 30
+    # Saved Unscreened rows with no description get their page read after each sweep (at
+    # most this many), so jobs saved before PR #97 can still be screened (8 Oct).
+    backfill_pages: 20
     # gmail: the job links in alert emails (JustJoin IT, NoFluffJobs, Pracuj.pl, ...) are
     # followed to the real job page, whose link and full description are kept. LinkedIn is
     # never read, whatever this says.

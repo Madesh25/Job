@@ -16,7 +16,7 @@ from jobengine.reference import Reference
 from jobengine.safety import notion_write_target
 from jobengine.screen.visa import AGENCY, AGENCY_IE, agency_by_name, agency_flag
 from jobengine.settings import Settings
-from jobengine.sweep import best, crossmatch, fakes, fit, fulltext
+from jobengine.sweep import backfill, best, crossmatch, fakes, fit, fulltext
 from jobengine.sweep.dedupe import IndexRow, create_plan, description_blocks, update_plan
 from jobengine.sweep.gate import strategy_gate
 from jobengine.sweep.models import (
@@ -635,6 +635,17 @@ def run_sweep(
             summary.linkedin_filled = filled.labels
         except Exception:  # never fail a sweep over the cross-match
             log.exception("LinkedIn cross-match failed")
+
+    # Pass 4: saved rows that still wait for a description get their page read (8 Oct).
+    if repo and deps.page is not None:
+        try:
+            summary.backfilled = backfill.fill_waiting(
+                repo, deps.page, with_body,
+                max_pages=int((s.sweep.get("fulltext") or {}).get(
+                    "backfill_pages", backfill.DEFAULT_PAGES)),
+                progress=say)
+        except Exception:  # never fail a sweep over the backfill
+            log.exception("descriptions for saved jobs failed")
 
     high = sorted(label for label, risk in touched.values() if risk == "High")
     summary.high_ghost = len(high)
