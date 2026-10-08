@@ -108,7 +108,8 @@ class ScreenResult:
 class ScreenSummary:
     screened: int = 0
     by_verdict: dict[str, int] = field(default_factory=dict)
-    waiting_for_jd: int = 0
+    # None: this run did not look at rows without a description (/screen collect).
+    waiting_for_jd: int | None = 0
     errors: list[str] = field(default_factory=list)
     results: list[ScreenResult] = field(default_factory=list)
     usage_line: str | None = None  # "AI used: ... about $0.01" (llm.Usage.line)
@@ -125,9 +126,9 @@ class ScreenSummary:
         line = (
             f"Screening done: {self.screened} screened ({v.get('Apply high', 0)} high, "
             f"{v.get('Apply normal', 0)} normal, {v.get('Apply low', 0)} low, "
-            f"{v.get('Needs review', 0)} needs review, {v.get('Skip', 0)} skipped), "
-            f"{self.waiting_for_jd} waiting for JD."
+            f"{v.get('Needs review', 0)} needs review, {v.get('Skip', 0)} skipped)"
         )
+        line += "." if self.waiting_for_jd is None else f", {self.waiting_for_jd} waiting for JD."
         free = sum(1 for r in self.results if not r.llm_used and r.verdict == "Skip")
         if free:
             line += f" {free} skipped without the AI."

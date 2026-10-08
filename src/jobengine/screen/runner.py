@@ -25,7 +25,7 @@ from jobengine.notion_repo import (
 from jobengine.parallel import run_all
 from jobengine.reference import Reference
 from jobengine.safety import notion_write_target
-from jobengine.screen import daily, visa
+from jobengine.screen import daily, visa, waiting
 from jobengine.screen.extract import extract
 from jobengine.screen.gates import (
     APPLIED_STATUSES,
@@ -563,8 +563,16 @@ def pending_rows(repo: JobsRepo) -> list[JobRow]:
     return [job_row(pid, v) for pid, v in rows]
 
 
-def waiting_for_jd(repo: JobsRepo) -> list[JobRow]:
-    """Unscreened LinkedIn rows: LinkedIn is never fetched, so they wait for /jd."""
-    rows = repo.query_rows({"and": [select_filter("Screen verdict", "Unscreened"),
-                                    select_filter("Board", "LinkedIn")]})
-    return [job_row(pid, v) for pid, v in rows]
+def waiting_for_jd(repo: JobsRepo, state: Any = None) -> list[JobRow]:
+    """Unscreened rows that wait for /jd: LinkedIn rows (LinkedIn is never fetched) and,
+    with `state`, rows whose page gave no description (screen/waiting.py: Pracuj.pl and
+    other sites that block the bot). LinkedIn first, then by board."""
+    if state is None:
+        rows = repo.query_rows({"and": [select_filter("Screen verdict", "Unscreened"),
+                                        select_filter("Board", "LinkedIn")]})
+        return [job_row(pid, v) for pid, v in rows]
+    known = set(waiting.noted(state))
+    rows = [job_row(pid, v)
+            for pid, v in repo.query_rows(select_filter("Screen verdict", "Unscreened"))
+            if v.get("Board") == "LinkedIn" or pid in known]
+    return sorted(rows, key=lambda r: (r.board != "LinkedIn", r.board or ""))

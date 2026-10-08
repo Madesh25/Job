@@ -155,9 +155,82 @@ def job_ref(job_id: str) -> str:
     return "JOB-" + re.sub(r"[^0-9a-z]", "", job_id.lower())[:8]
 
 
-def domain_question(company: str, job_id: str) -> str:
-    return (f"What is the email domain for {company}? Reply to this message with the domain, "
-            f"e.g. example.com. Ref {job_ref(job_id)}")
+def domain_question(company: str, job_id: str, options: list[str] | None = None) -> str:
+    if options:
+        return (f"What is the email domain for {company}? Tap the right one below (found on "
+                "the job or careers page), or send the domain, e.g. example.com. "
+                f"Ref {job_ref(job_id)}")
+    return (f"What is the email domain for {company}? Send the domain, e.g. example.com. "
+            f"Ref {job_ref(job_id)}")
+
+
+# Phase 6 (8 Oct): the domain question offers the domains found on the job's own pages as
+# buttons. Only domains seen there are offered (never one made up from the company name),
+# and none is used until you tap it or send it.
+OPEN_ASK = "domain_ask:open"  # the latest open question, for a domain sent as plain text
+MAX_OPTIONS = 3
+URL_HOST = re.compile(r"https?://([a-z0-9.-]+\.[a-z]{2,})", re.I)
+EMAIL_HOST = re.compile(r"[\w.+-]+@([a-z0-9.-]+\.[a-z]{2,})", re.I)
+NOT_COMPANY = ("adzuna.", "jooble.", "europa.eu", "justjoin.it", "nofluffjobs.com",
+               "pracuj.pl", "theprotocol.it", "bulldogjob.pl", "irishjobs.ie", "jobs.ie",
+               "jobsireland.ie", "iamexpat.nl", "indeed.", "nationalevacaturebank.nl",
+               "linkedin.", "lnkd.in", "glassdoor.", "google.", "goo.gl", "bit.ly", "t.co",
+               "facebook.", "instagram.", "twitter.", "x.com", "youtube.", "youtu.be",
+               "tiktok.", "apple.com", "microsoft.com", "w3.org", "schema.org", "gstatic.",
+               "cloudflare.com", "ashbyhq.com", "workable.com", "jobvite.com", "icims.com",
+               "bamboohr.com", "successfactors.", "oraclecloud.com", "taleo.net",
+               "eightfold.ai", "phenompeople.com", "breezy.hr", "jobylon.com", "homerun.co",
+               "join.com", "softgarden.", "onlyfy.", "erecruiter.pl", "traffit.com")
+# Second-level suffixes where the company's domain has three parts (example.com.pl).
+TWO_PART = ("com.pl", "co.uk", "org.uk", "com.au", "co.nz", "com.br", "co.za", "com.tr")
+
+
+def _not_company(domain: str) -> bool:
+    """A job board, ATS, social or web service domain ("indeed." is any indeed.<tld>)."""
+    for name in NOT_COMPANY:
+        if name.endswith("."):
+            if domain.startswith(name) or f".{name}" in f".{domain}":
+                return True
+        elif domain == name or domain.endswith("." + name):
+            return True
+    return False
+
+
+def base_domain(host: str) -> str:
+    labels = host.lower().strip(".").removeprefix("www.").split(".")
+    keep = 3 if ".".join(labels[-2:]) in TWO_PART else 2
+    return ".".join(labels[-keep:])
+
+
+def domain_options(company: str, urls: list[str | None], jd: str) -> list[str]:
+    """Company email domains seen on the job's pages: the job link and careers page (when on
+    the company's own site), email addresses in the description, and links in it that carry
+    a word of the company name (a DevOps job links kubernetes.io too). Name matches first;
+    at most MAX_OPTIONS."""
+    words = [w for w in re.findall(r"[a-z0-9]+", canon_company(company).lower()) if len(w) > 2]
+
+    def named(domain: str) -> bool:
+        return any(w in domain for w in words)
+
+    seen = [(m.group(1), True) for u in urls if u for m in [URL_HOST.match(u)] if m]
+    seen += [(h, True) for h in EMAIL_HOST.findall(jd or "")]
+    seen += [(h, False) for h in URL_HOST.findall(jd or "")]
+    found: list[str] = []
+    for host, trusted in seen:
+        domain = valid_domain(base_domain(host))
+        if not domain or domain in found or _not_company(domain):
+            continue
+        if trusted or named(domain):
+            found.append(domain)
+    found.sort(key=lambda d: not named(d))  # stable: page order kept otherwise
+    return found[:MAX_OPTIONS]
+
+
+def open_question(state: BotState) -> dict[str, Any] | None:
+    """The latest domain question still waiting, or None."""
+    asked = state.get(OPEN_ASK) or {}
+    ref = asked.get("ref")
+    return {**asked, "ref": ref} if ref and state.get(f"domain_ask:{ref}") else None
 
 
 # ---------------------------------------------------------------- the lookup
@@ -258,9 +331,14 @@ def find_contacts(deps: ContactDeps, job_id: str, paid: bool = True) -> Contacts
         if domain is None:
             result.status = "waiting_domain"
             result.waiting_for_domain = True
-            result.message = domain_question(company, job_id)
+            target = deps.reference().company(company)
+            options = domain_options(company, [values.get("URL"),
+                                               target.careers_url if target else None], jd)
+            result.domain_options = options
+            result.message = domain_question(company, job_id, options)
             deps.state.set(f"domain_ask:{job_ref(job_id)}", {"job_id": job_id,
                                                              "company": company})
+            deps.state.set(OPEN_ASK, {"ref": job_ref(job_id), "company": company})
             return result
         if (config.get(GITHUB_SWITCH) or "").strip().lower() == "on" and \
                 open_slots().get(PEER, 0) > 0:
@@ -471,5 +549,7 @@ def answer_domain(deps: ContactDeps, replied_to: str, text: str) -> ContactsResu
                 "mail domains are not allowed). Reply with something like example.com.")
     deps.state.set(state_key(asked["company"]), {"domain": domain})
     deps.state.delete(f"domain_ask:{match.group(1)}")
+    if (deps.state.get(OPEN_ASK) or {}).get("ref") == match.group(1):
+        deps.state.delete(OPEN_ASK)
     return find_contacts(deps, asked["job_id"])
 

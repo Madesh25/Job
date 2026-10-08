@@ -115,7 +115,7 @@ def submit(s: Settings, deps: ScreenDeps, today: date, limit: int | None = None)
 
 def collect(s: Settings, deps: ScreenDeps, today: date) -> ScreenSummary:
     """Save the answers of the waiting batch once it has ended."""
-    summary = ScreenSummary()
+    summary = ScreenSummary(waiting_for_jd=None)  # only batch rows are looked at
     if deps.repo is None or deps.state is None:
         summary.errors.append(NO_BATCH)
         return summary

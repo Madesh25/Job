@@ -57,7 +57,8 @@ HELP_TEXT = (
     "/autopilot when - the morning schedule (Config schedule.autopilot) and the next run\n"
     "/pending - review screened jobs one at a time, one country at a time (Approve, Skip, "
     "Next); /pending poland, netherlands, ireland, remote or all\n"
-    "/jd <url> - paste a job description (for LinkedIn jobs), then /done\n"
+    "/jd <url> - paste a job description (LinkedIn, Pracuj.pl and other blocked sites), "
+    "then /done\n"
     "/jd - list jobs waiting for a description\n"
     "/linkedin - LinkedIn jobs one at a time: paste each description, tap Done (screened)\n"
     "/screen - screen jobs that are not screened yet\n"
@@ -126,7 +127,9 @@ def bot_commands() -> list[dict[str, str]]:
 
 
 # Shown at once on a button tap (Telegram's small popup) while the work runs.
-TAP_TOASTS = {"ap": "Approving, building your resume...", "sk": "Skipping...",
+TAP_TOASTS = {"ap": "Checking the job link, then building your resume...",
+              "sk": "Skipping...", "ab": "Approving, building your resume...",
+              "xe": "Marking it expired...", "dm": "Using that domain...",
               "nx": "Next job...", "pc": "Loading that country's jobs...",
               "fg": "Adding it and rebuilding...",
               "fc": "Adding it and rebuilding...", "ct": "Finding contacts...",

@@ -112,8 +112,11 @@ apply_pack:
         (Highly Skilled Migrant minimum under 30, 2026)"
     Ireland:
       permit: "I need an Irish employment permit. DevOps is on the Critical Skills Occupations
-        List, so a General Employment Permit needs no labour market test."
-      salary_floor: "EUR 36,605 a year (General Employment Permit minimum from March 2026)"
+        List: a Critical Skills Employment Permit (from EUR 40,904 with my degree) or a General
+        Employment Permit (from EUR 36,605), neither with a labour market test."
+      salary_floor: "EUR 40,904 a year for a Critical Skills Employment Permit (relevant degree),
+        EUR 36,605 for a General Employment Permit (DETE minimums from 1 March 2026; basic pay
+        only, bonuses do not count)"
 resume:
   # Defaults; Notion Config keys with the same names (resume.fill_min, ...) win when set.
   fill_min: 88
@@ -550,6 +553,9 @@ sweep:
     # Saved Unscreened rows with no description get their page read after each sweep (at
     # most this many), so jobs saved before PR #97 can still be screened (8 Oct).
     backfill_pages: 20
+    # Sites that answer HTTP 403 to the bot (probe and /fetch, 8 Oct): never opened, not even
+    # through an alert's tracking link. Their jobs come from alert emails and wait for /jd.
+    blocked_hosts: [pracuj.pl, irishjobs.ie, jobs.ie]
     # gmail: the job links in alert emails (JustJoin IT, NoFluffJobs, Pracuj.pl, ...) are
     # followed to the real job page, whose link and full description are kept. LinkedIn is
     # never read, whatever this says.

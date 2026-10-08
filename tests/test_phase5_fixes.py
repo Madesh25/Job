@@ -82,7 +82,7 @@ def test_a_register_page_that_drops_every_sponsor_changes_nothing():
     assert report.changes == [] and not report.written
     assert report.text().startswith("IND register check failed: 28 of 28 Verified companies "
                                     "would become Not listed at once (")
-    assert report.text().endswith("Nothing was changed.")
+    assert "Nothing was changed.\nNames read, for example: " in report.text()
 
 
 def test_a_normal_register_run_says_how_many_names_were_read():

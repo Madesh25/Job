@@ -41,7 +41,8 @@ def test_apply_here_gives_the_employer_page():
     opened = []
     d.get_page = lambda url: (opened.append(url), (EMPLOYER, ""))[1]
     last = approve_resume(d)[-1].text
-    assert opened == ["https://www.adzuna.pl/land/ad/5901137322"]
+    # Approve opens the job link once (is it still open?), Approve resume the redirect.
+    assert opened == [ADZ, "https://www.adzuna.pl/land/ad/5901137322"]
     assert last.startswith(f"Resume approved and saved. Apply here: {EMPLOYER}\n"
                            "(The employer's own page. The Adzuna link is kept on the Notion "
                            "page.)")
@@ -61,5 +62,7 @@ def test_blocked_adzuna_link_gets_a_search_and_the_vpn_note():
 
 def test_other_links_are_not_opened():
     d = make_desk()
-    d.get_page = lambda url: (_ for _ in ()).throw(AssertionError("no page read"))
+    opened = []
+    d.get_page = lambda url: (opened.append(url), (url, "<p>An open job</p>"))[1]
     assert "Apply here: https://jobs.example.com/pl-clean\n" in approve_resume(d)[-1].text
+    assert opened == ["https://jobs.example.com/pl-clean"]  # only the open check on Approve

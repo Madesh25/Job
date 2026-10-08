@@ -20,6 +20,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+import threading
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field, replace
 from typing import Any
@@ -58,6 +59,9 @@ class Config:
     sources: tuple[str, ...] = DEFAULT_SOURCES
     full_min: int = 600
     workers: int = 8  # pages read at the same time (sweep.workers)
+    # Sites that answer HTTP 403 to the bot (8 Oct: Pracuj.pl, IrishJobs, Jobs.ie): never
+    # opened; their jobs wait for /jd.
+    blocked_hosts: tuple[str, ...] = ()
 
     @classmethod
     def from_settings(cls, s: Settings) -> Config:
@@ -68,7 +72,47 @@ class Config:
             sources=tuple(cfg.get("sources") or DEFAULT_SOURCES),
             full_min=int(s.screening.get("full_min_chars", 600)),
             workers=max(1, int(s.sweep.get("workers", 8))),
+            blocked_hosts=blocked_hosts(s),
         )
+
+
+def blocked_hosts(s: Settings) -> tuple[str, ...]:
+    """sweep.fulltext.blocked_hosts, lower case."""
+    cfg = s.sweep.get("fulltext") or {}
+    return tuple(str(h).strip().lower() for h in cfg.get("blocked_hosts") or () if str(h).strip())
+
+
+# The answers of a site that refuses the bot (not a missing page: 404 is one job's problem).
+REFUSED = (401, 403)
+
+
+class SiteGuard:
+    """A PageGetter for one sweep that skips sites refusing the bot: the configured
+    blocked_hosts, and any site that answered HTTP 401 or 403 earlier in this sweep (one
+    refusal, not one per job). The skip is an HttpError, like any page that cannot be read."""
+
+    def __init__(self, get_page: PageGetter, hosts: tuple[str, ...] = ()):
+        self.get_page = get_page
+        self.hosts: set[str] = set(hosts)
+        self.refused: set[str] = set()  # learned in this sweep
+        self._lock = threading.Lock()
+
+    def __call__(self, url: str) -> tuple[str, str]:
+        host = (urlsplit(url).hostname or "").lower()
+        with self._lock:
+            known = (*self.hosts, *self.refused)
+        if host and http.host_in(host, known):
+            raise http.HttpError(f"page not read: {host} blocks the bot (alerts only)", 403,
+                                 host)
+        try:
+            return self.get_page(url)
+        except http.HttpError as exc:
+            if exc.status in REFUSED and exc.host and not http.host_in(exc.host, known):
+                with self._lock:
+                    self.refused.add(exc.host.lower())
+                log.info("%s refused the bot (HTTP %s): not opened again in this sweep",
+                         exc.host, exc.status)
+            raise
 
 
 def _clean(text: str) -> str:
