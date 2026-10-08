@@ -230,6 +230,7 @@ class SweepSummary:
     own_site_count: int = 0  # companies with their own job site, covered by alerts
     full_tried: int = 0
     linkedin_filled: list[str] = field(default_factory=list)  # sweep/crossmatch.py
+    backfilled: list[str] = field(default_factory=list)  # sweep/backfill.py
     alert_emails: int | None = None  # email alerts read (None: the source did not run)
 
     def _skipped_detail(self) -> str:
@@ -304,6 +305,10 @@ class SweepSummary:
             lines.append(f"\U0001F517 LinkedIn jobs: description found on another site "
                          f"(no /jd needed): {len(self.linkedin_filled)}")
             lines.extend(f"- {job}" for job in self.linkedin_filled)
+        if self.backfilled:
+            lines.append(f"\U0001F4DD Saved jobs that waited for a description, now filled "
+                         f"(/screen can screen them): {len(self.backfilled)}")
+            lines.extend(f"- {job}" for job in self.backfilled[:10])
         lines += [
             f"\U0001F501 Already in Notion, seen again: {self.updated + self.reposts}",
             f"\U0001F6AB Not a match (skipped): {self.skipped}{self._skipped_detail()}",

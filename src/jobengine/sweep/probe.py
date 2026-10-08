@@ -84,6 +84,11 @@ SITES = {site.name: site for site in (
     Site("nvb", "Nationale Vacaturebank",
          "https://www.nationalevacaturebank.nl/vacatures/zoeken?query={q}&sort=date"),
     Site("irishjobs", "IrishJobs.ie", "https://www.irishjobs.ie/jobs/{path}?sort=2"),
+    # 8 Oct: the terms of these two allow reading for your own job search (Jobs.ie: personal,
+    # non-commercial use; JobsIreland.ie: the public service for jobseekers). The probe
+    # shows whether the bot can read them from your PC before a reader is built.
+    Site("jobsie", "Jobs.ie", "https://www.jobs.ie/jobs/{path}"),
+    Site("jobsireland", "JobsIreland.ie", "https://jobsireland.ie/en-US/browse-jobs?keyword={q}"),
 )}
 
 NEXT_DATA = re.compile(r'<script[^>]+id="__NEXT_DATA__"[^>]*>(.*?)</script>', re.S)
