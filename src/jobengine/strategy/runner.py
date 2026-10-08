@@ -32,7 +32,9 @@ RUN_KEY = "strategy.run"
 MAX_TOKENS = 4000
 REF_RE = re.compile(r"Ref ST-([0-9a-f]{8})")
 STARTED = "Researching current practice. This takes a minute."
-FOLD_REMINDER = "Adopted tips are not in V16 yet. Ask Claude to fold them in."
+FOLD_REMINDER = ("They are used from now on, on top of V16: resume and ATS tips when a resume "
+                 "is tailored, the others in the Apply pack, mail drafts and interview pings. "
+                 "V16 stays the main rules and is never changed by a tip.")
 OPEN_TIPS = ("The strategy date (and /fetch) moves only when every tip is adopted or rejected; "
              "Reject the rest closes the review at once.")
 

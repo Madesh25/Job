@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import logging
 import time
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Collection, Mapping
 from typing import Any
 from urllib.parse import urljoin, urlsplit
 
@@ -53,9 +53,16 @@ _sleep: Callable[[float], None] = time.sleep
 class HttpError(Exception):
     """A request failed. The message has the method, host and path, never the query."""
 
-    def __init__(self, message: str, status: int | None = None):
+    def __init__(self, message: str, status: int | None = None, host: str | None = None):
         super().__init__(message)
         self.status = status
+        self.host = host  # the host that answered `status` (get_page), for blocked sites
+
+
+def host_in(host: str, hosts: Collection[str]) -> bool:
+    """True when host is one of `hosts` or a subdomain of one (www.pracuj.pl, pracuj.pl)."""
+    host = host.lower().rstrip(".")
+    return any(host == h or host.endswith("." + h) for h in hosts)
 
 
 def set_transport(transport: httpx.BaseTransport | None) -> None:
@@ -203,6 +210,7 @@ def patch_json(
 def get_page(
     url: str, s: Settings | None = None, max_bytes: int = PAGE_MAX_BYTES, *,
     accept_json: bool = False, json_body: Any = None, accept_feed: bool = False,
+    blocked: Collection[str] = (),
 ) -> tuple[str, str]:
     """Read one public job page: (final URL, text). Plain GET, no cookies, no login.
 
@@ -212,6 +220,8 @@ def get_page(
     `accept_json`: a JSON answer is read too (a job board's public search). `json_body`: the
     request is a POST with that JSON (a public search form); a redirect is then a GET.
     `accept_feed`: an RSS or XML answer is read too (a career site's job feed).
+    `blocked`: sites that refuse the bot (sweep.fulltext.blocked_hosts); a link or redirect to
+    one is not followed, so a tracking link in an alert stops before the blocked site.
     """
     s = s or get_settings()
     types = (*PAGE_TYPES, "application/json") if accept_json else PAGE_TYPES
@@ -230,6 +240,9 @@ def get_page(
                 assert_page_fetch_allowed(url, s)
             except SafetyError as exc:
                 raise HttpError(f"page not read: {exc}") from None
+            host = (urlsplit(url).hostname or "").lower()
+            if blocked and host_in(host, blocked):
+                raise HttpError(f"page not read: {host} blocks the bot (alerts only)", 403, host)
             where = f"{method} {safe_url(url)}"
             client.cookies.clear()
             body_kw = {"json": json_body} if method == "POST" else {}
@@ -244,7 +257,7 @@ def get_page(
                         continue
                     if resp.status_code >= 400:
                         raise HttpError(f"{where} failed: HTTP {resp.status_code}",
-                                        resp.status_code)
+                                        resp.status_code, host)
                     kind = resp.headers.get("content-type", "").split(";")[0].strip().lower()
                     if kind and kind not in types:
                         raise HttpError(f"{where} failed: not a web page ({kind})")

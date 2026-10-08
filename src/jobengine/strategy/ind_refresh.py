@@ -47,22 +47,28 @@ class IndReport:
     error: str | None = None
     written: bool = False
     names: int = 0  # organisations read from the register page
+    sample: list[str] = field(default_factory=list)  # a few names, to see what was read
 
     def text(self) -> str:
         if self.error:
-            return f"IND register check failed: {self.error}. Nothing was changed."
+            return (f"IND register check failed: {self.error}. Nothing was changed."
+                    + self._sample())
         changed = "; ".join(f"{c.company}: {c.old or 'empty'} -> {c.new}" for c in self.changes)
         line = (f"IND register: {self.checked} NL companies checked, {len(self.changes)} changed"
                 + (f" ({changed})" if changed else "") + ".")
         if self.changes and not self.written:
             line += " Not written outside prod."
         line += f" ({self.names} names read from the register.)"
-        lines = [line]
+        lines = [line + self._sample()]
         for c in self.changes:
             if c.demoted:
                 lines.append(f"Warning: {c.company} is no longer on the IND register. Its jobs "
                              "now rank lower in screening.")
         return "\n".join(lines)
+
+    def _sample(self) -> str:
+        # Phase 6: 13,020 "names" matched nothing; they were KvK numbers. Show what was read.
+        return f"\nNames read, for example: {'; '.join(self.sample)}" if self.sample else ""
 
 
 @dataclass
@@ -88,6 +94,9 @@ def refresh(deps: IndDeps) -> IndReport:
         report.error = str(exc)
         return report
     report.names = len(register.names)
+    step = max(1, len(register.names) // 3)
+    report.sample = register.names[::step][:3]
+    log.info("IND register: %d names read, for example %s", report.names, report.sample)
     today = deps.today()
     writes: list[tuple[str, dict[str, Any]]] = []
     companies = deps.companies()

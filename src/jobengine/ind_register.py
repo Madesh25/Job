@@ -73,11 +73,18 @@ class IndRegister:
 NAME_HEADERS = ("organisation", "organization", "organisatie", "name", "naam")
 
 
+def _letters(value: str) -> bool:
+    return sum(ch.isalpha() for ch in value) > len(value) / 2
+
+
 def parse_register_html(html: str) -> list[str]:
     """Organisation names from the register page.
 
     The page lists the organisations in a table. The name column is found by its header
-    (Organisation, Organisatie or Name); without a matching header the first column is used.
+    (Organisation, Organisatie or Name). A row's first cell may be a <th> (a row header, as on
+    the IND page: name in <th>, KvK number in <td>); reading only <td> cells gave 13,020 KvK
+    numbers and no match at all (Phase 6, 8 Oct). So every cell counts, and a column that
+    holds mostly numbers is never taken for the names: the column with the most letters is.
     Raises ValueError when no names are found, so a changed page is reported, not ignored.
     """
     from bs4 import BeautifulSoup
@@ -85,16 +92,25 @@ def parse_register_html(html: str) -> list[str]:
     soup = BeautifulSoup(html, "html.parser")
     names: list[str] = []
     for table in soup.find_all("table"):
-        headers = [th.get_text(" ", strip=True).lower() for th in table.find_all("th")]
-        column = next(
-            (i for i, h in enumerate(headers) if any(h.startswith(n) for n in NAME_HEADERS)), 0
-        )
-        for tr in table.find_all("tr"):
-            cells = tr.find_all("td")
-            if len(cells) > column:
-                name = cells[column].get_text(" ", strip=True)
-                if name:
-                    names.append(name)
+        rows = [[c.get_text(" ", strip=True) for c in tr.find_all(("td", "th"))]
+                for tr in table.find_all("tr")]
+        header: list[str] = []
+        body = []
+        for tr, cells in zip(table.find_all("tr"), rows, strict=True):
+            if not header and cells and not tr.find_all("td"):
+                header = [c.lower() for c in cells]  # the first all-<th> row
+            elif cells:
+                body.append(cells)
+        if not body:
+            continue
+        width = max(len(cells) for cells in body)
+        wordy = [sum(1 for cells in body if len(cells) > i and _letters(cells[i]))
+                 for i in range(width)]
+        column = next((i for i, h in enumerate(header)
+                       if any(h.startswith(n) for n in NAME_HEADERS)), None)
+        if column is None or column >= width or wordy[column] < len(body) / 2:
+            column = max(range(width), key=lambda i: wordy[i])
+        names += [cells[column] for cells in body if len(cells) > column and cells[column]]
     if not names:
         raise ValueError("no organisation names found on the IND register page")
     return names

@@ -52,7 +52,7 @@ def test_go_finds_contacts_then_writes_drafts_for_each_job():
     assert texts[3].startswith("What is the email domain for Tulip Data B.V.?")
     assert texts[-1] == (
         "Done: 2 job(s) applied today, 4 Gmail draft(s). DRY RUN: nothing was created in "
-        "Gmail.\nWaiting for the email domain (reply to the question, then tap Write Gmail "
+        "Gmail.\nWaiting for the email domain (answer the question, then tap Write Gmail "
         "drafts): Tulip Data B.V., Cloud Engineer")
 
 

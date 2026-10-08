@@ -81,5 +81,6 @@ class ContactsResult:
     credits_line: str = ""
     notes: list[str] = field(default_factory=list)
     waiting_for_domain: bool = False
+    domain_options: list[str] = field(default_factory=list)  # buttons under the question
     status: str = "done"  # done | waiting_domain | refused | failed
     message: str = ""

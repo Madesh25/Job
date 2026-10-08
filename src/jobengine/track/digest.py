@@ -35,7 +35,7 @@ def run_weekly_digest(deps: TrackDeps, now: datetime) -> str:
     ]
     if deps.jobs is not None:
         lines.append(f"Waiting in /pending: {len(pending_rows(deps.jobs))}")
-        lines.append(f"Waiting for a JD (/jd): {len(waiting_for_jd(deps.jobs))}")
+        lines.append(f"Waiting for a JD (/jd): {len(waiting_for_jd(deps.jobs, deps.state))}")
     drafts, followup_drafts = commands.unsent_drafts(contacts)
     lines.append(f"Unsent drafts: {drafts} cold mails, {followup_drafts} follow-ups")
     due = commands.followups_due(contacts, today, commands.followup_days(deps, config), 0)

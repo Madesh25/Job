@@ -128,7 +128,7 @@ def real_deps(s: Settings) -> SweepDeps:
         adzuna=lambda: adzuna.fetch(s),
         ats=lambda companies, keep, state=None: ats.fetch(s, companies, keep, state=state),
         reference=lambda: Reference.load(client, s),
-        page=lambda url: http.get_page(url, s=s),
+        page=lambda url: http.get_page(url, s=s, blocked=fulltext.blocked_hosts(s)),
         jooble=lambda: jooble.fetch(s),
         nofluffjobs=lambda: nofluffjobs.fetch(s),
         iamexpat=lambda: iamexpat.fetch(s),
@@ -416,6 +416,8 @@ def run_sweep(
                 log.exception("progress callback failed")
 
     sources = [name for name in SOURCES if name in set(sources)]
+    if deps.page is not None:  # a site that refuses the bot is asked once a sweep (8 Oct)
+        deps = replace(deps, page=fulltext.SiteGuard(deps.page, fulltext.blocked_hosts(s)))
     config = deps.config()
     blocked = strategy_gate(config, today, state, s)
     if blocked:
@@ -643,7 +645,8 @@ def run_sweep(
                 repo, deps.page, with_body,
                 max_pages=int((s.sweep.get("fulltext") or {}).get(
                     "backfill_pages", backfill.DEFAULT_PAGES)),
-                progress=say)
+                progress=say, state=state, today=today,
+                blocked=fulltext.blocked_hosts(s))
         except Exception:  # never fail a sweep over the backfill
             log.exception("descriptions for saved jobs failed")
 

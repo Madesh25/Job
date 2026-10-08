@@ -448,7 +448,7 @@ def test_pending_shows_one_card_in_rank_order(desk):
     assert text.startswith("[LOCAL] [1/")
     assert "Apply high\nTulip Data B.V., Cloud Engineer" in text
     assert "Match: 1 strong, 0 transferable, 1 gaps" in text
-    assert "1 LinkedIn job needs the JD: /jd" in text
+    assert "2 jobs need the JD (1 LinkedIn, 1 Company site): /jd" in text
     assert fake.buttons[0] == ["ap:nl-sponsor-yes", "sk:nl-sponsor-yes", "nx:1"]
     order = [r.page_id for r in desk.ranked()]
     assert "ie-5-years" not in order  # 5 years: over the 4-year limit, skipped with no AI
@@ -530,8 +530,9 @@ def test_old_capture_is_discarded(desk):
 
 def test_jd_without_url_lists_waiting_rows(desk):
     fake = talk(desk, "/jd")
-    assert "1 job waits for a description" in fake.sent[0][1]
+    assert "2 jobs wait for a description (1 LinkedIn, 1 Company site)" in fake.sent[0][1]
     assert "https://www.linkedin.com/jobs/view/4012345678" in fake.sent[0][1]
+    assert "Company site:\n- Northwind Cloud" in fake.sent[0][1]
 
 
 def test_plain_text_without_capture_gets_the_usual_answer(desk):
@@ -545,6 +546,12 @@ def test_screen_command(desk):
     assert fake.sent[1][1].startswith("[LOCAL] Screening done: 0 screened")
     assert fake.sent[2][1].startswith("[LOCAL] Screening done: 1 screened (1 high")
     assert "ready to review: /pending" in fake.sent[2][1]
+
+
+def test_screen_with_a_word_explains_the_forms(desk):
+    fake = talk(desk, "/screen pending")
+    assert fake.sent[0][1].startswith("[LOCAL] /screen screens the jobs waiting")
+    assert "/screen <job link or page id>" in fake.sent[0][1]
 
 
 def test_fetch_never_screens_by_itself():
@@ -747,8 +754,10 @@ def test_credits_command(desk):
 def test_contacts_command_asks_for_an_unknown_domain_and_resumes_on_reply(desk):
     fake = talk(desk, "/contacts https://jobs.example.com/nl-ind")
     question = fake.sent[-1][1]
-    assert question == ("[LOCAL] What is the email domain for Canal Payments? Reply to this "
-                        "message with the domain, e.g. example.com. Ref JOB-nlind")
+    assert question == ("[LOCAL] What is the email domain for Canal Payments? Tap the right one "
+                        "below (found on the job or careers page), or send the domain, e.g. "
+                        "example.com. Ref JOB-nlind")
+    assert fake.buttons[-1] == ["dm:JOB-nlind:example.com"]  # the job link's own site
     reply = {"update_id": 2, "message": {
         "chat": {"id": int(CHAT_ID)}, "text": "canal.example.com",
         "reply_to_message": {"message_id": 2, "text": question.removeprefix("[LOCAL] ")}}}
@@ -758,6 +767,22 @@ def test_contacts_command_asks_for_an_unknown_domain_and_resumes_on_reply(desk):
     bad = dict(reply, message=dict(reply["message"], text="canal.greenhouse.io"))
     fake = talk(desk, bad)
     assert "no longer open" in fake.sent[-1][1]  # already answered
+
+
+def test_a_domain_sent_on_its_own_answers_the_open_question(desk):
+    talk(desk, "/contacts https://jobs.example.com/nl-ind")
+    fake = talk(desk, "canal.example.com")  # not a Telegram reply (Phase 6, P6-3.1)
+    assert fake.sent[-1][1].startswith("[LOCAL] Contacts for Canal Payments")
+    # Answered: a later plain domain is just text again.
+    assert talk(desk, "canal.example.com").sent[-1][1].endswith("Send /help to see them.")
+
+
+def test_a_domain_button_answers_the_question(desk):
+    talk(desk, "/contacts https://jobs.example.com/nl-ind")
+    replies = desk.tap("dm:JOB-nlind:canal.example.com")
+    assert replies[-1].text.startswith("Contacts for Canal Payments")
+    assert desk.tap("dm:JOB-nlind:canal.example.com")[-1].text.startswith(
+        "That domain question is no longer open")
 
 
 def test_contacts_command_needs_a_job(desk):

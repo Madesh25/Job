@@ -28,7 +28,7 @@ from jobengine.notion_repo import FakeJobsRepo, JobsRepo
 from jobengine.reference import Reference
 from jobengine.resume import builder as resume_builder
 from jobengine.resume.builder import BuildOutcome, ResumeDeps
-from jobengine.screen import autopilot, batch, jd_capture
+from jobengine.screen import autopilot, batch, jd_capture, waiting
 from jobengine.screen.jd_capture import Capture, Captures
 from jobengine.screen.models import JobRow, ScreenSummary, split_gaps
 from jobengine.screen.runner import (
@@ -48,6 +48,7 @@ from jobengine.settings import ROOT_DIR, Settings
 from jobengine.strategy import runner as strategy_runner
 from jobengine.strategy import tips as tips_mod
 from jobengine.strategy.runner import StrategyDeps
+from jobengine.sweep.fulltext import blocked_hosts
 from jobengine.sweep.normalize import dedupe_key
 from jobengine.sweep.rank import Ranker
 from jobengine.track import commands as track_commands
@@ -73,7 +74,7 @@ REBUILD_ASK = (
 )
 UUID_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
 MATRIX_LINE = re.compile(r"^(Strong|Transferable|Gap) \| ")
-MAX_WAITING_LIST = 10
+MAX_WAITING_LIST = 25
 REFERENCE_TTL_SECONDS = 600
 NO_TARGET = "DRY RUN: no Job Opportunities target in this environment, nothing to show."
 # The bot sends a long text as several messages (telegram_bot.split_text); this only stops
@@ -90,6 +91,39 @@ class Reply:
     text: str
     buttons: list[tuple[str, str]] = field(default_factory=list)  # (label, callback data)
     document: tuple[str, bytes] | None = None  # (filename, PDF bytes); text is the caption
+
+
+SCREEN_USAGE = ("/screen screens the jobs waiting to be screened. Other forms:\n"
+                "/screen batch - send them to the half-price batch\n"
+                "/screen collect - save the batch answers\n"
+                "/screen <job link or page id> - screen one job again\n"
+                "Jobs ready for your decision are in /pending.")
+
+
+def _job_ref(ref: str) -> bool:
+    """False for a plain word or a sentence: /screen pending (8 Oct) reached Notion as a
+    page id and failed with HTTP 400. Links, posting IDs and page ids pass."""
+    return " " not in ref and not ref.isalpha()
+
+
+def _contacts_reply(result: Any) -> Reply:
+    """A contact lookup's message; the domain question gets a button per domain found."""
+    buttons = []
+    if result.status == "waiting_domain":
+        ref = contact_finder.job_ref(result.job_id)
+        for domain in result.domain_options:
+            data = f"dm:{ref}:{domain}"
+            if len(data.encode()) <= 64:  # Telegram's limit for button data
+                buttons.append((f"Use {domain}", data))
+    return Reply(result.message, buttons)
+
+
+def _by_board(rows: list[JobRow]) -> str:
+    """"12 LinkedIn, 9 Pracuj.pl" for the jobs waiting for a description."""
+    counts: dict[str, int] = {}
+    for row in rows:
+        counts[row.board or "Other"] = counts.get(row.board or "Other", 0) + 1
+    return ", ".join(f"{n} {board}" for board, n in counts.items())
 
 
 def _contact_ids(contacts: list[Any]) -> list[str]:
@@ -248,7 +282,7 @@ class Desk:
         self._ranker: Ranker | None = None
         # Reads one public page (the employer's link behind an Adzuna job).
         self.get_page: Callable[[str], tuple[str, str]] = \
-            lambda url: http.get_page(url, s=self.s)
+            lambda url: http.get_page(url, s=self.s, blocked=blocked_hosts(self.s))
 
     @property
     def repo(self) -> JobsRepo | None:
@@ -385,10 +419,11 @@ class Desk:
 
     def waiting_line(self) -> str | None:
         assert self.repo is not None
-        count = len(waiting_for_jd(self.repo))
-        if not count:
+        rows = waiting_for_jd(self.repo, self.state)
+        if not rows:
             return None
-        return f"{count} LinkedIn job{'s need' if count > 1 else ' needs'} the JD: /jd"
+        need = "jobs need" if len(rows) > 1 else "job needs"
+        return f"{len(rows)} {need} the JD ({_by_board(rows)}): /jd"
 
     def pending(self, index: int = 0, rows: list[JobRow] | None = None) -> list[Reply]:
         """The card at `index`. `rows` reuses a ranking already read (a button tap)."""
@@ -430,6 +465,8 @@ class Desk:
             return self.strategy_tap(action, arg)
         if action == "oc" and arg:
             return self.outreach_tap(arg)
+        if action == "dm" and arg:  # a domain button under the domain question
+            return self.domain_tap(arg)
         if action == "fr" and arg:  # a reason button under /fetchreport
             return self.fetchreport_command(arg)
         if action == "li" and arg:  # the LinkedIn queue (/linkedin)
@@ -453,7 +490,7 @@ class Desk:
             else:
                 self.say(Reply("Writing Gmail drafts (never sent)..."))
             return self.drafts(job_id)
-        if action not in ("ap", "sk") or not arg:
+        if action not in ("ap", "sk", "ab", "xe") or not arg:
             return [Reply("That button is no longer valid. Send /pending.")]
         before = self.ranked()
         position = next((i for i, r in enumerate(before) if same_page(r.page_id, arg)), 0)
@@ -473,7 +510,20 @@ class Desk:
             return [Reply("Already handled"), *self.pending(position)]
         page_id = next((r.page_id for r in before if same_page(r.page_id, arg)), arg)
         job = f"{values.get('Company')}, {values.get('Role')}"
+        if action == "xe":  # "Skip as expired" under the closed-posting warning
+            self.repo.update(page_id, {"Status": "Expired"})
+            return [Reply(f"Marked expired: {job}"), *self.pending(position, rest)]
         if action == "ap":
+            from jobengine.apply import link
+
+            closed = link.closed_reason(values.get("URL") or "", self.get_page, self.today())
+            if closed:  # Phase 6: no resume for a posting that is gone, unless you say so
+                pid = short_id(page_id)
+                return [Reply(f"\u26A0\uFE0F {job}: the posting looks closed ({closed}).\n"
+                              f"{values.get('URL')}\nBuild the resume anyway?",
+                              [("Build anyway", f"ab:{pid}"),
+                               ("Skip as expired", f"xe:{pid}")])]
+        if action in ("ap", "ab"):
             self.repo.update(page_id, {"Status": "Approved"})
             self.say(Reply(APPROVED_TEXT.format(job=job)))
             return self.after_build(self.on_job_approved(page_id, values), position, rest)
@@ -749,7 +799,7 @@ class Desk:
         result = contact_finder.find_contacts(self.contacts, job_id, paid=paid)
         if result.status == "done":
             return self._then_drafts(Reply(result.message), job_id, result.contacts)
-        return [Reply(result.message)]
+        return [_contacts_reply(result)]
 
     def _then_drafts(self, first: Reply, job_id: str, contacts: list[Any]) -> list[Reply]:
         """The contacts summary with a "Write Gmail drafts" button: drafts are only written
@@ -852,7 +902,7 @@ class Desk:
                 planner.force(c.state, c.config(), job_id, c.today())  # still counted
                 found = contact_finder.find_contacts(c, job_id)
                 if found.status == "waiting_domain":
-                    emit(Reply(found.message))  # reply to it; then tap Write Gmail drafts
+                    emit(_contacts_reply(found))  # answer it; then tap Write Gmail drafts
                     waiting.append(job)
                     continue
                 if found.status != "done" or not _contact_ids(found.contacts):
@@ -878,7 +928,7 @@ class Desk:
         if none:
             lines.append("No contacts found: " + "; ".join(none))
         if waiting:
-            lines.append("Waiting for the email domain (reply to the question, then tap Write "
+            lines.append("Waiting for the email domain (answer the question, then tap Write "
                          "Gmail drafts): " + "; ".join(waiting))
         if failed:
             lines.append("Drafts not written (see the message above): " + "; ".join(failed))
@@ -938,7 +988,8 @@ class Desk:
         return [Reply("\n".join(lines))]
 
     def domain_answer(self, replied_to: str, text: str) -> list[Reply] | None:
-        """A reply to "What is the email domain for ...? Ref JOB-xxxxxxxx"."""
+        """An answer to "What is the email domain for ...? Ref JOB-xxxxxxxx": a Telegram
+        reply to it, a tapped domain button, or (domain_text) the domain sent on its own."""
         if self.contacts is None or "Ref JOB-" not in replied_to:
             return None
         answer = contact_finder.answer_domain(self.contacts, replied_to, text)
@@ -949,6 +1000,23 @@ class Desk:
         if answer.status == "done":
             return self._then_drafts(Reply(answer.message), answer.job_id, answer.contacts)
         return [Reply(answer.message)]
+
+    def domain_text(self, text: str) -> list[Reply] | None:
+        """A plain message that is only a domain, while a domain question is open (Phase 6:
+        the answer did not count unless sent as a Telegram reply)."""
+        word = text.strip()
+        if self.contacts is None or " " in word or not contact_finder.valid_domain(word):
+            return None
+        asked = contact_finder.open_question(self.contacts.state)
+        if asked is None:
+            return None
+        return self.domain_answer(f"Ref {asked['ref']}", word)
+
+    def domain_tap(self, arg: str) -> list[Reply]:
+        """A domain button under the question: dm:JOB-xxxxxxxx:example.com."""
+        ref, _, domain = arg.partition(":")
+        replies = self.domain_answer(f"Ref {ref}", domain)
+        return replies or [Reply("That domain question is no longer open.")]
 
     # ------------------------------------------------------------ drafts (Module 06)
 
@@ -1254,6 +1322,8 @@ class Desk:
 
     def _summary_text(self, summary: ScreenSummary) -> str:
         assert self.repo is not None
+        if summary.waiting_for_jd is None:  # /screen collect: the real count (8 Oct)
+            summary.errors.append(self.waiting_line() or "No jobs wait for a description.")
         ready = len(pending_rows(self.repo))
         if not ready:
             return summary.text()
@@ -1267,6 +1337,9 @@ class Desk:
     def screen_replies(self, args: str = "",
                        progress: Callable[[str], None] | None = None) -> list[Reply]:
         """The screening summary, then an alert card for each new Apply high job."""
+        word = args.strip()
+        if word and word.lower() not in ("batch", "collect") and not _job_ref(word):
+            return [Reply(SCREEN_USAGE)]
         text, summary = self._screen(args, progress)
         return [Reply(text), *self.high_alerts(summary)]
 
@@ -1304,8 +1377,16 @@ class Desk:
                 summary = screen_one(self.s, self.deps, self.today(), args.strip())
             else:
                 summary = screen_pending(self.s, self.deps, self.today(), progress)
-        except (ScreenError, LLMError, http.HttpError) as exc:
+        except http.HttpError as exc:
+            if exc.status == 400 and word not in ("batch", "collect"):  # not a page id
+                return f"No job found for {args.strip()}.\n{SCREEN_USAGE}", None
             return f"Screening could not run: {exc}", None
+        except (ScreenError, LLMError) as exc:
+            return f"Screening could not run: {exc}", None
+        # Rows with no description wait for /jd, whatever their board (8 Oct).
+        waiting.note(self.state, (r.page_id for r in summary.results
+                                  if r.verdict == "Unscreened"
+                                  and r.description_kind == "none"), self.today())
         return self._summary_text(summary), summary
 
     # ------------------------------------------------------------ /autopilot
@@ -1413,7 +1494,8 @@ class Desk:
     def linkedin_rows(self) -> list[JobRow]:
         """LinkedIn jobs that wait for their description: new, never screened."""
         assert self.repo is not None
-        rows = [r for r in waiting_for_jd(self.repo) if r.status in (None, "", "New")]
+        rows = [r for r in waiting_for_jd(self.repo)
+                if r.board == "LinkedIn" and r.status in (None, "", "New")]
         rows.sort(key=lambda r: r.swept_date or date.min, reverse=True)
         return rows
 
@@ -1458,21 +1540,30 @@ class Desk:
 
     def waiting_list(self) -> Reply:
         assert self.repo is not None
-        rows = waiting_for_jd(self.repo)
+        rows = waiting_for_jd(self.repo, self.state)
         if not rows:
             return Reply("No jobs are waiting for a description. Use /jd <url> to paste one.")
+        # Newest first within each board, LinkedIn first (8 Oct: other boards are listed too).
         rows.sort(key=lambda r: r.swept_date or date.min, reverse=True)
+        rows.sort(key=lambda r: (r.board != "LinkedIn", r.board or ""))
         jobs = f"{len(rows)} jobs wait" if len(rows) > 1 else "1 job waits"
-        lines = [f"{jobs} for a description. Send /jd <url> and paste it:"]
+        lines = [f"{jobs} for a description ({_by_board(rows)}). Open the link, copy the job "
+                 "text, then send /jd <url> and paste it:"]
+        board = None
         for row in rows[:MAX_WAITING_LIST]:
+            if row.board != board:
+                board = row.board
+                lines.append(f"\n{board or 'Other'}:")
             lines.append(f"- {row.company}, {row.role}\n  {row.url or '(no URL)'}")
+        if len(rows) > MAX_WAITING_LIST:
+            lines.append(f"\n{len(rows) - MAX_WAITING_LIST} more not shown.")
         return Reply("\n".join(lines))
 
     def text(self, message: str) -> list[Reply] | None:
         """A plain text message. None when no capture is active (the bot answers as usual)."""
         capture = self.captures.get()
         if capture is None:
-            return self._rebuild_answer(message)
+            return self.domain_text(message) or self._rebuild_answer(message)
         if self.captures.expired(capture, self.now()):
             return [self._discarded(capture)]
         capture = self.captures.add(capture, message)

@@ -67,7 +67,8 @@ def test_gate_opens_only_after_every_tip_is_decided():
     assert d.state.get("last_strategy_update") is None
     final = runner.decide(d, ids[2], adopt=True)
     assert "Strategy updated. /fetch is open until 2026-10-31." in final[1]
-    assert "Adopted tips are not in V16 yet. Ask Claude to fold them in." in final[1]
+    assert "They are used from now on, on top of V16" in final[1]
+    assert "not in V16 yet" not in final[1]
     assert d.state.get("last_strategy_update") == {"date": "2026-10-01"}
     stale = config.__class__.from_values(
         {"last_strategy_update": "2026-08-01", "strategy_refresh_days": "30"})
