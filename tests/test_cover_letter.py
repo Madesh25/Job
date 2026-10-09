@@ -5,6 +5,8 @@ from weasyprint import HTML
 
 from jobengine.apply import cover
 
+EM = chr(0x2014)  # an em dash (the repo itself never contains one)
+
 RESUME = ("Madeshwaran M. DevOps Engineer at Xerago. Kubernetes, Terraform, AWS, Jenkins. "
           "Open to relocate. Notice 90 days.")
 LETTER = ("Dear Hiring Team,\n\n" + "I run Kubernetes and Terraform on AWS every day. " * 14
@@ -30,9 +32,9 @@ def write(llm, gaps=()):
 
 
 def test_letter_from_the_resume_and_the_job():
-    llm = LLM({"letter": LETTER.replace("every day.", "every day — really.")})
+    llm = LLM({"letter": LETTER.replace("every day.", f"every day {EM} really.")})
     letter = write(llm)
-    assert letter.text.startswith("Dear Hiring Team,") and "—" not in letter.text
+    assert letter.text.startswith("Dear Hiring Team,") and EM not in letter.text
     stage, key, user = llm.calls[0]
     assert stage == "tailor" and key == "cover-job1"
     assert "RESUME:\n" + RESUME in user and "COMPANY DETAILS: platform team" in user
