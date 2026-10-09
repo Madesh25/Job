@@ -935,7 +935,7 @@ def test_outreach_command(desk):
 def test_bot_commands_menu_lists_every_help_command_once():
     commands = tb.bot_commands()
     names = [c["command"] for c in commands]
-    assert names[:5] == ["start", "status", "fetch", "autopilot", "pending"]
+    assert names[:5] == ["start", "next", "status", "fetch", "autopilot"]
     assert names.count("jd") == 1 and names.count("screen") == 1
     assert "help" in names
     assert all(c["description"] and len(c["description"]) <= 256 for c in commands)
