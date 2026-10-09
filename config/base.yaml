@@ -161,6 +161,41 @@ reply_drafts:
   start: "Earliest start: {earliest_start}."
   relocation: "On relocation: {relocation}."
   closing: "Kind regards,\n{name}"
+learning:
+  # The learning plan under /gaps (screen/learning.py): each certificate and the skills it
+  # teaches, as job descriptions name them. The one covering gaps in the most jobs comes first.
+  certificates:
+    "Microsoft Azure Administrator (AZ-104)": [azure, aks, azure ad, entra id, arm templates,
+                                               bicep, azure monitor]
+    "Microsoft Azure DevOps Engineer Expert (AZ-400)": [azure devops, azure pipelines,
+                                                        azure repos, azure artifacts]
+    "Google Cloud Associate Cloud Engineer": [gcp, google cloud, gke, cloud run, bigquery,
+                                              cloud build]
+    "AWS Certified DevOps Engineer Professional": [codepipeline, codebuild, codedeploy,
+                                                   cloudformation, ecs, fargate, lambda,
+                                                   cloudwatch, systems manager]
+    "AWS Certified Solutions Architect Associate": [aws, ec2, s3, iam, vpc, rds, dynamodb,
+                                                    route 53, elb, sqs, sns, aurora]
+    "Certified Kubernetes Administrator (CKA)": [kubernetes, k8s, kubectl, etcd, kubeadm,
+                                                 openshift]
+    "Certified Kubernetes Security Specialist (CKS)": [kubernetes security, falco, opa,
+                                                       gatekeeper, kyverno, trivy, devsecops,
+                                                       container security]
+    "HashiCorp Terraform Associate": [terraform, terragrunt, infrastructure as code, iac, hcl]
+    "HashiCorp Vault Associate": [vault, hashicorp vault, secrets management]
+    "Red Hat Certified System Administrator (RHCSA)": [linux, rhel, red hat, centos, selinux,
+                                                       systemd, bash, shell scripting]
+    "Red Hat Certified Engineer, Ansible (RHCE)": [ansible, ansible tower, awx,
+                                                   configuration management]
+    "Prometheus Certified Associate (PCA)": [prometheus, promql, alertmanager, grafana,
+                                             observability, monitoring]
+    "Istio Certified Associate (ICA)": [istio, service mesh, envoy, linkerd]
+    "Certified Argo Project Associate (CAPA)": [argo cd, argocd, argo workflows,
+                                                argo rollouts, gitops, flux]
+    "GitHub Actions certification": [github actions]
+    "Datadog Fundamentals": [datadog]
+    "Elastic Certified Engineer": [elasticsearch, elk, elastic stack, logstash, kibana,
+                                   opensearch]
 resume:
   # Defaults; Notion Config keys with the same names (resume.fill_min, ...) win when set.
   fill_min: 88
