@@ -29,7 +29,7 @@ from jobengine.notion_repo import FakeJobsRepo, JobsRepo, select_filter
 from jobengine.reference import Reference
 from jobengine.resume import builder as resume_builder
 from jobengine.resume.builder import BuildOutcome, ResumeDeps
-from jobengine.screen import autopilot, batch, jd_capture, waiting
+from jobengine.screen import autopilot, batch, jd_capture, keywords_report, learning, waiting
 from jobengine.screen.jd_capture import Capture, Captures
 from jobengine.screen.models import JobRow, ScreenSummary, split_gaps
 from jobengine.screen.runner import (
@@ -82,6 +82,7 @@ NO_TARGET = "DRY RUN: no Job Opportunities target in this environment, nothing t
 # The bot sends a long text as several messages (telegram_bot.split_text); this only stops
 # a runaway answer.
 MAX_TEXT = 20000
+NO_GAP = ("none", "n/a", "-")  # a Gaps cell that says there is none
 HIGH_ALERT = "\U0001F525 Apply high: apply today while the posting is fresh."
 MAX_HIGH_ALERTS = 5
 MAX_KEYWORDS = 6  # missing keywords shown on a /pending card
@@ -1328,11 +1329,13 @@ class Desk:
         counts: dict[str, list[str]] = {}
         names: dict[str, str] = {}
         rows = 0
+        per_job: list[list[str]] = []
         for _pid, values in self.repo.query_rows():
-            gaps = split_gaps(values.get("Gaps"))
+            gaps = [g for g in split_gaps(values.get("Gaps")) if g.casefold() not in NO_GAP]
             if not gaps:
                 continue
             rows += 1
+            per_job.append(gaps)
             company = values.get("Company") or "?"
             for gap in dict.fromkeys(g.casefold() for g in gaps):
                 names.setdefault(gap, next(g for g in gaps if g.casefold() == gap))
@@ -1346,6 +1349,7 @@ class Desk:
             more = f" +{len(companies) - 3}" if len(companies) > 3 else ""
             jobs = f"{len(companies)} job{'s' if len(companies) != 1 else ''}"
             lines.append(f"{i}. {names[key]}: {jobs} ({shown}{more})")
+        lines += learning.plan(per_job, self.s.learning.get("certificates") or {})
         lines.append("")
         lines.append("Learned one? Add it to Skills Inventory as Hands-on or Production: "
                      "screening and resumes then count it as yours.")
@@ -1353,6 +1357,24 @@ class Desk:
         if self.add_skill is not None:
             replies += self._skill_buttons([names[key] for key, _ in ranked])
         return replies
+
+    def keywords_command(self) -> list[Reply]:
+        """/keywords: the tools your best jobs name most, against your LinkedIn profile text
+        (feature 8)."""
+        if self.repo is None:
+            return [Reply(NO_TARGET)]
+        best = [(pid, v) for pid, v in self.repo.query_rows()
+                if v.get("Status") in keywords_report.BEST]
+        best.sort(key=lambda row: str(row[1].get("First seen") or ""), reverse=True)
+        jobs = []
+        for pid, _values in best[:keywords_report.MAX_JOBS]:
+            jd, _kind = description(self.repo.read_body(pid))
+            if jd:
+                found = self.ranker().keywords(jd)
+                jobs.append((list(found.have), list(found.missing)))
+        config = self.deps.config()
+        profile = " ".join(str(config.get(k) or "") for k in keywords_report.PROFILE_KEYS)
+        return [Reply(keywords_report.report(jobs, profile)[:MAX_TEXT])]
 
     def _skill_buttons(self, gaps: list[str]) -> list[Reply]:
         """One small message per short gap name with Hands-on and Production buttons (your

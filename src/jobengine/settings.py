@@ -81,6 +81,7 @@ class Settings(BaseModel):
     contacts: dict[str, Any] = Field(default_factory=dict)
     mail: dict[str, Any] = Field(default_factory=dict)
     apply_pack: dict[str, Any] = Field(default_factory=dict)
+    learning: dict[str, Any] = Field(default_factory=dict)
     interview: dict[str, Any] = Field(default_factory=dict)
     reply_drafts: dict[str, Any] = Field(default_factory=dict)
     tracking: dict[str, Any] = Field(default_factory=dict)
@@ -196,6 +197,7 @@ def load_settings(env: str | None = None, environ: Mapping[str, str] | None = No
         contacts=dict(cfg.get("contacts") or {}),
         mail=dict(cfg.get("mail") or {}),
         apply_pack=dict(cfg.get("apply_pack") or {}),
+        learning=dict(cfg.get("learning") or {}),
         interview=dict(cfg.get("interview") or {}),
         reply_drafts=dict(cfg.get("reply_drafts") or {}),
         tracking=dict(cfg.get("tracking") or {}),

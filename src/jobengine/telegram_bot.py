@@ -70,7 +70,8 @@ HELP_TEXT = (
     "/fetchreport - where the postings of the last /fetch went, per source, and the dropped "
     "jobs by reason; /fetchreport <word> for one reason or source\n"
     "/alertcheck - the job alert emails the next /fetch reads, and the jobs found in each\n"
-    "/gaps - skills jobs ask for that you do not have yet (what to learn next)\n"
+    "/gaps - skills jobs ask for that you do not have yet, and which certificate covers most\n"
+    "/keywords - the tools your best jobs name most, and which to add to your LinkedIn profile\n"
     "/contacts <url or id> - find contacts for a job (cache first, then Apollo, Hunter, Snov)\n"
     "/credits - show the contact providers' credit counters\n"
     "/outreach - this week's outreach budget (which approved jobs get contacts and cold mails)\n"
@@ -688,6 +689,8 @@ def desk_replies(update: dict[str, Any], s: Settings, desk: Desk | None) -> list
         return _guarded("/pending", lambda: desk.pending_command(args))
     if command == "gaps":
         return _guarded("/gaps", desk.gaps_command)
+    if command == "keywords":
+        return _guarded("/keywords", desk.keywords_command)
     if command == "contacts":
         return _guarded("/contacts", lambda: desk.contacts_command(args))
     if command == "credits":
