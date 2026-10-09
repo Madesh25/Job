@@ -134,6 +134,7 @@ def bot_commands() -> list[dict[str, str]]:
 TAP_TOASTS = {"ap": "Checking the job link, then building your resume...",
               "sk": "Skipping...", "ab": "Approving, building your resume...",
               "xe": "Marking it expired...", "dm": "Using that domain...",
+              "ln": "Writing the LinkedIn notes...",
               "nx": "Next job...", "pc": "Loading that country's jobs...",
               "fg": "Adding it and rebuilding...",
               "fc": "Adding it and rebuilding...", "ct": "Finding contacts...",

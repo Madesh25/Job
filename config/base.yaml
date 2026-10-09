@@ -89,6 +89,11 @@ screening:
   block_chars: 2000
   max_blocks: 90
 apply_pack:
+  # LinkedIn notes per contact (contacts/linkedin_notes.py, flow feature 12): your name at
+  # the end, and optional wording per contact type with {first} {role} {company} {link} {me}
+  # (at most 300 characters; Notion Config linkedin.note_peer / _recruiter / _hiring win).
+  linkedin_signature: Madeshwaran
+  linkedin_notes: {}
   # Ready answers for portal forms, one Telegram message per approved job (apply/pack.py).
   # Your answers (PR 11); a Notion Config key apply.<name> wins over each one.
   sponsorship_needed: "Yes"

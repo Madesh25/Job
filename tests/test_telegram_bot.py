@@ -718,7 +718,7 @@ def test_resume_approval_offers_contacts_then_drafts_as_buttons(desk):
     assert "found. Credits: Apollo" in summary
     assert desk.repo.rows["pl-clean"]["Contacts"]
     assert len(texts) == 3 and "Next: tap Write Gmail drafts" in summary
-    assert fake.buttons[-1] == ["dr:pl-clean"]
+    assert fake.buttons[-1] == ["ln:pl-clean", "dr:pl-clean"]  # LinkedIn notes, then drafts
     # Module 06: drafts only on the tap (DRY_RUN here: nothing created, a preview instead).
     fake = talk(desk, tap(3, "dr:pl-clean"))
     texts = [t for _, t in fake.sent]
