@@ -67,3 +67,14 @@ see whether it is on and when it runs next.
 - It is the same run as `/autopilot`: at most `screening.autopilot_approvals` (10) approvals
   a day, and the mail mode (`/mailmode`) decides between drafts and sending. The summary
   starts with "Scheduled autopilot (07:00 Europe/Warsaw)".
+
+## Afternoon check (apply early)
+
+Jobs posted after the morning run would wait until the next day, and the first applicants
+get the most replies. With Notion Config `schedule.check` = `true` the bot runs `/fetch` and
+then `/screen` by itself at each time in `schedule.check_times` (default `15:00`, Europe/Warsaw,
+the autopilot days) and sends the summary with an Apply high card for each new strong match.
+Nothing is approved, built or mailed by itself. Each time runs once a day, up to 2 hours after
+it (a bot that was off then does not run it in the evening), and never while another
+`/fetch`, `/screen` or `/autopilot` runs. `/autopilot when` shows it. On Cloud Run the
+scheduler job `je-check-prod` calls `POST /tasks/check` ([deploy.md](deploy.md) B4).

@@ -77,6 +77,7 @@ class Tasks:
     autopilot: Callable[[], dict[str, Any]] = field(default=lambda: {"ok": True})
     mail: Callable[[], dict[str, Any]] = field(default=lambda: {"ok": True})
     replies: Callable[[], dict[str, Any]] = field(default=lambda: {"ok": True})
+    check: Callable[[], dict[str, Any]] = field(default=lambda: {"ok": True})
 
 
 def desk_tasks(s: Settings, desk: Desk, client: tb.TelegramClient,
@@ -132,6 +133,18 @@ def desk_tasks(s: Settings, desk: Desk, client: tb.TelegramClient,
             send(replies)
         return {"ok": True, "ran": bool(replies)}
 
+    def check() -> dict[str, Any]:
+        """The afternoon check (screen/check.py): /fetch and /screen when it is due."""
+        try:
+            replies = desk.check_scheduled(tb.autopilot_fetch(fetch))
+        except Exception as exc:  # queued: nobody waits for the result, so report it here
+            log.exception("afternoon check failed")
+            send([Reply(f"Afternoon check failed: {exc}")])
+            return {"ok": False, "error": str(exc)}
+        if replies:
+            send(replies)
+        return {"ok": True, "ran": bool(replies)}
+
     def mail() -> dict[str, Any]:
         """Send one queued mail whose recipient's morning has come (mail/timing.py)."""
         replies = desk.mail_queue_tick()
@@ -147,7 +160,7 @@ def desk_tasks(s: Settings, desk: Desk, client: tb.TelegramClient,
         return {"ok": True, "pinged": len(pings)}
 
     return Tasks(daily=daily, digest=digest, sweep=sweep, autopilot=autopilot, mail=mail,
-                 replies=replies)
+                 replies=replies, check=check)
 
 
 def create_app(
@@ -228,6 +241,15 @@ def create_app(
             return denied(exc)
         worker.submit(tasks.autopilot)  # answers at once; the run reports in Telegram
         return JSONResponse({"task": "autopilot", "queued": True}, status_code=202)
+
+    @app.post("/tasks/check")
+    def task_check(request: Request) -> JSONResponse:
+        try:
+            check_scheduler_token(request.headers.get("Authorization"), s, verify)
+        except AuthError as exc:
+            return denied(exc)
+        worker.submit(tasks.check)  # answers at once; the run reports in Telegram
+        return JSONResponse({"task": "check", "queued": True}, status_code=202)
 
     @app.post("/tasks/mail")
     def task_mail(request: Request) -> JSONResponse:
