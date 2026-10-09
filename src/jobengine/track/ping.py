@@ -19,7 +19,7 @@ import re
 from datetime import datetime, timedelta
 from typing import Any
 
-from jobengine.track import bounces
+from jobengine.track import bounces, reply_draft
 from jobengine.track.classify import is_auto_reply
 from jobengine.track.models import Message
 from jobengine.track.runner import Run, TrackDeps, company_domain, strip_preview
@@ -57,14 +57,26 @@ INTERVIEW_HINT = ("It may be about an interview or a call: answer soon. To prepa
                   "<job link>.")
 
 
-def _ping(message: Message, who: str, what: str) -> str:
+def _ping(message: Message, who: str, what: str, draft: str | None = None) -> str:
     preview = strip_preview(message.text or message.snippet)
     hint = ""
     if INTERVIEW_RE.search(f"{message.subject} {message.text or message.snippet}"):
         hint = "\n" + INTERVIEW_HINT
+    answer = f"\n\n{reply_draft.block(draft)}\n\n" if draft else "\n"
     return (f"\U0001F4E9 New reply from {who} ({what})\nFrom: {message.sender}\n"
-            f"Subject: {message.subject}\n{preview}{hint}\n"
+            f"Subject: {message.subject}\n{preview}{hint}{answer}"
             "The daily check records it; send /today to record it now.")
+
+
+def _draft(run: Run, message: Message, first: str | None,
+           job: dict[str, Any] | None) -> str | None:
+    """Feature 3: the answer to copy; a failure only loses the draft, never the ping."""
+    try:
+        return reply_draft.draft(run.s, run.config, message.text or message.snippet,
+                                 today=run.today, first=first, job=job)
+    except Exception as exc:
+        log.warning("reply draft not written: %s", exc)
+        return None
 
 
 def check(deps: TrackDeps, now: datetime) -> list[str]:
@@ -103,10 +115,14 @@ def check(deps: TrackDeps, now: datetime) -> list[str]:
         job = job_threads.get(message.thread_id) or job_domains.get(message.sender_domain)
         if contact is not None:
             who = contact.get("Name") or message.sender
-            texts.append(_ping(message, who, run.company_of(contact) or "a contact"))
+            related = run.related_jobs(contact)
+            first = (contact.get("Name") or "").split()[0] if contact.get("Name") else None
+            draft = _draft(run, message, first, run.jobs[related[0]] if related else None)
+            texts.append(_ping(message, who, run.company_of(contact) or "a contact", draft))
         elif job is not None:
             texts.append(_ping(message, job.get("Company") or message.sender,
-                               f"your application for {job.get('Role') or 'the job'}"))
+                               f"your application for {job.get('Role') or 'the job'}",
+                               _draft(run, message, None, job)))
         else:
             continue
         seen.append(message.id)

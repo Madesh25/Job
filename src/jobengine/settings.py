@@ -82,6 +82,7 @@ class Settings(BaseModel):
     mail: dict[str, Any] = Field(default_factory=dict)
     apply_pack: dict[str, Any] = Field(default_factory=dict)
     interview: dict[str, Any] = Field(default_factory=dict)
+    reply_drafts: dict[str, Any] = Field(default_factory=dict)
     tracking: dict[str, Any] = Field(default_factory=dict)
     strategy: dict[str, Any] = Field(default_factory=dict)
     allowed_hosts: tuple[str, ...] = ()
@@ -196,6 +197,7 @@ def load_settings(env: str | None = None, environ: Mapping[str, str] | None = No
         mail=dict(cfg.get("mail") or {}),
         apply_pack=dict(cfg.get("apply_pack") or {}),
         interview=dict(cfg.get("interview") or {}),
+        reply_drafts=dict(cfg.get("reply_drafts") or {}),
         tracking=dict(cfg.get("tracking") or {}),
         strategy=dict(cfg.get("strategy") or {}),
         allowed_hosts=tuple(safety.get("allowed_hosts") or ()),
