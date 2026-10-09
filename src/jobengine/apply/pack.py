@@ -67,7 +67,7 @@ def why_line(s: Settings, config: ConfigStore, details: list[str],
 
 
 def build(s: Settings, config: ConfigStore, values: dict[str, Any], details: list[str],
-          today: date) -> str:
+          today: date, extra: list[str] | None = None) -> str:
     """The pack as plain text (Telegram and the Notion page)."""
     company, role = values.get("Company") or "", values.get("Role") or ""
     country = values.get("Country") or ""
@@ -118,7 +118,7 @@ def build(s: Settings, config: ConfigStore, values: dict[str, Any], details: lis
     lines += ["", "Resume for this job",
               f"- Headline: {title or 'unchanged (no approved title in this role)'}",
               f"- Location line: {' | '.join((reloc or 'unchanged').splitlines())}"]
-    return "\n".join(lines)
+    return "\n".join([*lines, *(extra or [])])
 
 
 def blocks(text: str) -> list[str]:

@@ -16,7 +16,7 @@ from typing import Any
 from urllib.parse import urlsplit
 
 from jobengine import http
-from jobengine.apply import cover
+from jobengine.apply import answers, cover
 from jobengine.bot_state import BotState, FakeBotState
 from jobengine.contacts import finder as contact_finder
 from jobengine.contacts.finder import ContactDeps
@@ -770,7 +770,7 @@ class Desk:
             return []
         body = self.repo.read_body(job_id)
         text = pack.build(self.s, self.deps.config(), values, specific_details(body),
-                          self.today())
+                          self.today(), answers.pack_lines(self.state))
         letter = self.cover_letter(job_id, values, body, resume_pdf)
         if self.deps.write:
             try:
@@ -785,6 +785,14 @@ class Desk:
         if letter is not None:
             replies.append(Reply(cover.block(letter)[:MAX_TEXT]))
         return replies
+
+    def answer_command(self, args: str) -> list[Reply]:
+        """/answer <question> = <answer>: kept for every later Apply pack (feature 10)."""
+        return [Reply(answers.command(self.state, args))]
+
+    def answers_command(self) -> list[Reply]:
+        """/answers: your saved form answers."""
+        return [Reply(answers.listing(self.state)[:MAX_TEXT])]
 
     def cover_letter(self, job_id: str, values: dict[str, Any], body: list[str],
                      resume_pdf: bytes | None) -> cover.Letter | None:
