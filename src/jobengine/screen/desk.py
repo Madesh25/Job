@@ -1433,11 +1433,20 @@ class Desk:
         Config schedule.autopilot is true and it is due (screen/schedule.py)."""
         return autopilot.scheduled(self, fetch, progress or (lambda text: None))
 
-    def autopilot_when(self) -> list[Reply]:
-        """/autopilot when: the schedule and the next run."""
-        from jobengine.screen import schedule
+    def check_scheduled(self, fetch: autopilot.Fetch | None,
+                        progress: Callable[[str], None] | None = None
+                        ) -> list[Reply] | None:
+        """The afternoon check (screen/check.py): /fetch and /screen at Config
+        schedule.check_times when Config schedule.check is true."""
+        from jobengine.screen import check
 
-        return [Reply(schedule.status_text(self))]
+        return check.scheduled(self, fetch, progress or (lambda text: None))
+
+    def autopilot_when(self) -> list[Reply]:
+        """/autopilot when: the schedule and the next run, and the afternoon check."""
+        from jobengine.screen import check, schedule
+
+        return [Reply(f"{schedule.status_text(self)}\n\n{check.status_text(self)}")]
 
     # ------------------------------------------------------------ /jd and /done
 

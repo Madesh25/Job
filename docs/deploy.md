@@ -198,6 +198,13 @@ gcloud scheduler jobs create http je-autopilot-prod --project $PROJECT --locatio
   --schedule "*/30 7-12 * * 1-5" --time-zone "Europe/Warsaw" --uri "$PROD_URL/tasks/autopilot" \
   --http-method POST --oidc-service-account-email "$SCHED" --oidc-token-audience "$PROD_URL" \
   --attempt-deadline 60s --max-retry-attempts 1
+# Afternoon check (/fetch and /screen, screen/check.py): every 30 minutes 15:00 to 16:30 Warsaw
+# time, Monday to Friday. It does nothing unless Config schedule.check is true; it runs once
+# per time in schedule.check_times.
+gcloud scheduler jobs create http je-check-prod --project $PROJECT --location $REGION \
+  --schedule "*/30 15-16 * * 1-5" --time-zone "Europe/Warsaw" --uri "$PROD_URL/tasks/check" \
+  --http-method POST --oidc-service-account-email "$SCHED" --oidc-token-audience "$PROD_URL" \
+  --attempt-deadline 60s --max-retry-attempts 1
 # The mail queue (mail mode send): every 10 minutes 07:00 to 11:50 Warsaw time (08:00 to
 # 10:00 in Warsaw, Amsterdam and Dublin), Tuesday to Thursday. One mail per call.
 gcloud scheduler jobs create http je-mail-prod --project $PROJECT --location $REGION \
@@ -219,6 +226,8 @@ gcloud scheduler jobs create http je-replies-prod --project $PROJECT --location 
       `schedule.autopilot` is `true`. Needs the prod `Bot State` (B3) so a run is not started
       twice after a restart. Config: add `schedule.autopilot` = `false` (turn it on after
       go-live step 4).
+- [ ] `je-check-prod`: `*/30 15-16 * * 1-5` in Europe/Warsaw; it does nothing unless Config
+      `schedule.check` is `true` (add it as `false`; times in `schedule.check_times`).
 - [ ] `je-mail-prod`: `*/10 7-11 * * 2-4` in Europe/Warsaw; sends nothing unless mail mode is
       send and a queued mail is due. Change it with `mail.send_window` in the yaml.
 - [ ] `je-replies-prod`: `*/15 7-23 * * *` in Asia/Kolkata; reads Gmail only and pings new
