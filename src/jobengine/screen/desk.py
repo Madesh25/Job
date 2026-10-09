@@ -24,7 +24,7 @@ from jobengine.mail import drafter as mail_drafter
 from jobengine.mail import sender as mail_sender
 from jobengine.mail import timing as mail_timing
 from jobengine.mail.drafter import MailDeps
-from jobengine.notion_repo import FakeJobsRepo, JobsRepo
+from jobengine.notion_repo import FakeJobsRepo, JobsRepo, select_filter
 from jobengine.reference import Reference
 from jobengine.resume import builder as resume_builder
 from jobengine.resume.builder import BuildOutcome, ResumeDeps
@@ -833,6 +833,27 @@ class Desk:
         return [(pid, values) for pid, values in
                 self.repo.query_rows(select_filter("Status", "Applied"))
                 if values.get("Applied date") == day]
+
+    def next_command(self) -> list[Reply]:
+        """/next: today's steps in order, what is done and what to do now (9 Oct)."""
+        from jobengine import next_steps
+        from jobengine.sweep.runner import LAST_SUMMARY
+
+        if self.repo is None:
+            return [Reply(NO_TARGET)]
+        today = self.today()
+        last = self.state.get(LAST_SUMMARY) or {}
+        waiting_rows = waiting_for_jd(self.repo, self.state)
+        waiting_ids = {r.page_id for r in waiting_rows}
+        unscreened = sum(1 for pid, _ in self.repo.query_rows(
+            select_filter("Screen verdict", "Unscreened")) if pid not in waiting_ids)
+        applied = self.applied_on(today) if self.contacts is not None else []
+        state = next_steps.DayState(
+            fetched_today=last.get("at") == today.isoformat(),
+            unscreened=unscreened, waiting_jd=len(waiting_rows),
+            pending=len(pending_rows(self.repo)), applied_today=len(applied),
+            contacts_done=bool(applied) and all(v.get("Contacts") for _, v in applied))
+        return [Reply(next_steps.checklist(state))]
 
     def fetch_contacts_command(self) -> list[Reply]:
         """/fetchcontacts: what a run for today's applied jobs would do, and a Go button.

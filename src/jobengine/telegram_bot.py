@@ -30,6 +30,7 @@ from datetime import date
 from pathlib import Path
 from typing import Any, TextIO
 
+from jobengine import next_steps
 from jobengine.jobctl import CONTROL, Stopped, end_text
 from jobengine.main import banner
 from jobengine.resume import builder as resume_builder
@@ -50,6 +51,7 @@ POLL_TIMEOUT = 30
 HELP_TEXT = (
     "Job Engine commands:\n"
     "/start - check that the bot is alive\n"
+    "/next - your day in order: what is done and what to do now\n"
     "/status - environment, safety settings, job and contact counts\n"
     "/fetch - search for new jobs, then screen them\n"
     "/autopilot - fetch, screen at half price, approve the best (10 a day), save resumes, "
@@ -142,9 +144,9 @@ TAP_TOASTS = {"ap": "Checking the job link, then building your resume...",
 # Every other button: a tap always gets a sign that the bot is working (5 Oct test notes).
 TAP_DEFAULT = "Working on it..."
 
-DESK_COMMANDS = ("pending", "jd", "done", "screen", "gaps", "contacts", "credits", "outreach",
-                 "drafts", "fetchcontacts", "alertcheck", "fetchreport", "linkedin", "today",
-                 "followups", "stats", "sources", "health", "digest", "update", "rules")
+DESK_COMMANDS = ("next", "pending", "jd", "done", "screen", "gaps", "contacts", "credits",
+                 "outreach", "drafts", "fetchcontacts", "alertcheck", "fetchreport", "linkedin",
+                 "today", "followups", "stats", "sources", "health", "digest", "update", "rules")
 
 # (method, payload, http_timeout) -> decoded JSON response
 Transport = Callable[[str, dict[str, Any], float], dict[str, Any]]
@@ -620,7 +622,7 @@ def handle_one(
         replies = desk_replies(update, s, desk)
         out = None if replies is not None else handle_update(update, s, fetch)
     if replies is not None:
-        send_replies(client, s, chat, replies)
+        send_replies(client, s, chat, with_next_step(text, replies))
     elif out is not None:
         client.send_message(*out)
 
@@ -673,6 +675,8 @@ def desk_replies(update: dict[str, Any], s: Settings, desk: Desk | None) -> list
         replies = _guarded("Note", lambda: desk.strategy_note(ref_text, text) or [])
         if replies:
             return replies
+    if command == "next":
+        return _guarded("/next", desk.next_command)
     if command == "pending":
         return _guarded("/pending", lambda: desk.pending_command(args))
     if command == "gaps":
@@ -804,7 +808,22 @@ def run_screen(
         client.send_message(chat_id, telegram_text(f"/screen failed: {exc}", s))
         return
     progress.finish(ok=True)
-    send_replies(client, s, chat_id, replies)
+    send_replies(client, s, chat_id, with_next_step("/screen", replies))
+
+
+def with_next_step(text: str, replies: list[Reply]) -> list[Reply]:
+    """The replies with a "👉 Next:" line at the end of the last text answer (next_steps.py),
+    unless that answer already shows what comes next (buttons or its own Next)."""
+    command = parse_command(text)
+    args = text.split(maxsplit=1)[1] if len(text.split(maxsplit=1)) > 1 else ""
+    answer = "\n".join(r.text for r in replies)
+    line = next_steps.hint(command, args, answer)
+    if not line or not replies:
+        return replies
+    last = replies[-1]
+    if last.document or last.buttons:
+        return [*replies, Reply(f"\U0001F449 Next: {line}")]
+    return [*replies[:-1], Reply(last.text + next_steps.NEXT + line)]
 
 
 NEXT_STEP = "\n\n\U0001F449 Next:"  # the hint /fetch ends with
@@ -840,7 +859,7 @@ def run_autopilot(
         client.send_message(chat_id, telegram_text(f"/autopilot failed: {exc}", s))
         return
     progress.finish(ok=True)
-    send_replies(client, s, chat_id, replies)
+    send_replies(client, s, chat_id, with_next_step("/autopilot", replies))
 
 
 def autopilot_check(client: TelegramClient, s: Settings, desk: Desk | None,
