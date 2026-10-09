@@ -24,7 +24,9 @@ from jobengine.sweep.normalize import canon
 
 STRIP_WORDS = frozenset({"b v", "bv", "n v", "nv", "holding", "holdings", "nederland",
                          "netherlands", "the", "nl", "limited", "ltd", "inc", "plc", "llc",
-                         "gmbh", "u a", "ua", "cooperatieve", "cooperative"})
+                         "gmbh", "u a", "ua", "cooperatieve", "cooperative",
+                         # Irish legal forms and country words (ie_permits.py uses this too)
+                         "ireland", "ie", "dac", "uc", "clg"})
 MIN_TOKEN_SET = 90
 # token_set_ratio gives 100 whenever one name's words are a subset of the other's
 # ("Tulip" vs "Tulip Data"). A second, looser whole-name check keeps those out.

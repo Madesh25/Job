@@ -34,6 +34,10 @@ safety:
     - jooble.org
     - www.amazon.jobs
     - ind.nl
+    # Irish employment permits issued to companies (ie_permits.py, flow feature 6)
+    - www.gov.ie
+    - assets.gov.ie
+    - enterprise.gov.ie
     - api.apollo.io
     - api.hunter.io
     - api.snov.io
@@ -47,6 +51,10 @@ safety:
     # Oracle Cloud HCM career sites (<tenant>.fa.<region>.oraclecloud.com)
     - oraclecloud.com
 screening:
+  # Irish employment permits issued to companies (flow feature 6, ie_permits.py): the gov.ie
+  # publication page (the bot follows its "companies" download) or the file itself. Irish
+  # jobs at those companies rank higher in /pending. Notion Config ie_permits.url wins.
+  ie_permits_url: https://www.gov.ie/en/department-of-enterprise-tourism-and-employment/publications/employment-permit-statistics-2026/
   # Your experience window: jobs asking for more years than this are not saved by the sweep
   # and are skipped by screening before any AI call. Senior titles count as too senior
   # unless the posting asks for years within this limit.
