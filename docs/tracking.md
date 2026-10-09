@@ -103,6 +103,21 @@ The daily check records it; send /today to record it now.
 - Long polling checks it with the 5-minute loop; Cloud Run gets `POST /tasks/replies` from
   Cloud Scheduler job `je-replies-prod` ([deploy.md](deploy.md) B4).
 
+### Draft answer (flow feature 3)
+
+When the new part of the reply asks for a call, your notice period, salary, visa or work
+permit, start date or relocation, the ping ends with a **draft answer** to copy into your
+Gmail reply (`src/jobengine/track/reply_draft.py`):
+
+- One sentence per question, in that order, from `reply_drafts` in `config/base.yaml` (a
+  Notion Config key `reply.<name>` wins), filled with your Apply pack answers
+  (`apply.interviews`, `apply.notice_period`, `apply.expected_salary`,
+  `apply.earliest_start`, `apply.relocation`) and the job country's permit line. A call ask
+  offers the next three working days.
+- Only the new part of their mail is read: your own quoted mail is cut first.
+- An answer that is not set is left out (that question stays for you); a mail that asks none
+  of these gets no draft. No AI, nothing sent: edit it and send it yourself.
+
 ## Status rules
 
 Job order: `New < Screened < Approved < Resume built < Applied < Followed up < Replied <

@@ -133,6 +133,22 @@ apply_pack:
       salary_floor: "EUR 40,904 a year for a Critical Skills Employment Permit (relevant degree),
         EUR 36,605 for a General Employment Permit (DETE minimums from 1 March 2026; basic pay
         only, bonuses do not count)"
+reply_drafts:
+  # The draft answer under a reply ping (track/reply_draft.py), filled with your apply_pack
+  # answers; one sentence per question their mail asks. A Notion Config key reply.<name> wins.
+  # Placeholders: {first} {company} {role} {days} {name} and the answer named in each line.
+  greeting: "Hi {first},"
+  greeting_unknown: "Hello,"
+  thanks: "Thank you for your reply about the {role} role at {company}."
+  thanks_unknown: "Thank you for your reply."
+  call: "I would be glad to talk. I am available {interviews}, for example on {days}."
+  notice: "My notice period is {notice_period}."
+  salary: "On salary: {expected_salary}."
+  visa: "On the work permit: {permit}"
+  visa_unknown: "I need visa sponsorship: {sponsorship_needed}."
+  start: "Earliest start: {earliest_start}."
+  relocation: "On relocation: {relocation}."
+  closing: "Kind regards,\n{name}"
 resume:
   # Defaults; Notion Config keys with the same names (resume.fill_min, ...) win when set.
   fill_min: 88
