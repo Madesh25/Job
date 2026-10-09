@@ -20,6 +20,7 @@ dependencies = [
     "rapidfuzz",
     "weasyprint",
     "pdfplumber",
+    "openpyxl",  # Excel lists (Irish permits by company, ie_permits.py)
     "fastapi",
     "uvicorn",
     "tzdata",  # time zones for the scheduled /autopilot (the slim image has none)

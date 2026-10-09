@@ -286,6 +286,10 @@ class Desk:
         self.captures = Captures(state, window)
         self._reference: tuple[float, Reference] | None = None
         self._ranker: Ranker | None = None
+        # The Irish permits list (ie_permits.py): read once a day, None when it failed.
+        self._permits: tuple[date, Any] | None = None
+        self.get_file: Callable[[str], tuple[str, str, bytes]] = \
+            lambda url: http.get_file(url, s=self.s)
         # Reads one public page (the employer's link behind an Adzuna job).
         self.get_page: Callable[[str], tuple[str, str]] = \
             lambda url: http.get_page(url, s=self.s, blocked=blocked_hosts(self.s))
@@ -302,11 +306,42 @@ class Desk:
 
     # ------------------------------------------------------------ /pending
 
+    def permits(self) -> Any:
+        """The Irish permits list (flow feature 6), read once a day; None when unavailable."""
+        from jobengine import ie_permits
+
+        today = self.today()
+        if self._permits is None or self._permits[0] != today:
+            url = (self.deps.config().get(ie_permits.URL_KEY)
+                   or self.s.screening.get("ie_permits_url"))
+            found = None
+            if url:
+                try:
+                    found = ie_permits.load(str(url), self.get_file)
+                except (http.HttpError, ValueError, OSError) as exc:
+                    log.warning("Irish permits list not read: %s", exc)
+                except Exception:  # a broken file never stops /pending
+                    log.exception("Irish permits list not read")
+            self._permits = (today, found)
+        return self._permits[1]
+
+    def irish_permits(self, row: JobRow) -> tuple[str, int] | None:
+        if row.country != "Ireland":
+            return None
+        permits = self.permits()
+        return permits.match(row.company) if permits is not None else None
+
     def all_ranked(self) -> list[JobRow]:
         assert self.repo is not None
         ref, today = self.reference(), self.today()
         rows = pending_rows(self.repo)
-        return sorted(rows, key=lambda r: rank_key(r, ref, today), reverse=True)
+
+        def key(row: JobRow) -> tuple[int, int, int]:
+            tier, top, score = rank_key(row, ref, today)
+            # A company that got Irish permits last year likely sponsors again (feature 6).
+            return tier, top, score + (2 if self.irish_permits(row) else 0)
+
+        return sorted(rows, key=key, reverse=True)
 
     def chosen_country(self) -> str | None:
         """The country /pending shows (None: all), chosen with the country buttons."""
@@ -413,6 +448,9 @@ class Desk:
             f"{row.sponsorship or 'Not mentioned'} | Visa: {', '.join(row.visa_flags) or 'none'}",
             *self.match_lines(row, body, counts),
         ]
+        permits = self.irish_permits(row)
+        if permits:
+            lines.append(f"Irish permits: {permits[1]} issued to {permits[0]} (DETE list)")
         if row.url:
             lines.append(short_link(row.url) or row.url)
         keys = []
@@ -1705,6 +1743,11 @@ def fake_desk(s: Settings, today: date, now: Callable[[], datetime] | None = Non
         raise http.HttpError(f"GET {url} failed: no network in --fake")
 
     desk.get_page = no_network
+
+    def no_file(url: str) -> tuple[str, str, bytes]:
+        raise http.HttpError(f"GET {url} failed: no network in --fake")
+
+    desk.get_file = no_file
     desk.skills_added = []  # type: ignore[attr-defined]
     desk.add_skill = lambda name, level, note: desk.skills_added.append(  # type: ignore[attr-defined]
         (name, level, note))

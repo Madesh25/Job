@@ -179,6 +179,19 @@ def get_text(
     return _send("GET", url, params=params, headers=headers, s=s)[1].text
 
 
+def get_file(url: str, s: Settings | None = None, max_redirects: int = 5) -> tuple[str, str, bytes]:
+    """GET a public file (a published list: Excel, PDF, CSV or a web page) on an allowed
+    host: (final url, content type, body). Redirects are followed, each one checked."""
+    for _ in range(max_redirects + 1):
+        _where, resp = _send("GET", url, s=s)
+        if resp.is_redirect and resp.headers.get("location"):
+            url = urljoin(url, resp.headers["location"])
+            continue
+        kind = resp.headers.get("content-type", "").split(";")[0].strip().lower()
+        return url, kind, resp.content
+    raise HttpError(f"GET {safe_url(url)} failed: more than {max_redirects} redirects")
+
+
 def get_json(
     url: str,
     params: Mapping[str, Any] | list[tuple[str, Any]] | None = None,
