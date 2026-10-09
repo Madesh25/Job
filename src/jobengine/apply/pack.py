@@ -11,11 +11,13 @@ saved on the job's Notion page under "Apply pack (<date>)".
 
 from __future__ import annotations
 
+import re
 from datetime import date
 from typing import Any
 
 from jobengine.config_store import ConfigStore
 from jobengine.resume import header
+from jobengine.screen.models import split_gaps
 from jobengine.settings import Settings
 
 TITLE = "Apply pack"
@@ -47,9 +49,18 @@ def _clean(value: Any) -> str:
     return " ".join(str(value or "").split())
 
 
-def why_line(s: Settings, config: ConfigStore, details: list[str]) -> str | None:
+def _names_gap(detail: str, gaps: list[str]) -> bool:
+    return any(re.search(rf"(?<!\w){re.escape(g)}(?!\w)", detail, re.I) for g in gaps if g)
+
+
+def why_line(s: Settings, config: ConfigStore, details: list[str],
+             gaps: list[str] | None = None) -> str | None:
+    """The "why" sentence with the first stored detail that names none of the job's gaps:
+    the template says the detail is close to your day-to-day work, so it must not name a
+    skill you do not have (9 Oct: "Dynamo, Lambda, Bedrock" were gaps of that job)."""
     template = config.get("apply.why_template") or s.apply_pack.get("why_template")
-    detail = next((d.strip() for d in details if d.strip()), None)
+    detail = next((d.strip() for d in details
+                   if d.strip() and not _names_gap(d, gaps or [])), None)
     if not template or not detail:
         return None
     return _clean(str(template).replace("{detail}", detail))
@@ -100,7 +111,7 @@ def build(s: Settings, config: ConfigStore, values: dict[str, Any], details: lis
     for label, key in PROFILE_LINKS:
         if config.get(key):
             lines.append(f"- {label}: {config.get(key)}")
-    why = why_line(s, config, details)
+    why = why_line(s, config, details, split_gaps(values.get("Gaps")))
     lines += ["", "Why this company",
               f"- {why}" if why else "- (no specific detail stored for this job: write your "
                                        "own line)"]

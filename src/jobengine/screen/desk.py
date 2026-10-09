@@ -75,6 +75,7 @@ REBUILD_ASK = (
 UUID_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
 MATRIX_LINE = re.compile(r"^(Strong|Transferable|Gap) \| ")
 MAX_WAITING_LIST = 25
+MIN_PER_BOARD = 5
 REFERENCE_TTL_SECONDS = 600
 NO_TARGET = "DRY RUN: no Job Opportunities target in this environment, nothing to show."
 # The bot sends a long text as several messages (telegram_bot.split_text); this only stops
@@ -116,6 +117,11 @@ def _contacts_reply(result: Any) -> Reply:
             if len(data.encode()) <= 64:  # Telegram's limit for button data
                 buttons.append((f"Use {domain}", data))
     return Reply(result.message, buttons)
+
+
+def _one_line(text: str | None) -> str:
+    """A company or title on one line (some alert titles carry a line break)."""
+    return " ".join((text or "").split())
 
 
 def _by_board(rows: list[JobRow]) -> str:
@@ -1549,14 +1555,19 @@ class Desk:
         jobs = f"{len(rows)} jobs wait" if len(rows) > 1 else "1 job waits"
         lines = [f"{jobs} for a description ({_by_board(rows)}). Open the link, copy the job "
                  "text, then send /jd <url> and paste it:"]
-        board = None
-        for row in rows[:MAX_WAITING_LIST]:
-            if row.board != board:
-                board = row.board
-                lines.append(f"\n{board or 'Other'}:")
-            lines.append(f"- {row.company}, {row.role}\n  {row.url or '(no URL)'}")
-        if len(rows) > MAX_WAITING_LIST:
-            lines.append(f"\n{len(rows) - MAX_WAITING_LIST} more not shown.")
+        # Every board gets its share of the list (9 Oct: 28 LinkedIn jobs filled all 25 places
+        # and the Pracuj.pl and IrishJobs links never showed).
+        groups: dict[str, list[JobRow]] = {}
+        for row in rows:
+            groups.setdefault(row.board or "Other", []).append(row)
+        share = max(MIN_PER_BOARD, MAX_WAITING_LIST // len(groups))
+        for board, group in groups.items():
+            lines.append(f"\n{board}:")
+            for row in group[:share]:
+                lines.append(f"- {_one_line(row.company)}, {_one_line(row.role)}\n"
+                             f"  {row.url or '(no URL)'}")
+            if len(group) > share:
+                lines.append(f"  ... {len(group) - share} more {board} jobs")
         return Reply("\n".join(lines))
 
     def text(self, message: str) -> list[Reply] | None:
