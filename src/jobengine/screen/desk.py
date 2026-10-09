@@ -16,6 +16,7 @@ from typing import Any
 from urllib.parse import urlsplit
 
 from jobengine import http
+from jobengine.apply import cover
 from jobengine.bot_state import BotState, FakeBotState
 from jobengine.contacts import finder as contact_finder
 from jobengine.contacts.finder import ContactDeps
@@ -629,7 +630,22 @@ class Desk:
             data = f"fg:{short_id(outcome.job_id)}:{gap}"
             if len(data.encode()) <= 64:  # Telegram's limit for button data
                 buttons.append((f"Add {gap}", data))
-        return Reply(outcome.caption or "", buttons, document=(name, outcome.pdf))
+        text = outcome.caption or ""
+        line = self.resume_cover_line(outcome)
+        if line and len(text) + len(line) + 1 <= resume_builder.CAPTION_MAX:
+            first, _, rest = text.partition("\n")
+            text = f"{first}\n{line}\n{rest}" if rest else f"{first}\n{line}"
+        return Reply(text, buttons, document=(name, outcome.pdf))
+
+    def resume_cover_line(self, outcome: BuildOutcome) -> str | None:
+        """Feature 11: how many of the job's keywords you have the final resume shows."""
+        if self.repo is None or not outcome.pdf:
+            return None
+        jd, _kind = description(self.repo.read_body(outcome.job_id))
+        if not jd:
+            return None
+        terms = list(self.ranker().keywords(jd).have)
+        return cover.cover_line(terms, cover.pdf_text(outcome.pdf))
 
     def resume_tap(self, action: str, arg: str) -> list[Reply]:
         if self.resume is None:
@@ -684,7 +700,7 @@ class Desk:
                      "comes.")
             if self.contacts is not None and self.mail is not None:
                 text += f"\n{FETCH_HINT}"
-            return [*self.apply_pack(result.job_id), Reply(text, buttons)]
+            return [*self.apply_pack(result.job_id, result.pdf), Reply(text, buttons)]
         return [Reply(result.message)]
 
     def apply_link_text(self, job_id: str, url: str | None, text: str) -> str:
@@ -741,8 +757,9 @@ class Desk:
 
     # ------------------------------------------------------------ Apply pack (PR 11)
 
-    def apply_pack(self, job_id: str) -> list[Reply]:
-        """Ready answers for this job's portal form; also saved on the job's Notion page."""
+    def apply_pack(self, job_id: str, resume_pdf: bytes | None = None) -> list[Reply]:
+        """Ready answers for this job's portal form; also saved on the job's Notion page.
+        With the approved resume PDF, a cover letter written from it follows (feature 4)."""
         from jobengine.apply import pack
         from jobengine.resume.builder import specific_details
 
@@ -751,16 +768,42 @@ class Desk:
         values = self.repo.get_values(job_id)
         if not values:
             return []
-        text = pack.build(self.s, self.deps.config(), values,
-                          specific_details(self.repo.read_body(job_id)), self.today())
+        body = self.repo.read_body(job_id)
+        text = pack.build(self.s, self.deps.config(), values, specific_details(body),
+                          self.today())
+        letter = self.cover_letter(job_id, values, body, resume_pdf)
         if self.deps.write:
             try:
                 self.repo.append_body(job_id, pack.blocks(text))
+                if letter is not None and letter.text:
+                    self.repo.append_body(job_id, pack.blocks(cover.block(letter)))
             except http.HttpError as exc:  # the answers still reach you in Telegram
                 log.warning("could not save the apply pack on %s: %s", job_id, exc)
         text += tips_mod.lines("Tips for this application",
                                self.tips(tips_mod.APPLICATION, values.get("Country")))
-        return [Reply(text[:MAX_TEXT])]
+        replies = [Reply(text[:MAX_TEXT])]
+        if letter is not None:
+            replies.append(Reply(cover.block(letter)[:MAX_TEXT]))
+        return replies
+
+    def cover_letter(self, job_id: str, values: dict[str, Any], body: list[str],
+                     resume_pdf: bytes | None) -> cover.Letter | None:
+        """Feature 4: None when there is no approved PDF to write from (/applypack)."""
+        from jobengine.resume.builder import specific_details
+
+        if resume_pdf is None or self.resume is None:
+            return None
+        jd, _kind = description(body)
+        resume_text = cover.pdf_text(resume_pdf)
+        if not resume_text.strip():  # nothing to write from (a PDF that cannot be read)
+            log.info("approve resume: no cover letter, the PDF text is empty (%s)", job_id)
+            return None
+        log.info("approve resume: writing the cover letter for %s", job_id)
+        return cover.write(
+            self.resume.llm(self.deps.config()), company=values.get("Company") or "",
+            role=values.get("Role") or "", country=values.get("Country") or "", jd=jd,
+            resume_text=resume_text, details=specific_details(body),
+            gaps=split_gaps(values.get("Gaps")), key=job_id.replace("-", ""))
 
     def tips(self, categories: tuple[str, ...], country: str | None) -> list[str]:
         """Adopted strategy tips of these categories for this country (strategy/tips.py);

@@ -131,6 +131,7 @@ class FinaliseOutcome:
     job_url: str | None = None
     file: str | None = None
     latest: BuildOutcome | None = None
+    pdf: bytes | None = None  # the approved PDF (the cover letter is written from its text)
 
 
 def short_ref(log_id: str) -> str:
@@ -794,7 +795,7 @@ def finalise(deps: ResumeDeps, log_id: str) -> FinaliseOutcome:
              time.monotonic() - started)
     on_resume_approved(job_id, log_id)
     return FinaliseOutcome(status="approved", job_id=job_id, job_url=url, file=file_value,
-                           message=APPLY_TEXT.format(url=url))
+                           message=APPLY_TEXT.format(url=url), pdf=pdf)
 
 
 def mark_applied(deps: ResumeDeps, job_id: str) -> str:
