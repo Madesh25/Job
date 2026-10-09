@@ -133,6 +133,21 @@ apply_pack:
       salary_floor: "EUR 40,904 a year for a Critical Skills Employment Permit (relevant degree),
         EUR 36,605 for a General Employment Permit (DETE minimums from 1 March 2026; basic pay
         only, bonuses do not count)"
+interview:
+  # /prep and /thanks (apply/interview.py). Notion Config interview.ask (one question per line)
+  # and interview.thanks win when set.
+  ask:
+    - "What would a successful first six months in this role look like?"
+    - "What does the deployment pipeline look like today, and what would you change first?"
+    - "How is on-call organised, and how are incidents reviewed?"
+    - "How does the team split work between platform and product engineers?"
+    - "What are the next steps in the process, and when can I expect to hear back?"
+  # Placeholders: {greeting} ("Hi <name>," or "Hello,"), {role}, {company}, {detail} (one
+  # sentence about a detail from the job page, or nothing), {name} (Config profile.name).
+  thanks: "Subject: Thank you for the {role} interview\n\n{greeting}\n\nThank you for your time
+    today and for the conversation about the {role} role at {company}. {detail}I am even more
+    interested in joining the team, and I am happy to share anything else that helps.\n\nKind
+    regards,\n{name}"
 reply_drafts:
   # The draft answer under a reply ping (track/reply_draft.py), filled with your apply_pack
   # answers; one sentence per question their mail asks. A Notion Config key reply.<name> wins.

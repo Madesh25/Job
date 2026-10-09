@@ -81,6 +81,8 @@ HELP_TEXT = (
     "/answer <question> = <answer> - save a form answer; it is in every Apply pack after\n"
     "/answers - your saved form answers (/answer delete N removes one)\n"
     "/autofill - the browser bookmark that fills application forms from the Apply pack code\n"
+    "/prep <url or id> - interview prep: likely questions, your gaps, questions to ask them\n"
+    "/thanks <url or id> <name> - the thank-you mail to send after an interview\n"
     "/mailmode - draft (only write Gmail drafts) or send (check every mail, then send it)\n"
     "/mailqueue - mails waiting for the recipient's morning (Tue to Thu, 8 to 10 their time)\n"
     "/today - run the daily check now (sent mails, replies, bounces, follow-ups)\n"
@@ -708,6 +710,10 @@ def desk_replies(update: dict[str, Any], s: Settings, desk: Desk | None) -> list
         return _guarded("/autofill", desk.autofill_command)
     if command == "applypack":
         return _guarded("/applypack", lambda: desk.applypack_command(args))
+    if command == "prep":
+        return _guarded("/prep", lambda: desk.prep_command(args))
+    if command == "thanks":
+        return _guarded("/thanks", lambda: desk.thanks_command(args))
     if command == "mailqueue":
         return _guarded("/mailqueue", desk.mailqueue_command)
     if command == "mailmode":
