@@ -42,5 +42,8 @@ def run_weekly_digest(deps: TrackDeps, now: datetime) -> str:
     lines.append(f"Follow-ups due: {len(due)}")
     lines.append(commands.strategy_line(config, today))
     lines.append(costs.month_line(deps.state, today))
+    if today.day <= 7:  # the first digest of the month (features 8 and 14)
+        lines.append("Monthly: /keywords for your LinkedIn profile keywords, /gaps for the "
+                     "learning plan.")
     lines += ["", replies_report(jobs, contacts, today)]
     return "\n".join(lines)

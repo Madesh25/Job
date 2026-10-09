@@ -93,6 +93,21 @@ highlighted, because it demotes that company's jobs in screening.
 `run_strategy_reminder` (sent daily by Module 09) says `Strategy review due in N days. Run
 /update.` when 3 or fewer days are left, and nothing on other days.
 
+## Learning plan and LinkedIn keywords (flow features 14 and 8)
+
+- **/gaps** ends with a **learning plan**: each certificate in `learning.certificates`
+  (`config/base.yaml`) lists the skills it teaches; the ones covering gaps in the most jobs
+  come first, with the gaps they cover, and the gaps no certificate covers are listed apart
+  (learn them with a small project). A Gaps cell that says "none" is not a gap.
+- **/keywords**: the 15 tools your best jobs (Approved, Applied, Screening, Interview, Offer;
+  the newest 40 with a description) name most, counted once per job with the free skill
+  matcher. Each says whether you have it and, when your profile text is in Notion Config
+  `profile.linkedin_headline` / `profile.linkedin_skills` / `profile.linkedin_about`, whether
+  it is on your LinkedIn profile; the ones you have but your profile lacks are listed to add.
+  A tool you do not have is never suggested for the profile. The bot never opens LinkedIn:
+  paste your headline and skills into those Config keys yourself.
+- The first weekly digest of each month reminds you of both.
+
 ## Notion prerequisites
 
 - Strategy (DEV) in the DEV Sandbox with the Strategy schema (done; its ID is in
