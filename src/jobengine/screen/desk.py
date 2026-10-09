@@ -16,7 +16,7 @@ from typing import Any
 from urllib.parse import urlsplit
 
 from jobengine import http
-from jobengine.apply import answers, cover
+from jobengine.apply import answers, cover, interview
 from jobengine.bot_state import BotState, FakeBotState
 from jobengine.contacts import finder as contact_finder
 from jobengine.contacts.finder import ContactDeps
@@ -838,6 +838,86 @@ class Desk:
         if row is None:
             return [Reply(f"No Job Opportunities row found for {args.strip()}")]
         return self.apply_pack(row.page_id)
+
+    # ------------------------------------------------------------ interviews (feature 15)
+
+    def _interview_job(self, ref: str, usage: str) -> tuple[str, dict[str, Any]] | Reply:
+        if self.repo is None:
+            return Reply(NO_TARGET)
+        if not ref:
+            return Reply(usage)
+        row = find_row(self.repo, ref)
+        if row is None:
+            return Reply(f"No Job Opportunities row found for {ref}")
+        return row.page_id, self.repo.get_values(row.page_id) or {}
+
+    def _master_text(self) -> str:
+        """Your Golden Master resume as plain text ("" when it cannot be read)."""
+        from jobengine.resume.master import load_master, normalised_text
+
+        if self.resume is None:
+            return ""
+        try:
+            return normalised_text(load_master(self.resume.blocks(), self.deps.config()).html)
+        except Exception as exc:  # the prep pack still has everything else
+            log.info("interview prep: Golden Master not read: %s", exc)
+            return ""
+
+    def prep_command(self, args: str) -> list[Reply]:
+        """/prep <job>: the interview prep pack (feature 15)."""
+        from jobengine.apply.pack import _names_gap
+        from jobengine.resume import header
+        from jobengine.resume.builder import specific_details
+
+        found = self._interview_job(args.strip(), "Send /prep <job URL or page id>.")
+        if isinstance(found, Reply):
+            return [found]
+        job_id, values = found
+        body = self.repo.read_body(job_id) if self.repo else []
+        jd, _kind = description(body)
+        gaps = split_gaps(values.get("Gaps"))
+        have = list(self.ranker().keywords(jd).have) if jd else []
+        company, role = values.get("Company") or "", values.get("Role") or ""
+        llm = self.resume.llm(self.deps.config()) if self.resume is not None else None
+        qs = (interview.questions(llm, company=company, role=role, jd=jd,
+                                  resume_text=self._master_text(), gaps=gaps,
+                                  key=job_id.replace("-", ""))
+              if llm is not None else interview.Questions(note="no AI in this environment"))
+        config = self.deps.config()
+        ask = [line.strip(" -") for line in str(config.get("interview.ask") or "").splitlines()
+               if line.strip(" -")] or list(self.s.interview.get("ask") or [])
+        text = interview.prep_text(
+            company=company, role=role, where=header.place(values) or "unknown place",
+            url=values.get("URL") or "", have=have, gaps=gaps,
+            details=[d for d in specific_details(body) if not _names_gap(d, gaps)],
+            qs=qs, ask=ask, tips=self.tips(tips_mod.INTERVIEW, values.get("Country")))
+        return [Reply(text[:MAX_TEXT])]
+
+    def thanks_command(self, args: str) -> list[Reply]:
+        """/thanks <job> [first name]: the thank-you mail after an interview (feature 15)."""
+        from jobengine.apply.pack import _names_gap
+        from jobengine.resume.builder import specific_details
+
+        ref, _, who = args.strip().partition(" ")
+        found = self._interview_job(ref, "Send /thanks <job URL or page id> <interviewer first "
+                                         "name>.")
+        if isinstance(found, Reply):
+            return [found]
+        job_id, values = found
+        body = self.repo.read_body(job_id) if self.repo else []
+        gaps = split_gaps(values.get("Gaps"))
+        detail = next((d.strip() for d in specific_details(body)
+                       if d.strip() and not _names_gap(d, gaps)), None)
+        config = self.deps.config()
+        template = str(config.get("interview.thanks") or self.s.interview.get("thanks") or "")
+        if not template:
+            return [Reply("No thank-you template: add interview.thanks in config/base.yaml or "
+                          "Notion Config.")]
+        first = who.split()[0] if who.split() else None
+        name = " ".join(str(config.get("profile.name") or "").split())
+        return [Reply(interview.thanks_text(
+            template, first=first, company=values.get("Company") or "",
+            role=values.get("Role") or "", detail=detail, name=name))]
 
     # ------------------------------------------------------------ outreach budget (Module 10)
 
