@@ -16,7 +16,7 @@ from typing import Any
 from urllib.parse import urlsplit
 
 from jobengine import http
-from jobengine.apply import cover
+from jobengine.apply import answers, cover
 from jobengine.bot_state import BotState, FakeBotState
 from jobengine.contacts import finder as contact_finder
 from jobengine.contacts.finder import ContactDeps
@@ -510,6 +510,8 @@ class Desk:
             return self.strategy_tap(action, arg)
         if action == "oc" and arg:
             return self.outreach_tap(arg)
+        if action == "ln" and arg:  # "LinkedIn notes" under the contacts
+            return self.linkedin_notes(arg)
         if action == "dm" and arg:  # a domain button under the domain question
             return self.domain_tap(arg)
         if action == "fr" and arg:  # a reason button under /fetchreport
@@ -770,7 +772,7 @@ class Desk:
             return []
         body = self.repo.read_body(job_id)
         text = pack.build(self.s, self.deps.config(), values, specific_details(body),
-                          self.today())
+                          self.today(), answers.pack_lines(self.state))
         letter = self.cover_letter(job_id, values, body, resume_pdf)
         if self.deps.write:
             try:
@@ -785,6 +787,14 @@ class Desk:
         if letter is not None:
             replies.append(Reply(cover.block(letter)[:MAX_TEXT]))
         return replies
+
+    def answer_command(self, args: str) -> list[Reply]:
+        """/answer <question> = <answer>: kept for every later Apply pack (feature 10)."""
+        return [Reply(answers.command(self.state, args))]
+
+    def answers_command(self) -> list[Reply]:
+        """/answers: your saved form answers."""
+        return [Reply(answers.listing(self.state)[:MAX_TEXT])]
 
     def cover_letter(self, job_id: str, values: dict[str, Any], body: list[str],
                      resume_pdf: bytes | None) -> cover.Letter | None:
@@ -892,6 +902,8 @@ class Desk:
         """The contacts summary with a "Write Gmail drafts" button: drafts are only written
         when you tap it."""
         contact_finder.on_contacts_ready(job_id, contacts)
+        if _contact_ids(contacts):  # notes to copy into LinkedIn yourself (feature 12)
+            first.buttons = [*first.buttons, ("LinkedIn notes", f"ln:{short_id(job_id)}")]
         if self.mail is not None and _contact_ids(contacts):
             if self.sending():
                 first.buttons = [*first.buttons, ("Check and send mails",
@@ -903,6 +915,28 @@ class Desk:
                                                   f"dr:{short_id(job_id)}")]
                 first.text += "\nNext: tap Write Gmail drafts (they are never sent by themselves)."
         return [first]
+
+    def linkedin_notes(self, job_id: str) -> list[Reply]:
+        """The "LinkedIn notes" button: a connection note per contact (feature 12)."""
+        from jobengine.contacts import linkedin_notes
+        from jobengine.resume.builder import notion_id
+
+        if self.repo is None or self.contacts is None or self.contacts.contacts is None:
+            return [Reply("Contacts are not available in this bot.")]
+        job_id = notion_id(job_id)
+        values = self.repo.get_values(job_id) or {}
+        wanted = {short_id(cid) for cid in values.get("Contacts") or []}
+        rows = [v for pid, v in self.contacts.contacts.all_rows() if short_id(pid) in wanted]
+        config = self.deps.config()
+        base = self.s.apply_pack.get("linkedin_notes") or {}
+        templates = {kind: config.get(f"linkedin.note_{kind}") or base.get(kind)
+                     for kind in ("peer", "recruiter", "hiring")}
+        me = config.get("linkedin.signature") or self.s.apply_pack.get("linkedin_signature")
+        text = linkedin_notes.notes(
+            rows, role=values.get("Role") or "", company=values.get("Company") or "",
+            link=values.get("URL") or "", me=str(me or ""),
+            templates={k: v for k, v in templates.items() if v})
+        return [Reply(text[:MAX_TEXT])]
 
     # ------------------------------------------------------------ /fetchcontacts
 
