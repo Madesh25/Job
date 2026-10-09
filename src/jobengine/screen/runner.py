@@ -290,6 +290,7 @@ class _Run:
                 if not url:
                     raise ValueError("Config ind_register.url is missing")
                 self._register = load_register(url, self.deps.get_text)
+                self._register.add_aliases(self.config.get("ind_register.aliases"))
                 log.info("IND register: %d organisations", len(self._register.names))
             except (http.HttpError, ValueError) as exc:
                 log.warning("IND register unavailable: %s", exc)

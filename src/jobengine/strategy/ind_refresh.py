@@ -25,8 +25,10 @@ VERIFIED, NOT_LISTED = "Verified", "Not listed"
 REGION = "Netherlands"
 # 7 Oct: one run turned all 28 Verified companies (ASML, Adyen, ING...) into Not listed, a
 # failed read of the register page, not 28 real changes. When this many Verified companies
-# (and more than half of them) would drop at once, nothing is changed and it is reported.
+# (and more than a third of them; 9 Oct: 14 of 28 got through a "more than half" rule) would
+# drop at once, nothing is changed and it is reported.
 MASS_DEMOTION = 3
+MAX_MISS_LINES = 15
 
 
 @dataclass(frozen=True)
@@ -48,11 +50,14 @@ class IndReport:
     written: bool = False
     names: int = 0  # organisations read from the register page
     sample: list[str] = field(default_factory=list)  # a few names, to see what was read
+    # Verified companies that no longer match: (company, nearest register names), so a
+    # wrong miss shows at once (9 Oct: "ING" vs "ING Bank N.V.").
+    misses: list[tuple[str, list[str]]] = field(default_factory=list)
 
     def text(self) -> str:
         if self.error:
-            return (f"IND register check failed: {self.error}. Nothing was changed."
-                    + self._sample())
+            return "\n".join([f"IND register check failed: {self.error}. Nothing was changed."
+                              + self._sample(), *self._miss_lines()])
         changed = "; ".join(f"{c.company}: {c.old or 'empty'} -> {c.new}" for c in self.changes)
         line = (f"IND register: {self.checked} NL companies checked, {len(self.changes)} changed"
                 + (f" ({changed})" if changed else "") + ".")
@@ -60,11 +65,21 @@ class IndReport:
             line += " Not written outside prod."
         line += f" ({self.names} names read from the register.)"
         lines = [line + self._sample()]
+        rank = "now rank lower" if self.written else "will rank lower once this is written (prod)"
         for c in self.changes:
             if c.demoted:
                 lines.append(f"Warning: {c.company} is no longer on the IND register. Its jobs "
-                             "now rank lower in screening.")
-        return "\n".join(lines)
+                             f"{rank} in screening.")
+        return "\n".join([*lines, *self._miss_lines()])
+
+    def _miss_lines(self) -> list[str]:
+        if not self.misses:
+            return []
+        lines = ["Not found on the register, nearest names (if one is the same company, add "
+                 "a Config ind_register.aliases line \"Company = Register name\"):"]
+        for company, near in self.misses[:MAX_MISS_LINES]:
+            lines.append(f"- {company}: {'; '.join(near) or 'none'}")
+        return lines
 
     def _sample(self) -> str:
         # Phase 6: 13,020 "names" matched nothing; they were KvK numbers. Show what was read.
@@ -93,6 +108,7 @@ def refresh(deps: IndDeps) -> IndReport:
     except (http.HttpError, ValueError) as exc:
         report.error = str(exc)
         return report
+    register.add_aliases(deps.config().get("ind_register.aliases"))
     report.names = len(register.names)
     step = max(1, len(register.names) // 3)
     report.sample = register.names[::step][:3]
@@ -107,13 +123,16 @@ def refresh(deps: IndDeps) -> IndReport:
         new = VERIFIED if register.match(company.name) else NOT_LISTED
         props: dict[str, Any] = {"Last checked": today}
         if new != company.ind_sponsor:
-            report.changes.append(IndChange(company.name, company.ind_sponsor, new))
+            change = IndChange(company.name, company.ind_sponsor, new)
+            report.changes.append(change)
+            if change.demoted:
+                report.misses.append((company.name, register.closest(company.name)))
             props["IND sponsor"] = new
         writes.append((company.row_id, props))
     verified = sum(1 for c in companies if c.region == REGION
                    and c.ind_sponsor == VERIFIED)
     dropped = sum(1 for c in report.changes if c.demoted)
-    if dropped >= MASS_DEMOTION and dropped * 2 > verified:
+    if dropped >= MASS_DEMOTION and dropped * 3 > verified:
         report.error = (f"{dropped} of {verified} Verified companies would become Not listed "
                         f"at once ({report.names} names read from {url}); that looks like a "
                         "changed or partly loaded register page, not real changes")
