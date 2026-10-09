@@ -81,6 +81,7 @@ HELP_TEXT = (
     "/applypack <url or id> - ready answers for a job's application form (visa, notice, salary)\n"
     "/answer <question> = <answer> - save a form answer; it is in every Apply pack after\n"
     "/answers - your saved form answers (/answer delete N removes one)\n"
+    "/autofill - the browser bookmark that fills application forms from the Apply pack code\n"
     "/prep <url or id> - interview prep: likely questions, your gaps, questions to ask them\n"
     "/thanks <url or id> <name> - the thank-you mail to send after an interview\n"
     "/mailmode - draft (only write Gmail drafts) or send (check every mail, then send it)\n"
@@ -151,9 +152,9 @@ TAP_TOASTS = {"ap": "Checking the job link, then building your resume...",
 TAP_DEFAULT = "Working on it..."
 
 DESK_COMMANDS = ("next", "pending", "jd", "done", "screen", "gaps", "contacts", "credits",
-                 "outreach", "drafts", "answer", "answers", "fetchcontacts", "alertcheck",
-                 "fetchreport", "linkedin", "today", "followups", "stats", "sources", "health",
-                 "digest", "update", "rules")
+                 "outreach", "drafts", "answer", "answers", "autofill", "fetchcontacts",
+                 "alertcheck", "fetchreport", "linkedin", "today", "followups", "stats",
+                 "sources", "health", "digest", "update", "rules")
 
 # (method, payload, http_timeout) -> decoded JSON response
 Transport = Callable[[str, dict[str, Any], float], dict[str, Any]]
@@ -708,6 +709,8 @@ def desk_replies(update: dict[str, Any], s: Settings, desk: Desk | None) -> list
         return _guarded("/answer", lambda: desk.answer_command(args))
     if command == "answers":
         return _guarded("/answers", desk.answers_command)
+    if command == "autofill":
+        return _guarded("/autofill", desk.autofill_command)
     if command == "applypack":
         return _guarded("/applypack", lambda: desk.applypack_command(args))
     if command == "prep":

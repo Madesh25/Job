@@ -176,7 +176,8 @@ def test_applypack_command():
     tb.poll_once(client, settings(), offset, desk=d)
     texts = [t for _, t in fake.sent]
     assert texts[0].startswith("[LOCAL] Apply pack (")
-    assert texts[1] == "[LOCAL] Send /applypack <job URL or page id>."
+    assert "JE1:" in texts[1]  # the form autofill code (feature 9)
+    assert texts[2] == "[LOCAL] Send /applypack <job URL or page id>."
     assert "applypack" in [c["command"] for c in tb.bot_commands()]
 
 

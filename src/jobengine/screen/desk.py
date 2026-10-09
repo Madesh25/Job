@@ -16,7 +16,7 @@ from typing import Any
 from urllib.parse import urlsplit
 
 from jobengine import http
-from jobengine.apply import answers, cover, interview
+from jobengine.apply import answers, autofill, cover, interview
 from jobengine.bot_state import BotState, FakeBotState
 from jobengine.contacts import finder as contact_finder
 from jobengine.contacts.finder import ContactDeps
@@ -787,7 +787,15 @@ class Desk:
         replies = [Reply(text[:MAX_TEXT])]
         if letter is not None:
             replies.append(Reply(cover.block(letter)[:MAX_TEXT]))
+        why = pack.why_line(self.s, self.deps.config(), specific_details(body),
+                            split_gaps(values.get("Gaps")))
+        replies.append(Reply(autofill.message(self.s, self.deps.config(), self.state, values,
+                                              letter=letter.text if letter else None, why=why)))
         return replies
+
+    def autofill_command(self) -> list[Reply]:
+        """/autofill: how to add the form autofill bookmark, then the bookmark (feature 9)."""
+        return [Reply(text) for text in autofill.setup_text()]
 
     def answer_command(self, args: str) -> list[Reply]:
         """/answer <question> = <answer>: kept for every later Apply pack (feature 10)."""

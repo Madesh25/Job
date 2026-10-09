@@ -96,6 +96,9 @@ apply_pack:
   linkedin_notes: {}
   # Ready answers for portal forms, one Telegram message per approved job (apply/pack.py).
   # Your answers (PR 11); a Notion Config key apply.<name> wins over each one.
+  # Form autofill (apply/autofill.py): the town forms ask for. First and last name come from
+  # Config profile.name (Config apply.first_name and apply.last_name win).
+  city: "Chennai, India"
   sponsorship_needed: "Yes"
   authorized_without_sponsorship: "No"
   notice_period: "90 days, can be shortened to 30 to 40 days"
