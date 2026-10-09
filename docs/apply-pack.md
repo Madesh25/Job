@@ -51,3 +51,28 @@ integrity gate are unchanged):
   Notion Config value) becomes ` | `, so the line never breaks in two.
 
 Config keys `resume.headline_titles` and `resume.relocation_template` win when set.
+
+## Form autofill (flow feature 9)
+
+`apply/autofill.py`. The bot never opens a company form and never submits anything.
+
+- After each Apply pack comes one more message: the **autofill code** for that job, a line
+  that starts with `JE1:`. It holds your answers for the job: name (from Config `profile.name`;
+  Config `apply.first_name` and `apply.last_name` win), email, phone, links, town
+  (`apply_pack.city`), permit, sponsorship, salary, notice, start, relocation, English, gender,
+  the "why" line, the cover letter and your `/answer` list. A value that is not set is left
+  out, so that field stays empty for you.
+- `/autofill` sends the **bookmark** and how to add it once per browser (bookmarks bar, Add
+  page, paste the `javascript:` message as the URL).
+- On the form page (Greenhouse, Lever, Workday and most others) click the bookmark and paste
+  the whole autofill message. It fills only **empty** fields whose label it recognises (your
+  saved answers first, then the standard questions), chooses Yes/No and similar options in
+  dropdowns and radio buttons, marks every filled field in orange, and says how many required
+  fields are still empty. It never clicks a button and never submits; you check every field,
+  attach the resume and press Submit yourself.
+- A form shown inside a company page (an iframe from another site): the bookmark offers to
+  open the form on its own page; click it again there.
+- Workday has several pages: click the bookmark on each page; it offers the same code again
+  for 2 hours in that tab.
+- The code is at most 3,600 characters (one Telegram message): when your saved answers are
+  many, the oldest are left out first, then the cover letter (it is in its own message).
