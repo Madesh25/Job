@@ -53,7 +53,8 @@ def due(deps: TrackDeps, now: datetime) -> bool:
         return True
 
 
-INTERVIEW_HINT = "It may be about an interview or a call: answer soon."
+INTERVIEW_HINT = ("It may be about an interview or a call: answer soon. To prepare: /prep "
+                  "<job link>.")
 
 
 def _ping(message: Message, who: str, what: str) -> str:

@@ -78,6 +78,8 @@ HELP_TEXT = (
     "to today\n"
     "/drafts <url or id> - write Gmail drafts for a job's contacts again\n"
     "/applypack <url or id> - ready answers for a job's application form (visa, notice, salary)\n"
+    "/prep <url or id> - interview prep: likely questions, your gaps, questions to ask them\n"
+    "/thanks <url or id> <name> - the thank-you mail to send after an interview\n"
     "/mailmode - draft (only write Gmail drafts) or send (check every mail, then send it)\n"
     "/mailqueue - mails waiting for the recipient's morning (Tue to Thu, 8 to 10 their time)\n"
     "/today - run the daily check now (sent mails, replies, bounces, follow-ups)\n"
@@ -697,6 +699,10 @@ def desk_replies(update: dict[str, Any], s: Settings, desk: Desk | None) -> list
         return _guarded("/drafts", lambda: desk.drafts_command(args))
     if command == "applypack":
         return _guarded("/applypack", lambda: desk.applypack_command(args))
+    if command == "prep":
+        return _guarded("/prep", lambda: desk.prep_command(args))
+    if command == "thanks":
+        return _guarded("/thanks", lambda: desk.thanks_command(args))
     if command == "mailqueue":
         return _guarded("/mailqueue", desk.mailqueue_command)
     if command == "mailmode":
