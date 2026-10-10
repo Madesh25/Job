@@ -1517,6 +1517,29 @@ class Desk:
             return self._no_track() or []
         return [Reply(track_commands.health_text(self.track))]
 
+    def agencies_command(self, args: str) -> list[Reply]:
+        """/agencies: recruitment agencies by country; /agencies <name> the intro mail;
+        /agencies sent <name> records the contact (feature 7)."""
+        from jobengine.contacts import agencies as ag
+
+        found = ag.load(self.s)
+        config = self.deps.config()
+        text = args.strip()
+        sent = re.match(r"(?:sent|done)\s+(.+)", text, re.I)
+        query = sent.group(1) if sent else text
+        if not query:
+            return [Reply(ag.listing(found, self.state, config)[:MAX_TEXT])]
+        matches = ag.find(found, query)
+        if len(matches) != 1:
+            names = ", ".join(a.name for a in (matches or found))
+            return [Reply(f"Which agency? {names}")]
+        agency = matches[0]
+        if sent:
+            ag.mark(self.state, agency, self.today())
+            return [Reply(f"Recorded: {agency.name} contacted on {self.today().isoformat()}. "
+                          f"The digest reminds you after {ag.FOLLOW_UP_DAYS} days.")]
+        return [Reply(ag.intro(self.s, config, agency)[:MAX_TEXT])]
+
     def digest_command(self) -> list[Reply]:
         if self.track is None:
             return self._no_track() or []

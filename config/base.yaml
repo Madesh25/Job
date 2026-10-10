@@ -199,6 +199,39 @@ learning:
     "Datadog Fundamentals": [datadog]
     "Elastic Certified Engineer": [elasticsearch, elk, elastic stack, logstash, kibana,
                                    opensearch]
+agencies:
+  # Recruitment agencies channel (contacts/agencies.py, /agencies). Established recruiters with
+  # IT teams; each website checked on 10 Oct. Emails are never guessed: put one from the
+  # agency's website in Notion Config agency_email.<key> (key = name in lower case, spaces as _,
+  # for example agency_email.hays_poland). Without it you register on the website.
+  list:
+    - {name: Hays Poland, country: Poland, website: hays.pl, focus: IT and IT contracting}
+    - {name: Antal, country: Poland, website: antal.pl, focus: IT Services infrastructure team}
+    - {name: Michael Page Poland, country: Poland, website: michaelpage.pl,
+       focus: IT infrastructure and software}
+    - {name: Experis Poland, country: Poland, website: experis.pl,
+       focus: "IT recruitment, ManpowerGroup"}
+    - {name: Hays Netherlands, country: Netherlands, website: hays.nl,
+       focus: IT and IT contracting}
+    - {name: Undutchables, country: Netherlands, website: undutchables.nl,
+       focus: "international candidates, IT"}
+    - {name: Brunel Netherlands, country: Netherlands, website: brunel.net,
+       focus: "IT specialists, contract placement"}
+    - {name: Michael Page Netherlands, country: Netherlands, website: michaelpage.nl,
+       focus: IT and technology}
+    - {name: Sigmar Recruitment, country: Ireland, website: sigmarrecruitment.com,
+       focus: "IT, contracting hub"}
+    - {name: Cpl, country: Ireland, website: cpl.com, focus: Technology and IT}
+    - {name: Morgan McKinley, country: Ireland, website: morganmckinley.com/ie,
+       focus: Technology}
+    - {name: Hays Ireland, country: Ireland, website: hays.ie, focus: IT and technology}
+  # The intro mail, used word for word (Notion Config agency.intro wins). Placeholders:
+  # {agency} {country} {experience} {notice} {relocation} {permit} {name} {phone} {links}
+  intro: "Subject: DevOps Engineer open to relocate to {country}\n\nHello {agency} team,\n\nI
+    am a DevOps engineer ({experience}) working with Kubernetes, Terraform and AWS, and I am
+    looking for a DevOps, SRE or Platform Engineer role in {country}. {permit} {relocation}.
+    My notice period is {notice}.\n\nI attach my resume and would be glad to be considered
+    for current or upcoming roles with your clients.\n\nKind regards,\n{name}\n{phone}\n{links}"
 resume:
   # Defaults; Notion Config keys with the same names (resume.fill_min, ...) win when set.
   fill_min: 88

@@ -5,6 +5,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 
+from jobengine.contacts import agencies
 from jobengine.screen.runner import pending_rows, waiting_for_jd
 from jobengine.track import commands, costs
 from jobengine.track.runner import TrackDeps
@@ -42,6 +43,9 @@ def run_weekly_digest(deps: TrackDeps, now: datetime) -> str:
     lines.append(f"Follow-ups due: {len(due)}")
     lines.append(commands.strategy_line(config, today))
     lines.append(costs.month_line(deps.state, today))
+    agency_line = agencies.digest_line(agencies.load(deps.s), deps.state, today)
+    if agency_line:  # feature 7
+        lines.append(agency_line)
     if today.day <= 7:  # the first digest of the month (features 8 and 14)
         lines.append("Monthly: /keywords for your LinkedIn profile keywords, /gaps for the "
                      "learning plan.")
