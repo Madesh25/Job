@@ -110,3 +110,17 @@ def test_resume_says_europe_for_a_remote_eu_job():
     assert header.relocation_line(S, ConfigStore.fake(), job) == (
         "Chennai, India | Open to relocate to Europe")
     assert header.place(job) == "Europe"
+
+
+def test_systems_engineer_outside_it_is_excluded():
+    """10 Oct: ABB "Power Systems Engineer" passed as a DevOps-type title."""
+    from jobengine.settings import load_settings
+    from jobengine.sweep.normalize import Rules, title_scope
+
+    rules = Rules.from_config(load_settings("local", {}).sweep)
+    for title in ("Power Systems Engineer", "Control Systems Engineer",
+                  "Embedded Systems Engineer", "Electrical Systems Engineer"):
+        assert title_scope(title, rules) is not None, title
+    for title in ("Systems Engineer", "Linux Systems Engineer", "Cloud Systems Engineer",
+                  "DevOps Engineer", "Junior Software Engineer (DevOps)"):
+        assert title_scope(title, rules) is None, title
