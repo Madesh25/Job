@@ -302,8 +302,8 @@ class SweepSummary:
             lines.append(f"\U0001F4C4 Full descriptions read from the job page: "
                          f"{self.full_read} of {self.full_tried}")
         if self.linkedin_filled:
-            lines.append(f"\U0001F517 Alert jobs: description found on another site "
-                         f"(no /jd needed): {len(self.linkedin_filled)}")
+            lines.append(f"\U0001F517 Descriptions taken from the same job on another site "
+                         f"(alerts, Adzuna snippets; no /jd needed): {len(self.linkedin_filled)}")
             lines.extend(f"- {job}" for job in self.linkedin_filled)
         if self.backfilled:
             lines.append(f"\U0001F4DD Saved jobs that waited for a description, now filled "

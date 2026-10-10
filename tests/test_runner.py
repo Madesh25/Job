@@ -273,6 +273,8 @@ def test_progress_lines_are_plain_language():
         "Found 19 jobs. Saving to your Notion...",
         "Reading full job descriptions: 1 of 9",
         "Reading full job descriptions: 5 of 9",
+        # the Adzuna snippet row of Tulip Data has the same job on its Lever board (10 Oct)
+        "Descriptions from other sites: checking Tulip Data B.V.",
         # saved rows still waiting for a description (sweep/backfill.py); Odra Systems is a
         # JustJoin IT row, whose page is never opened since 10 Oct (its terms)
         "Descriptions for saved jobs: reading Liffey Analytics Ltd",

@@ -12,6 +12,11 @@ ignored). When one matches and has a full description (read from its page when t
 gave only a snippet), that description is written to the LinkedIn row, with a first line
 naming where it came from. Rows without a match keep waiting for /jd.
 
+Adzuna rows too (10 Oct): Adzuna gives a 2 to 3 line snippet and its job pages answer HTTP 403
+outside the job's country, so screening sees only the snippet and says Needs review. A snippet
+row gets the full description of the same job found on another board; it is written after the
+snippet, and screening reads the newest description.
+
 Polish boards share many jobs (JustJoin IT, theprotocol.it and Pracuj.pl postings are often
 also on NoFluffJobs or the company's own board, which the sweep reads).
 
@@ -34,6 +39,9 @@ from jobengine.sweep.normalize import canon, canon_city, canon_company, canon_ti
 log = logging.getLogger("jobengine.sweep")
 
 LINKEDIN = "LinkedIn"
+SNIPPET_BOARDS = ("Adzuna",)  # their rows usually hold only a snippet
+DESCRIPTION_HEADER = "Description source:"  # screen/runner.py, the same marker
+SNIPPET_MARK = "(snippet only)"
 # Words that only say where or how the job is done, not what it is.
 NOISE = {"remote", "hybrid", "onsite", "on-site", "fulltime", "full-time"}
 NOISE_PAIRS = (("on", "site"), ("full", "time"))
@@ -102,6 +110,22 @@ class Pool:
                                             len(j.description or "")), reverse=True)
 
 
+def _has_full(blocks: list[str], full_min: int) -> bool:
+    """True when the newest description in the page body is a full one (not a snippet), as
+    screening reads it (screen/runner.description)."""
+    start = max((i for i, b in enumerate(blocks) if b.startswith(DESCRIPTION_HEADER)),
+                default=None)
+    if start is None:
+        # A body without a source line (an old /jd paste) counts as full when it is long.
+        return len("".join(blocks).strip()) >= full_min
+    body = []
+    for text in blocks[start + 1:]:
+        if text.startswith(DESCRIPTION_HEADER) or text.startswith("Screening ("):
+            break
+        body.append(text)
+    return SNIPPET_MARK not in blocks[start] and len("".join(body).strip()) >= full_min
+
+
 @dataclass
 class Filled:
     labels: list[str] = field(default_factory=list)  # "Company, Role (from Adzuna)"
@@ -148,10 +172,10 @@ def fill_linkedin(
     for page_id, values in rows:
         matches = pool.find(values.get("Company"), values.get("Role"), values.get("Country"),
                             values.get("City"))
-        if not matches or page_id in with_body or repo.has_body(page_id):
+        if not matches or _has_full(repo.read_body(page_id), cfg.full_min):
             continue
         if progress is not None:
-            progress(f"Alert job descriptions: checking {values.get('Company')}")
+            progress(f"Descriptions from other sites: checking {values.get('Company')}")
         full = next((f for f in (_full(m, cfg, page, budget) for m in matches) if f), None)
         if full is None:
             filled.snippets_only += 1

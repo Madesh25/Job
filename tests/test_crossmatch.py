@@ -89,7 +89,7 @@ def test_reads_the_page_when_the_match_is_only_a_snippet():
 
 def test_rows_left_alone():
     repo = FakeJobsRepo([
-        linkedin_row(page_id="has-body", body=["Pasted with /jd"]),
+        linkedin_row(page_id="has-body", body=["Description source: pasted (full)", LONG]),
         linkedin_row(page_id="screened", **{"Screen verdict": "Apply high"}),
         linkedin_row(page_id="other-title", Role="Platform Engineer"),
         linkedin_row(page_id="other-board", Board="Adzuna"),
@@ -119,8 +119,8 @@ def test_sweep_fills_an_old_linkedin_row_from_a_posting_in_another_city():
     assert summary.linkedin_filled == ["Vistula Cloud, DevOps Engineer (from Company site)"]
     assert "Operate Kubernetes" in "".join(repo.read_body("li-1"))
     text = summary.friendly_text()
-    assert ("\U0001F517 Alert jobs: description found on another site (no /jd needed): 1"
-            in text)
+    assert ("\U0001F517 Descriptions taken from the same job on another site (alerts, Adzuna "
+            "snippets; no /jd needed): 1" in text)
     assert "- Vistula Cloud, DevOps Engineer (from Company site)" in text
 
 
@@ -180,3 +180,21 @@ def test_justjoin_and_theprotocol_pages_are_never_opened():
             guard(url)
     guard("https://nofluffjobs.com/pl/job/devops")
     assert opened == ["https://nofluffjobs.com/pl/job/devops"]
+
+
+def test_snippet_rows_get_the_full_description():
+    """10 Oct: Adzuna rows hold a snippet only (screening says Needs review); the full text of
+    the same job on another board is added after it, and screening reads the newest."""
+    snippet = ["Description source: adzuna (snippet only)", "Short snippet."]
+    repo = FakeJobsRepo([linkedin_row(page_id="adz-1", Board="Adzuna", body=list(snippet)),
+                         linkedin_row(page_id="adz-2", Board="Adzuna",
+                                      body=["Description source: adzuna", LONG])])
+    filled = crossmatch.fill_linkedin(repo, [ATS], CFG, None, set(),
+                                      boards=("LinkedIn", "Adzuna"))
+    assert filled.labels == ["Vistula Cloud, DevOps Engineer (from Company site)"]
+    body = repo.read_body("adz-1")
+    assert body[:2] == snippet and body[2].startswith("Description source: ats (same job on "
+                                                      "Company site, found for this Adzuna")
+    assert repo.read_body("adz-2") == ["Description source: adzuna", LONG]  # already full
+    from jobengine.screen.runner import description
+    assert description(body) == (LONG, "full")
