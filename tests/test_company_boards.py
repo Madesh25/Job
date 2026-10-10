@@ -522,3 +522,82 @@ def test_check_names_own_site_companies_without_reading_them(tmp_path):
     rows = boards.run(S, [company], {}, lambda u, p: {}, lambda u, b: {}, page, TODAY,
                       tmp_path)
     assert rows[0].result == "own job site, covered by your alerts"
+
+
+# ---------------------------------------------------------------- board check of 10 Oct
+
+
+def test_greenhouse_eu_boards_and_the_other_host_on_404():
+    assert ats.board_from_url("https://job-boards.eu.greenhouse.io/imc/jobs/1") == ats.Board(
+        "greenhouse", "imc", eu=True)
+    assert ats.board_from_url("https://job-boards.greenhouse.io/tines").eu is False
+    assert "boards-api.eu.greenhouse.io" in S.allowed_hosts
+    asked = []
+
+    def get(url, params):
+        asked.append(url.split("/v1/")[0])
+        if len(asked) == 1:
+            raise http.HttpError("GET failed: HTTP 404", 404)
+        return {"jobs": [{"id": 1, "title": "DevOps Engineer", "location": {"name": "Dublin"},
+                          "absolute_url": "https://x/1"}]}
+
+    board = ats.Board("greenhouse", "hubspotjobs")
+    postings, _, _ = ats.greenhouse(MOLLIE, board, get, keep_all)
+    assert asked == ["https://boards-api.greenhouse.io", "https://boards-api.eu.greenhouse.io"]
+    assert len(postings) == 1
+    asked.clear()
+    ats.greenhouse(MOLLIE, ats.Board("greenhouse", "imc", eu=True), get, keep_all)
+    assert asked[0] == "https://boards-api.eu.greenhouse.io"
+
+    def down(url, params):
+        raise http.HttpError("GET failed: HTTP 503", 503)
+
+    with pytest.raises(http.HttpError):  # only "board unknown" asks the other host
+        ats.greenhouse(MOLLIE, board, down, keep_all)
+
+
+def test_successfactors_feed_asks_for_more_than_its_newest_20_jobs():
+    asked = []
+    board = ats.Board("successfactors", "https://careers.hcltech.com", site="en_US")
+    ats.successfactors(MOLLIE, board, lambda u: (asked.append(u), (u, FEED))[1], keep_all,
+                       ("devops",))
+    assert f"rows={ats.SF_ROWS}" in asked[0] and ats.SF_ROWS > 20
+
+
+def test_check_counts_workday_jobs_listed_without_a_place(tmp_path):
+    company = TargetCompany("Accenture", "https://accenture.wd103.myworkdayjobs.com/Careers",
+                            "Workday", True, "Poland")
+
+    def post(url, body):
+        return {"total": 1, "jobPostings": [
+            {"title": "DevOps Engineer", "externalPath": "/job/x/DevOps_R1"}]}
+
+    def get(url, params):
+        return {"jobPostingInfo": {"title": "DevOps Engineer", "location": "Warsaw",
+                                   "country": {"descriptor": "Poland"}}}
+
+    rows = boards.run(S, [company], {}, get, post, lambda u: (u, ""), TODAY, tmp_path)
+    assert (rows[0].result, rows[0].jobs, rows[0].here) == ("OK", 1, 1)
+
+
+def test_new_companies_are_checked_before_they_are_added(tmp_path):
+    path = tmp_path / "c.yaml"
+    path.write_text("proposed: {}\nnew:\n"
+                    "  - {name: Tines, region: Ireland, link: 'https://jobs.ashbyhq.com/t'}\n"
+                    "  - {name: Mollie, region: Netherlands, link: 'https://x.example.com'}\n"
+                    "  - {name: No Link}\n")
+    new = boards.load_new(path)
+    assert [(c.name, c.region, c.active) for c in new] == [("Tines", "Ireland", True),
+                                                           ("Mollie", "Netherlands", True)]
+    rows = boards.run(S, [MOLLIE], {}, lambda u, p: ASHBY_ANSWER, lambda u, b: {},
+                      lambda u: (u, ""), TODAY, tmp_path, new=new)
+    assert [(r.company, r.origin) for r in rows] == [("Mollie", "Notion"), ("Tines", "new")]
+    assert boards.load_new(tmp_path / "missing.yaml") == []
+
+
+def test_real_new_companies_file():
+    new = boards.load_new()
+    names = [c.name for c in new]
+    assert len(names) == len(set(names)) and len(new) >= 40
+    assert all(c.careers_url.startswith("https://") for c in new)
+    assert {c.region for c in new} <= {"Poland", "Netherlands", "Ireland", "Other"}

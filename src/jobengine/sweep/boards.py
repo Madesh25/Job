@@ -35,6 +35,10 @@ from jobengine.sweep.sources import ats
 log = logging.getLogger("jobengine.sweep")
 
 CANDIDATES = CONFIG_DIR / "board_candidates.yaml"
+# Workday sites that list no place for a job (Accenture, HPE, Workhuman) place it only in its
+# detail; without detail calls the check counted 0 jobs there (10 Oct). At most this many a
+# board.
+WORKDAY_DETAILS = 25
 OUT_DIR = ROOT_DIR / "out" / "boards"
 # Career site platforms /fetch cannot read yet, recognised by their links.
 PLATFORMS: tuple[tuple[str, re.Pattern[str]], ...] = (
@@ -80,6 +84,19 @@ def load_candidates(path: Path = CANDIDATES) -> dict[str, str]:
     data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
     proposed = data.get("proposed") or {}
     return {str(name): str(link).strip() for name, link in proposed.items() if link}
+
+
+def load_new(path: Path = CANDIDATES) -> list[TargetCompany]:
+    """Companies proposed for Target Companies (`new:`), checked before they are added."""
+    if not path.exists():
+        return []
+    data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    out = []
+    for item in data.get("new") or []:
+        if isinstance(item, Mapping) and item.get("name") and item.get("link"):
+            out.append(TargetCompany(str(item["name"]), str(item["link"]).strip(), "Unknown",
+                                     True, str(item.get("region") or "") or None))
+    return out
 
 
 def platform_of(url: str, page: str = "") -> str:
@@ -128,8 +145,8 @@ def read_board(s: Settings, company: TargetCompany, board: ats.Board, get: Gette
     elif board.ats == "smartrecruiters":
         postings, _, _ = ats.smartrecruiters(company, board, get, _keep_all, Budget(0))
     elif board.ats == "workday":
-        postings, _, _ = ats.workday(company, board, get, post, _keep_all, Budget(0), today,
-                                     terms, 1)
+        postings, _, _ = ats.workday(company, board, get, post, _keep_all,
+                                     Budget(WORKDAY_DETAILS), today, terms, 1)
     elif board.ats == "ashby":
         postings, _, _ = ats.ashby(company, board, get, _keep_all)
     elif board.ats == "avature":
@@ -206,19 +223,23 @@ def check_company(s: Settings, company: TargetCompany, link: str, origin: str, g
 
 def run(s: Settings, companies: list[TargetCompany], candidates: Mapping[str, str],
         get: Getter, post: Poster, page: PageGetter, today: date,
-        out_dir: Path = OUT_DIR) -> list[Check]:
-    """One Check per active company, in Target Companies order. Companies sharing a link are
-    read once."""
+        out_dir: Path = OUT_DIR, new: list[TargetCompany] | None = None) -> list[Check]:
+    """One Check per active company, in Target Companies order, then the proposed new
+    companies (origin "new", skipped when already in Target Companies). Companies sharing a
+    link are read once."""
     words = place_words(s)
     done: dict[str, Check] = {}
     rows = []
     own_sites = {ats.canon_name(n)
                  for n in (s.sweep.get("ats") or {}).get("own_site_companies") or []}
-    for company in companies:
+    known = {ats.canon_name(c.name) for c in companies}
+    extra = [c for c in new or [] if ats.canon_name(c.name) not in known]
+    for company in [*companies, *extra]:
         if not company.active:
             continue
         link = candidates.get(company.name) or company.careers_url or ""
-        origin = "proposed" if company.name in candidates else "Notion"
+        origin = ("new" if company in extra else
+                  "proposed" if company.name in candidates else "Notion")
         if ats.canon_name(company.name) in own_sites and ats.board_from_url(link) is None:
             rows.append(Check(company.name, company.region or "", link, origin,
                               "own job site, covered by your alerts"))
@@ -286,6 +307,6 @@ def check_all(s: Settings, today: date) -> str:
         # SuccessFactors job feeds are RSS: accepted here too.
         return http.get_page(url, s=s, accept_feed=True)
 
-    rows = run(s, companies, load_candidates(), get, post, page, today)
+    rows = run(s, companies, load_candidates(), get, post, page, today, new=load_new())
     path = save_csv(rows)
     return f"{report_text(rows)}\n\nSaved {path}; zip the out/boards folder and send it."

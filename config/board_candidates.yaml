@@ -9,3 +9,68 @@
 # Oracle site). Companies with their own job site are listed in sweep.ats.own_site_companies
 # (config/base.yaml, your choice C of 5 Oct). Nothing is waiting for a check now.
 proposed: {}
+
+# New companies for Target Companies (10 Oct): mid-size companies, scale-ups and startups
+# that hire DevOps, SRE and platform engineers in Poland, the Netherlands or Ireland (or
+# remote in Europe), each with a job board /fetch can read or a careers page that may link
+# to one. --check-boards checks them too ("new" in the report); the ones that work are added
+# to Target Companies (Active, with the board link as Careers URL) and taken out of here.
+# Big companies already in Target Companies are not repeated. Polish startups that post
+# only on JustJoin, NoFluffJobs or Pracuj (Booksy, Synerise) are left out: /fetch already
+# reads NoFluffJobs and your Pracuj alerts.
+new:
+  # Ireland
+  - {name: Datadog, region: Ireland, city: Dublin, tier: Tier 2 - Tech/Cloud, link: "https://job-boards.greenhouse.io/datadog"}
+  - {name: MongoDB, region: Ireland, city: Dublin, tier: Tier 2 - Tech/Cloud, link: "https://job-boards.greenhouse.io/mongodb"}
+  - {name: Twilio, region: Ireland, city: Dublin, tier: Tier 2 - Tech/Cloud, link: "https://job-boards.greenhouse.io/twilio"}
+  - {name: Toast, region: Ireland, city: Dublin, tier: Tier 2 - Tech/Cloud, link: "https://job-boards.greenhouse.io/toast"}
+  - {name: Squarespace, region: Ireland, city: Dublin, tier: Tier 2 - Tech/Cloud, link: "https://job-boards.greenhouse.io/squarespace"}
+  - {name: Dropbox, region: Ireland, city: Dublin, tier: Tier 2 - Tech/Cloud, link: "https://job-boards.greenhouse.io/dropbox"}
+  - {name: Pinterest, region: Ireland, city: Dublin, tier: Tier 2 - Tech/Cloud, link: "https://job-boards.greenhouse.io/pinterest"}
+  - {name: Airbnb, region: Ireland, city: Dublin, tier: Tier 2 - Tech/Cloud, link: "https://job-boards.greenhouse.io/airbnb"}
+  - {name: Qualtrics, region: Ireland, city: Dublin, tier: Tier 2 - Tech/Cloud, link: "https://job-boards.greenhouse.io/qualtrics"}
+  - {name: Coinbase, region: Ireland, city: Dublin, tier: Tier 3 - Banks/Fintech, link: "https://job-boards.greenhouse.io/coinbase"}
+  - {name: Tines, region: Ireland, city: Dublin, tier: Tier 5 - Local product (NL/IE), link: "https://job-boards.greenhouse.io/tines"}
+  - {name: Wayflyer, region: Ireland, city: Dublin, tier: Tier 5 - Local product (NL/IE), link: "https://wayflyer.com/careers"}
+  - {name: Flipdish, region: Ireland, city: Dublin, tier: Tier 5 - Local product (NL/IE), link: "https://www.flipdish.com/careers"}
+  - {name: Fenergo, region: Ireland, city: Dublin, tier: Tier 5 - Local product (NL/IE), link: "https://www.fenergo.com/careers"}
+  - {name: PayPal, region: Ireland, city: Dublin, tier: Tier 3 - Banks/Fintech, link: "https://paypal.wd1.myworkdayjobs.com/jobs"}
+  - {name: Genesys, region: Ireland, city: Galway, tier: Tier 2 - Tech/Cloud, link: "https://genesys.wd1.myworkdayjobs.com/Genesys"}
+  - {name: Analog Devices, region: Ireland, city: Limerick, tier: Tier 6 - Automotive/Industrial, link: "https://analogdevices.wd1.myworkdayjobs.com/External"}
+  - {name: Red Hat, region: Ireland, city: Waterford, tier: Tier 2 - Tech/Cloud, link: "https://redhat.wd5.myworkdayjobs.com/jobs"}
+  - {name: Yahoo, region: Ireland, city: Dublin, tier: Tier 2 - Tech/Cloud, link: "https://ouryahoo.wd5.myworkdayjobs.com/careers"}
+  - {name: ServiceNow, region: Ireland, city: Dublin, tier: Tier 2 - Tech/Cloud, link: "https://jobs.smartrecruiters.com/ServiceNow"}
+  - {name: Equinix, region: Ireland, city: Dublin, tier: Tier 2 - Tech/Cloud, link: "https://equinix.wd1.myworkdayjobs.com/External"}
+  # Netherlands
+  - {name: IMC Trading, region: Netherlands, city: Amsterdam, tier: Tier 3 - Banks/Fintech, link: "https://job-boards.eu.greenhouse.io/imc"}
+  - {name: Optiver, region: Netherlands, city: Amsterdam, tier: Tier 3 - Banks/Fintech, link: "https://optiver.com/working-at-optiver/career-opportunities/"}
+  - {name: Flow Traders, region: Netherlands, city: Amsterdam, tier: Tier 3 - Banks/Fintech, link: "https://www.flowtraders.com/careers"}
+  - {name: Elastic, region: Netherlands, city: Amsterdam, tier: Tier 2 - Tech/Cloud, link: "https://job-boards.greenhouse.io/elastic"}
+  - {name: GitLab, region: Netherlands, city: Remote, tier: Tier 2 - Tech/Cloud, link: "https://job-boards.greenhouse.io/gitlab"}
+  - {name: Nebius, region: Netherlands, city: Amsterdam, tier: Tier 2 - Tech/Cloud, link: "https://job-boards.greenhouse.io/nebius"}
+  - {name: Framer, region: Netherlands, city: Amsterdam, tier: Tier 5 - Local product (NL/IE), link: "https://jobs.ashbyhq.com/framer"}
+  - {name: Bitvavo, region: Netherlands, city: Amsterdam, tier: Tier 3 - Banks/Fintech, link: "https://bitvavo.com/en/careers"}
+  - {name: Catawiki, region: Netherlands, city: Amsterdam, tier: Tier 5 - Local product (NL/IE), link: "https://www.catawiki.com/en/careers"}
+  - {name: WeTransfer, region: Netherlands, city: Amsterdam, tier: Tier 5 - Local product (NL/IE), link: "https://wetransfer.com/careers"}
+  - {name: DataSnipper, region: Netherlands, city: Amsterdam, tier: Tier 5 - Local product (NL/IE), link: "https://www.datasnipper.com/careers"}
+  - {name: Sendcloud, region: Netherlands, city: Eindhoven, tier: Tier 5 - Local product (NL/IE), link: "https://www.sendcloud.com/careers/"}
+  - {name: Mendix, region: Netherlands, city: Rotterdam, tier: Tier 2 - Tech/Cloud, link: "https://www.mendix.com/careers/"}
+  - {name: Signify, region: Netherlands, city: Eindhoven, tier: Tier 6 - Automotive/Industrial, link: "https://www.careers.signify.com/"}
+  - {name: Xebia, region: Netherlands, city: Hilversum, tier: Tier 4 - Consulting/GBS, link: "https://xebia.com/careers/"}
+  # Poland
+  - {name: Visa, region: Poland, city: Warsaw, tier: Tier 3 - Banks/Fintech, link: "https://jobs.smartrecruiters.com/Visa"}
+  - {name: Akamai, region: Poland, city: Krakow, tier: Tier 2 - Tech/Cloud, link: "https://akamai.wd1.myworkdayjobs.com/akamai_careers"}
+  - {name: Thomson Reuters, region: Poland, city: Gdansk, tier: Tier 4 - Consulting/GBS, link: "https://thomsonreuters.wd5.myworkdayjobs.com/External_Career_Site"}
+  - {name: Box, region: Poland, city: Warsaw, tier: Tier 2 - Tech/Cloud, link: "https://job-boards.greenhouse.io/boxinc"}
+  - {name: Sumo Logic, region: Poland, city: Warsaw, tier: Tier 2 - Tech/Cloud, link: "https://job-boards.greenhouse.io/sumologic"}
+  - {name: Dynatrace, region: Poland, city: Gdansk, tier: Tier 2 - Tech/Cloud, link: "https://careers.dynatrace.com/"}
+  - {name: Dolby, region: Poland, city: Wroclaw, tier: Tier 2 - Tech/Cloud, link: "https://careers.dolby.com/"}
+  - {name: Ocado Technology, region: Poland, city: Krakow, tier: Tier 2 - Tech/Cloud, link: "https://careers.ocadogroup.com/"}
+  - {name: Kainos, region: Poland, city: Gdansk, tier: Tier 4 - Consulting/GBS, link: "https://careers.kainos.com/"}
+  - {name: Grid Dynamics, region: Poland, city: Krakow, tier: Tier 4 - Consulting/GBS, link: "https://www.griddynamics.com/careers"}
+  - {name: OLX, region: Poland, city: Poznan, tier: Tier 5 - Polish product, link: "https://careers.olxgroup.com/"}
+  - {name: Spacelift, region: Poland, city: Warsaw, tier: Tier 5 - Polish product, link: "https://spacelift.io/careers"}
+  - {name: Ramp, region: Poland, city: Warsaw, tier: Tier 5 - Polish product, link: "https://ramp.network/careers"}
+  # Remote in Europe (no office in our countries needed)
+  - {name: Grafana Labs, region: Other, city: Remote, tier: Tier 2 - Tech/Cloud, link: "https://job-boards.greenhouse.io/grafanalabs"}
+  - {name: Canonical, region: Other, city: Remote, tier: Tier 2 - Tech/Cloud, link: "https://job-boards.greenhouse.io/canonical"}

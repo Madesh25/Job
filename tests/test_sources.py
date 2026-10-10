@@ -275,7 +275,7 @@ def test_detect_board():
         ats.Board("greenhouse", "acme")
     )
     assert ats.detect_board(company("A", "https://job-boards.eu.greenhouse.io/acme-eu"), {}) == (
-        ats.Board("greenhouse", "acme-eu")
+        ats.Board("greenhouse", "acme-eu", eu=True)  # read from the EU API host
     )
     assert ats.detect_board(
         company("A", "https://boards.greenhouse.io/embed/job_board?for=acme"), {}
