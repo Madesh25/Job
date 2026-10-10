@@ -322,12 +322,17 @@ The page reader (`http.get_page`) is separate from the API client:
 
 Set `sweep.fulltext.enabled: false` to switch it off.
 
-## LinkedIn descriptions from other sites
+## Alert job descriptions from other sites (LinkedIn and blocked boards)
 
 LinkedIn email alerts have no job description and LinkedIn is never read, so such a job used to
-wait for `/jd`. After each sweep, every Unscreened LinkedIn row without a description is looked
-up among this sweep's other postings (company boards, Adzuna, Jooble), in
-`src/jobengine/sweep/crossmatch.py`:
+wait for `/jd`. The same goes for the boards in `sweep.fulltext.blocked_hosts`: Pracuj.pl,
+IrishJobs.ie and Jobs.ie answer the bot with HTTP 403, and since 10 Oct JustJoin IT and
+theprotocol.it are never opened either, because their terms forbid automatic downloading
+(JustJoin IT section 11.3) and copying their database (theprotocol.it IV.3d). Their alert jobs
+are still saved. After each sweep, every Unscreened row of these boards without a description
+is looked up among this sweep's other postings (company boards, NoFluffJobs, Adzuna, Jooble,
+IamExpat), in `src/jobengine/sweep/crossmatch.py`. Polish boards share many jobs, so a
+JustJoin or Pracuj.pl alert often finds its twin on NoFluffJobs or the company's own board:
 
 - **Same company** (legal suffixes such as Sp. z o.o. or B.V. and a "(PL)" tag ignored),
   **same title** and **same country**. The city may differ, and work-mode words (Remote,
@@ -336,10 +341,10 @@ up among this sweep's other postings (company boards, Adzuna, Jooble), in
   Engineer" alert.
 - Only a **full** description is used. When the match has only a snippet (Adzuna), its page
   is read like any other job page (at most `sweep.crossmatch.max_pages`, 10, per sweep).
-- The description is written to the LinkedIn row's page with a first line saying where it
-  came from: `Description source: ats (same job on Company site, found for this LinkedIn
-  alert: <url>)`. No property changes, no AI, no LinkedIn request.
-- The Telegram summary lists them: `LinkedIn jobs: description found on another site (no /jd
+- The description is written to the row's page with a first line saying where it came from:
+  `Description source: ats (same job on Company site, found for this JustJoin IT alert:
+  <url>)`. No property changes, no AI, no request to the alert's own site.
+- The Telegram summary lists them: `Alert jobs: description found on another site (no /jd
   needed): N`. The next `/screen` screens them like any other job. Rows without a match keep
   waiting for `/jd`.
 - `sweep.crossmatch.enabled: false` turns it off.

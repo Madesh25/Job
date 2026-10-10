@@ -627,13 +627,17 @@ def run_sweep(
         except Exception:  # never fail a sweep over the counter
             log.exception("could not store the daily new-job count or today's best jobs")
 
-    # Pass 3: LinkedIn rows without a description, from the same job on another site.
+    # Pass 3: alert rows (LinkedIn, blocked boards) without a description, from the same
+    # job on another site.
     if repo and (s.sweep.get("crossmatch") or {}).get("enabled", True):
         try:
+            boards = crossmatch.waiting_boards(
+                (s.sweep.get("gmail") or {}).get("sender_boards") or {},
+                fulltext.blocked_hosts(s))
             filled = crossmatch.fill_linkedin(
                 repo, seen, fulltext.Config.from_settings(s), deps.page, with_body,
                 max_pages=int((s.sweep.get("crossmatch") or {}).get("max_pages", 10)),
-                progress=say)
+                progress=say, boards=boards)
             summary.linkedin_filled = filled.labels
         except Exception:  # never fail a sweep over the cross-match
             log.exception("LinkedIn cross-match failed")
