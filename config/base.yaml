@@ -356,6 +356,14 @@ sweep:
     - intern
     - internship
     - student
+    # 10 Oct: "systems engineer" above also matched engineering jobs outside IT (ABB "Power
+    # Systems Engineer"). These name the other field.
+    - power systems
+    - control systems
+    - embedded
+    - electrical
+    - mechanical
+    - hvac
   # Country -> names and cities. City keys are the display names written to Notion;
   # aliases are canonical (lowercase ASCII, as produced by normalize.canon).
   locations:
