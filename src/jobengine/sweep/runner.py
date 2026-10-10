@@ -633,7 +633,7 @@ def run_sweep(
         try:
             boards = crossmatch.waiting_boards(
                 (s.sweep.get("gmail") or {}).get("sender_boards") or {},
-                fulltext.blocked_hosts(s))
+                fulltext.blocked_hosts(s)) + crossmatch.SNIPPET_BOARDS
             filled = crossmatch.fill_linkedin(
                 repo, seen, fulltext.Config.from_settings(s), deps.page, with_body,
                 max_pages=int((s.sweep.get("crossmatch") or {}).get("max_pages", 10)),

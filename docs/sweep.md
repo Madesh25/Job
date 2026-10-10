@@ -344,8 +344,12 @@ JustJoin or Pracuj.pl alert often finds its twin on NoFluffJobs or the company's
 - The description is written to the row's page with a first line saying where it came from:
   `Description source: ats (same job on Company site, found for this JustJoin IT alert:
   <url>)`. No property changes, no AI, no request to the alert's own site.
-- The Telegram summary lists them: `Alert jobs: description found on another site (no /jd
-  needed): N`. The next `/screen` screens them like any other job. Rows without a match keep
+- The Telegram summary lists them: `Descriptions taken from the same job on another site
+  (alerts, Adzuna snippets; no /jd needed): N`.
+- **Adzuna snippets** (10 Oct): Adzuna gives a 2 to 3 line snippet and its job pages answer
+  HTTP 403 outside the job's country, so screening would say Needs review. An Unscreened
+  Adzuna row whose page holds only a snippet gets the same job's full description from
+  another board, written after the snippet (screening reads the newest description). The next `/screen` screens them like any other job. Rows without a match keep
   waiting for `/jd`.
 - `sweep.crossmatch.enabled: false` turns it off.
 
