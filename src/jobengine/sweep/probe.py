@@ -42,6 +42,8 @@ class Site:
     label: str
     url: str  # {q}: the title for a query string, {path}: the title for a URL path
     body: Callable[[str], Any] | None = None  # POST with this JSON (EURES)
+    # (a job id in the answer, the job page with {id}): the first job's page is saved too
+    detail: tuple[re.Pattern[str], str] | None = None
 
 
 def _eures_body(title: str, where: str = "EVERYWHERE", quoted: bool = False,
@@ -88,7 +90,14 @@ SITES = {site.name: site for site in (
     # non-commercial use; JobsIreland.ie: the public service for jobseekers). The probe
     # shows whether the bot can read them from your PC before a reader is built.
     Site("jobsie", "Jobs.ie", "https://www.jobs.ie/jobs/{path}"),
-    Site("jobsireland", "JobsIreland.ie", "https://jobsireland.ie/en-US/browse-jobs?keyword={q}"),
+    # 10 Oct: the browse page is an empty shell ("0 job found"); its script loads the list
+    # from the site's own address below (an HTML part) and opens a job at job-Details?id=N.
+    Site("jobsireland", "JobsIreland.ie",
+         "https://jobsireland.ie/Jobsireland.API/JobsIreland/BrowseJobs/43?CareerlevelId=-1"
+         "&keyWord={q}&location=&page=1&pageSize=50&vacancyId=-1&VacancyTypeId=-1"
+         "&ContractTypeId=&RemoteOrBlendedJobType=&NaceCode=",
+         detail=(re.compile(r"(?:gotoJobDetail\(\s*['\"]?|job-Details\?id=)(\d+)", re.I),
+                 "https://jobsireland.ie/en-US/job-Details?id={id}")),
 )}
 
 NEXT_DATA = re.compile(r'<script[^>]+id="__NEXT_DATA__"[^>]*>(.*?)</script>', re.S)
@@ -104,6 +113,7 @@ class Result:
     size: int = 0
     recent_dates: int = 0
     saved: str = ""
+    detail: str = ""  # the saved job page, or why there is none
 
 
 @dataclass
@@ -119,7 +129,7 @@ class Report:
                 continue
             lines.append(f"- {r.site} | {r.title}: OK, {r.kind}, {r.size // 1024} KB, "
                          f"about {r.recent_dates} dates in the last {DAYS} days, saved "
-                         f"{r.saved}")
+                         f"{r.saved}" + (f"; job page: {r.detail}" if r.detail else ""))
         return "\n".join(lines)
 
 
@@ -214,6 +224,34 @@ def run(s: Settings, names: list[str], today: date, *, get: Getter | None = None
             ext = "html" if result.kind == "web page" else "json"
             path = out_dir / f"{name}-{title.lower().replace(' ', '-')}.{ext}"
             path.write_text(keep, encoding="utf-8")
-            result.saved = path.relative_to(out_dir.parent.parent).as_posix() \
-                if path.is_relative_to(out_dir.parent.parent) else path.as_posix()
+            result.saved = _shown(path, out_dir)
+            if site.detail:
+                result.detail = _save_detail(site, text, path, out_dir, get, robots, pause)
     return report
+
+
+def _shown(path: Path, out_dir: Path) -> str:
+    return path.relative_to(out_dir.parent.parent).as_posix() \
+        if path.is_relative_to(out_dir.parent.parent) else path.as_posix()
+
+
+def _save_detail(site: Site, text: str, path: Path, out_dir: Path, get: Getter,
+                 robots: dict[str, RobotFileParser | None],
+                 pause: Callable[[float], None]) -> str:
+    """The first job's own page next to the list: the reader needs both."""
+    assert site.detail is not None
+    pattern, template = site.detail
+    found = pattern.search(text)
+    if not found:
+        return "no job id found in the answer"
+    url = template.format(id=found.group(1))
+    if not allowed_by_robots(url, get, robots):
+        return "robots.txt disallows the job page"
+    pause(PAUSE_SECONDS)
+    try:
+        _, page = get(url)
+    except http.HttpError as exc:
+        return f"HTTP {exc.status}" if exc.status else f"failed: {exc}"
+    detail_path = path.with_name(f"{path.stem}-job.html")
+    detail_path.write_text(page, encoding="utf-8")
+    return _shown(detail_path, out_dir)

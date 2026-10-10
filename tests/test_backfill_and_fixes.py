@@ -65,5 +65,6 @@ def test_indeed_feedback_buttons_are_not_jobs():
 def test_probe_covers_jobs_ie_and_jobsireland():
     assert probe.search_url(probe.SITES["jobsie"], "DevOps Engineer") == \
         "https://www.jobs.ie/jobs/devops-engineer"
-    assert probe.search_url(probe.SITES["jobsireland"], "DevOps Engineer") == \
-        "https://jobsireland.ie/en-US/browse-jobs?keyword=devops+engineer"
+    # 10 Oct: the browse page is an empty shell; the list comes from the site's own address
+    assert probe.search_url(probe.SITES["jobsireland"], "DevOps Engineer").startswith(
+        "https://jobsireland.ie/Jobsireland.API/JobsIreland/BrowseJobs/43?")
