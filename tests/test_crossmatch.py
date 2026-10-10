@@ -3,6 +3,9 @@
 from dataclasses import replace
 from datetime import date
 
+import pytest
+
+from jobengine import http
 from jobengine.notion_repo import FakeJobsRepo
 from jobengine.settings import load_settings
 from jobengine.sweep import crossmatch, fakes, fulltext
@@ -116,7 +119,7 @@ def test_sweep_fills_an_old_linkedin_row_from_a_posting_in_another_city():
     assert summary.linkedin_filled == ["Vistula Cloud, DevOps Engineer (from Company site)"]
     assert "Operate Kubernetes" in "".join(repo.read_body("li-1"))
     text = summary.friendly_text()
-    assert ("\U0001F517 LinkedIn jobs: description found on another site (no /jd needed): 1"
+    assert ("\U0001F517 Alert jobs: description found on another site (no /jd needed): 1"
             in text)
     assert "- Vistula Cloud, DevOps Engineer (from Company site)" in text
 
@@ -136,3 +139,44 @@ def test_cross_match_can_be_switched_off():
     )
     assert run_sweep(s, deps, TODAY).linkedin_filled == []
     assert repo.read_body("li-1") == []
+
+
+NOFLUFF = replace(ATS, source="nofluffjobs", board="NoFluffJobs",
+                  url="https://nofluffjobs.com/pl/job/devops-engineer-vistula-cloud-warszawa")
+
+
+def test_blocked_boards_are_filled_too():
+    """10 Oct: JustJoin IT and theprotocol.it are never read (their terms forbid automatic
+    downloading); their alert jobs take the description of the same job on another board."""
+    sender_boards = S.sweep["gmail"]["sender_boards"]
+    boards = crossmatch.waiting_boards(sender_boards, fulltext.blocked_hosts(S))
+    assert boards == ("LinkedIn", "Pracuj.pl", "IrishJobs.ie", "Jobs.ie", "JustJoin IT",
+                      "theprotocol.it")
+    repo = FakeJobsRepo([
+        linkedin_row(page_id="jj-1", Board="JustJoin IT"),
+        linkedin_row(page_id="tp-1", Board="theprotocol.it", Role="DevOps Engineer (Remote)"),
+        linkedin_row(page_id="nf-1", Board="NoFluffJobs"),  # read anyway: never filled here
+    ])
+    jj_alert = replace(ATS, source="gmail", board="JustJoin IT", description="",
+                       url="https://justjoin.it/job-offer/vistula-cloud-devops-engineer")
+    filled = crossmatch.fill_linkedin(repo, [jj_alert, NOFLUFF], CFG, None, set(),
+                                      boards=boards)
+    assert filled.labels == ["Vistula Cloud, DevOps Engineer (from NoFluffJobs)",
+                             "Vistula Cloud, DevOps Engineer (Remote) (from NoFluffJobs)"]
+    assert repo.read_body("jj-1")[0] == (
+        "Description source: nofluffjobs (same job on NoFluffJobs, found for this JustJoin IT "
+        "alert: https://nofluffjobs.com/pl/job/devops-engineer-vistula-cloud-warszawa)")
+    assert repo.read_body("nf-1") == []
+
+
+def test_justjoin_and_theprotocol_pages_are_never_opened():
+    blocked = fulltext.blocked_hosts(S)
+    assert "justjoin.it" in blocked and "theprotocol.it" in blocked
+    opened = []
+    guard = fulltext.SiteGuard(lambda url: opened.append(url) or (url, "<p>job</p>"), blocked)
+    for url in ("https://justjoin.it/job-offer/acme-devops",
+                "https://theprotocol.it/szczegoly/praca/devops-engineer,oferta,1"):
+        with pytest.raises(http.HttpError):
+            guard(url)
+    guard("https://nofluffjobs.com/pl/job/devops")
+    assert opened == ["https://nofluffjobs.com/pl/job/devops"]

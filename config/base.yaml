@@ -637,7 +637,10 @@ sweep:
     backfill_pages: 20
     # Sites that answer HTTP 403 to the bot (probe and /fetch, 8 Oct): never opened, not even
     # through an alert's tracking link. Their jobs come from alert emails and wait for /jd.
-    blocked_hosts: [pracuj.pl, irishjobs.ie, jobs.ie]
+    # 10 Oct: justjoin.it and theprotocol.it added; their terms forbid automatic downloading
+    # (JustJoin IT 11.3) and copying their database (theprotocol.it IV.3d). Their alert jobs
+    # get the description from the same job on another site (sweep/crossmatch.py).
+    blocked_hosts: [pracuj.pl, irishjobs.ie, jobs.ie, justjoin.it, theprotocol.it]
     # gmail: the job links in alert emails (JustJoin IT, NoFluffJobs, Pracuj.pl, ...) are
     # followed to the real job page, whose link and full description are kept. LinkedIn is
     # never read, whatever this says.

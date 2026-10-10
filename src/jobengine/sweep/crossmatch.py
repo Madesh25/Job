@@ -1,13 +1,19 @@
-"""LinkedIn descriptions without pasting (no LinkedIn request, no AI).
+"""Alert jobs' descriptions without pasting (no request to the alert's site, no AI).
 
 A LinkedIn email alert has no job description, and LinkedIn is never read, so such a job
-waits for /jd. The same job is often also posted on the company's own board (ATS), Adzuna or
-Jooble, which the sweep reads anyway. After each sweep, every Unscreened LinkedIn row without
-a description is looked up among this sweep's other postings: same company, same title and
+waits for /jd. The same holds for the boards in sweep.fulltext.blocked_hosts (Pracuj.pl,
+IrishJobs.ie and Jobs.ie answer the bot with HTTP 403; JustJoin IT and theprotocol.it forbid
+automatic downloading in their terms, 10 Oct): their alert jobs are saved, their pages are
+never opened. The same job is often also posted on the company's own board (ATS), Adzuna or
+Jooble, which the sweep reads anyway. After each sweep, every Unscreened row of those boards
+without a description is looked up among this sweep's other postings: same company, same title and
 same country (the city may be written differently, and "Remote" or "Hybrid" in the title is
 ignored). When one matches and has a full description (read from its page when the source
 gave only a snippet), that description is written to the LinkedIn row, with a first line
 naming where it came from. Rows without a match keep waiting for /jd.
+
+Polish boards share many jobs (JustJoin IT, theprotocol.it and Pracuj.pl postings are often
+also on NoFluffJobs or the company's own board, which the sweep reads).
 
 Only an exact company and title match counts: a "Senior DevOps Engineer" posting is never
 used for a "DevOps Engineer" alert.
@@ -60,13 +66,26 @@ def is_linkedin(job: Job) -> bool:
     return job.board.casefold() == LINKEDIN.casefold()
 
 
-class Pool:
-    """This sweep's non-LinkedIn postings that carry a description, by match key."""
+def waiting_boards(sender_boards: dict[str, str], blocked: tuple[str, ...]) -> tuple[str, ...]:
+    """LinkedIn plus the Board names of the blocked hosts (sweep.gmail.sender_boards)."""
+    names = [LINKEDIN]
+    for host in blocked:
+        name = next((board for domain, board in sender_boards.items()
+                     if host == domain or host.endswith("." + domain)
+                     or domain.endswith("." + host)), None)
+        if name and name not in names:
+            names.append(name)
+    return tuple(names)
 
-    def __init__(self, jobs: list[Job]):
+
+class Pool:
+    """This sweep's postings from other boards that carry a description, by match key."""
+
+    def __init__(self, jobs: list[Job], skip: tuple[str, ...] = (LINKEDIN,)):
         self.by_key: dict[str, list[Job]] = {}
+        skipped = {b.casefold() for b in skip}
         for job in jobs:
-            if is_linkedin(job) or not (job.description or "").strip():
+            if job.board.casefold() in skipped or not (job.description or "").strip():
                 continue
             key = match_key(job.company, job.role, job.country, job.city)
             if key.split("|")[1]:
@@ -113,14 +132,18 @@ def fill_linkedin(
     with_body: set[str],
     max_pages: int = DEFAULT_MAX_PAGES,
     progress: Callable[[str], None] | None = None,
+    boards: tuple[str, ...] = (LINKEDIN,),
 ) -> Filled:
-    """Write a matching posting's description to each LinkedIn row that has none."""
+    """Write a matching posting's description to each waiting row (LinkedIn and the boards
+    the bot never reads) that has none."""
     filled = Filled()
-    pool = Pool(jobs)
+    pool = Pool(jobs, skip=boards)
     if not pool:
         return filled
+    board_filter = (select_filter("Board", boards[0]) if len(boards) == 1 else
+                    {"or": [select_filter("Board", b) for b in boards]})
     rows = repo.query_rows({"and": [select_filter("Screen verdict", "Unscreened"),
-                                    select_filter("Board", LINKEDIN)]})
+                                    board_filter]})
     budget = [max(0, max_pages)]
     for page_id, values in rows:
         matches = pool.find(values.get("Company"), values.get("Role"), values.get("Country"),
@@ -128,15 +151,16 @@ def fill_linkedin(
         if not matches or page_id in with_body or repo.has_body(page_id):
             continue
         if progress is not None:
-            progress(f"LinkedIn descriptions: checking {values.get('Company')}")
+            progress(f"Alert job descriptions: checking {values.get('Company')}")
         full = next((f for f in (_full(m, cfg, page, budget) for m in matches) if f), None)
         if full is None:
             filled.snippets_only += 1
             continue
-        origin = f"same job on {full.board}, found for this LinkedIn alert: {full.url}"
+        origin = (f"same job on {full.board}, found for this {values.get('Board') or LINKEDIN} "
+                  f"alert: {full.url}")
         repo.append_body(page_id, description_blocks(replace(full, description_origin=origin)))
         with_body.add(page_id)
         filled.labels.append(f"{values.get('Company')}, {values.get('Role')} "
                              f"(from {full.board})")
-        log.info("LinkedIn row %s: description from %s", page_id, full.url)
+        log.info("%s row %s: description from %s", values.get("Board"), page_id, full.url)
     return filled
