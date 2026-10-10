@@ -74,6 +74,7 @@ HELP_TEXT = (
     "/keywords - the tools your best jobs name most, and which to add to your LinkedIn profile\n"
     "/contacts <url or id> - find contacts for a job (cache first, then Apollo, Hunter, Snov)\n"
     "/credits - show the contact providers' credit counters\n"
+    "/agencies - recruitment agencies by country; /agencies <name> gives the intro mail\n"
     "/outreach - this week's outreach budget (which approved jobs get contacts and cold mails)\n"
     "/fetchcontacts - contacts and Gmail drafts (resume attached) for the jobs you applied "
     "to today\n"
@@ -687,6 +688,8 @@ def desk_replies(update: dict[str, Any], s: Settings, desk: Desk | None) -> list
         return _guarded("/next", desk.next_command)
     if command == "pending":
         return _guarded("/pending", lambda: desk.pending_command(args))
+    if command == "agencies":
+        return _guarded("/agencies", lambda: desk.agencies_command(args))
     if command == "gaps":
         return _guarded("/gaps", desk.gaps_command)
     if command == "keywords":

@@ -190,3 +190,22 @@ the endpoints as documented in 2026 (Apollo `mixed_people/api_search` and `peopl
 Hunter `v2/domain-search`, Snov OAuth plus the v2 `domain-search/prospects` start/result pairs)
 and read the answers tolerantly. Run the probe for each provider before the first real lookup;
 if a field or endpoint differs, the probe output shows it.
+
+## Recruitment agencies (flow feature 7, /agencies)
+
+`src/jobengine/contacts/agencies.py`. Established recruiters with IT teams in Poland, the
+Netherlands and Ireland are listed in `config/base.yaml` `agencies.list` (each website checked
+on 10 Oct; Reperio, Computer Futures and YoungCapital were left out: no official site found,
+or not a DevOps focus).
+
+- `/agencies` lists them by country with their website and when you last contacted them.
+- `/agencies <name>` gives the intro mail, word for word from `agencies.intro` (Notion Config
+  `agency.intro` wins), filled with your Apply pack answers (experience, notice, relocation)
+  and the country's permit line. The bot sends nothing: register on the agency's website and
+  paste it, or mail it with your resume.
+- An email address is never guessed: put one from the agency's website in Notion Config
+  `agency_email.<key>` (the name in lower case, spaces as `_`, for example
+  `agency_email.hays_poland`); the intro then says where to send it.
+- `/agencies sent <name>` records today's date. The weekly digest names the agencies not
+  contacted in the last 30 days.
+- Jobs that agencies post stay marked "Agency posting" (no cold mails), as before.
