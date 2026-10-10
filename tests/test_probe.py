@@ -111,3 +111,21 @@ def test_get_page_reads_json_and_posts_only_when_asked(pages):
     assert calls[-1].method == "POST" and json.loads(calls[-1].content) == {"q": 1}
     with pytest.raises(http.HttpError, match="linkedin is never fetched"):
         http.get_page("https://www.linkedin.com/jobs", s=S, accept_json=True)
+
+
+def test_jobsireland_list_and_first_job_page_are_saved(tmp_path):
+    """10 Oct: the browse page is empty; the list comes from the site's own address and
+    the first job's page (job-Details?id=N) is saved next to it."""
+    url = probe.search_url(probe.SITES["jobsireland"], "DevOps Engineer")
+    assert url.startswith("https://jobsireland.ie/Jobsireland.API/JobsIreland/BrowseJobs/43?")
+    assert "keyWord=devops+engineer" in url and "pageSize=50" in url
+    job = "https://jobsireland.ie/en-US/job-Details?id=2178"
+    listing = '<div class="job-list" onclick="gotoJobDetail(\'2178\')">DevOps Engineer</div>'
+    web, report = run({url: listing, job: "<h1>DevOps Engineer</h1>"}, ["jobsireland"],
+                      tmp_path)
+    probes = tmp_path / "out" / "probes"
+    assert (probes / "jobsireland-devops-engineer.html").read_text() == listing
+    assert (probes / "jobsireland-devops-engineer-job.html").exists()
+    assert "job page: out/probes/jobsireland-devops-engineer-job.html" in report.text()
+    _, report = run({url: "<p>0 job found</p>"}, ["jobsireland"], tmp_path)
+    assert "job page: no job id found in the answer" in report.text()
