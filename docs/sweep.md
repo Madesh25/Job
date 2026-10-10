@@ -39,16 +39,28 @@ jobengine.sweep --probe all` (cmd; `${PWD}` in PowerShell).
 active Target Company's job board link and writes nothing to Notion. The link checked is the
 one proposed in `config/board_candidates.yaml` (found by web search), else the Careers URL. A
 link on a board `/fetch` reads (Greenhouse, Lever, SmartRecruiters, Workday, Ashby, Avature,
-amazon.jobs) is read the way `/fetch` reads it, and its jobs are counted (all, and those in
-Poland, the Netherlands or Ireland). Any other link is opened once: the HTTP answer, the
-platform when it is a known one that `/fetch` cannot read yet (SuccessFactors, Phenom, Oracle
-Cloud HCM, Eightfold, Workable, ...) and a job board linked from the page are noted, and the
+SuccessFactors, Phenom, Oracle Cloud HCM, amazon.jobs) is read the way `/fetch` reads it, and
+its jobs are counted (all, and those in Poland, the Netherlands or Ireland). Any other link is
+opened once: the HTTP answer, the platform when it is a known one that `/fetch` cannot read
+yet (Eightfold, Workable, ...) and a job board linked from the page are noted, and the
 page is saved in `out/boards/<company>.html`. The table is printed and saved as
 `out/boards/report.csv`. A plain HTTP 200 is not enough: a careers landing page answers 200 too,
 so only "OK" with a job count means `/fetch` can read that company. The links that work are
 then put in Target Companies (with your OK) and taken out of the candidates file. In Docker:
 `docker run --rm -it --env-file .env -v "${PWD}/out:/app/out" job-engine python -m
 jobengine.sweep --check-boards`.
+
+**New companies and board fixes (10 Oct).** The `new:` list in `config/board_candidates.yaml`
+names companies proposed for Target Companies (mid-size companies, scale-ups and startups that
+hire DevOps engineers in our countries or remote in Europe). The board check checks them too
+(marked "new" in the report) before anything is written to Notion; the ones that work are then
+added to Target Companies with your OK. The same day's report showed three reading problems,
+now fixed: a SuccessFactors job feed gives only its newest 20 jobs worldwide unless asked for
+more (HCLTech, Wipro and Volvo showed 1 or 2 local jobs), so it is asked for 200 a search
+word; Workday sites that list no place for a job (Accenture, HPE, Workhuman) showed 0 jobs in
+the check because it made no detail calls, so the check now makes up to 25 a board; and a
+Greenhouse board hosted in the EU (job-boards.eu.greenhouse.io) is read from the EU API, and
+a board one API host does not know (HTTP 404, HubSpot) is asked on the other.
 
 In Telegram, `/fetch` runs the same sweep. It replies at once, keeps one message updated with
 the current step in plain words ("Searching Adzuna...", "Saving to your Notion: 125 of 300

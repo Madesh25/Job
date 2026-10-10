@@ -37,6 +37,9 @@ BOARD = "Company site"
 SR_PAGE_SIZE = 100
 SR_MAX_PAGES = 10
 WD_PAGE_SIZE = 20
+# A SuccessFactors job feed gives its newest 20 jobs unless asked for more (`rows`); 20
+# newest jobs worldwide held 1 or 2 in our countries (HCLTech, Wipro, Volvo on 10 Oct).
+SF_ROWS = 200
 SUPPORTED = ("greenhouse", "lever", "smartrecruiters", "workday", "amazon", "avature", "ashby",
              "successfactors", "phenom", "oracle")
 # Searches for boards that are too big to read whole (Workday, Amazon).
@@ -47,7 +50,12 @@ DETECT_KEY = "ats.detected"
 DEFAULT_DETECT_EVERY_DAYS = 7
 DEFAULT_MAX_DETECT_PER_RUN = 25
 
-GREENHOUSE_URL = re.compile(r"(?:job-)?boards(?:\.eu)?\.greenhouse\.io/([\w-]+)", re.I)
+GREENHOUSE_URL = re.compile(r"(?:job-)?boards(\.eu)?\.greenhouse\.io/([\w-]+)", re.I)
+# Boards hosted in the EU (job-boards.eu.greenhouse.io: IMC on 10 Oct) have their own API
+# host. A board's link does not always say where it is hosted (HubSpot's global API answered
+# HTTP 404 on 10 Oct), so the other host is asked when the first does not know the board.
+GREENHOUSE_API = "https://boards-api.greenhouse.io/v1/boards/{token}/jobs"
+GREENHOUSE_EU_API = "https://boards-api.eu.greenhouse.io/v1/boards/{token}/jobs"
 LEVER_URL = re.compile(r"jobs(\.eu)?\.lever\.co/([\w-]+)", re.I)
 SMARTRECRUITERS_URL = re.compile(r"(?:jobs|careers)\.smartrecruiters\.com/([\w-]+)", re.I)
 WORKDAY_URL = re.compile(
@@ -105,10 +113,12 @@ class Board:
 def board_from_url(url: str) -> Board | None:
     """The ATS board a URL points to, or None."""
     if match := GREENHOUSE_URL.search(url):
-        token = match.group(1)
+        token = match.group(2)
         if token.lower() == "embed":  # boards.greenhouse.io/embed/job_board?for=<token>
             token = (parse_qs(urlsplit(url).query).get("for") or [""])[0]
-        return Board("greenhouse", token) if token and token not in NOT_TOKENS else None
+        if not token or token in NOT_TOKENS:
+            return None
+        return Board("greenhouse", token, eu=bool(match.group(1)))
     if match := LEVER_URL.search(url):
         if match.group(2).lower() in NOT_TOKENS:
             return None
@@ -181,8 +191,15 @@ def _iso_date(value: str | None) -> date | None:
 
 
 def greenhouse(company: TargetCompany, board: Board, get: Getter, keep: Prefilter):
-    url = f"https://boards-api.greenhouse.io/v1/boards/{board.token}/jobs"
-    data = get(url, {"content": "true"})
+    urls = [GREENHOUSE_EU_API, GREENHOUSE_API] if board.eu else [GREENHOUSE_API,
+                                                                   GREENHOUSE_EU_API]
+    for n, url in enumerate(urls):
+        try:
+            data = get(url.format(token=board.token), {"content": "true"})
+            break
+        except http.HttpError as exc:
+            if n == len(urls) - 1 or exc.status != 404:
+                raise
     postings, dropped = [], 0
     for job in data.get("jobs") or []:
         title = job.get("title") or ""
@@ -597,7 +614,8 @@ def successfactors(company: TargetCompany, board: Board, page: PageGetter, keep:
     postings, dropped, seen = [], 0, set()
     for term in terms:
         query = urlencode({"locale": board.site or "en_US", "keywords": f"({term})",
-                           "sortColumn": "referencedate", "sortDirection": "desc"})
+                           "sortColumn": "referencedate", "sortDirection": "desc",
+                           "rows": SF_ROWS})
         _, text = page(f"{board.token}/services/rss/job/?{query}")
         for item in feed_items(text):
             link = item.get("link") or item.get("guid") or ""

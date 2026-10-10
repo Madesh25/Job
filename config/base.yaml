@@ -25,6 +25,8 @@ safety:
     - api.notion.com
     - api.adzuna.com
     - boards-api.greenhouse.io
+    # Greenhouse boards hosted in the EU (job-boards.eu.greenhouse.io)
+    - boards-api.eu.greenhouse.io
     - api.lever.co
     - api.eu.lever.co
     - api.smartrecruiters.com
