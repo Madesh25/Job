@@ -40,6 +40,9 @@ WD_PAGE_SIZE = 20
 # A SuccessFactors job feed gives its newest 20 jobs unless asked for more (`rows`); 20
 # newest jobs worldwide held 1 or 2 in our countries (HCLTech, Wipro, Volvo on 10 Oct).
 SF_ROWS = 200
+# EY's feed with 200 jobs and their descriptions was larger than a page may be (11 Oct): it is
+# asked again for fewer.
+SF_ROWS_SMALL = 50
 SUPPORTED = ("greenhouse", "lever", "smartrecruiters", "workday", "amazon", "avature", "ashby",
              "successfactors", "phenom", "oracle")
 # Searches for boards that are too big to read whole (Workday, Amazon).
@@ -51,11 +54,9 @@ DEFAULT_DETECT_EVERY_DAYS = 7
 DEFAULT_MAX_DETECT_PER_RUN = 25
 
 GREENHOUSE_URL = re.compile(r"(?:job-)?boards(\.eu)?\.greenhouse\.io/([\w-]+)", re.I)
-# Boards hosted in the EU (job-boards.eu.greenhouse.io: IMC on 10 Oct) have their own API
-# host. A board's link does not always say where it is hosted (HubSpot's global API answered
-# HTTP 404 on 10 Oct), so the other host is asked when the first does not know the board.
+# One API host for every board, EU-hosted ones (job-boards.eu.greenhouse.io) too: the host
+# boards-api.eu.greenhouse.io tried on 10 Oct does not exist (no connection on 11 Oct).
 GREENHOUSE_API = "https://boards-api.greenhouse.io/v1/boards/{token}/jobs"
-GREENHOUSE_EU_API = "https://boards-api.eu.greenhouse.io/v1/boards/{token}/jobs"
 LEVER_URL = re.compile(r"jobs(\.eu)?\.lever\.co/([\w-]+)", re.I)
 SMARTRECRUITERS_URL = re.compile(r"(?:jobs|careers)\.smartrecruiters\.com/([\w-]+)", re.I)
 WORKDAY_URL = re.compile(
@@ -191,15 +192,7 @@ def _iso_date(value: str | None) -> date | None:
 
 
 def greenhouse(company: TargetCompany, board: Board, get: Getter, keep: Prefilter):
-    urls = [GREENHOUSE_EU_API, GREENHOUSE_API] if board.eu else [GREENHOUSE_API,
-                                                                   GREENHOUSE_EU_API]
-    for n, url in enumerate(urls):
-        try:
-            data = get(url.format(token=board.token), {"content": "true"})
-            break
-        except http.HttpError as exc:
-            if n == len(urls) - 1 or exc.status != 404:
-                raise
+    data = get(GREENHOUSE_API.format(token=board.token), {"content": "true"})
     postings, dropped = [], 0
     for job in data.get("jobs") or []:
         title = job.get("title") or ""
@@ -613,10 +606,17 @@ def successfactors(company: TargetCompany, board: Board, page: PageGetter, keep:
     title carries the place in brackets: "DevOps Engineer (Utrecht, NL, 3542 AB)"."""
     postings, dropped, seen = [], 0, set()
     for term in terms:
-        query = urlencode({"locale": board.site or "en_US", "keywords": f"({term})",
-                           "sortColumn": "referencedate", "sortDirection": "desc",
-                           "rows": SF_ROWS})
-        _, text = page(f"{board.token}/services/rss/job/?{query}")
+        text = ""
+        for rows in (SF_ROWS, SF_ROWS_SMALL):
+            query = urlencode({"locale": board.site or "en_US", "keywords": f"({term})",
+                               "sortColumn": "referencedate", "sortDirection": "desc",
+                               "rows": rows})
+            try:
+                _, text = page(f"{board.token}/services/rss/job/?{query}")
+                break
+            except http.HttpError as exc:
+                if rows == SF_ROWS_SMALL or "larger than" not in str(exc):
+                    raise
         for item in feed_items(text):
             link = item.get("link") or item.get("guid") or ""
             raw_title = " ".join((item.get("title") or "").split())
