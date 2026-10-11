@@ -488,6 +488,7 @@ def test_real_config_names_the_own_site_companies():
     names = {ats.canon_name(n) for n in S.sweep["ats"]["own_site_companies"]}
     assert {"google", "infosys", "tata consultancy services", "microsoft"} <= names
     assert ats.canon_name("Tech Mahindra (NL)") in names
+    assert ats.canon_name("HubSpot (IE)") in names  # left Greenhouse (11 Oct)
 
 
 def test_oracle_finds_a_country_missing_from_the_biggest_places():
@@ -607,6 +608,41 @@ def test_new_companies_are_checked_before_they_are_added(tmp_path):
 def test_real_new_companies_file():
     new = boards.load_new()
     names = [c.name for c in new]
-    assert len(names) == len(set(names)) and new  # round 6: the ones left to check
+    assert len(names) == len(set(names))  # round 6 (11 Oct): every proposal was decided
     assert all(c.careers_url.startswith("https://") for c in new)
     assert {c.region for c in new} <= {"Poland", "Netherlands", "Ireland", "Other"}
+
+
+WD_FACETS = {"total": 3, "jobPostings": [], "facets": [
+    {"facetParameter": "jobFamilyGroup", "values": [
+        {"descriptor": "Engineering", "id": "e1"}, {"descriptor": "Sales", "id": "s1"}]},
+    {"facetParameter": "locationMainGroup", "values": [
+        {"facetParameter": "Location_Country", "values": [
+            {"descriptor": "India", "id": "in"}, {"descriptor": "United States", "id": "us"},
+            {"descriptor": "Mexico", "id": "mx"}, {"descriptor": "Brazil", "id": "br"},
+            {"descriptor": "Japan", "id": "jp"}]}]}]}
+
+
+def test_workday_filters_are_shown_when_few_jobs_are_local(tmp_path):
+    words = boards.place_words(S)
+    text = boards.workday_filters(WD_FACETS, words)
+    assert text == ("jobFamilyGroup: Engineering, Sales | "
+                    "Location_Country: India, United States, Mexico (+2)")
+    local = {"facets": [{"facetParameter": "locations", "values": [
+        {"descriptor": "Chicago", "id": "1"}, {"descriptor": "Gdansk, Poland", "id": "2"}]}]}
+    assert boards.workday_filters(local, words) == "locations: Gdansk, Poland (+1)"
+    assert boards.workday_filters(None, words) == ""
+    company = TargetCompany("Shell", "https://shell.wd3.myworkdayjobs.com/ShellCareers",
+                            "Workday", True, "Poland")
+
+    def post(url, body):
+        return WD_FACETS | {"jobPostings": [
+            {"title": "DevOps Engineer", "externalPath": "/job/x/R1",
+             "locationsText": "Houston, United States"}]}
+
+    rows = boards.run(S, [company], {}, lambda u, p: {}, post, lambda u: (u, ""), TODAY,
+                      tmp_path)
+    assert (rows[0].jobs, rows[0].here) == (1, 0)
+    assert rows[0].filters.startswith("jobFamilyGroup")
+    assert "site filters: jobFamilyGroup" in boards.report_text(rows)
+    assert boards.save_csv(rows, tmp_path).read_text().splitlines()[0].endswith("Site filters")

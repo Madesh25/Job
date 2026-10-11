@@ -75,6 +75,32 @@ class Check:
     here: int | None = None  # jobs in Poland, the Netherlands or Ireland
     found_link: str = ""  # a job board link found on the page
     saved: str = ""
+    filters: str = ""  # Workday: the site's own filters, when few jobs are local
+
+
+def workday_filters(answer: Any, words: tuple[str, ...], limit: int = 3) -> str:
+    """The filters a Workday answer offers, "parameter: value, value" per filter, the values in
+    our countries first: shows why a search found few local jobs (no country filter read)."""
+    parts: list[str] = []
+
+    def walk(facets: Any) -> None:
+        for facet in facets or []:
+            if not isinstance(facet, Mapping):
+                continue
+            values = [v for v in facet.get("values") or [] if isinstance(v, Mapping)]
+            inner = [v for v in values if v.get("facetParameter")]
+            names = [str(v.get("descriptor") or "") for v in values
+                     if not v.get("facetParameter") and v.get("descriptor")]
+            if names:
+                local = [n for n in names if any(w in n.lower() for w in words)]
+                shown = (local or names)[:limit]
+                more = f" (+{len(names) - len(shown)})" if len(names) > len(shown) else ""
+                parts.append(f"{facet.get('facetParameter')}: {', '.join(shown)}{more}")
+            walk(inner)
+
+    if isinstance(answer, Mapping):
+        walk(answer.get("facets"))
+    return " | ".join(parts)[:500]
 
 
 def load_candidates(path: Path = CANDIDATES) -> dict[str, str]:
@@ -211,6 +237,8 @@ def check_company(s: Settings, company: TargetCompany, link: str, origin: str, g
     row.result = "OK"
     row.jobs = len(postings)
     row.here = count_here(postings, words)
+    if board.ats == "workday" and answers and row.here * 4 < row.jobs:
+        row.filters = workday_filters(answers[0], words)
     if answers and row.here * 10 < row.jobs:  # fewer than 1 in 10 jobs local
         # Shows the site's own filters (countries, locations) for a better search.
         out_dir.mkdir(parents=True, exist_ok=True)
@@ -248,7 +276,7 @@ def run(s: Settings, companies: list[TargetCompany], candidates: Mapping[str, st
             first = done[link]
             rows.append(Check(company.name, company.region or "", link, origin, first.result,
                               first.platform, first.jobs, first.here, first.found_link,
-                              first.saved))
+                              first.saved, first.filters))
             continue
         row = check_company(s, company, link, origin, get, post, page, today, out_dir, words)
         done[link] = row
@@ -272,6 +300,8 @@ def report_text(rows: list[Check]) -> str:
         parts = [r.result, r.platform, _jobs(r), f"found {r.found_link}" if r.found_link else ""]
         lines.append(f"- {r.company} [{r.origin}]: " + " | ".join(p for p in parts if p))
         lines.append(f"    {r.link}")
+        if r.filters:
+            lines.append(f"    site filters: {r.filters}")
     return "\n".join(lines)
 
 
@@ -281,11 +311,13 @@ def save_csv(rows: list[Check], out_dir: Path = OUT_DIR) -> Path:
     with path.open("w", newline="", encoding="utf-8") as handle:
         writer = csv.writer(handle)
         writer.writerow(["Company", "Region", "Checked link", "Link from", "Result", "Platform",
-                         "Jobs", "In PL/NL/IE", "Job board found on page", "Saved page"])
+                         "Jobs", "In PL/NL/IE", "Job board found on page", "Saved page",
+                         "Site filters"])
         for r in rows:
             writer.writerow([r.company, r.region, r.link, r.origin, r.result, r.platform,
                              "" if r.jobs is None else r.jobs,
-                             "" if r.here is None else r.here, r.found_link, r.saved])
+                             "" if r.here is None else r.here, r.found_link, r.saved,
+                             r.filters])
     return path
 
 

@@ -67,6 +67,12 @@ connection), so every Greenhouse board, EU-hosted ones too, is read from boards-
 EY's job feed with 200 jobs was larger than a page may be, so a feed that is too large is asked
 again for 50.
 
+**Round 6 (11 Oct).** EY's feed read again (71 local jobs); IMC Trading (31) and Dolby (14,
+its SuccessFactors job feed) were added to Target Companies; HubSpot left Greenhouse and its
+careers page links no board the bot reads, so it is in `own_site_companies`. A Workday board
+with few local jobs now shows the site's own filters in the report (column "Site filters"):
+the parameter names and values show why no Poland, Netherlands or Ireland filter was used.
+
 In Telegram, `/fetch` runs the same sweep. It replies at once, keeps one message updated with
 the current step in plain words ("Searching Adzuna...", "Saving to your Notion: 125 of 300
 jobs checked"), then sends a short summary: new jobs per country (in Config

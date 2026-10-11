@@ -637,7 +637,7 @@ sweep:
                          Cognizant, Ericsson, Booking.com, ASML, EPAM Systems, Comarch,
                          Asseco Poland, Samsung R&D, bunq, Uber, Version 1, Brainly, KPMG,
                          UBS, Revolut, Rabobank, Goldman Sachs, ABN AMRO, SAP, HSBC,
-                         Deloitte]
+                         Deloitte, HubSpot]
   # Company name -> {ats, token} for companies whose careers URL is their own domain and whose
   # board is not found automatically. Workday also needs host and site.
   ats_boards: {}
