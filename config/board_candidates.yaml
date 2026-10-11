@@ -8,23 +8,10 @@
 # Rounds 1 to 4 (5 Oct): 44 links worked and are in Target Companies (Dell last, on its
 # Oracle site). Companies with their own job site are listed in sweep.ats.own_site_companies
 # (config/base.yaml, your choice C of 5 Oct).
-# Round 6 (11 Oct): HubSpot's Greenhouse board answers HTTP 404 (moved); its careers page is
-# checked for the board it links to now.
-proposed:
-  HubSpot (IE): https://www.hubspot.com/careers/jobs
-
-# New companies for Target Companies (10 Oct): mid-size companies, scale-ups and startups
-# that hire DevOps, SRE and platform engineers in Poland, the Netherlands or Ireland (or
-# remote in Europe). --check-boards checks them too ("new" in the report); the ones that work
-# are added to Target Companies (Active, with the board link as Careers URL) and taken out of
-# here. Round 5 (11 Oct): 26 of 51 worked and are in Target Companies. Left out: careers
-# pages without a readable job board (Flipdish, Fenergo, Optiver, Flow Traders, Sendcloud,
-# Mendix, Dynatrace, Ocado, Grid Dynamics, OLX, Spacelift), wrong or refused links (Framer,
-# Akamai, Bitvavo, Catawiki, WeTransfer, DataSnipper), boards with no job in our countries
-# (Visa, Xebia APAC, Sumo Logic, Kainos, Signify). Checked again:
-new:
-  # Read from the EU API host that does not exist; now from the one Greenhouse API host.
-  - {name: IMC Trading, region: Netherlands, city: Amsterdam, tier: Tier 3 - Banks/Fintech, link: "https://job-boards.eu.greenhouse.io/imc"}
-  - {name: Ramp, region: Poland, city: Warsaw, tier: Tier 5 - Polish product, link: "https://ramp.network/careers"}
-  # Dolby's careers site runs on SuccessFactors: its job feed.
-  - {name: Dolby, region: Poland, city: Wroclaw, tier: Tier 2 - Tech/Cloud, link: "https://careers.dolby.com/services/rss/job/?locale=en_US"}
+# Round 6 (11 Oct): HubSpot left Greenhouse (HTTP 404) and its careers page links no job
+# board the bot reads, so it is an own job site now (own_site_companies). IMC Trading and
+# Dolby (its SuccessFactors job feed) worked and are in Target Companies; Ramp's board had no
+# open job and was left out. 28 of the 51 companies proposed on 10 Oct were added in all.
+# Nothing is waiting for a check now.
+proposed: {}
+new: []
