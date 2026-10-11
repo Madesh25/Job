@@ -58,9 +58,14 @@ added to Target Companies with your OK. The same day's report showed three readi
 now fixed: a SuccessFactors job feed gives only its newest 20 jobs worldwide unless asked for
 more (HCLTech, Wipro and Volvo showed 1 or 2 local jobs), so it is asked for 200 a search
 word; Workday sites that list no place for a job (Accenture, HPE, Workhuman) showed 0 jobs in
-the check because it made no detail calls, so the check now makes up to 25 a board; and a
-Greenhouse board hosted in the EU (job-boards.eu.greenhouse.io) is read from the EU API, and
-a board one API host does not know (HTTP 404, HubSpot) is asked on the other.
+the check because it made no detail calls, so the check now makes up to 25 a board.
+
+**Round 5 (11 Oct).** The fixes worked: Capgemini 11 to 91 local jobs, Wipro 2 to 13, Volvo 1
+to 19, Accenture 0 to 24, Philips 3 to 12. 26 of the 51 new companies had a working board and
+were added to Target Companies. The EU Greenhouse API host tried on 10 Oct does not exist (no
+connection), so every Greenhouse board, EU-hosted ones too, is read from boards-api.greenhouse.io.
+EY's job feed with 200 jobs was larger than a page may be, so a feed that is too large is asked
+again for 50.
 
 In Telegram, `/fetch` runs the same sweep. It replies at once, keeps one message updated with
 the current step in plain words ("Searching Adzuna...", "Saving to your Notion: 125 of 300

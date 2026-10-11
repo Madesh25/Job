@@ -132,9 +132,8 @@ def test_candidates_file_is_read(tmp_path):
     assert boards.load_candidates(path) == {"Mollie": "https://jobs.ashbyhq.com/mollie"}
     assert boards.load_candidates(tmp_path / "missing.yaml") == {}
     real = boards.load_candidates()
-    assert real == {}  # every proposed link has been checked and moved to Notion (5 Oct)
-    # Every proposed link is one /fetch can read (a reader exists for it).
-    assert [n for n, link in real.items() if ats.board_from_url(link) is None] == []
+    # A proposed link is a board /fetch reads or a careers page the check looks at (HubSpot).
+    assert all(link.startswith("https://") for link in real.values())
 
 
 def test_check_reads_boards_counts_jobs_and_saves_other_pages(tmp_path):
@@ -527,33 +526,21 @@ def test_check_names_own_site_companies_without_reading_them(tmp_path):
 # ---------------------------------------------------------------- board check of 10 Oct
 
 
-def test_greenhouse_eu_boards_and_the_other_host_on_404():
+def test_greenhouse_eu_boards_are_read_from_the_one_api_host():
     assert ats.board_from_url("https://job-boards.eu.greenhouse.io/imc/jobs/1") == ats.Board(
         "greenhouse", "imc", eu=True)
-    assert ats.board_from_url("https://job-boards.greenhouse.io/tines").eu is False
-    assert "boards-api.eu.greenhouse.io" in S.allowed_hosts
+    assert not any("eu.greenhouse" in host for host in S.allowed_hosts)  # no such API host
     asked = []
 
     def get(url, params):
-        asked.append(url.split("/v1/")[0])
-        if len(asked) == 1:
-            raise http.HttpError("GET failed: HTTP 404", 404)
+        asked.append(url)
         return {"jobs": [{"id": 1, "title": "DevOps Engineer", "location": {"name": "Dublin"},
                           "absolute_url": "https://x/1"}]}
 
-    board = ats.Board("greenhouse", "hubspotjobs")
-    postings, _, _ = ats.greenhouse(MOLLIE, board, get, keep_all)
-    assert asked == ["https://boards-api.greenhouse.io", "https://boards-api.eu.greenhouse.io"]
+    postings, _, _ = ats.greenhouse(MOLLIE, ats.Board("greenhouse", "imc", eu=True), get,
+                                    keep_all)
+    assert asked == ["https://boards-api.greenhouse.io/v1/boards/imc/jobs"]
     assert len(postings) == 1
-    asked.clear()
-    ats.greenhouse(MOLLIE, ats.Board("greenhouse", "imc", eu=True), get, keep_all)
-    assert asked[0] == "https://boards-api.eu.greenhouse.io"
-
-    def down(url, params):
-        raise http.HttpError("GET failed: HTTP 503", 503)
-
-    with pytest.raises(http.HttpError):  # only "board unknown" asks the other host
-        ats.greenhouse(MOLLIE, board, down, keep_all)
 
 
 def test_successfactors_feed_asks_for_more_than_its_newest_20_jobs():
@@ -562,6 +549,28 @@ def test_successfactors_feed_asks_for_more_than_its_newest_20_jobs():
     ats.successfactors(MOLLIE, board, lambda u: (asked.append(u), (u, FEED))[1], keep_all,
                        ("devops",))
     assert f"rows={ats.SF_ROWS}" in asked[0] and ats.SF_ROWS > 20
+
+
+def test_a_too_large_successfactors_feed_is_asked_for_fewer_jobs():
+    asked = []
+
+    def page(url):
+        asked.append(url)
+        if f"rows={ats.SF_ROWS}" in url:
+            raise http.HttpError("GET https://careers.ey.com/services/rss/job/ failed: page "
+                                 "larger than 3000000 bytes")
+        return url, FEED
+
+    board = ats.Board("successfactors", "https://careers.ey.com", site="en_US")
+    postings, _, _ = ats.successfactors(MOLLIE, board, page, keep_all, ("devops",))
+    assert [f"rows={ats.SF_ROWS_SMALL}" in u for u in asked] == [False, True]
+    assert len(postings) == 2
+
+    def down(url):
+        raise http.HttpError("GET failed: HTTP 503", 503)
+
+    with pytest.raises(http.HttpError):  # only "too large" is asked again
+        ats.successfactors(MOLLIE, board, down, keep_all, ("devops",))
 
 
 def test_check_counts_workday_jobs_listed_without_a_place(tmp_path):
@@ -598,6 +607,6 @@ def test_new_companies_are_checked_before_they_are_added(tmp_path):
 def test_real_new_companies_file():
     new = boards.load_new()
     names = [c.name for c in new]
-    assert len(names) == len(set(names)) and len(new) >= 40
+    assert len(names) == len(set(names)) and new  # round 6: the ones left to check
     assert all(c.careers_url.startswith("https://") for c in new)
     assert {c.region for c in new} <= {"Poland", "Netherlands", "Ireland", "Other"}
