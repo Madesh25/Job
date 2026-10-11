@@ -73,6 +73,14 @@ careers page links no board the bot reads, so it is in `own_site_companies`. A W
 with few local jobs now shows the site's own filters in the report (column "Site filters"):
 the parameter names and values show why no Poland, Netherlands or Ireland filter was used.
 
+**Round 7 (11 Oct): Workday country filter.** The Site filters column showed why Shell, Intel,
+NXP, Salesforce, PayPal, Red Hat and Yahoo found almost no local job: a Workday answer lists only
+the filter values of the jobs it found, and the country filter was read from the first search
+word's answer (Shell's devops search named India and Turkey, not Poland), so every search
+word ran worldwide and read 20 jobs. The filter is now read from the whole job list (one more
+request a board, no search word), which names every country the site has jobs in; a country
+filter is also recognised by its values (Red Hat names its filters a, b, c).
+
 In Telegram, `/fetch` runs the same sweep. It replies at once, keeps one message updated with
 the current step in plain words ("Searching Adzuna...", "Saving to your Notion: 125 of 300
 jobs checked"), then sends a short summary: new jobs per country (in Config
