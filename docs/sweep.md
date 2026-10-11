@@ -81,6 +81,12 @@ word ran worldwide and read 20 jobs. The filter is now read from the whole job l
 request a board, no search word), which names every country the site has jobs in; a country
 filter is also recognised by its values (Red Hat names its filters a, b, c).
 
+**Round 8 (11 Oct).** The Workday fix worked (Salesforce 3 to 39 local jobs, Intel 3 to 22,
+HPE 0 to 13, NXP 1 to 9, Shell 0 to 6). Two small follow-ups: a Phenom site is read up to five
+pages (50 jobs) a search word instead of two (Allianz found 21 jobs, none in Poland), and the
+candidates file proposes Allegro's new SuccessFactors job feed (careers.allegro.eu) and Picnic's
+own job site (jobs.picnic.app): both showed only 1 or 2 jobs on SmartRecruiters.
+
 In Telegram, `/fetch` runs the same sweep. It replies at once, keeps one message updated with
 the current step in plain words ("Searching Adzuna...", "Saving to your Notion: 125 of 300
 jobs checked"), then sends a short summary: new jobs per country (in Config

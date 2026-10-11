@@ -12,6 +12,10 @@
 # board the bot reads, so it is an own job site now (own_site_companies). IMC Trading and
 # Dolby (its SuccessFactors job feed) worked and are in Target Companies; Ramp's board had no
 # open job and was left out. 28 of the 51 companies proposed on 10 Oct were added in all.
-# Nothing is waiting for a check now.
-proposed: {}
+# Round 8 (11 Oct): Allegro (1 job) and Picnic (2 jobs) on SmartRecruiters had probably moved:
+# Allegro's postings are now on careers.allegro.eu, a SuccessFactors site (its job feed);
+# Picnic's on its own jobs.picnic.app (the check looks for the board it links to).
+proposed:
+  Allegro: https://careers.allegro.eu/services/rss/job/?locale=en_US
+  Picnic: https://jobs.picnic.app/
 new: []
