@@ -664,7 +664,9 @@ def successfactors(company: TargetCompany, board: Board, page: PageGetter, keep:
 
 PHENOM_DATA = '"eagerLoadRefineSearch":'
 PHENOM_PAGE_SIZE = 10
-PHENOM_MAX_PAGES = 2
+# Up to 50 jobs a search word: two pages (20 worldwide) found none in Poland for Allianz
+# (11 Oct). A short page ends the word's search early.
+PHENOM_MAX_PAGES = 5
 
 
 def phenom_jobs(text: str) -> list[Mapping[str, Any]]:
@@ -686,7 +688,7 @@ def _phenom_slug(title: str) -> str:
 
 def phenom(company: TargetCompany, board: Board, page: PageGetter, keep: Prefilter,
            terms: tuple[str, ...]):
-    """Jobs on a Phenom career site's search results pages (10 a page, two pages a term)."""
+    """Jobs on a Phenom career site's search results pages (10 a page, up to five a term)."""
     postings, dropped, seen = [], 0, set()
     for term in terms:
         for n in range(PHENOM_MAX_PAGES):

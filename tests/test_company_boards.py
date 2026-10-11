@@ -676,3 +676,20 @@ def test_workday_country_filter_found_by_its_values():
     assert ats._country_facets(facets) == {"a": ["ie", "nl"]}  # the filter naming most
     assert ats._country_facets([{"facetParameter": "a", "values": [
         {"descriptor": "Germany", "id": "de"}]}]) == {}
+
+
+def test_phenom_reads_up_to_five_full_pages_a_word():
+    asked = []
+
+    def page(url):
+        asked.append(url)
+        n = len(asked)
+        jobs = ",".join(f'{{"title":"DevOps Engineer {n}-{i}","jobId":"{n}{i}",'
+                        f'"cityStateCountry":"Munich, Germany"}}' for i in range(10))
+        return url, ('<script>phApp.ddo = {"eagerLoadRefineSearch":{"status":200,'
+                     f'"data":{{"jobs":[{jobs}]}}}}}};</script>')
+
+    board = ats.Board("phenom", "https://careers.allianz.com/global/en")
+    postings, _, _ = ats.phenom(MOLLIE, board, page, keep_all, ("devops",))
+    assert len(asked) == ats.PHENOM_MAX_PAGES == 5 and len(postings) == 50
+    assert asked[-1].endswith("from=40")
