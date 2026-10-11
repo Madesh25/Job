@@ -646,3 +646,33 @@ def test_workday_filters_are_shown_when_few_jobs_are_local(tmp_path):
     assert rows[0].filters.startswith("jobFamilyGroup")
     assert "site filters: jobFamilyGroup" in boards.report_text(rows)
     assert boards.save_csv(rows, tmp_path).read_text().splitlines()[0].endswith("Site filters")
+
+
+def test_workday_country_filter_comes_from_the_whole_job_list():
+    # Shell (11 Oct): the devops search named only India and Turkey, the whole list Poland too.
+    bodies = []
+    site = [{"facetParameter": "locationCountry", "values": [
+        {"descriptor": "India", "id": "in"}, {"descriptor": "Poland", "id": "pl"}]}]
+    search = [{"facetParameter": "locationCountry", "values": [
+        {"descriptor": "India", "id": "in"}, {"descriptor": "Türkiye", "id": "tr"}]}]
+
+    def post(url, body):
+        bodies.append(body)
+        return {"total": 0, "jobPostings": [], "facets": site if not body["searchText"]
+                else search}
+
+    ats.workday(DELL, WD, lambda u, p: {}, post, keep_all, 0, TODAY, ("devops", "sre"), 1)
+    assert bodies[0]["searchText"] == ""
+    assert [b["appliedFacets"] for b in bodies[1:]] == [{"locationCountry": ["pl"]}] * 2
+
+
+def test_workday_country_filter_found_by_its_values():
+    # Red Hat (11 Oct) names its filters a, b, c; "The Netherlands" is ours too.
+    facets = [{"facetParameter": "a", "values": [
+        {"descriptor": "Australia", "id": "au"}, {"descriptor": "Ireland", "id": "ie"},
+        {"descriptor": "The Netherlands", "id": "nl"}]},
+        {"facetParameter": "c", "values": [{"descriptor": "Remote", "id": "r"}]},
+        {"facetParameter": "x", "values": [{"descriptor": "Poland", "id": "pl"}]}]
+    assert ats._country_facets(facets) == {"a": ["ie", "nl"]}  # the filter naming most
+    assert ats._country_facets([{"facetParameter": "a", "values": [
+        {"descriptor": "Germany", "id": "de"}]}]) == {}

@@ -405,14 +405,25 @@ def _facet_values(facets: Any, wanted: Callable[[str, str], bool]) -> dict[str, 
     return found
 
 
+def _is_our_country(name: str) -> bool:
+    """"Poland", "The Netherlands", "Netherlands (the)", "IRELAND"."""
+    low = re.sub(r"\(the\)|^the\s+", "", name.casefold()).strip()
+    return low in {c.casefold() for c in ANY_COUNTRY}
+
+
 def _country_facets(facets: Any) -> dict[str, list[str]]:
     """The Workday filter for Poland, the Netherlands and Ireland: the country facet when
-    the site has one, else the location facet values in those countries' hub cities
-    (Accenture, HPE and Shell had no country facet on 5 Oct)."""
+    the site has one (by its name, or by its values: Red Hat names its filters a, b, c), else
+    the location facet values in those countries' hub cities (Accenture, HPE and Shell had no
+    country facet on 5 Oct)."""
     countries = _facet_values(
-        facets, lambda p, name: "country" in p.lower() and name in ANY_COUNTRY)
+        facets, lambda p, name: "country" in p.lower() and _is_our_country(name))
     if countries:
         return countries
+    named = _facet_values(facets, lambda p, name: _is_our_country(name))
+    if named:  # one filter only: two would both have to match (Workday ANDs them)
+        best = max(named, key=lambda param: len(named[param]))
+        return {best: named[best]}
 
     def in_hub(param: str, name: str) -> bool:
         low = name.lower()
@@ -439,6 +450,15 @@ def workday(
     failed: list[http.HttpError] = []
     countries: dict[str, list[str]] | None = None
     first: Mapping[str, Any] | None = None  # the unfiltered first answer, reused when no filter
+    # The filters an answer offers list only the values of the jobs it found: Shell's devops
+    # search named no Poland, so its other words were searched worldwide too (11 Oct). The
+    # whole job list (no search word) names every country the site has jobs in.
+    try:
+        everything = post(f"{base}/jobs", {"appliedFacets": {}, "limit": WD_PAGE_SIZE,
+                                           "offset": 0, "searchText": ""}) or {}
+        countries = _country_facets(everything.get("facets")) or None
+    except http.HttpError:
+        countries = None  # read from the first search word's answer below
     for term in terms:
         if countries is None:
             try:
