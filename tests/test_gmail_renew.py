@@ -4,6 +4,7 @@ app in Testing."""
 import base64
 import hashlib
 import json
+import socket
 from datetime import date, datetime, timedelta
 from urllib.parse import parse_qs, urlsplit
 
@@ -16,6 +17,10 @@ from jobengine.bot_state import FakeBotState
 from jobengine.gmail_client import SENDER_SCOPES
 from jobengine.settings import load_settings, saved_gmail_env
 
+# Real socket functions, taken before conftest's no_network fixture replaces them: only the
+# listener test uses them, and only for 127.0.0.1.
+REAL_CONNECT = socket.socket.connect
+REAL_CREATE = socket.create_connection
 NOW = datetime(2026, 10, 15, 10, 0)
 TOKEN = json.dumps({"client_id": "cid.apps.googleusercontent.com", "client_secret": "csecret",
                     "refresh_token": "old", "token_uri": gr.TOKEN_URL,
@@ -56,6 +61,7 @@ def test_the_sign_in_link_uses_your_client_pkce_and_the_right_account():
     assert len(gr.PENDING) == 2
     gr.start(S, "m02", NOW)  # a new link replaces the old one of that account
     assert len(gr.PENDING) == 2 and q["state"] not in gr.PENDING
+    assert "says \"Done\"" in gr.start(S, "m02", NOW, listening=True)
 
 
 def test_start_refuses_outside_local_and_without_a_client():
@@ -174,7 +180,9 @@ def test_telegram_routes_the_command_and_deletes_the_pasted_address(monkeypatch)
     fake = DeletingTelegram()
     client = tb.TelegramClient(fake)
     s = settings()
-    monkeypatch.setattr(gr, "start", lambda s, account, now: f"link for {account}")
+    monkeypatch.setattr(gr, "start",
+                        lambda s, account, now, listening: f"link for {account} {listening}")
+    monkeypatch.setattr(gr, "listen", lambda s, notify: 8765)
     monkeypatch.setattr(gr, "finish", lambda s, text, now: "saved it")
     monkeypatch.setattr(gr, "status", lambda s, config, today: "status")
     message = {"chat": {"id": int(CHAT_ID)}, "message_id": 77}
@@ -182,7 +190,7 @@ def test_telegram_routes_the_command_and_deletes_the_pasted_address(monkeypatch)
     tb.handle_one(client, s, {"update_id": 2, "message": {**message, "text": "/gmailtoken"}})
     tb.handle_one(client, s, {"update_id": 3, "message": {
         **message, "text": "http://127.0.0.1:8765/?state=s&code=c"}})
-    assert [text for _, text in fake.sent] == ["[LOCAL] link for mm", "[LOCAL] status",
+    assert [text for _, text in fake.sent] == ["[LOCAL] link for mm True", "[LOCAL] status",
                                                "[LOCAL] saved it"]
     deleted = [p for m, p in fake.calls if m == "deleteMessage"]
     assert deleted == [{"chat_id": CHAT_ID, "message_id": 77}]
@@ -194,3 +202,44 @@ def test_saved_token_file_problems_are_ignored(tmp_path):
     (tmp_path / "gmail-mm.json").write_text(json.dumps({"token": {"client_id": "x"}}))
     assert saved_gmail_env(tmp_path) == {}
     assert saved_gmail_env(tmp_path / "missing") == {}
+
+
+def test_the_bot_answers_the_page_google_returns_to(monkeypatch, tmp_path):
+    import urllib.error
+    import urllib.request
+
+    def loopback_only(sock, address):
+        assert address[0] == "127.0.0.1", address
+        return REAL_CONNECT(sock, address)
+
+    monkeypatch.setattr(socket.socket, "connect", loopback_only)
+    monkeypatch.setattr(socket, "create_connection", REAL_CREATE)
+    said = []
+    q = link(gr.start(S, "m02", NOW, listening=True))
+    seen = []
+    monkeypatch.setattr(gr, "finish", lambda s, url, now, folder: seen.append(url) or (
+        gr.PENDING.clear() or "\u2705 Saved the new Gmail token for m02 <ok>"))
+    port = gr.listen(S, said.append, lambda: NOW, port=0, host="127.0.0.1", folder=tmp_path)
+    try:
+        assert port and gr.listen(S, said.append, port=0) == port  # one listener at a time
+        base = f"http://127.0.0.1:{port}"
+        with pytest.raises(urllib.error.HTTPError):  # the favicon and other paths
+            urllib.request.urlopen(f"{base}/favicon.ico", timeout=5)
+        page = urllib.request.urlopen(f"{base}/?state={q['state']}&code=4/abc",
+                                      timeout=5).read().decode()
+        assert "<h1>Done</h1>" in page and "&lt;ok&gt;" in page and "close this tab" in page
+        assert seen == [f"http://127.0.0.1:8765/?state={q['state']}&code=4/abc"]
+        assert said == ["\u2705 Saved the new Gmail token for m02 <ok>"]
+    finally:
+        gr.stop()
+    assert gr._SERVER == {}
+
+
+def test_listen_says_none_when_the_port_is_taken():
+    import socket
+
+    with socket.socket() as taken:
+        taken.bind(("127.0.0.1", 0))
+        taken.listen()
+        assert gr.listen(S, print, port=taken.getsockname()[1], host="127.0.0.1") is None
+    assert gr._SERVER == {}

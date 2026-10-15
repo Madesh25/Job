@@ -217,11 +217,20 @@ renews a token in about 2 minutes, without a command window or an .env edit
 2. `/gmailtoken m02` (or `mm`) sends a Google sign-in link (the OAuth client of your current
    token, PKCE, `login_hint` for that address). Open it on your PC, choose the account, allow
    every box ("Advanced, Go to Job (unsafe)" if Google says the app is not verified).
-3. Google sends the browser to `http://127.0.0.1:8765/?state=...&code=...`, where nothing
-   answers. Copy that whole address and paste it into the chat within 15 minutes. The bot
-   deletes your message, exchanges the one-time code (oauth2.googleapis.com), refuses a wrong
-   account or missing permission, and saves the token in `out/tokens/gmail-<account>.json`
-   (on your PC, ignored by git, never in Notion).
+3. Google sends the browser to `http://127.0.0.1:8765/?state=...&code=...`. The bot answers
+   that page itself: it says "Done" and the answer comes in Telegram too, nothing to copy. In
+   Docker this needs the port, so start the bot with `-p 127.0.0.1:8765:8765`:
+
+   ```powershell
+   docker run --rm -it -p 127.0.0.1:8765:8765 --env-file .env -v "${PWD}\out:/app/out" job-engine python -m jobengine.telegram_bot 2>&1 | Tee-Object -FilePath out\bot-log.txt
+   ```
+
+   Without the port the page shows "This site can't be reached" (15 Oct): copy that whole
+   address and paste it into the chat within 15 minutes instead (the bot deletes your
+   message). Either way the bot exchanges the one-time code (oauth2.googleapis.com), refuses a
+   wrong account or missing permission, and saves the token in
+   `out/tokens/gmail-<account>.json` (on your PC, ignored by git, never in Notion). The page
+   only listens while a sign-in waits (at most 15 minutes) and only on your PC (127.0.0.1).
 4. `/restart`. A saved token wins over the one in `.env` (`settings.saved_gmail_env`); delete
    the file to go back to `.env`.
 
