@@ -104,6 +104,7 @@ def _send(
     headers: Mapping[str, str] | None = None,
     json: Any = None,
     s: Settings | None = None,
+    data: Mapping[str, str] | None = None,
 ) -> tuple[str, httpx.Response]:
     """Send one request. HTTP 429 is retried up to MAX_429_RETRIES times (Retry-After);
     network hiccups up to twice (NETWORK_WAITS), see the comment on NETWORK_WAITS."""
@@ -116,7 +117,8 @@ def _send(
         while attempt <= MAX_429_RETRIES:
             log.debug("%s", where)
             try:
-                resp = client.request(method, url, params=params, headers=headers, json=json)
+                resp = client.request(method, url, params=params, headers=headers, json=json,
+                                      data=data)
                 resp.read()
             except httpx.HTTPError as exc:
                 retryable = isinstance(exc, CONNECT_ERRORS) or (
@@ -209,6 +211,16 @@ def post_json(
     s: Settings | None = None,
 ) -> Any:
     return request_json("POST", url, params=params, headers=headers, json=json, s=s)
+
+
+def post_form(url: str, data: Mapping[str, str], s: Settings | None = None) -> Any:
+    """POST a form (application/x-www-form-urlencoded) and return the JSON answer: the
+    Google OAuth token exchange (gmail_renew.py)."""
+    where, resp = _send("POST", url, data=data, s=s)
+    try:
+        return resp.json()
+    except ValueError:
+        raise HttpError(f"{where} failed: response was not JSON") from None
 
 
 def patch_json(

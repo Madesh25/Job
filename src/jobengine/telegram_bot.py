@@ -26,11 +26,11 @@ import urllib.request
 import uuid
 from collections import deque
 from collections.abc import Callable
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 from typing import Any, TextIO
 
-from jobengine import next_steps
+from jobengine import gmail_renew, next_steps
 from jobengine.jobctl import CONTROL, Stopped, end_text
 from jobengine.main import banner
 from jobengine.resume import builder as resume_builder
@@ -92,6 +92,7 @@ HELP_TEXT = (
     "/stats - applied, replies, interviews and reply rates (30 days and all time)\n"
     "/sources - sweep sources, their secrets and the last sweep counts\n"
     "/health - Notion, Gmail tokens, Anthropic key, last runs\n"
+    "/gmailtoken - your Gmail tokens; /gmailtoken m02 or mm renews one in 2 minutes\n"
     "/digest - the weekly digest now\n"
     "/update - monthly strategy research for your review (opens /fetch); /update new again\n"
     "/rules - V16 non-negotiables, thresholds, adopted tips and the /fetch gate\n"
@@ -259,7 +260,8 @@ def console_transport(
             if keys:
                 print("     " + " ".join(keys), file=stdout, flush=True)
             return {"ok": True, "result": {"message_id": message_id}}
-        if method in ("answerCallbackQuery", "sendChatAction", "setMyCommands"):
+        if method in ("answerCallbackQuery", "sendChatAction", "setMyCommands",
+                      "deleteMessage"):
             return {"ok": True, "result": True}
         if method == "editMessageText":
             print(f"bot (updated)> {payload['text']}", file=stdout, flush=True)
@@ -347,6 +349,10 @@ class TelegramClient:
         if text:
             payload["text"] = text
         self._call("answerCallbackQuery", payload)
+
+    def delete_message(self, chat_id: str, message_id: int) -> None:
+        """Delete a message (a bot may delete incoming messages in a private chat)."""
+        self._call("deleteMessage", {"chat_id": chat_id, "message_id": message_id})
 
     def typing(self, chat_id: str) -> None:
         """Show "typing..." in the chat (Telegram clears it after about 5 seconds)."""
@@ -616,6 +622,9 @@ def handle_one(
             client.send_message(*out)
         return
     text = message.get("text") or ""
+    if parse_command(text) == "gmailtoken" or gmail_renew.looks_like_answer(text):
+        gmail_token_message(client, s, message, desk)
+        return
     if desk is not None and parse_command(text) == "autopilot":
         if text.split()[1:2] in (["when"], ["schedule"]):
             send_replies(client, s, chat, _guarded("/autopilot when", desk.autopilot_when))
@@ -634,6 +643,34 @@ def handle_one(
         send_replies(client, s, chat, with_next_step(text, replies))
     elif out is not None:
         client.send_message(*out)
+
+
+def gmail_token_message(client: TelegramClient, s: Settings, message: dict[str, Any],
+                        desk: Desk | None) -> None:
+    """/gmailtoken (status or a sign-in link) and the pasted sign-in address
+    (gmail_renew.py). The pasted address holds a one-time code: it is deleted at once."""
+    chat = str(s.telegram_chat_id)
+    text = message.get("text") or ""
+    now = datetime.now()
+    if gmail_renew.looks_like_answer(text):
+        try:
+            client.delete_message(chat, int(message.get("message_id") or 0))
+        except (TelegramError, ValueError) as exc:
+            log.warning("could not delete the pasted sign-in address: %s", exc)
+        with Typing(client, chat):
+            reply = _guarded("Gmail token", lambda: [Reply(gmail_renew.finish(s, text, now))])
+        send_replies(client, s, chat, reply)
+        return
+    args = text.split()[1:]
+    if args:
+        reply = _guarded("Gmail token", lambda: [Reply(gmail_renew.start(
+            s, args[0].lower(), now))])
+    else:
+        config: Any = desk.deps.config() if desk is not None else {}
+        with Typing(client, chat):
+            reply = _guarded("Gmail token", lambda: [Reply(gmail_renew.status(
+                s, config, now.date()))])
+    send_replies(client, s, chat, reply)
 
 
 def send_replies(client: TelegramClient, s: Settings, chat_id: str, replies: list[Reply]) -> None:
@@ -901,6 +938,8 @@ def autopilot_check(client: TelegramClient, s: Settings, desk: Desk | None,
                         lambda: desk.check_scheduled(autopilot_fetch(fetch)) or [])
     replies += _guarded("Mail queue", desk.mail_queue_tick)
     replies += _guarded("Reply check", desk.reply_ping_tick)
+    replies += _guarded("Gmail token", lambda: [Reply(text) for text in gmail_renew.reminder(
+        s, desk.state, desk.deps.config(), date.today())])
     if replies:
         send_replies(client, s, str(s.telegram_chat_id), replies)
 

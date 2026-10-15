@@ -7,6 +7,7 @@ variables (plus .env when APP_ENV is local).
 
 from __future__ import annotations
 
+import json
 import os
 from collections.abc import Mapping
 from functools import lru_cache
@@ -211,6 +212,29 @@ def load_settings(env: str | None = None, environ: Mapping[str, str] | None = No
     )
 
 
+# Gmail tokens renewed in Telegram (/gmailtoken, gmail_renew.py) on the bot on your PC. The
+# out folder is the one Docker mounts from your PC and git ignores, so a renewed token
+# survives a restart and needs no .env edit. A saved token wins over the one in .env.
+GMAIL_TOKEN_DIR = ROOT_DIR / "out" / "tokens"
+GMAIL_TOKEN_VARS = {"m02": ("GMAIL_ALERTS_TOKEN_JSON_m02", "GMAIL_SENDER_TOKEN_JSON"),
+                    "mm": ("GMAIL_ALERTS_TOKEN_JSON_mm",)}
+
+
+def saved_gmail_env(folder: Path = GMAIL_TOKEN_DIR) -> dict[str, str]:
+    """The environment values of the Gmail tokens saved by /gmailtoken, {} when none."""
+    out: dict[str, str] = {}
+    for account, names in GMAIL_TOKEN_VARS.items():
+        path = folder / f"gmail-{account}.json"
+        try:
+            token = json.loads(path.read_text(encoding="utf-8")).get("token")
+        except (OSError, ValueError, AttributeError):
+            continue
+        if isinstance(token, dict) and token.get("refresh_token"):
+            for name in names:
+                out[name] = json.dumps(token, separators=(",", ":"))
+    return out
+
+
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
     """Build Settings once from the real process environment."""
@@ -218,5 +242,5 @@ def get_settings() -> Settings:
     env = environ.get("APP_ENV", DEFAULT_ENV)
     if env == "local":
         dotenv = {k: v for k, v in dotenv_values(ROOT_DIR / ".env").items() if v is not None}
-        environ = {**dotenv, **environ}
+        environ = {**dotenv, **environ, **saved_gmail_env()}
     return load_settings(env, environ)
