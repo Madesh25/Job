@@ -247,10 +247,10 @@ NOT_APPLYING = {"c": ("the job is closed or expired", "Expired"),
 TOKEN_ERRORS = ("invalid_grant", "expired or revoked")
 TOKEN_ALERT_KEY = "gmail_token_alert"
 TOKEN_ALERT = ("\u26a0\ufe0f A Gmail token has expired (invalid_grant): replies and sent mails "
-               "are not checked. Send /health to see which one. Make it again with "
-               "jobengine.gmail_auth (docs/gmail.md), put the new JSON in .env, then stop and "
-               "start the bot. While the Google OAuth app is in Testing, tokens expire every "
-               "7 days: Publish the app (OAuth consent screen, Audience) to stop that.")
+               "are not checked. /gmailtoken shows which one; /gmailtoken m02 or /gmailtoken "
+               "mm renews it in 2 minutes (a sign-in link, then you paste the address you land "
+               "on), then /restart. While the Google OAuth app is in Testing, tokens expire "
+               "every 7 days: publishing the app stops that (Phase 9, P9-37).")
 
 
 class Desk:

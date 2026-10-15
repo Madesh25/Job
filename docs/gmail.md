@@ -204,6 +204,32 @@ jobengine.gmail_auth." when the scope is missing.
    same JSON. Dev and prod: store it in Secret Manager (Module 09); prod uses the main
    account.
 
+## Renew a token from Telegram (/gmailtoken, 15 Oct)
+
+While the Google OAuth app is in Testing, Google cancels its tokens 7 days after they are
+made (`invalid_grant`). Publishing the app ends that (Phase 9, P9-37: Google now asks for a home
+page and a privacy policy link on an authorised domain first). Until then the bot on your PC
+renews a token in about 2 minutes, without a command window or an .env edit
+(`src/jobengine/gmail_renew.py`):
+
+1. `/gmailtoken` shows each token (m02 = madeshwaranm02, mm = madeshwaran.manikam): OK or not,
+   and for a token renewed here the day it stops working.
+2. `/gmailtoken m02` (or `mm`) sends a Google sign-in link (the OAuth client of your current
+   token, PKCE, `login_hint` for that address). Open it on your PC, choose the account, allow
+   every box ("Advanced, Go to Job (unsafe)" if Google says the app is not verified).
+3. Google sends the browser to `http://127.0.0.1:8765/?state=...&code=...`, where nothing
+   answers. Copy that whole address and paste it into the chat within 15 minutes. The bot
+   deletes your message, exchanges the one-time code (oauth2.googleapis.com), refuses a wrong
+   account or missing permission, and saves the token in `out/tokens/gmail-<account>.json`
+   (on your PC, ignored by git, never in Notion).
+4. `/restart`. A saved token wins over the one in `.env` (`settings.saved_gmail_env`); delete
+   the file to go back to `.env`.
+
+A renewed token carries its date: from the day before it stops working the bot sends one
+reminder a day with `/gmailtoken <account>` (Config `gmail.token_days`, 7; set it to 0 once the
+app is published). The daily "A Gmail token has expired" alert points to `/gmailtoken` too.
+Only the bot on your PC renews tokens (APP_ENV local); on Cloud Run they are in Secret Manager.
+
 ## Notion prerequisites
 
 Config rows: `mail.permit_word.poland` = `a Polish work permit`,
