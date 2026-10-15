@@ -8,11 +8,14 @@ Allow, but nothing else: no command window, no .env edit.
     /gmailtoken m02      a Google sign-in link for madeshwaranm02 (mm: madeshwaran.manikam)
 
 You open the link on your PC, choose the account and allow. Google then sends the browser to
-http://127.0.0.1:8765/?state=...&code=... where nothing answers ("This site can't be reached"):
-you copy that address and paste it into the chat. The bot exchanges the one-time code (with
-PKCE) for a token, checks that it is the right account and has both scopes, saves it in
-out/tokens (on your PC, ignored by git, never in Notion) and deletes your message. /restart
-then uses it: a saved token wins over the one in .env (settings.saved_gmail_env).
+http://127.0.0.1:8765/?state=...&code=...: the bot answers that page itself (`listen`, with
+docker run -p 127.0.0.1:8765:8765), so the page says "Done" and nothing is copied (15 Oct:
+without it the page did not load and the copy step was missed). Without the port the page
+does not load: you copy that address and paste it into the chat instead. Either way the bot
+exchanges the one-time code (with PKCE) for a token, checks that it is the right account and
+has both scopes, and saves it in out/tokens (on your PC, ignored by git, never in Notion); a
+pasted address is deleted from the chat. /restart then uses it: a saved token wins over the one
+in .env (settings.saved_gmail_env).
 
 A token renewed here carries its date, so the bot reminds you once a day from the day before
 it stops working (Config gmail.token_days, 7; set 0 once the app is published). Only the bot
@@ -23,11 +26,14 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import html
 import json
 import secrets
+import threading
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urlencode, urlsplit
@@ -40,7 +46,8 @@ AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
 TOKEN_URL = "https://oauth2.googleapis.com/token"
 # Desktop OAuth clients accept any loopback address. Nothing listens there: you copy the
 # address the browser lands on.
-REDIRECT = "http://127.0.0.1:8765/"
+LISTEN_PORT = 8765
+REDIRECT = f"http://127.0.0.1:{LISTEN_PORT}/"
 ANSWER_STARTS = ("http://127.0.0.1:8765", "127.0.0.1:8765", "http://localhost:8765")
 PENDING_MINUTES = 15
 DEFAULT_TOKEN_DAYS = 7  # tokens of an app in Testing; Config gmail.token_days (0: published)
@@ -50,6 +57,16 @@ USAGE = ("/gmailtoken shows your Gmail tokens; /gmailtoken m02 or /gmailtoken mm
          "(a Google sign-in link, then you paste the address you land on).")
 NOT_LOCAL = ("/gmailtoken works on the bot on your PC only. On Cloud Run the Gmail tokens are "
              "in Secret Manager (docs/deploy.md B2).")
+
+
+PASTE_STEP = ("3. The browser then shows \"This site can't be reached\" (127.0.0.1). That is "
+              "expected: copy the whole address from the address bar and paste it here within "
+              f"{PENDING_MINUTES} minutes (the bot deletes your message).\n")
+LISTENING_STEP = ("3. Google then opens a page at 127.0.0.1:8765 that says \"Done\": the bot "
+                  "saves the token by itself and tells you here. If that page says \"This site "
+                  "can't be reached\" instead, the bot was started without "
+                  "-p 127.0.0.1:8765:8765: copy the whole address from the address bar and "
+                  f"paste it here within {PENDING_MINUTES} minutes.\n")
 
 
 @dataclass
@@ -91,8 +108,9 @@ def _challenge(verifier: str) -> str:
     return base64.urlsafe_b64encode(digest).decode("ascii").rstrip("=")
 
 
-def start(s: Settings, account: str, now: datetime) -> str:
-    """The message with the Google sign-in link for one account."""
+def start(s: Settings, account: str, now: datetime, listening: bool = False) -> str:
+    """The message with the Google sign-in link for one account. `listening`: the bot answers
+    the page Google returns to (`listen`), so nothing has to be copied."""
     if s.app_env != "local":
         return NOT_LOCAL
     if account not in ACCOUNTS:
@@ -117,11 +135,8 @@ def start(s: Settings, account: str, now: datetime) -> str:
             f"1. Open this link on your PC: {url}\n"
             f"2. Choose {email}. If Google says the app is not verified: Advanced, then Go to "
             "Job (unsafe). Tick every box and press Continue.\n"
-            "3. The browser then shows \"This site can't be reached\" (127.0.0.1). That is "
-            "expected: copy the whole address from the address bar and paste it here within "
-            f"{PENDING_MINUTES} minutes.\n"
-            "The bot saves the new token on your PC (out/tokens, never in Notion or git) and "
-            "deletes your message.")
+            + (LISTENING_STEP if listening else PASTE_STEP) +
+            "The bot saves the new token on your PC (out/tokens, never in Notion or git).")
 
 
 def looks_like_answer(text: str) -> bool:
@@ -283,3 +298,65 @@ def reminder(s: Settings, state: Any, config: Any, today: date,
     if out:
         state.set(REMINDER_KEY, sent)
     return out
+
+
+_SERVER: dict[str, Any] = {}  # the page Google returns to, while a sign-in waits
+PAGE = ("<!doctype html><html><head><meta charset=\"utf-8\"><title>Job Engine</title></head>"
+        "<body style=\"font-family:sans-serif;max-width:40em;margin:3em auto\"><h1>{head}</h1>"
+        "<p>{text}</p><p>You can close this tab and go back to Telegram.</p></body></html>")
+
+
+def listen(s: Settings, notify: Callable[[str], None],
+           now: Callable[[], datetime] = datetime.now, port: int = LISTEN_PORT,
+           host: str = "0.0.0.0", folder: Path = GMAIL_TOKEN_DIR) -> int | None:
+    """Answer the page Google returns to after Allow (REDIRECT): the code is exchanged at once,
+    the page shows the result and `notify` sends it to the chat. It stops when no sign-in waits
+    any more, or after PENDING_MINUTES. Inside Docker it needs -p 127.0.0.1:8765:8765. The port
+    it listens on, or None when it cannot open it (then the address is pasted instead)."""
+    if _SERVER.get("server") is not None:
+        return int(_SERVER["server"].server_address[1])
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self) -> None:  # noqa: N802 (http.server's name)
+            if "state=" not in self.path:  # the browser's favicon and other requests
+                self.send_response(404)
+                self.end_headers()
+                return
+            text = finish(s, f"{REDIRECT.rstrip('/')}{self.path}", now(), folder)
+            ok = text.startswith("\u2705")
+            body = PAGE.format(head="Done" if ok else "Not saved",
+                               text=html.escape(text)).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            notify(text)
+            if not PENDING:
+                threading.Thread(target=stop, daemon=True).start()
+
+        def log_message(self, *args: Any) -> None:  # the address holds the one-time code
+            return
+
+    try:
+        server = ThreadingHTTPServer((host, port), Handler)
+    except OSError:
+        return None
+    _SERVER["server"] = server
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    timer = threading.Timer(PENDING_MINUTES * 60, stop)
+    timer.daemon = True
+    timer.start()
+    _SERVER["timer"] = timer
+    return int(server.server_address[1])
+
+
+def stop() -> None:
+    """Close the page Google returns to (after the sign-in, or when it timed out)."""
+    server = _SERVER.pop("server", None)
+    timer = _SERVER.pop("timer", None)
+    if timer is not None:
+        timer.cancel()
+    if server is not None:
+        server.shutdown()
+        server.server_close()

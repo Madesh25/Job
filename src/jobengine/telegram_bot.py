@@ -663,8 +663,14 @@ def gmail_token_message(client: TelegramClient, s: Settings, message: dict[str, 
         return
     args = text.split()[1:]
     if args:
+        account = args[0].lower()
+        notify = lambda answer: send_replies(client, s, chat, [Reply(answer)])  # noqa: E731
+        listening = (s.app_env == "local" and account in gmail_renew.ACCOUNTS
+                     and gmail_renew.listen(s, notify) is not None)
         reply = _guarded("Gmail token", lambda: [Reply(gmail_renew.start(
-            s, args[0].lower(), now))])
+            s, account, now, listening))])
+        if listening and not gmail_renew.PENDING:
+            gmail_renew.stop()  # the link was refused (no OAuth client): nothing to wait for
     else:
         config: Any = desk.deps.config() if desk is not None else {}
         with Typing(client, chat):
