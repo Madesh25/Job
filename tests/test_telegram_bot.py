@@ -750,7 +750,7 @@ def test_credits_command(desk):
     # Fake today is 2026-10-01: September counters start again at 0.
     assert "Apollo: 0 / 75 per month (reset for this month), updated 2026-09-28, no key" in text
     assert "Snov: 0 / 50 per month, updated 2026-08-20, no key" in text
-    assert "Paid calls are off here" in text
+    assert "Contact lookups: test data" in text
 
 
 def test_contacts_command_asks_for_an_unknown_domain_and_resumes_on_reply(desk):

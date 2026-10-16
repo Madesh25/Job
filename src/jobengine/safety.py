@@ -73,8 +73,28 @@ def check_target_companies_write(fields: list[str] | tuple[str, ...] | set[str])
                           "not on the allowlist")
 
 
+# The contact finders CONTACTS_LIVE turns on outside prod (16 Oct: on the PC every lookup
+# answered from test files, so no real company ever got a contact).
+LIVE_CONTACT_PROVIDERS = frozenset({"apollo", "hunter", "snov", "prospeo", "tomba"})
+
+
 def paid_api_allowed(provider: str, s: Settings) -> bool:
-    return s.app_env == PROD and not s.dry_run
+    """Prod with DRY_RUN off; or, on your PC (APP_ENV local) with CONTACTS_LIVE=true, the
+    contact finders only (DRY_RUN stays on: no mail, no upload, no other paid call)."""
+    if s.app_env == PROD:
+        return not s.dry_run
+    return s.app_env == "local" and s.contacts_live and provider in LIVE_CONTACT_PROVIDERS
+
+
+def contact_lookups(s: Settings) -> str:
+    """How the contact finders answer here, for /health, /credits and the lookup result."""
+    if paid_api_allowed("apollo", s):
+        if s.app_env == PROD:
+            return "real (prod, DRY_RUN off)"
+        return ("real (CONTACTS_LIVE on your PC: free credits are used; the Config "
+                "counters are not written here)")
+    return ("test data: Apollo, Hunter, Snov, Prospeo and Tomba are not asked here (real "
+            "only in prod with DRY_RUN off, or on your PC with CONTACTS_LIVE=true)")
 
 
 def notion_write_target(name: str, s: Settings) -> str | None:

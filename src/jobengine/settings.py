@@ -121,6 +121,9 @@ class Settings(BaseModel):
     service_url: str | None = None
     scheduler_sa_email: str | None = None
     bot_mode: str = "polling"  # "webhook" on Cloud Run (BOT_MODE)
+    # CONTACTS_LIVE=true (16 Oct): real contact lookups on your PC (APP_ENV local) while
+    # DRY_RUN stays on; nothing else becomes real. safety.paid_api_allowed.
+    contacts_live: bool = False
 
 
 def parse_dry_run(value: str | None) -> bool:
@@ -208,6 +211,7 @@ def load_settings(env: str | None = None, environ: Mapping[str, str] | None = No
         allowed_hosts=tuple(safety.get("allowed_hosts") or ()),
         allowed_host_suffixes=tuple(safety.get("allowed_host_suffixes") or ()),
         bot_mode=(environ.get("BOT_MODE") or "polling").strip().lower(),
+        contacts_live=(environ.get("CONTACTS_LIVE") or "").strip().lower() == "true",
         **secrets,
     )
 

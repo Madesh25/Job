@@ -49,7 +49,7 @@ from jobengine.notion_repo import (
     jobs_repo_for,
 )
 from jobengine.reference import Reference
-from jobengine.safety import paid_api_allowed
+from jobengine.safety import contact_lookups, paid_api_allowed
 from jobengine.screen.runner import description
 from jobengine.settings import ROOT_DIR, Settings
 from jobengine.sweep.normalize import canon_company
@@ -371,6 +371,9 @@ def find_contacts(deps: ContactDeps, job_id: str, paid: bool = True) -> Contacts
                 continue  # a free plan you have not set up (no Config credits.<name>)
             _provider_step(deps, book, name, provider, company, domain, country, result,
                            chosen, seen, by_email, open_slots, patterns, personal)
+        if deps.calls and not paid_api_allowed("apollo", deps.s):
+            # 16 Oct: "No contacts found" for every real company hid that no provider was asked.
+            result.notes.append(f"Contact lookups: {contact_lookups(deps.s)}.")
 
     result.contacts = chosen
     result.missing = open_slots()

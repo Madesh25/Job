@@ -3,6 +3,7 @@ import pytest
 from jobengine.safety import (
     SafetyError,
     check_startup,
+    contact_lookups,
     gmail_write_allowed,
     notion_write_target,
     paid_api_allowed,
@@ -104,6 +105,24 @@ def test_paid_api_allowed_only_in_prod_without_dry_run(provider):
     assert paid_api_allowed(provider, load_settings("local", {"DRY_RUN": "false"})) is False
     assert paid_api_allowed(provider, prod(dry_run=True)) is False
     assert paid_api_allowed(provider, prod(dry_run=False)) is True
+
+
+@pytest.mark.parametrize("provider", ["apollo", "hunter", "snov", "prospeo", "tomba"])
+def test_contacts_live_turns_on_only_the_contact_finders_on_the_pc(provider):
+    live = {"CONTACTS_LIVE": "true"}
+    assert paid_api_allowed(provider, load_settings("local", live)) is True
+    assert paid_api_allowed(provider, load_settings("local", {"CONTACTS_LIVE": "yes"})) is False
+    assert paid_api_allowed(provider, load_settings("dev", live)) is False  # Cloud Run dev
+    assert paid_api_allowed(provider, prod(dry_run=True, contacts_live=True)) is False
+    assert "real (CONTACTS_LIVE" in contact_lookups(load_settings("local", live))
+    assert contact_lookups(load_settings("local", {})).startswith("test data")
+
+
+def test_contacts_live_never_opens_other_paid_calls():
+    live = load_settings("local", {"CONTACTS_LIVE": "true"})
+    assert live.dry_run is True
+    assert paid_api_allowed("lusha", live) is False
+    assert paid_api_allowed("anthropic_batch", live) is False
 
 
 def test_resolve_model():

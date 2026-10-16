@@ -7,6 +7,7 @@ from datetime import date, datetime, timedelta
 from typing import Any
 
 from jobengine.config_store import ConfigStore
+from jobengine.safety import contact_lookups
 from jobengine.settings import Settings
 from jobengine.sweep.runner import LAST_SUMMARY as SWEEP_SUMMARY
 from jobengine.track.followup import NOTE as FOLLOWUP_NOTE
@@ -153,4 +154,5 @@ def health_text(deps: TrackDeps) -> str:
     lines.append(f"Last daily check: {(deps.state.get(MARKER) or {}).get('at') or 'never'}")
     lines.append(f"Last sweep: {(deps.state.get(SWEEP_SUMMARY) or {}).get('at') or 'never'}")
     lines.append(f"Environment: {s.app_env}, DRY_RUN {'on' if s.dry_run else 'off'}")
+    lines.append(f"Contact lookups: {contact_lookups(s)}")
     return "\n".join(lines)
