@@ -45,6 +45,13 @@ Config `contacts.location` in `config/base.yaml` (default `strict`):
   checked (Notes "country unverified") are not reused. People named in the job posting count.
 - **country_first:** the rule before 16 Oct: in the country first, then unknown, then outside.
 - Remote and Other jobs have no country to check.
+- **More local people** (16 Oct: 1 of 4 at HCLTech, Netherlands): while slots stay open,
+  Prospeo searches senior engineering/IT people, then the HR department (recruiter), then
+  anyone at the company, all in the job's country (one credit each when it finds people).
+  Snov searches the whole domain when the titles find nobody. Hunter's API ignores the
+  country filter on the free plan, so up to 3 Hunter people whose title fits an open slot are
+  looked up in Prospeo by email (one credit each when Prospeo knows them); the ones it places
+  in the job's country are used, noted "location from Prospeo".
 - **Hunter** gives no location per person, so its search now filters by country (a POST with
   `location`); its people count as placed only when Hunter's answer confirms the filter.
 - **Prospeo** searches with `person_location_search` = the country; if Prospeo refuses that

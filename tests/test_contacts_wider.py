@@ -4,6 +4,8 @@ a bad character, and Hunter's 9 other people (bank titles such as "Vice Presiden
 no slot. Fixes: Snov at most 10 titles as query parameters, Prospeo's error codes read,
 keys cleaned, and a wider search for senior tech people when slots stay open."""
 
+from datetime import date
+
 import httpx
 from test_contacts_free_providers import DOMAIN, pdeps, settings
 
@@ -105,7 +107,7 @@ def test_prospeo_no_results_as_http_400_is_normal_and_the_wider_search_runs():
         "person_id": "p-vp", "full_name": "Vera Lead", "first_name": "Vera",
         "email": {"email": "vera.lead@statestreet.com", "status": "VERIFIED"},
         "location": {"country": "Ireland"}}}
-    request, calls = answers(no_results, wide, enriched)
+    request, calls = answers(no_results, wide, {"results": []}, enriched)
     deps, _ = pdeps(request=request)
     result = prospeo.search("State Street", "statestreet.com", "Ireland",
                             {PEER: 1, HIRING: 1}, deps)
@@ -113,7 +115,9 @@ def test_prospeo_no_results_as_http_400_is_normal_and_the_wider_search_runs():
     assert calls[1][1]["filters"]["person_seniority"] == {"include": prospeo.WIDE_SENIORITY}
     assert calls[1][1]["filters"]["person_department"] == {
         "include": ["Engineering & Technical", "Information Technology"]}
-    assert calls[2][1]["data"] == {"person_id": "p-vp"}  # one call, and not the sales one
+    assert calls[2][1]["filters"] == {"company": {"websites": {"include": ["statestreet.com"]}},
+                                      "person_location_search": {"include": ["Ireland"]}}
+    assert calls[3][1]["data"] == {"person_id": "p-vp"}  # one call, and not the sales one
     assert result.credits_used == 2  # the wider page and one email; NO_RESULTS is free
     (vera,) = result.candidates
     assert (vera.email, vera.department, wide_kind(vera.title, vera.department)) == (
@@ -347,7 +351,7 @@ def test_prospeo_searches_the_country_and_retries_without_a_refused_filter():
     assert "person_location_search" not in prospeo.search_body("hcl.com", [], "Other")["filters"]
     refused = http.HttpError("POST api.prospeo.io/search-person failed: HTTP 400 "
                              "INVALID_FILTERS person_location_search", 400)
-    request, calls = answers(refused, {"results": []}, {"results": []})
+    request, calls = answers(refused, *[{"results": []}] * 6)
     deps, _ = pdeps(request=request)
     result = prospeo.search("HCL", "hcl.com", "Netherlands", {PEER: 1}, deps)
     assert "person_location_search" in calls[0][1]["filters"]
@@ -388,3 +392,86 @@ def test_prospeo_no_match_is_quiet_and_costs_nothing():
     result = prospeo.search("S", "s.com", "Ireland", {PEER: 1}, deps)
     assert [url for url, _ in calls] == [prospeo.SEARCH, prospeo.ENRICH]
     assert (result.credits_used, result.candidates, result.notes) == (1, [], [])
+
+
+# ---------------------------------------------------------------- 16 Oct, sixth real run
+
+
+def test_prospeo_asks_hr_then_the_whole_company_while_slots_stay_open():
+    empty = {"results": []}
+    hr = {"results": [{"person": {"person_id": "p-hr", "current_job_title": "HR Business "
+                                  "Partner"}}]}
+    anyone = {"results": [{"person": {"person_id": "p-sre",
+                                      "current_job_title": "Site Reliability Engineer"}},
+                          {"person": {"person_id": "p-sales",
+                                      "current_job_title": "Account Executive"}}]}
+    mail = {"person": {"email": {"email": "x@hcl.com", "status": "VERIFIED"},
+                       "location": {"country": "Netherlands"}}}
+    request, calls = answers(empty, empty, hr, anyone, mail, mail)
+    deps, _ = pdeps(request=request)
+    prospeo.search("HCL", "hcl.com", "Netherlands", {PEER: 1, RECRUITER: 1}, deps)
+    filters = [c[1]["filters"] for c in calls[:4]]
+    assert filters[1]["person_seniority"] == {"include": prospeo.WIDE_SENIORITY}
+    assert filters[2]["person_department"] == {"include": ["Human Resources"]}
+    assert set(filters[3]) == {"company", "person_location_search"}  # anyone, in the country
+    assert [c[1]["data"]["person_id"] for c in calls[4:]] == ["p-hr", "p-sre"]  # no sales
+
+
+def test_prospeo_locate_by_email():
+    mail = {"person": {"location": {"country": "Netherlands"}}}
+    request, calls = answers(mail)
+    deps, _ = pdeps(request=request)
+    assert prospeo.locate("a@hcl.com", deps) == ("Netherlands", 1)
+    assert calls[0][1] == {"data": {"email": "a@hcl.com"}, "only_verified_email": False,
+                           "enrich_mobile": False}
+    no_match = http.HttpError("POST api.prospeo.io/enrich-person failed: HTTP 400 NO_MATCH", 400)
+    request, _ = answers(no_match)
+    deps, _ = pdeps(request=request)
+    assert prospeo.locate("b@hcl.com", deps) == (None, 0)
+
+
+def test_snov_searches_the_whole_domain_when_the_titles_find_nobody():
+    replies = [{"access_token": "t"}, {"meta": {"task_hash": "h1"}},
+               {"status": "completed", "data": []},
+               {"meta": {"task_hash": "h2"}},
+               {"status": "completed", "data": [{"position": "Accountant"}]}]
+    params = []
+
+    def request(method, url, **kwargs):
+        params.append(kwargs.get("params"))
+        return replies.pop(0)
+
+    deps, _ = pdeps(s=settings(SNOV_CLIENT_ID="i", SNOV_CLIENT_SECRET="s"), request=request)
+    result = snov.search("HCL", "hcltech.com", "Netherlands", {PEER: 1}, deps)
+    assert any(p[0] == "positions[]" for p in params[1])
+    assert not any(p[0] == "positions[]" for p in params[3])  # the whole domain
+    assert result.notes == ["snov: 1 people at hcltech.com, none fit the open slots"]
+
+
+def test_hunter_people_are_placed_through_prospeo_under_strict():
+    from test_contacts_free_providers import config_with
+
+    from jobengine.contacts import finder
+    from jobengine.contacts.providers.base import FixtureHttp
+
+    d = finder.fake_deps(settings(HUNTER_API_KEY="h", PROSPEO_API_KEY="p-key"))
+    d.today = lambda: date(2026, 10, 1)
+    config = config_with(apollo="75 / 75 per month", snov="50 / 50 per month",
+                         prospeo="0 / 75 per month")
+    d.config = lambda: config
+    fixture = FixtureHttp(d.s)
+    located = []
+
+    def prospeo_request(method, url, **kwargs):
+        email = ((kwargs.get("json_body") or {}).get("data") or {}).get("email")
+        if email:  # the location check
+            located.append(email)
+            return {"person": {"location": {"country": "Poland"}}}
+        return {"results": []}  # Prospeo's own searches find nobody here
+
+    d.request = lambda provider: prospeo_request if provider == "prospeo" else fixture
+    result = finder.find_contacts(d, "fixture-clean-pl")
+    assert located and len(located) <= finder.MAX_CONFIRM
+    assert any("location from Prospeo" in (c.notes or "") for c in result.contacts)
+    assert f"prospeo: checked where {len(located)} people without a location are: " \
+           f"{len(located)} in Poland" in result.message

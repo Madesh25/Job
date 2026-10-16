@@ -101,9 +101,15 @@ def search(
         return ProviderResult(skipped_reason="snov: SNOV_CLIENT_ID or SNOV_CLIENT_SECRET not set")
     try:
         auth = {"Authorization": f"Bearer {token(deps)}"}
+        positions = _positions(open_slots, deps)
         start = deps.request("POST", PROSPECTS_START, headers=auth,
-                             params=prospects_params(domain, _positions(open_slots, deps)))
+                             params=prospects_params(domain, positions))
         prospects = _poll(deps, _result_url(start, PROSPECTS_RESULT), auth)
+        if positions and not prospects.get("data"):
+            # 16 Oct: our titles found nobody at hcltech.com; everyone at the domain next.
+            start = deps.request("POST", PROSPECTS_START, headers=auth,
+                                 params=prospects_params(domain, []))
+            prospects = _poll(deps, _result_url(start, PROSPECTS_RESULT), auth)
     except http.HttpError as exc:
         if exc.status in (401, 403):
             return ProviderResult(skipped_reason="snov: not available on this plan")
