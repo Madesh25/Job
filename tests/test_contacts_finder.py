@@ -57,7 +57,9 @@ def test_cache_jd_then_apollo_fills_the_mix_and_stops():
     assert "Peer engineer: Anna Example (Senior DevOps Engineer) [Apollo, verified]" in lines
     assert "Recruiter/TA: Ola Example [Job posting]" in lines
     assert "Mailbox: careers@vistula.example.com [Job posting]" in lines
-    assert lines[-1] == "4 of 4 found. Credits: Apollo 2/75, Hunter 0/25, Snov 0/50"
+    assert lines[-2] == "4 of 4 found. Credits: Apollo 2/75, Hunter 0/25, Snov 0/50"
+    # 16 Oct: the answer says when the providers were not really asked.
+    assert lines[-1].startswith("Contact lookups: test data: Apollo, Hunter, Snov")
 
 
 def test_writes_new_contacts_links_cached_ones_and_updates_the_job():

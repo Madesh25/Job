@@ -34,7 +34,7 @@ def test_the_list_comes_first_and_nothing_is_looked_up():
     assert ask.text.startswith("Applied today (2026-10-01): 2 job(s).\n"
                                "- Vistula Cloud, DevOps Engineer: needs a lookup\n"
                                "- Tulip Data B.V., Cloud Engineer: needs a lookup\n")
-    assert "Paid calls are off here" in ask.text
+    assert "Contact lookups: test data" in ask.text
     assert "Gmail drafts with the resume attached (never sent by themselves)" in ask.text
     assert ask.buttons == [("Go", "fx:2026-10-01")]
     assert not d.repo.rows["pl-clean"].get("Contacts") and not d.contacts.calls

@@ -30,6 +30,7 @@ from jobengine.notion_repo import FakeJobsRepo, JobsRepo, select_filter
 from jobengine.reference import Reference
 from jobengine.resume import builder as resume_builder
 from jobengine.resume.builder import BuildOutcome, ResumeDeps
+from jobengine.safety import contact_lookups, paid_api_allowed
 from jobengine.screen import autopilot, batch, jd_capture, keywords_report, learning, waiting
 from jobengine.screen.jd_capture import Capture, Captures
 from jobengine.screen.models import JobRow, ScreenSummary, split_gaps
@@ -1084,9 +1085,8 @@ class Desk:
         if need:
             lines.append(f"{need} job(s) need a lookup: the Contacts cache and the job posting "
                          "first, then the paid providers (/credits shows what is left).")
-            if self.s.app_env != "prod" or self.s.dry_run:
-                lines.append("Paid calls are off here (only prod with DRY_RUN=false); lookups "
-                             "use test data.")
+            if not paid_api_allowed("apollo", self.s):
+                lines.append(f"Contact lookups: {contact_lookups(self.s)}.")
         if self.sending():
             lines.append("Mail mode is send: each mail is checked and sent (in the "
                          "recipient's morning) only when every check passes.")
@@ -1216,9 +1216,7 @@ class Desk:
             when = f", updated {updated.isoformat()}" if updated else ""
             key_state = "key set" if keys[provider] else "no key"
             lines.append(f"{account_label(provider)}: {value}{when}, {key_state}")
-        if self.s.app_env != "prod" or self.s.dry_run:
-            lines.append("Paid calls are off here (only prod with DRY_RUN=false); lookups use "
-                         "test data outside prod.")
+        lines.append(f"Contact lookups: {contact_lookups(self.s)}.")
         return [Reply("\n".join(lines))]
 
     def domain_answer(self, replied_to: str, text: str) -> list[Reply] | None:

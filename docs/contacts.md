@@ -19,6 +19,14 @@ provider waterfall) runs only for jobs within the outreach budget
 - **Paid calls only in prod with DRY_RUN=false** (`safety.paid_api_allowed`). In local and dev
   the providers answer from invented fixtures (`fixtures/contacts/`). In prod with DRY_RUN on,
   providers are skipped entirely, so test people never reach the production Contacts.
+- **Real lookups on your PC: `CONTACTS_LIVE=true`** in `.env` (16 Oct, after every real
+  company got "No contacts found" in DEV). Only with `APP_ENV=local`, only the contact
+  finders (Apollo, Hunter, Snov, Prospeo, Tomba); `DRY_RUN` stays on, so no mail is sent and
+  nothing else becomes real. The calls use your real free credits; the DEV Config `credits.*`
+  rows are not written, so check the provider dashboards. People found go to the DEV
+  Contacts table. Set it back to `false` (or remove it) when the test is done. `/health`,
+  `/credits` and each lookup say which mode is on ("Contact lookups: real ..." or "test
+  data ...").
 - **Cache first.** Contacts at the same company (canonical name), found within Config
   `contacts.cache_months` (6), and not `Bounced` or `Do not contact`, are used before any
   paid call. A company whose cache already fills the mix costs nothing.
