@@ -189,6 +189,13 @@ def test_domain_rules():
     assert valid_domain("https://www.example.org/jobs") == "example.org"
     for bad in ("acme.greenhouse.io", "jobs.lever.co", "gmail.com", "not a domain", "x"):
         assert valid_domain(bad) is None
+    # P9-24: an ATS vendor's own domain is its mail domain, for that company only.
+    assert valid_domain("workday.com", "Workday") == "workday.com"
+    assert valid_domain("www.workday.com", "Workday, Inc.") == "workday.com"
+    assert valid_domain("workday.com", "Acme") is None
+    assert valid_domain("workday.com") is None
+    assert valid_domain("acme.teamtailor.com", "Acme") is None
+    assert valid_domain("workday.myworkdayjobs.com", "Workday") is None
     domains = "Mystery Example Labs = labs.example.com"
     config = ConfigStore.from_values({"contacts.domains": domains})
     assert find_domain("Mystery Example Labs", Reference.fake(), config,

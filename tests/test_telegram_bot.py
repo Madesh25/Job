@@ -779,6 +779,40 @@ def test_a_domain_sent_on_its_own_answers_the_open_question(desk):
     assert talk(desk, "canal.example.com").sent[-1][1].endswith("Send /help to see them.")
 
 
+def test_a_wrong_domain_sent_on_its_own_gets_an_answer(desk):
+    # P9-24 (16 Oct): a refused domain fell through to "I only understand commands".
+    talk(desk, "/contacts https://jobs.example.com/nl-ind")
+    fake = talk(desk, "canal.greenhouse.io")
+    assert fake.sent[-1][1].startswith(
+        "[LOCAL] canal.greenhouse.io does not look like a company email domain")
+    # The question stays open: the right domain still answers it.
+    assert talk(desk, "canal.example.com").sent[-1][1].startswith(
+        "[LOCAL] Contacts for Canal Payments")
+
+
+def test_a_lost_send_is_tried_once_more():
+    calls, waits = [], []
+
+    def transport(method, payload, timeout):
+        calls.append(method)
+        if len(calls) == 1:
+            raise tb.TelegramNetworkError("sendMessage failed: URLError EOF")
+        return {"ok": True, "result": {"message_id": 7}}
+
+    client = tb.TelegramClient(transport, sleep=waits.append)
+    assert client.send_message(CHAT_ID, "hi") == 7
+    assert calls == ["sendMessage", "sendMessage"] and waits == [tb.SEND_RETRY_SECONDS]
+
+
+def test_get_updates_is_not_retried_inside_the_call():
+    def transport(method, payload, timeout):
+        raise tb.TelegramNetworkError("getUpdates failed: URLError EOF")
+
+    client = tb.TelegramClient(transport, sleep=lambda seconds: None)
+    with pytest.raises(tb.TelegramNetworkError):
+        client.get_updates(None)
+
+
 def test_a_domain_button_answers_the_question(desk):
     talk(desk, "/contacts https://jobs.example.com/nl-ind")
     replies = desk.tap("dm:JOB-nlind:canal.example.com")

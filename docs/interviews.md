@@ -14,8 +14,12 @@ One message to read before the interview:
 - **Likely questions**: one AI call (stage `tailor`) on the job description and your Golden
   Master resume gives up to 8 questions with an answer hint each. A hint may only use facts
   from the resume; a hint that names one of the job's gaps without saying you have not used
-  it is replaced by a reminder to answer it honestly. When the call fails the pack says why
-  and still has everything else.
+  it is replaced by a reminder to answer it honestly. A gap counts by its short terms too
+  ("Lambda" in "Dynamo, Lambda, Bedrock"), except terms your resume shows. The call also gets
+  your own answers (Config `apply.experience`, `apply.notice_period`, `apply.earliest_start`,
+  `apply.relocation`): "4+ years" becomes "4 years", and a hint with a year count that is not
+  in your experience answer is replaced by a reminder to give your real experience (Phase 9,
+  P9-15). When the call fails the pack says why and still has everything else.
 - **Questions to ask them**: `interview.ask` in `config/base.yaml` (Notion Config
   `interview.ask`, one question per line, wins).
 - **Your interview tips**: adopted strategy tips of the Interview category for the job's

@@ -168,6 +168,9 @@ happen only in prod with `DRY_RUN=false`; elsewhere invented fixtures answer.
   domain, e.g. example.com. Ref JOB-xxxxxxxx`. Reply to that message with the domain; it is kept
   in Bot State (`domain:<company>`) and the lookup continues. Copy it into the Target Companies
   `Domain` column when you have a moment (the code never writes Target Companies).
+  Sending the domain on its own (not as a reply) also answers the open question. A domain that
+  is refused gets an answer saying so, and the question stays open. Job-board (ATS) domains
+  are refused, except the ATS company's own one: `workday.com` for Workday (Phase 9, P9-24).
 - `/contacts <job URL or page id>`: runs the lookup again, filling only the missing slots.
 - `/credits`: each provider's counter, when it was updated, and whether its key is set.
 

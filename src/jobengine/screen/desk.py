@@ -17,6 +17,7 @@ from urllib.parse import urlsplit
 
 from jobengine import http
 from jobengine.apply import answers, autofill, cover, interview
+from jobengine.apply import facts as apply_facts
 from jobengine.bot_state import BotState, FakeBotState
 from jobengine.contacts import finder as contact_finder
 from jobengine.contacts.finder import ContactDeps
@@ -822,7 +823,8 @@ class Desk:
             self.resume.llm(self.deps.config()), company=values.get("Company") or "",
             role=values.get("Role") or "", country=values.get("Country") or "", jd=jd,
             resume_text=resume_text, details=specific_details(body),
-            gaps=split_gaps(values.get("Gaps")), key=job_id.replace("-", ""))
+            gaps=split_gaps(values.get("Gaps")), key=job_id.replace("-", ""),
+            facts=apply_facts.facts(self.s, self.deps.config()))
 
     def tips(self, categories: tuple[str, ...], country: str | None) -> list[str]:
         """Adopted strategy tips of these categories for this country (strategy/tips.py);
@@ -889,7 +891,8 @@ class Desk:
         llm = self.resume.llm(self.deps.config()) if self.resume is not None else None
         qs = (interview.questions(llm, company=company, role=role, jd=jd,
                                   resume_text=self._master_text(), gaps=gaps,
-                                  key=job_id.replace("-", ""))
+                                  key=job_id.replace("-", ""),
+                                  facts=apply_facts.facts(self.s, self.deps.config()))
               if llm is not None else interview.Questions(note="no AI in this environment"))
         config = self.deps.config()
         ask = [line.strip(" -") for line in str(config.get("interview.ask") or "").splitlines()
@@ -1236,7 +1239,7 @@ class Desk:
         """A plain message that is only a domain, while a domain question is open (Phase 6:
         the answer did not count unless sent as a Telegram reply)."""
         word = text.strip()
-        if self.contacts is None or " " in word or not contact_finder.valid_domain(word):
+        if self.contacts is None or not contact_finder.looks_like_domain(word):
             return None
         asked = contact_finder.open_question(self.contacts.state)
         if asked is None:

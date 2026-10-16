@@ -170,6 +170,10 @@ class TelegramError(Exception):
     """A Bot API call failed. The message never contains the bot token."""
 
 
+class TelegramNetworkError(TelegramError):
+    """The call did not reach Telegram or its answer was lost (SSL EOF, timeout, reset)."""
+
+
 def http_transport(token: str) -> Transport:
     """Return a transport that POSTs JSON to the Bot API for the given token."""
 
@@ -197,7 +201,9 @@ def http_transport(token: str) -> Transport:
             message = f"{method} failed: HTTP {exc.code} {detail}".strip()
         except (urllib.error.URLError, TimeoutError, OSError) as exc:
             reason = getattr(exc, "reason", exc)
-            message = f"{method} failed: {type(exc).__name__} {reason}"
+            raise TelegramNetworkError(
+                f"{method} failed: {type(exc).__name__} {reason}".replace(token, "<token>")
+            ) from None
         except ValueError:
             message = f"{method} failed: response was not valid JSON"
         raise TelegramError(message.replace(token, "<token>"))
@@ -295,12 +301,23 @@ def console_transport(
     return call
 
 
+SEND_RETRY_SECONDS = 2  # one more try after a lost connection (16 Oct: an SSL EOF lost a reply)
+
+
 class TelegramClient:
-    def __init__(self, transport: Transport):
+    def __init__(self, transport: Transport, sleep: Callable[[float], None] = time.sleep):
         self._transport = transport
+        self._sleep = sleep
 
     def _call(self, method: str, payload: dict[str, Any], timeout: float = 15) -> Any:
-        data = self._transport(method, payload, timeout)
+        try:
+            data = self._transport(method, payload, timeout)
+        except TelegramNetworkError as exc:
+            if method == "getUpdates":  # the polling loop already waits and asks again
+                raise
+            log.warning("%s, retrying in %ss", exc, SEND_RETRY_SECONDS)
+            self._sleep(SEND_RETRY_SECONDS)
+            data = self._transport(method, payload, timeout)
         if not data.get("ok"):
             raise TelegramError(f"{method} failed: {data.get('description', 'unknown error')}")
         return data.get("result")

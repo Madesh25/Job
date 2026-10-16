@@ -20,6 +20,8 @@ import re
 from dataclasses import dataclass, field
 from typing import Any
 
+from jobengine.apply import facts as facts_mod
+
 log = logging.getLogger("jobengine.apply")
 
 STAGE = "tailor"
@@ -27,15 +29,18 @@ MAX_TOKENS = 1500
 MAX_QUESTIONS = 8
 MAX_DETAILS = 4
 HONEST = "(not on your resume: say so honestly and name the closest thing you have used)"
+YEARS_HINT = "(give your real experience, {experience}, and one project from your resume)"
 SYSTEM_PROMPT = f"""You help a candidate prepare for a job interview.
 From JOB DESCRIPTION and RESUME, list the {MAX_QUESTIONS} questions the interviewers are most
 likely to ask (technical and behavioural, in the order they are likely to come). For each give
-a short answer hint (at most 30 words) built ONLY from facts in RESUME: a project, a tool, a
-number, an employer. Never add a skill, tool, number or claim that RESUME does not contain.
+a short answer hint (at most 30 words) built ONLY from facts in RESUME and FACTS: a project,
+a tool, a number, an employer. Never add a skill, tool, number or claim that RESUME does not
+contain.
 For a skill listed in GAPS the hint must say plainly that the candidate has not used it in
 production and name the closest thing RESUME shows.
 No em dashes or en dashes.
-Answer with JSON only: {{"questions": [{{"q": "<question>", "hint": "<answer hint>"}}]}}"""
+""" + facts_mod.RULES + """
+Answer with JSON only: {"questions": [{"q": "<question>", "hint": "<answer hint>"}]}"""
 NEGATION = re.compile(r"\b(not|never|no|haven't|have not|yet to)\b", re.I)
 
 
@@ -54,23 +59,30 @@ def _names(term: str, text: str) -> bool:
     return bool(re.search(rf"(?<![\w]){re.escape(term)}(?![\w])", text, re.I))
 
 
-def checked_hint(hint: str, gaps: list[str]) -> str:
-    """A hint that names a gap without saying you have not used it becomes HONEST."""
-    named = [g for g in gaps if g and _names(g, hint)]
+def checked_hint(hint: str, gaps: list[str], terms: list[str] | None = None,
+                 facts: dict[str, str] | None = None) -> str:
+    """A hint that names a gap (the whole phrase or one of its short terms) without saying
+    you have not used it becomes HONEST; years and start dates follow your answers."""
+    named = [g for g in gaps if g and _names(g, hint)] + \
+        [t for t in terms or [] if facts_mod.names(t, hint)]
     if named and not NEGATION.search(hint):
         return HONEST
+    hint, problem = facts_mod.fix(hint, facts or {})
+    if problem:
+        return YEARS_HINT.format(experience=(facts or {}).get("experience", ""))
     return hint
 
 
 def questions(llm: Any, *, company: str, role: str, jd: str, resume_text: str,
-              gaps: list[str], key: str) -> Questions:
+              gaps: list[str], key: str, facts: dict[str, str] | None = None) -> Questions:
     """One AI call, checked. Never raises: a failure is a note."""
     if not jd.strip():
         return Questions(note="the job has no description")
     if not resume_text.strip():
         return Questions(note="your Golden Master resume could not be read")
     user = (f"COMPANY: {company}\nROLE: {role}\nGAPS: {', '.join(gaps) or 'none'}\n\n"
-            f"JOB DESCRIPTION:\n{jd[:6000]}\n\nRESUME:\n{resume_text[:6000]}")
+            f"JOB DESCRIPTION:\n{jd[:6000]}\n\nRESUME:\n{resume_text[:6000]}\n\n"
+            f"{facts_mod.block(facts or {})}")
     try:
         answer = llm.complete_json(STAGE, SYSTEM_PROMPT, user, max_tokens=MAX_TOKENS,
                                    key=f"prep-{key}")
@@ -78,12 +90,13 @@ def questions(llm: Any, *, company: str, role: str, jd: str, resume_text: str,
         log.info("interview questions not written: %s", exc)
         return Questions(note=f"the AI call failed ({type(exc).__name__})")
     items = []
+    terms = facts_mod.gap_terms(gaps, resume_text)
     for item in answer.get("questions") or []:
         if not isinstance(item, dict):
             continue
         q, hint = _clean(item.get("q")), _clean(item.get("hint"))
         if q:
-            items.append((q, checked_hint(hint, gaps) if hint else HONEST))
+            items.append((q, checked_hint(hint, gaps, terms, facts) if hint else HONEST))
     if not items:
         return Questions(note="the AI gave no questions")
     return Questions(items[:MAX_QUESTIONS])

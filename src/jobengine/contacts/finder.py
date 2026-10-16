@@ -121,12 +121,29 @@ def is_ats_host(domain: str) -> bool:
     return any(d == h or d.endswith("." + h) for h in ATS_HOSTS)
 
 
-def valid_domain(value: str) -> str | None:
+def own_domain(domain: str, company: str | None) -> bool:
+    """The company's own name is the domain's first label: workday.com for Workday (an ATS
+    host for every other company; 16 Oct: Workday's own domain was refused)."""
+    if domain not in ATS_HOSTS:  # acme.teamtailor.com is never Acme's mail domain
+        return False
+    words = re.findall(r"[a-z0-9]+", canon_company(company).lower()) if company else []
+    return bool(words) and domain.split(".")[0] in (*words, "".join(words))
+
+
+def valid_domain(value: str, company: str | None = None) -> str | None:
     d = value.strip().lower().removeprefix("https://").removeprefix("http://")
     d = d.removeprefix("www.").split("/")[0].lstrip("@")
-    if not DOMAIN_RE.match(d) or is_ats_host(d) or d in PERSONAL_DOMAINS:
+    if not DOMAIN_RE.match(d) or d in PERSONAL_DOMAINS:
+        return None
+    if is_ats_host(d) and not own_domain(d, company):
         return None
     return d
+
+
+def looks_like_domain(text: str) -> bool:
+    """One word with a dot: meant as a domain, even when it is not a valid one."""
+    word = text.strip()
+    return bool(word) and " " not in word and "." in word.strip(".")
 
 
 def state_key(company: str) -> str:
@@ -146,8 +163,8 @@ def find_domain(company: str, reference: Reference, config: ConfigStore,
     answer = state.get(state_key(company)) or {}
     candidates.append(answer.get("domain"))
     for value in candidates:
-        if value and valid_domain(value):
-            return valid_domain(value)
+        if value and valid_domain(value, company):
+            return valid_domain(value, company)
     return None
 
 
@@ -217,7 +234,7 @@ def domain_options(company: str, urls: list[str | None], jd: str) -> list[str]:
     seen += [(h, False) for h in URL_HOST.findall(jd or "")]
     found: list[str] = []
     for host, trusted in seen:
-        domain = valid_domain(base_domain(host))
+        domain = valid_domain(base_domain(host), company)
         if not domain or domain in found or _not_company(domain):
             continue
         if trusted or named(domain):
@@ -543,10 +560,10 @@ def answer_domain(deps: ContactDeps, replied_to: str, text: str) -> ContactsResu
     asked = deps.state.get(f"domain_ask:{match.group(1)}")
     if not asked:
         return "That domain question is no longer open. Run /contacts <job> again."
-    domain = valid_domain(text)
+    domain = valid_domain(text, asked.get("company"))
     if domain is None:
-        return ("That does not look like a company email domain (and job boards or personal "
-                "mail domains are not allowed). Reply with something like example.com.")
+        return (f"{text.strip()} does not look like a company email domain (job boards and "
+                "personal mail domains are not allowed). Send something like example.com.")
     deps.state.set(state_key(asked["company"]), {"domain": domain})
     deps.state.delete(f"domain_ask:{match.group(1)}")
     if (deps.state.get(OPEN_ASK) or {}).get("ref") == match.group(1):
