@@ -54,7 +54,9 @@ bank titles such as "Vice President" fit no slot. Now, after everyone whose titl
   page (for engineers), one credit each, only while credits are left.
 - **Snov** really waits between its result checks (2, 4, 6, 8, 10 seconds); before 16 Oct it
   asked five times at once and gave up. It now says what it saw ("N people at <domain>, none
-  fit the open slots" or "no people found").
+  fit the open slots" or "no people found"). The email search uses Snov's own
+  `search_emails_start` and `links.result` addresses; a prospect without one is named with
+  the fields Snov sent, and no call is made (16 Oct: an empty id gave HTTP 404).
 - **Prospeo** pauses 2 seconds between its searches and the email step, and an HTTP 429
   without Retry-After is retried after 2, 5 and 15 seconds (it got 429 on 16 Oct).
 - People found by the wider search are marked "wider search" in Telegram.
