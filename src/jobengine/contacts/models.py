@@ -68,6 +68,8 @@ class Chosen:
             tag = f"{self.source}, verified" if self.verified else self.source
             if "wider search" in self.notes:
                 tag += ", wider search"
+            # 16 Oct: say where the person is ("Ireland", or "location unknown").
+            tag += ", location unknown" if self.country in ("", "Other") else f", {self.country}"
         title = f" ({self.title})" if self.title else ""
         return f"{self.type}: {self.name}{title} [{tag}]"
 

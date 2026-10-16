@@ -82,6 +82,7 @@ def test_a_first_account_that_answers_is_the_only_one_used():
 
 def test_without_a_second_account_nothing_changes():
     d = make()
+    d.s = d.s.model_copy(update={"contacts": {**d.s.contacts, "location": "country_first"}})
     used_up(d)
     result = find_contacts(d, PL)
     assert d.calls == ["hunter"]

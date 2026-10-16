@@ -262,6 +262,26 @@ def _country(value: str | None) -> str:
     return value if value in NOTION_COUNTRIES else "Other"
 
 
+CHECKED_COUNTRIES = ("Poland", "Netherlands", "Ireland")
+
+
+def strict_location(s: Settings, country: str) -> bool:
+    """Config contacts.location strict (the default) for a job in one of our countries."""
+    rule = str((s.contacts or {}).get("location") or "strict").strip().lower()
+    return rule == "strict" and country in CHECKED_COUNTRIES
+
+
+def _left_out_note(left_out: list[Candidate], country: str) -> str | None:
+    if not left_out:
+        return None
+    outside = sum(1 for c in left_out if c.country and not c.country_unverified)
+    unknown = len(left_out) - outside
+    parts = [f"{outside} outside {country}" if outside else "",
+             f"{unknown} with unknown location" if unknown else ""]
+    return ("location rule strict: left out " + " and ".join(p for p in parts if p)
+            + " (Config contacts.location)")
+
+
 def _summary(result: ContactsResult, generic: list[Chosen], credits: str) -> str:
     lines = [f"Contacts for {result.company}, {result.role} ({result.country})"]
     for kind in TYPE_ORDER:
@@ -311,7 +331,8 @@ def find_contacts(deps: ContactDeps, job_id: str, paid: bool = True) -> Contacts
                 if v.get("Email")}
     blocked = {e for e, (_, v) in by_email.items() if v.get("Status") in contact_cache.BLOCKED}
     rows = contact_cache.company_rows(all_rows, company)
-    chosen = contact_cache.pick(rows, mix, country, today, months, job_id)
+    chosen = contact_cache.pick(rows, mix, country, today, months, job_id,
+                                strict=strict_location(deps.s, country))
     seen = {c.email.lower() for c in chosen} | blocked
 
     def open_slots() -> dict[str, int]:
@@ -442,12 +463,18 @@ def _provider_step(deps: ContactDeps, book: CreditBook, name: str, provider: Any
                                 + (" (trying the second account)" if failed_over else ""))
             if failed_over:
                 continue
+        left_out: list[Candidate] = []
         for candidate, kind, note in fill_slots(found.candidates, open_slots(), country,
-                                                domain, seen, patterns, personal):
+                                                domain, seen, patterns, personal,
+                                                strict=strict_location(deps.s, country),
+                                                left_out=left_out):
             picked = _chosen(candidate, kind, note, by_email, country)
             if index and not picked.cached:
                 picked.notes = "; ".join(p for p in (picked.notes, f"found with {label}") if p)
             chosen.append(picked)
+        note = _left_out_note(left_out, country)
+        if note:
+            result.notes.append(f"{account}: {note}")
         return
 
 
@@ -496,7 +523,7 @@ def _github_step(deps: ContactDeps, config: ConfigStore, company: str, domain: s
         if key in seen or not keep(candidate, domain, personal):
             continue
         where = country_ok(candidate, country)
-        if where == "outside":
+        if where == "outside" or (where == "unverified" and strict_location(deps.s, country)):
             continue
         kind = classify_title(candidate.title, patterns)
         if kind not in (RECRUITER, HIRING):
@@ -518,7 +545,9 @@ def _chosen(candidate: Candidate, kind: str, note: str,
         return contact_cache.CachedRow(existing[0], existing[1]).chosen()
     return Chosen(name=candidate.name, title=candidate.title, email=candidate.email, type=kind,
                   source=candidate.source,
-                  country=_country(candidate.country if note != "country unverified" else country),
+                  # 16 Oct: unknown was stored as the job's country, as if it were checked.
+                  country=_country(candidate.country if "country unverified" not in note
+                                   else None),
                   verified=candidate.provider_verified, notes=note)
 
 

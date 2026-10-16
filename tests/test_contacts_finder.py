@@ -28,6 +28,13 @@ def make(env="local", **environ):
     return d
 
 
+def country_first(d):
+    """The location rule before 16 Oct: unknown locations still fill slots, after people
+    in the country (Config contacts.location country_first)."""
+    d.s = d.s.model_copy(update={"contacts": {**d.s.contacts, "location": "country_first"}})
+    return d
+
+
 def emails(d):
     return [row.get("Email", "").lower() for _, row in d.contacts.all_rows()]
 
@@ -54,8 +61,9 @@ def test_cache_jd_then_apollo_fills_the_mix_and_stops():
     lines = result.message.splitlines()
     assert lines[0] == "Contacts for Vistula Cloud, DevOps Engineer (Poland)"
     assert "Peer engineer: Kasia Example (Platform Engineer) [cache]" in lines
-    assert "Peer engineer: Anna Example (Senior DevOps Engineer) [Apollo, verified]" in lines
-    assert "Recruiter/TA: Ola Example [Job posting]" in lines
+    assert "Peer engineer: Anna Example (Senior DevOps Engineer) [Apollo, verified, Poland]" \
+        in lines
+    assert "Recruiter/TA: Ola Example [Job posting, Poland]" in lines
     assert "Mailbox: careers@vistula.example.com [Job posting]" in lines
     assert lines[-2] == "4 of 4 found. Credits: Apollo 2/75, Hunter 0/25, Snov 0/50"
     # 16 Oct: the answer says when the providers were not really asked.
@@ -111,7 +119,7 @@ def blocked_apollo(d):
 
 
 def test_waterfall_goes_on_to_hunter_and_stops_when_full():
-    d = make()
+    d = country_first(make())  # Hunter gives no location
     blocked_apollo(d)
     result = find_contacts(d, PL)
     assert d.calls == ["apollo", "hunter"]
@@ -133,7 +141,7 @@ def test_waterfall_reaches_snov_for_the_recruiter_and_dedupes_across_providers()
 
 
 def test_used_up_counter_skips_the_provider():
-    d = make()
+    d = country_first(make())
     config = ConfigStore.fake()
     config._rows["credits.apollo"] = type(config._rows["credits.apollo"])(
         key="credits.apollo", value="75 / 75 per month", updated=TODAY)

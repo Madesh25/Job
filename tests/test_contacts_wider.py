@@ -122,12 +122,12 @@ def test_prospeo_no_results_as_http_400_is_normal_and_the_wider_search_runs():
 
 def test_prospeo_other_refusals_are_named():
     refused = http.HttpError("POST api.prospeo.io/search-person failed: HTTP 400 "
-                             "INVALID_FILTERS person_job_title", 400)
+                             "PLAN_REQUIRED person_job_title", 400)
     request, _ = answers(refused)
     deps, _ = pdeps(request=request)
     result = prospeo.search("V", DOMAIN, "Poland", {PEER: 1}, deps)
     assert result.skipped_reason == ("prospeo: POST api.prospeo.io/search-person failed: "
-                                     "HTTP 400 INVALID_FILTERS person_job_title")
+                                     "HTTP 400 PLAN_REQUIRED person_job_title")
 
 
 def test_hunter_drops_invalid_addresses_and_keeps_the_department():
@@ -184,7 +184,7 @@ def test_hunter_extra_searches_stop_when_credits_run_out():
     deps, _ = pdeps(s=settings(HUNTER_API_KEY="h"), request=request, credits_left=1)
     result = hunter.search("S", "statestreet.com", "Ireland", {RECRUITER: 1}, deps)
     assert len(calls) == 1 and result.credits_used == 1
-    assert result.notes == ["hunter: no credits left for the HR department search"]
+    assert "hunter: no credits left for the HR department search" in result.notes
 
 
 def test_snov_waits_for_its_task_and_says_what_it_saw():
@@ -239,7 +239,7 @@ def test_a_wider_search_person_is_marked_in_telegram():
                     type=HIRING, source="Hunter", country="Ireland", verified=True,
                     notes=WIDE_NOTE)
     assert chosen.label() == ("Hiring: Marion (Director of Cybersecurity) "
-                              "[Hunter, verified, wider search]")
+                              "[Hunter, verified, wider search, Ireland]")
 
 
 def test_snov_uses_its_own_links_and_never_calls_an_empty_start():
@@ -269,3 +269,85 @@ def test_snov_without_an_email_link_names_the_fields_and_spends_nothing():
     assert len(calls) == 3 and result.credits_used == 0
     assert result.notes == ["snov: no email-search link in Snov's answer "
                             "(fields: first_name, last_name, position)"]
+
+
+# ---------------------------------------------------------------- 16 Oct: strict location
+
+
+def test_strict_rule_keeps_only_people_placed_in_the_country():
+    people = [person("DevOps Engineer", "in@hcl.com", country="Netherlands"),
+              person("DevOps Engineer", "india@hcl.com", country="India"),
+              Candidate(name="u", first_name="u", title="Cloud Engineer", email="u@hcl.com",
+                        country=None, provider_verified=True, source="Hunter",
+                        country_unverified=True)]
+    left_out = []
+    chosen = fill_slots(people, {PEER: 3}, "Netherlands", "hcl.com", set(), strict=True,
+                        left_out=left_out)
+    assert [c.email for c, _, _ in chosen] == ["in@hcl.com"]
+    assert {c.email for c in left_out} == {"india@hcl.com", "u@hcl.com"}
+    # The other rule still fills with them, after the person in the country.
+    loose = fill_slots(people, {PEER: 3}, "Netherlands", "hcl.com", set())
+    assert [c.email for c, _, _ in loose] == ["in@hcl.com", "u@hcl.com", "india@hcl.com"]
+
+
+def test_strict_is_the_default_for_our_countries_only():
+    from jobengine.contacts.finder import _left_out_note, strict_location
+
+    s = settings()
+    assert strict_location(s, "Ireland") and strict_location(s, "Poland")
+    assert not strict_location(s, "Other")  # remote jobs: no country to check
+    loose = s.model_copy(update={"contacts": {**s.contacts, "location": "country_first"}})
+    assert not strict_location(loose, "Ireland")
+    note = _left_out_note([person("x", "a@b.com", country="India"),
+                           Candidate(name="u", first_name="u", title="", email="u@b.com",
+                                     country=None, provider_verified=False, source="Hunter",
+                                     country_unverified=True)], "Netherlands")
+    assert note == ("location rule strict: left out 1 outside Netherlands and 1 with unknown "
+                    "location (Config contacts.location)")
+
+
+def test_cached_rows_with_unknown_location_are_not_reused_under_strict():
+    from jobengine.contacts.cache import CachedRow, in_country
+
+    assert in_country(CachedRow("p1", {"Country": "Ireland", "Notes": ""}), "Ireland")
+    assert not in_country(CachedRow("p2", {"Country": "Ireland",
+                                           "Notes": "country unverified"}), "Ireland")
+    assert not in_country(CachedRow("p3", {"Country": "India"}), "Ireland")
+
+
+def test_hunter_country_filter_counts_only_when_hunter_confirms_it():
+    from jobengine.contacts.providers import hunter
+
+    page = hunter_page(("nl@hcl.com", "DevOps Engineer", "it"))
+    confirmed = {**page, "meta": {"params": {"location": {"include": [{"country": "NL"}]}}}}
+    calls = []
+
+    def request(method, url, **kwargs):
+        calls.append((method, kwargs.get("json_body")))
+        return confirmed
+
+    deps, _ = pdeps(s=settings(HUNTER_API_KEY="h"), request=request)
+    result = hunter.search("HCL", "hcl.com", "Netherlands", {PEER: 1}, deps)
+    assert calls[0] == ("POST", {"location": {"include": [{"country": "NL"}]}})
+    (nl,) = result.candidates
+    assert (nl.country, nl.country_unverified) == ("Netherlands", False)
+
+    request2, _ = answers(page)  # the filter is not echoed back
+    deps, _ = pdeps(s=settings(HUNTER_API_KEY="h"), request=request2)
+    result = hunter.search("HCL", "hcl.com", "Netherlands", {PEER: 1}, deps)
+    assert result.candidates[0].country_unverified
+    assert result.notes[0].startswith("hunter: its answer did not confirm the Netherlands")
+
+
+def test_prospeo_searches_the_country_and_retries_without_a_refused_filter():
+    assert prospeo.search_body("hcl.com", [], "Netherlands")["filters"][
+        "person_location_search"] == {"include": ["Netherlands"]}
+    assert "person_location_search" not in prospeo.search_body("hcl.com", [], "Other")["filters"]
+    refused = http.HttpError("POST api.prospeo.io/search-person failed: HTTP 400 "
+                             "INVALID_FILTERS person_location_search", 400)
+    request, calls = answers(refused, {"results": []}, {"results": []})
+    deps, _ = pdeps(request=request)
+    result = prospeo.search("HCL", "hcl.com", "Netherlands", {PEER: 1}, deps)
+    assert "person_location_search" in calls[0][1]["filters"]
+    assert "person_location_search" not in calls[1][1]["filters"]
+    assert "prospeo: its country filter was refused, searched without it" in result.notes

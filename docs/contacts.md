@@ -34,6 +34,25 @@ provider waterfall) runs only for jobs within the outreach budget
   phone numbers, no personal addresses (gmail.com, outlook.com, yahoo.com, hotmail.com,
   icloud.com, proton.me), no LinkedIn URLs, no photos.
 
+## Location rule (16 Oct, your choice: strict)
+
+Config `contacts.location` in `config/base.yaml` (default `strict`):
+
+- **strict:** only people a provider places in the job's country (Poland, Netherlands,
+  Ireland) are used; people outside it or with an unknown location are left out, even when a
+  slot stays empty. The answer says how many were left out ("location rule strict: left out 2
+  outside Netherlands and 3 with unknown location"). Saved contacts whose location was never
+  checked (Notes "country unverified") are not reused. People named in the job posting count.
+- **country_first:** the rule before 16 Oct: in the country first, then unknown, then outside.
+- Remote and Other jobs have no country to check.
+- **Hunter** gives no location per person, so its search now filters by country (a POST with
+  `location`); its people count as placed only when Hunter's answer confirms the filter.
+- **Prospeo** searches with `person_location_search` = the country; if Prospeo refuses that
+  filter, it searches once without it and the people are checked by their location.
+- Telegram shows where each person is: `[Prospeo, verified, Ireland]` or `location
+  unknown`. Notion stores Country "Other" for an unknown location (before 16 Oct it stored the
+  job's country, as if it had been checked).
+
 ## Wider search when slots stay open (16 Oct)
 
 The first real lookup (State Street, Dublin) found 1 of 4: Hunter returned 10 people, but

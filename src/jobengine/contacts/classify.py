@@ -109,6 +109,8 @@ def fill_slots(
     seen: set[str],
     patterns: Mapping[str, str] | None = None,
     personal: Iterable[str] = PERSONAL_DOMAINS,
+    strict: bool = False,
+    left_out: list[Candidate] | None = None,
 ) -> list[tuple[Candidate, str, str]]:
     """Choose candidates for the open slots: (candidate, type, note).
 
@@ -116,7 +118,8 @@ def fill_slots(
     ("outside <country>"). People whose title fits no slot fill one only as senior tech
     people (wide_kind, note "senior, wider search"), after everyone who fits. `seen` holds
     lowercase emails already used (cache and this run) and is updated. Candidates beyond the
-    open slots are dropped.
+    open slots are dropped. `strict` (Config contacts.location): only people placed in the
+    job's country (or named in the job posting) count; the others go to `left_out`.
     """
     remaining = dict(open_slots)
     ranked: dict[str, list[tuple[int, Candidate]]] = {t: [] for t in remaining}
@@ -124,6 +127,11 @@ def fill_slots(
     order = {"in": 0, "unverified": 1, "outside": 2}
     for index, candidate in enumerate(candidates):
         if not keep(candidate, domain, personal):
+            continue
+        if strict and candidate.source != "Job posting" and \
+                country_ok(candidate, country) != "in":
+            if left_out is not None:
+                left_out.append(candidate)
             continue
         kind, wide = classify_title(candidate.title, patterns), 0
         if kind not in ranked:

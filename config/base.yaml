@@ -256,6 +256,11 @@ resume:
   # (or " | ") separates the parts.
   relocation_template: "Chennai, India | Open to relocate to {country}"
 contacts:
+  # Where contacts must be (16 Oct, your choice "strict"): strict = only people a provider
+  # places in the job's country (Poland, Netherlands, Ireland); people outside it or with an
+  # unknown location are left out, even if a slot stays empty. country_first = people in the
+  # country first, then unknown, then outside. Remote/Other jobs have no country to check.
+  location: strict
   # Title patterns (lowercase regex), checked in this order. Anything else is Other.
   title_patterns:
     recruiter: "recruit|talent acquisition|sourcer|talent partner|people partner|hr business partner|rekrut|\\bhr\\b|human resources|people (operations|ops)|talent (manager|lead|specialist)|kadr"
