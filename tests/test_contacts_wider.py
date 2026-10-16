@@ -142,3 +142,101 @@ def test_hunter_drops_invalid_addresses_and_keeps_the_department():
     deps, _ = pdeps(s=settings(HUNTER_API_KEY="h"), request=request)
     result = hunter.search("State Street", "statestreet.com", "Ireland", {HIRING: 1}, deps)
     assert [(c.email, c.department) for c in result.candidates] == [("vp@statestreet.com", "it")]
+
+
+# ---------------------------------------------------------------- 16 Oct, second real run
+
+
+def hunter_page(*people):
+    return {"data": {"emails": [
+        {"value": email, "type": "personal", "position": title, "department": dept,
+         "verification": {"status": "valid"}} for email, title, dept in people]}}
+
+
+def test_hunter_asks_hr_and_the_next_page_when_slots_stay_open():
+    from jobengine.contacts.providers import hunter
+
+    first = hunter_page(*[(f"p{n}@statestreet.com", "Analyst", "finance") for n in range(9)],
+                        ("ciso@statestreet.com", "Director of Cybersecurity", "it"))
+    hr = hunter_page(("tara@statestreet.com", "Talent Acquisition Partner", "hr"))
+    page2 = hunter_page(("sre@statestreet.com", "Site Reliability Engineer", "it"))
+    queries = []
+
+    def request(method, url, **kwargs):
+        queries.append(kwargs["params"])
+        return (first, hr, page2)[len(queries) - 1]
+
+    deps, _ = pdeps(s=settings(HUNTER_API_KEY="h"), request=request)
+    result = hunter.search("State Street", "statestreet.com", "Ireland",
+                           {PEER: 1, HIRING: 1, RECRUITER: 1}, deps)
+    assert [q.get("department") for q in queries] == [hunter.DEPARTMENTS, "hr",
+                                                       hunter.DEPARTMENTS]
+    assert queries[2]["offset"] == hunter.LIMIT
+    assert result.credits_used == 3
+    emails = [c.email for c in result.candidates]
+    assert {"tara@statestreet.com", "sre@statestreet.com", "ciso@statestreet.com"} <= set(emails)
+
+
+def test_hunter_extra_searches_stop_when_credits_run_out():
+    from jobengine.contacts.providers import hunter
+
+    request, calls = answers(hunter_page(("a@statestreet.com", "Analyst", "finance")))
+    deps, _ = pdeps(s=settings(HUNTER_API_KEY="h"), request=request, credits_left=1)
+    result = hunter.search("S", "statestreet.com", "Ireland", {RECRUITER: 1}, deps)
+    assert len(calls) == 1 and result.credits_used == 1
+    assert result.notes == ["hunter: no credits left for the HR department search"]
+
+
+def test_snov_waits_for_its_task_and_says_what_it_saw():
+    waits = []
+    replies = [{"access_token": "t"}, {"meta": {"task_hash": "h1"}},
+               {"status": "in_progress"},
+               {"status": "completed", "data": [{"position": "Accountant"}]}]
+
+    def request(method, url, **kwargs):
+        return replies.pop(0)
+
+    deps, _ = pdeps(s=settings(SNOV_CLIENT_ID="i", SNOV_CLIENT_SECRET="s"), request=request)
+    deps = deps.__class__(**{**deps.__dict__, "sleep": waits.append})
+    result = snov.search("S", "statestreet.com", "Ireland", {PEER: 1}, deps)
+    assert waits == [snov.POLL_SECONDS]  # it waited once, then the task was ready
+    assert result.notes == ["snov: 1 people at statestreet.com, none fit the open slots"]
+
+
+def test_real_lookups_really_wait():
+    import time
+
+    from jobengine.contacts.finder import ContactDeps
+
+    assert ContactDeps.__dataclass_fields__["sleep"].default(1) is None  # tests: no wait
+    import inspect
+
+    from jobengine.contacts import finder
+    assert "sleep=time.sleep" in inspect.getsource(finder.real_deps)
+    assert time.sleep  # the real one is passed to the providers
+
+
+def test_apollo_free_plan_is_named_as_the_plan():
+    from jobengine.contacts.providers import apollo
+
+    exc = http.HttpError("POST api.apollo.io/api/v1/mixed_people/api_search failed: HTTP 403 "
+                         "API_INACCESSIBLE", 403)
+    assert apollo.refused(exc) == (
+        "apollo: your Apollo plan has no API people search (API_INACCESSIBLE); only a paid "
+        "plan can search. Remove APOLLO_API_KEY from .env to skip Apollo.")
+
+
+def test_rate_limit_waits_grow_without_retry_after():
+    response = httpx.Response(429)
+    assert [http._retry_after(response, n) for n in range(4)] == [2.0, 5.0, 15.0, 15.0]
+    assert http._retry_after(httpx.Response(429, headers={"Retry-After": "7"}), 0) == 7.0
+
+
+def test_a_wider_search_person_is_marked_in_telegram():
+    from jobengine.contacts.models import Chosen
+
+    chosen = Chosen(name="Marion", title="Director of Cybersecurity", email="m@s.com",
+                    type=HIRING, source="Hunter", country="Ireland", verified=True,
+                    notes=WIDE_NOTE)
+    assert chosen.label() == ("Hiring: Marion (Director of Cybersecurity) "
+                              "[Hunter, verified, wider search]")

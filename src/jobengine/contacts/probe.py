@@ -4,6 +4,8 @@ on some plans, so it only runs where paid calls are allowed."""
 
 from __future__ import annotations
 
+import time
+
 from jobengine.contacts.providers import apollo, hunter, lusha, snov
 from jobengine.contacts.providers.base import ProviderDeps, real_request
 from jobengine.safety import paid_api_allowed
@@ -18,7 +20,7 @@ def run_probe(provider: str, domain: str, s: Settings) -> str:
     if not paid_api_allowed(provider, s):
         raise PermissionError(REFUSED)
     module = PROVIDERS[provider]
-    deps = ProviderDeps(s=s, request=real_request(s),
+    deps = ProviderDeps(s=s, request=real_request(s), sleep=time.sleep,
                         search_titles=s.contacts.get("search_titles") or {})
     count, fields = module.probe(domain, deps)
     if module is lusha:

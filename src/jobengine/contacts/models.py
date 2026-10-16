@@ -66,6 +66,8 @@ class Chosen:
             tag = "cache"
         else:
             tag = f"{self.source}, verified" if self.verified else self.source
+            if "wider search" in self.notes:
+                tag += ", wider search"
         title = f" ({self.title})" if self.title else ""
         return f"{self.type}: {self.name}{title} [{tag}]"
 

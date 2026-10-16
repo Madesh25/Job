@@ -14,7 +14,7 @@ from collections.abc import Mapping
 from typing import Any
 
 from jobengine import http
-from jobengine.contacts.classify import classify_title
+from jobengine.contacts.classify import classify_title, wide_kind
 from jobengine.contacts.models import SLOT_TYPES, Candidate, ProviderResult
 from jobengine.contacts.providers.base import ProviderDeps
 
@@ -81,12 +81,19 @@ def search(
     picked = []
     for prospect in prospects.get("data") or []:
         kind = classify_title(prospect.get("position"), deps.patterns)
+        if kind not in remaining:
+            kind = wide_kind(prospect.get("position"))
         if remaining.get(kind, 0) > 0:
             picked.append(prospect)
             remaining[kind] -= 1
     picked = picked[: max(0, min(sum(open_slots.values()), deps.credits_left))]
 
     result = ProviderResult()
+    people = prospects.get("data") or []
+    if not picked:
+        # 16 Oct: Snov said nothing at all; now it says what it saw.
+        result.notes.append(f"snov: {len(people)} people at {domain}, none fit the open slots"
+                            if people else f"snov: no people found at {domain}")
     for prospect in picked:
         prospect_hash = prospect.get("prospect_hash") or prospect.get("hash") or ""
         try:
