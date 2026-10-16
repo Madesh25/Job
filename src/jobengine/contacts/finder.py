@@ -8,7 +8,7 @@ import logging
 import re
 import time
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import date
 from typing import Any
 
@@ -24,6 +24,7 @@ from jobengine.contacts.classify import (
     fill_slots,
     keep,
     parse_mix,
+    wide_kind,
 )
 from jobengine.contacts.credits import OPTIONAL, CreditBook, account_label
 from jobengine.contacts.models import (
@@ -387,6 +388,7 @@ def find_contacts(deps: ContactDeps, job_id: str, paid: bool = True) -> Contacts
                 open_slots().get(PEER, 0) > 0:
             _github_step(deps, config, company, domain, country, result, chosen, seen,
                          by_email, open_slots, patterns, personal)
+        unplaced: list[Candidate] = []
         for name, provider in WATERFALL:
             if not open_slots():
                 break
@@ -396,7 +398,10 @@ def find_contacts(deps: ContactDeps, job_id: str, paid: bool = True) -> Contacts
             if book.counters.get(name) is None and name in OPTIONAL:
                 continue  # a free plan you have not set up (no Config credits.<name>)
             _provider_step(deps, book, name, provider, company, domain, country, result,
-                           chosen, seen, by_email, open_slots, patterns, personal)
+                           chosen, seen, by_email, open_slots, patterns, personal, unplaced)
+        if unplaced and open_slots() and strict_location(deps.s, country):
+            _confirm_step(deps, book, unplaced, company, domain, country, result, chosen, seen,
+                          by_email, open_slots, patterns, personal)
         if deps.calls and not paid_api_allowed("apollo", deps.s):
             # 16 Oct: "No contacts found" for every real company hid that no provider was asked.
             result.notes.append(f"Contact lookups: {contact_lookups(deps.s)}.")
@@ -433,7 +438,7 @@ def _provider_step(deps: ContactDeps, book: CreditBook, name: str, provider: Any
                    chosen: list[Chosen], seen: set[str],
                    by_email: dict[str, tuple[str, dict[str, Any]]],
                    open_slots: Callable[[], dict[str, int]], patterns: Any,
-                   personal: Any) -> None:
+                   personal: Any, unplaced: list[Candidate] | None = None) -> None:
     """One provider: its first account, and its second when the first has no credits left
     or its search fails (a refused key, an exhausted plan). Never both when the first
     answered: the second account sees the same people."""
@@ -475,7 +480,60 @@ def _provider_step(deps: ContactDeps, book: CreditBook, name: str, provider: Any
         note = _left_out_note(left_out, country)
         if note:
             result.notes.append(f"{account}: {note}")
+        if unplaced is not None:
+            unplaced.extend(c for c in left_out if c.country_unverified)
         return
+
+
+MAX_CONFIRM = 3  # Prospeo look-ups per job for people another site found without a location
+
+
+def _confirm_step(deps: ContactDeps, book: CreditBook, unplaced: list[Candidate],
+                  company: str, domain: str, country: str, result: ContactsResult,
+                  chosen: list[Chosen], seen: set[str],
+                  by_email: dict[str, tuple[str, dict[str, Any]]],
+                  open_slots: Callable[[], dict[str, int]], patterns: Any,
+                  personal: Any) -> None:
+    """16 Oct, strict rule: Hunter gives no location, so its people were all left out. For
+    the ones whose title fits an open slot, Prospeo is asked where they are (one credit per
+    person it knows); people it places in the job's country fill the slots."""
+    if not deps.s.prospeo_api_key or book.counters.get("prospeo") is None:
+        return
+    s = deps.s if paid_api_allowed("prospeo", deps.s) else \
+        deps.s.model_copy(update=FIXTURE_KEYS)
+    pdeps = ProviderDeps(s=s, request=deps.request("prospeo"), sleep=deps.sleep,
+                         search_titles={}, patterns=patterns)
+    slots = open_slots()
+
+    def fits(c: Candidate) -> bool:
+        kind = classify_title(c.title, patterns)
+        if kind not in slots:
+            kind = wide_kind(c.title, c.department)
+        return slots.get(kind, 0) > 0
+
+    asked = placed = 0
+    confirmed: list[Candidate] = []
+    for candidate in unplaced:
+        if asked >= MAX_CONFIRM or book.available("prospeo") <= 0:
+            break
+        if candidate.email.lower() in seen or not fits(candidate):
+            continue
+        asked += 1
+        deps.sleep(1.5)
+        where, credits = prospeo.locate(candidate.email, pdeps)
+        book.spend("prospeo", credits)
+        if where and where.casefold() == country.casefold():
+            placed += 1
+            confirmed.append(replace(candidate, country=country, country_unverified=False))
+    if asked:
+        result.notes.append(f"prospeo: checked where {asked} people without a location are: "
+                            f"{placed} in {country}")
+    for candidate, kind, note in fill_slots(confirmed, open_slots(), country, domain, seen,
+                                            patterns, personal, strict=True):
+        picked = _chosen(candidate, kind, note, by_email, country)
+        if not picked.cached:
+            picked.notes = "; ".join(p for p in (picked.notes, "location from Prospeo") if p)
+        chosen.append(picked)
 
 
 GITHUB_SWITCH = "contacts.github"  # Notion Config: "on" reads the company's GitHub org first

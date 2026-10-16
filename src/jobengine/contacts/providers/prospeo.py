@@ -66,6 +66,20 @@ def wide_body(domain: str, country: str = "") -> dict[str, Any]:
                      "page": 1}, country)
 
 
+HR_DEPARTMENTS = ["Human Resources"]
+
+
+def _rounds(domain: str, country: str) -> list[tuple[str, dict[str, Any], str | None,
+                                                      tuple[str, ...]]]:
+    """(what, body, department for wide_kind, slot keys it can fill), in order."""
+    hr = {"filters": {"company": {"websites": {"include": [domain]}},
+                      "person_department": {"include": HR_DEPARTMENTS}}, "page": 1}
+    anyone = {"filters": {"company": {"websites": {"include": [domain]}}}, "page": 1}
+    return [("wider search", wide_body(domain, country), WIDE_DEPARTMENT, ("peer", "hiring")),
+            ("HR search", _located(hr, country), "hr", ("recruiter",)),
+            ("whole company", _located(anyone, country), None, ("peer", "hiring", "recruiter"))]
+
+
 def _search(key: str, body: dict[str, Any], deps: ProviderDeps,
             notes: list[str] | None = None) -> tuple[list[Any], str | None]:
     """(results, problem). NO_RESULTS is a normal answer (HTTP 400 from Prospeo, no credit);
@@ -97,6 +111,24 @@ def _search_once(key: str, body: dict[str, Any],
     return list(found.get("results") or []), None
 
 
+def locate(email: str, deps: ProviderDeps) -> tuple[str | None, int]:
+    """(country, credits) for a person whose email another site found (16 Oct: Hunter gives
+    no location, so the strict rule left all its people out). One /enrich-person call by
+    email; a match costs one credit, NO_MATCH none."""
+    key = deps.s.prospeo_api_key
+    if not key:
+        return None, 0
+    body = {"data": {"email": email}, "only_verified_email": False, "enrich_mobile": False}
+    try:
+        found = deps.request("POST", ENRICH, headers=_headers(key), json_body=body)
+    except http.HttpError:
+        return None, 0
+    person = found.get("person") if not _error(found) else None
+    if not person:
+        return None, 0
+    return (person.get("location") or {}).get("country") or None, 1
+
+
 def _error(answer: Mapping[str, Any]) -> str | None:
     return str(answer.get("error_code") or "error") if answer.get("error") else None
 
@@ -123,21 +155,31 @@ def search(
         if person.get("person_id") and remaining.get(kind, 0) > 0:
             picked.append(person)
             remaining[kind] -= 1
+    # More searches while slots stay open (16 Oct: one senior search found 1 of 4 at HCLTech
+    # in the Netherlands): senior engineering/IT people, then HR people for the recruiter,
+    # then anyone at the company in the country. One credit each when it finds people.
     wide_ids: set[str] = set()
-    if any(remaining.get(SLOT_TYPES[k], 0) > 0 for k in ("peer", "hiring")) and \
-            deps.credits_left - result.credits_used > 1:
+    known = {p["person_id"] for p in picked}
+    for what, body, department, kinds in _rounds(domain, country):
+        if not any(remaining.get(SLOT_TYPES[k], 0) > 0 for k in kinds):
+            continue
+        if deps.credits_left - result.credits_used <= 1:
+            break
         deps.sleep(ENRICH_PAUSE)
-        rows, problem = _search(key, wide_body(domain, country), deps, result.notes)
+        rows, problem = _search(key, body, deps, result.notes)
         if problem:
-            result.notes.append(f"{problem} (wider search)")
+            result.notes.append(f"{problem} ({what})")
         result.credits_used += 1 if rows else 0
-        known = {p["person_id"] for p in picked}
         for row in rows:
             person = row.get("person") or {}
-            kind = wide_kind(person.get("current_job_title"), WIDE_DEPARTMENT)
+            title = person.get("current_job_title")
+            kind = classify_title(title, deps.patterns)
+            if kind not in remaining:
+                kind = wide_kind(title, department)
             pid = person.get("person_id")
             if pid and pid not in known and remaining.get(kind, 0) > 0:
                 picked.append(person)
+                known.add(pid)
                 wide_ids.add(pid)
                 remaining[kind] -= 1
     room = max(0, min(sum(open_slots.values()), deps.credits_left - result.credits_used))
