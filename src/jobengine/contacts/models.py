@@ -23,6 +23,7 @@ class Candidate:
     source: str  # Apollo | Hunter | Snov | Prospeo | Tomba | Job posting
     country_unverified: bool = False
     person_id: str | None = None  # provider id, for a later reveal
+    department: str | None = None  # the provider's department ("it", "hr"), when it says
 
 
 @dataclass

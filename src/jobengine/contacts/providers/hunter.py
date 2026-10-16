@@ -46,10 +46,12 @@ def search(
         first, last = item.get("first_name") or "", item.get("last_name") or ""
         name = " ".join(p for p in (first, last) if p) or email
         verification = (item.get("verification") or {}).get("status")
+        if verification == "invalid":
+            continue  # Hunter says this address bounces: never mail it
         result.candidates.append(Candidate(
             name=name, first_name=first or name.split(" ")[0], title=item.get("position") or "",
             email=email, country=None, provider_verified=verification == "valid",
-            source=NAME, country_unverified=True,
+            source=NAME, country_unverified=True, department=item.get("department"),
         ))
     return result
 

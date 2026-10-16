@@ -27,6 +27,7 @@ EMAILS_START = f"{BASE}/v2/domain-search/prospects/search-emails/start"
 EMAILS_RESULT = f"{BASE}/v2/domain-search/prospects/search-emails/result"
 POLLS = 5
 POLL_SECONDS = 2.0
+MAX_POSITIONS = 10  # Snov refuses more (16 Oct: 11 titles gave HTTP 422)
 
 
 def token(deps: ProviderDeps) -> str:
@@ -53,7 +54,12 @@ def _poll(deps: ProviderDeps, url: str, auth: dict[str, str]) -> dict[str, Any]:
 
 def _positions(open_slots: Mapping[str, int], deps: ProviderDeps) -> list[str]:
     wanted = [key for key, kind in SLOT_TYPES.items() if open_slots.get(kind, 0) > 0]
-    return [t for key in wanted for t in deps.search_titles.get(key, [])]
+    return [t for key in wanted for t in deps.search_titles.get(key, [])][:MAX_POSITIONS]
+
+
+def prospects_params(domain: str, positions: list[str]) -> list[tuple[str, str | int]]:
+    """domain, page and positions[] as query parameters, the form Snov documents."""
+    return [("domain", domain), ("page", 1), *(("positions[]", p) for p in positions)]
 
 
 def search(
@@ -64,8 +70,7 @@ def search(
     try:
         auth = {"Authorization": f"Bearer {token(deps)}"}
         start = deps.request("POST", PROSPECTS_START, headers=auth,
-                             json_body={"domain": domain, "page": 1,
-                                        "positions": _positions(open_slots, deps)})
+                             params=prospects_params(domain, _positions(open_slots, deps)))
         prospects = _poll(deps, f"{PROSPECTS_RESULT}/{_task_hash(start)}", auth)
     except http.HttpError as exc:
         if exc.status in (401, 403):
@@ -110,6 +115,6 @@ def search(
 def probe(domain: str, deps: ProviderDeps) -> tuple[int, list[str]]:
     auth = {"Authorization": f"Bearer {token(deps)}"}
     start = deps.request("POST", PROSPECTS_START, headers=auth,
-                         json_body={"domain": domain, "page": 1})
+                         params=prospects_params(domain, []))
     prospects = (_poll(deps, f"{PROSPECTS_RESULT}/{_task_hash(start)}", auth).get("data")) or []
     return len(prospects), sorted({k for p in prospects for k in p})

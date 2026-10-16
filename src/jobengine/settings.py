@@ -181,7 +181,10 @@ def load_settings(env: str | None = None, environ: Mapping[str, str] | None = No
 
     notion = cfg.get("notion", {})
     safety = cfg.get("safety", {})
-    secrets = {field: environ.get(var) or None for var, field in SECRET_VARS.items()}
+    # A key copied with spaces, quotes or a Windows line end made an illegal header (16 Oct:
+    # PROSPEO_API_KEY_2 failed with LocalProtocolError).
+    secrets = {field: (environ.get(var) or "").strip().strip('"').strip("'").strip() or None
+               for var, field in SECRET_VARS.items()}
 
     return Settings(
         app_env=env,

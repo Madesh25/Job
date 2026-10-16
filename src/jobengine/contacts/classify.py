@@ -22,6 +22,20 @@ DEFAULT_PATTERNS = {
     "peer": r"devops|site reliability|sre|platform engineer|cloud engineer|infrastructure engineer|"
             r"systems engineer|kubernetes|release engineer|build engineer",
 }
+# Wider search (16 Oct): when the usual titles leave slots open, senior people in tech at the
+# same company count too ("Vice President, Cloud Engineering" at a bank; a senior engineer
+# whose title names no DevOps word). A tech word or a tech department is always required, so
+# a sales director never fills a slot.
+WIDE_TECH = re.compile(r"engineer|technolog|technical|\bit\b|infrastructure|cloud|platform|"
+                       r"devops|software|systems|architect|data|security|network|developer|"
+                       r"development|\bsre\b|reliability|automation", re.I)
+WIDE_LEAD = re.compile(r"\b(head|director|vice president|vp|svp|avp|chief|cto|cio|manager)\b",
+                       re.I)
+WIDE_SENIOR = re.compile(r"\b(senior|sr|lead|principal|staff|architect|expert)\b", re.I)
+TECH_DEPARTMENTS = frozenset({"it", "engineering", "engineering & technical",
+                              "information technology"})
+HR_DEPARTMENTS = frozenset({"hr", "human resources"})
+WIDE_NOTE = "senior, wider search"
 EMAIL_RE = re.compile(r"^[^@\s]+@([A-Za-z0-9-]+\.)+[A-Za-z]{2,}$")
 
 
@@ -32,6 +46,22 @@ def classify_title(title: str | None, patterns: Mapping[str, str] | None = None)
     for key in ("recruiter", "hiring", "peer"):
         if patterns.get(key) and re.search(patterns[key], text):
             return SLOT_TYPES[key]
+    return OTHER
+
+
+def wide_kind(title: str | None, department: str | None = None) -> str:
+    """The slot a senior person fills in the wider search: hiring (head, director, VP,
+    manager), peer (senior, lead, principal, staff, architect) or recruiter (HR department);
+    Other without a tech word or tech department."""
+    text, dept = title or "", (department or "").strip().casefold()
+    if dept in HR_DEPARTMENTS and text:
+        return SLOT_TYPES["recruiter"]
+    if not (WIDE_TECH.search(text) or dept in TECH_DEPARTMENTS):
+        return OTHER
+    if WIDE_LEAD.search(text):
+        return SLOT_TYPES["hiring"]
+    if WIDE_SENIOR.search(text):
+        return SLOT_TYPES["peer"]
     return OTHER
 
 
@@ -83,19 +113,26 @@ def fill_slots(
     """Choose candidates for the open slots: (candidate, type, note).
 
     In-country first, then country-unverified, and only then people outside the country
-    ("outside <country>"). `seen` holds lowercase emails already used (cache and this run)
-    and is updated. Candidates beyond the open slots are dropped.
+    ("outside <country>"). People whose title fits no slot fill one only as senior tech
+    people (wide_kind, note "senior, wider search"), after everyone who fits. `seen` holds
+    lowercase emails already used (cache and this run) and is updated. Candidates beyond the
+    open slots are dropped.
     """
     remaining = dict(open_slots)
     ranked: dict[str, list[tuple[int, Candidate]]] = {t: [] for t in remaining}
+    wider: set[int] = set()
     order = {"in": 0, "unverified": 1, "outside": 2}
     for index, candidate in enumerate(candidates):
         if not keep(candidate, domain, personal):
             continue
-        kind = classify_title(candidate.title, patterns)
+        kind, wide = classify_title(candidate.title, patterns), 0
         if kind not in ranked:
-            continue
-        ranked[kind].append((order[country_ok(candidate, country)] * 10_000 + index, candidate))
+            kind, wide = wide_kind(candidate.title, candidate.department), 100_000
+            if kind not in ranked:
+                continue
+            wider.add(id(candidate))
+        ranked[kind].append((wide + order[country_ok(candidate, country)] * 10_000 + index,
+                             candidate))
     chosen: list[tuple[Candidate, str, str]] = []
     for kind, items in ranked.items():
         for _, candidate in sorted(items, key=lambda x: x[0]):
@@ -108,6 +145,8 @@ def fill_slots(
             where = country_ok(candidate, country)
             note = {"outside": f"outside {country}", "unverified": "country unverified"}.get(
                 where, "")
+            if id(candidate) in wider:
+                note = f"{WIDE_NOTE}, {note}" if note else WIDE_NOTE
             chosen.append((candidate, kind, note))
             remaining[kind] -= 1
     return chosen

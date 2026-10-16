@@ -10,6 +10,7 @@ Query strings are never logged or put in error messages because they can carry A
 
 from __future__ import annotations
 
+import json
 import logging
 import time
 from collections.abc import Callable, Collection, Mapping
@@ -91,9 +92,18 @@ def _error_detail(resp: httpx.Response) -> str:
         body = resp.json()
     except ValueError:
         return ""
-    if isinstance(body, dict):
-        return str(body.get("message") or body.get("error") or body.get("description") or "")
-    return ""
+    if not isinstance(body, dict):
+        return ""
+    if body.get("error") is True or body.get("error_code"):
+        # Prospeo: {"error": true, "error_code": "NO_RESULTS", "filter_error": "..."} (16 Oct:
+        # the bot showed only "True").
+        parts = [body.get("error_code"), body.get("filter_error") or body.get("message")]
+        return " ".join(str(p) for p in parts if p)[:300]
+    detail = body.get("message") or body.get("error") or body.get("description") or ""
+    errors = body.get("errors")
+    if errors:  # Snov 422: which field was refused
+        detail = f"{detail} {json.dumps(errors, ensure_ascii=False)}".strip()
+    return str(detail)[:300]
 
 
 def _send(

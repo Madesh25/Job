@@ -34,6 +34,26 @@ provider waterfall) runs only for jobs within the outreach budget
   phone numbers, no personal addresses (gmail.com, outlook.com, yahoo.com, hotmail.com,
   icloud.com, proton.me), no LinkedIn URLs, no photos.
 
+## Wider search when slots stay open (16 Oct)
+
+The first real lookup (State Street, Dublin) found 1 of 4: Hunter returned 10 people, but
+bank titles such as "Vice President" fit no slot. Now, after everyone whose title fits:
+
+- **Senior tech people fill the open slots** (`classify.wide_kind`): head, director, VP or
+  manager in tech fills Hiring; senior, lead, principal, staff or architect fills Peer; an HR
+  department person fills Recruiter. A tech word in the title or a tech department (Hunter's
+  `department`) is always needed, so a sales director never counts. They show the note
+  "senior, wider search" and come after people whose title fits.
+- **Prospeo searches once more** when Peer or Hiring is still open: seniority Senior,
+  Manager, Head, Director or Vice President in the Engineering & Technical and Information
+  Technology departments (1 credit when it finds people). Prospeo's `NO_RESULTS` (HTTP 400)
+  is a normal answer and costs nothing; other refusals show their code (`INVALID_FILTERS`
+  and the filter).
+- **Hunter** addresses marked `invalid` (they bounce) are never used.
+- **Snov** gets at most 10 titles, as query parameters (11 gave HTTP 422).
+- API keys are cleaned of spaces, quotes and Windows line ends when read from `.env`.
+- Apollo's free plan has no API access ("apollo: not available on this plan").
+
 ## Second accounts (Apollo, Hunter, Snov, Prospeo)
 
 Each of the four can have a second (free) account. Put its keys in `.env` (Secret Manager in
