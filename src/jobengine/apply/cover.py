@@ -1,10 +1,11 @@
 """Cover letter per job and the final resume's keyword cover (flow features 4 and 11, 9 Oct).
 
 Cover letter: many EU application forms ask for one. After Approve resume, one AI call
-writes 150 to 200 words for this job from two sources only: the job description and the
-text of the approved resume PDF (the resume already passed the V16 gate, so it is the truth
-to stay within). The letter is checked before it is shown: it must not name any of the job's
-gaps (skills you do not have), it is cut to at most MAX_WORDS, and dashes are replaced. A
+writes 150 to 200 words for this job from the job description, the text of the approved
+resume PDF (the resume already passed the V16 gate, so it is the truth to stay within) and
+your own answers for experience, notice and start (apply/facts.py, 16 Oct). The letter is
+checked before it is shown: it must not name any of the job's gaps (skills you do not have)
+or other years than yours, it is cut to at most MAX_WORDS, and dashes are replaced. A
 letter that fails is left out with a note; nothing is sent anywhere, you paste it yourself.
 
 Keyword cover: the tools the job names that you have (the same list as "Skill match" on the
@@ -20,6 +21,8 @@ import re
 from dataclasses import dataclass
 from typing import Any
 
+from jobengine.apply import facts as facts_mod
+
 log = logging.getLogger("jobengine.apply")
 
 STAGE = "tailor"
@@ -27,15 +30,16 @@ MIN_WORDS, MAX_WORDS = 110, 220
 MAX_TOKENS = 700
 SYSTEM_PROMPT = """You write a short cover letter for a job application.
 Rules (never break them):
-- Use ONLY facts found in RESUME. Never add a skill, tool, employer, number, degree or claim
-  that RESUME does not contain. If the job asks for something RESUME does not show, do not
-  mention it.
+- Use ONLY facts found in RESUME and FACTS. Never add a skill, tool, employer, number,
+  degree or claim that RESUME does not contain. If the job asks for something RESUME does
+  not show, do not mention it.
 - 150 to 200 words, English, plain and specific, first person, three short paragraphs:
   why this role and company (use COMPANY DETAILS if given), two or three matching facts from
-  RESUME, a closing line about relocation and availability from RESUME.
+  RESUME, a closing line about relocation and availability from FACTS.
 - No greeting placeholders like [Name], no address block, no subject line. Start with
   "Dear Hiring Team," and end with "Kind regards," and the candidate's name from RESUME.
 - No em dashes or en dashes.
+""" + facts_mod.RULES + """
 Answer with JSON only: {"letter": "<the letter>"}"""
 
 
@@ -85,9 +89,12 @@ def _clean(text: str) -> str:
     return "\n\n".join(" ".join(p.split()) for p in text.split("\n\n") if p.strip())
 
 
-def check(text: str, gaps: list[str]) -> str | None:
-    """Why the letter cannot be used, or None."""
+def check(text: str, gaps: list[str], resume_text: str = "") -> str | None:
+    """Why the letter cannot be used, or None. A gap counts by its short terms ("Lambda" in
+    "Dynamo, Lambda, Bedrock"), not only as the whole phrase; terms the resume shows do not."""
+    terms = facts_mod.gap_terms(gaps, resume_text)
     named = [g for g in gaps if g and _names(g, text)]
+    named += [t for t in terms if facts_mod.names(t, text) and t not in named]
     if named:
         return f"it named skills you do not have ({', '.join(named[:3])})"
     words = len(text.split())
@@ -106,7 +113,8 @@ def _cut(text: str) -> str:
 
 
 def write(llm: Any, *, company: str, role: str, country: str, jd: str, resume_text: str,
-          details: list[str], gaps: list[str], key: str) -> Letter:
+          details: list[str], gaps: list[str], key: str,
+          facts: dict[str, str] | None = None) -> Letter:
     """One AI call, checked. Never raises: a failure is a Letter with a note."""
     if not resume_text.strip():
         return Letter(None, "the approved resume could not be read")  # caller drops it
@@ -114,15 +122,15 @@ def write(llm: Any, *, company: str, role: str, country: str, jd: str, resume_te
         return Letter(None, "the job has no description")
     user = (f"COMPANY: {company}\nROLE: {role}\nCOUNTRY: {country}\n"
             f"COMPANY DETAILS: {'; '.join(details) or 'none'}\n\nJOB DESCRIPTION:\n"
-            f"{jd[:6000]}\n\nRESUME:\n{resume_text[:6000]}")
+            f"{jd[:6000]}\n\nRESUME:\n{resume_text[:6000]}\n\n{facts_mod.block(facts or {})}")
     try:
         answer = llm.complete_json(STAGE, SYSTEM_PROMPT, user, max_tokens=MAX_TOKENS,
                                    key=f"cover-{key}")
     except Exception as exc:
         log.info("cover letter not written: %s", exc)
         return Letter(None, f"the AI call failed ({type(exc).__name__})")
-    text = _cut(_clean(str(answer.get("letter") or "")))
-    problem = check(text, gaps)
+    text, problem = facts_mod.fix(_cut(_clean(str(answer.get("letter") or ""))), facts or {})
+    problem = problem or check(text, gaps, resume_text)
     if problem:
         log.info("cover letter left out: %s", problem)
         return Letter(None, problem)

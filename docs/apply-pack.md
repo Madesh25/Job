@@ -52,6 +52,16 @@ integrity gate are unchanged):
 
 Config keys `resume.headline_titles` and `resume.relocation_template` win when set.
 
+## Cover letter (flow feature 4)
+
+`apply/cover.py`. After Approve resume one AI call writes 150 to 200 words from the job
+description, the approved resume PDF and your own answers (experience, notice period,
+earliest start, relocation; `apply/facts.py`). Before it is shown: "N+ years" becomes
+"N years", a sentence saying you can start immediately becomes your notice period, and the
+letter is left out (with the reason) when it gives a year count that is not in your
+experience answer or names a gap, also one short term of a gap ("Lambda" in "Dynamo, Lambda,
+Bedrock") that your resume does not show (Phase 9, P9-23).
+
 ## Form autofill (flow feature 9)
 
 `apply/autofill.py`. The bot never opens a company form and never submits anything.
