@@ -48,7 +48,10 @@ class FixtureHttp:
                 data = json.loads((self.base / self.routes[prefix]).read_text(encoding="utf-8"))
                 if isinstance(data, dict) and "by_key" in data:
                     # One answer per person id (JSON body) or per task hash (last path part).
-                    key = (json_body or {}).get("id") or parts.path.rsplit("/", 1)[-1]
+                    body = json_body if isinstance(json_body, dict) else {}
+                    inner = body.get("data") if isinstance(body.get("data"), dict) else {}
+                    key = (body.get("id") or inner.get("person_id")
+                           or parts.path.rsplit("/", 1)[-1])
                     if key not in data["by_key"]:
                         raise http.HttpError(f"{method} {http.safe_url(url)} failed: no fixture "
                                              f"for {key}", 404)
@@ -67,7 +70,7 @@ ROUTES = {
     "api.snov.io/v2/domain-search/prospects/search-emails/start": "snov_emails_start.json",
     "api.snov.io/v2/domain-search/prospects/search-emails/result": "snov_emails.json",
     "api.prospeo.io/search-person": "prospeo_search.json",
-    "api.prospeo.io/bulk-enrich-person": "prospeo_enrich.json",
+    "api.prospeo.io/enrich-person": "prospeo_enrich.json",
     "api.tomba.io/v1/domain-search": "tomba_domain_search.json",
     "api.github.com/search/users": "github_search_orgs.json",
     "api.github.com/orgs/": "github_orgs.json",

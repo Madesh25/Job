@@ -17,6 +17,19 @@ from jobengine import http
 from jobengine.contacts.classify import classify_title, wide_kind
 from jobengine.contacts.models import SLOT_TYPES, Candidate, ProviderResult
 from jobengine.contacts.providers.base import ProviderDeps
+from jobengine.contacts.providers.github import country_of
+
+
+def prospect_country(prospect: dict[str, Any]) -> str | None:
+    """The prospect's country: `country`, else a place field Snov may send instead (16 Oct:
+    Snov's people had no `country`, so the strict rule left them all out)."""
+    if prospect.get("country"):
+        return str(prospect["country"])
+    for key in ("locality", "location", "city", "region"):
+        found = country_of(str(prospect.get(key) or ""))
+        if found:
+            return found
+    return None
 
 NAME = "Snov"
 BASE = "https://api.snov.io"
@@ -113,6 +126,7 @@ def search(
         # 16 Oct: Snov said nothing at all; now it says what it saw.
         result.notes.append(f"snov: {len(people)} people at {domain}, none fit the open slots"
                             if people else f"snov: no people found at {domain}")
+    unplaced_noted = False
     for prospect in picked:
         start_url = email_start_url(prospect)
         if start_url is None:
@@ -133,11 +147,16 @@ def search(
             continue
         first, last = prospect.get("first_name") or "", prospect.get("last_name") or ""
         name = " ".join(p for p in (first, last) if p)
+        where = prospect_country(prospect)
+        if where is None and not unplaced_noted:
+            unplaced_noted = True
+            result.notes.append("snov: no country for its people (fields: "
+                                + ", ".join(sorted(prospect)) + ")")
         result.candidates.append(Candidate(
             name=name or best["email"], first_name=first, title=prospect.get("position") or "",
-            email=best["email"], country=prospect.get("country") or None,
+            email=best["email"], country=where,
             provider_verified=best.get("smtp_status") == "valid", source=NAME,
-            country_unverified=not prospect.get("country"),
+            country_unverified=where is None,
         ))
     return result
 

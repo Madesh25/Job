@@ -32,8 +32,16 @@ def location_body(country: str) -> dict[str, Any] | None:
 
 
 def _filtered(found: Mapping[str, Any]) -> bool:
-    params = ((found.get("meta") or {}).get("params")) or {}
-    return bool(params.get("location"))
+    meta = found.get("meta") or {}
+    return bool((meta.get("params") or {}).get("location")
+                or (meta.get("filters") or {}).get("location"))
+
+
+def _what_meta_says(found: Mapping[str, Any]) -> str:
+    """The keys Hunter answered with, for the note when the filter is not confirmed."""
+    meta = found.get("meta") or {}
+    keys = sorted(meta.get("params") or {}) or sorted(meta)
+    return ", ".join(keys) or "nothing"
 
 
 def params(domain: str, key: str, department: str = DEPARTMENTS,
@@ -68,11 +76,15 @@ def _candidates(data: Mapping[str, Any], seen: set[str],
 
 
 def _get(deps: ProviderDeps, query: Mapping[str, Any], country: str) -> dict[str, Any]:
-    """One domain search, with the country filter when the job is in one of our countries."""
+    """One domain search, with the country filter when the job is in one of our countries.
+    With the filter it is a POST: every filter in the JSON body, only the key in the query
+    (16 Oct: with the filters in the query Hunter did not confirm the country)."""
     body = location_body(country)
     if body is None:
         return deps.request("GET", DOMAIN_SEARCH, params=query)
-    return deps.request("POST", DOMAIN_SEARCH, params=query, json_body=body)
+    filters = {k: v for k, v in query.items() if k != "api_key"}
+    return deps.request("POST", DOMAIN_SEARCH, params={"api_key": query["api_key"]},
+                        json_body={**filters, **body})
 
 
 def _still_open(candidates: list[Candidate], open_slots: Mapping[str, int],
@@ -104,8 +116,9 @@ def search(
     placed = country if _filtered(found) else None
     result = ProviderResult(credits_used=1, candidates=_candidates(data, seen, placed))
     if location_body(country) and placed is None:
-        result.notes.append(f"hunter: its answer did not confirm the {country} filter, so "
-                            "its people count as location unknown")
+        result.notes.append(f"hunter: its answer did not confirm the {country} filter "
+                            f"(it answered with: {_what_meta_says(found)}), so its people "
+                            "count as location unknown")
 
     # 16 Oct: one page of 10 left the recruiter and a peer open at State Street. When slots
     # stay open: the HR department for the recruiter, and the next page for engineers. Each
@@ -124,7 +137,11 @@ def search(
         try:
             answer = _get(deps, query, country)
         except http.HttpError as exc:
-            result.notes.append(f"hunter: {what} search failed: {exc}")
+            if "pagination_error" in str(exc):  # 16 Oct: the free plan stops at 10 people
+                result.notes.append("hunter: your plan shows only 10 people per search, "
+                                    "no next page")
+            else:
+                result.notes.append(f"hunter: {what} search failed: {exc}")
             continue
         result.credits_used += 1
         result.candidates.extend(_candidates(answer.get("data") or {}, seen,
