@@ -240,3 +240,32 @@ def test_a_wider_search_person_is_marked_in_telegram():
                     notes=WIDE_NOTE)
     assert chosen.label() == ("Hiring: Marion (Director of Cybersecurity) "
                               "[Hunter, verified, wider search]")
+
+
+def test_snov_uses_its_own_links_and_never_calls_an_empty_start():
+    link = f"{snov.EMAILS_START}/abc123"
+    assert snov.email_start_url({"search_emails_start": link}) == link
+    assert snov.email_start_url({"prospect_hash": "h1"}) == f"{snov.EMAILS_START}/h1"
+    assert snov.email_start_url({"first_name": "A", "position": "SRE"}) is None
+    assert snov.email_start_url({"search_emails_start": "https://evil.example/x"}) is None
+    assert snov._result_url({"links": {"result": f"{snov.BASE}/v2/x/result/t9"}},
+                            snov.EMAILS_RESULT) == f"{snov.BASE}/v2/x/result/t9"
+    assert snov._result_url({"meta": {"task_hash": "t1"}}, snov.EMAILS_RESULT) == (
+        f"{snov.EMAILS_RESULT}/t1")
+
+
+def test_snov_without_an_email_link_names_the_fields_and_spends_nothing():
+    calls = []
+    replies = [{"access_token": "t"}, {"meta": {"task_hash": "h1"}},
+               {"status": "completed", "data": [{"first_name": "Ann", "last_name": "B",
+                                                 "position": "SRE"}]}]
+
+    def request(method, url, **kwargs):
+        calls.append(url)
+        return replies.pop(0)
+
+    deps, _ = pdeps(s=settings(SNOV_CLIENT_ID="i", SNOV_CLIENT_SECRET="s"), request=request)
+    result = snov.search("S", "statestreet.com", "Ireland", {PEER: 1}, deps)
+    assert len(calls) == 3 and result.credits_used == 0
+    assert result.notes == ["snov: no email-search link in Snov's answer "
+                            "(fields: first_name, last_name, position)"]

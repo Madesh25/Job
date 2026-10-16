@@ -43,6 +43,25 @@ def _task_hash(data: dict[str, Any]) -> str:
     return (data.get("meta") or {}).get("task_hash") or data.get("task_hash") or ""
 
 
+def _result_url(started: dict[str, Any], base: str) -> str:
+    """Where a started task's result is: Snov's own `links.result` when it gives one."""
+    link = (started.get("links") or {}).get("result")
+    if isinstance(link, str) and link.startswith(BASE + "/"):
+        return link
+    return f"{base}/{_task_hash(started)}"
+
+
+def email_start_url(prospect: dict[str, Any]) -> str | None:
+    """The email search for one prospect: Snov's own `search_emails_start` link, else the
+    start URL with the prospect's hash. None when the answer has neither (16 Oct: the live
+    answer had no `prospect_hash`, so the bot called .../search-emails/start/ and got 404)."""
+    link = prospect.get("search_emails_start")
+    if isinstance(link, str) and link.startswith(f"{EMAILS_START}/"):
+        return link
+    prospect_hash = prospect.get("prospect_hash") or prospect.get("hash")
+    return f"{EMAILS_START}/{prospect_hash}" if prospect_hash else None
+
+
 def _poll(deps: ProviderDeps, url: str, auth: dict[str, str]) -> dict[str, Any]:
     for attempt in range(POLLS):
         data = deps.request("GET", url, headers=auth)
@@ -71,7 +90,7 @@ def search(
         auth = {"Authorization": f"Bearer {token(deps)}"}
         start = deps.request("POST", PROSPECTS_START, headers=auth,
                              params=prospects_params(domain, _positions(open_slots, deps)))
-        prospects = _poll(deps, f"{PROSPECTS_RESULT}/{_task_hash(start)}", auth)
+        prospects = _poll(deps, _result_url(start, PROSPECTS_RESULT), auth)
     except http.HttpError as exc:
         if exc.status in (401, 403):
             return ProviderResult(skipped_reason="snov: not available on this plan")
@@ -95,10 +114,14 @@ def search(
         result.notes.append(f"snov: {len(people)} people at {domain}, none fit the open slots"
                             if people else f"snov: no people found at {domain}")
     for prospect in picked:
-        prospect_hash = prospect.get("prospect_hash") or prospect.get("hash") or ""
+        start_url = email_start_url(prospect)
+        if start_url is None:
+            result.notes.append("snov: no email-search link in Snov's answer (fields: "
+                                + ", ".join(sorted(prospect)) + ")")
+            continue
         try:
-            started = deps.request("POST", f"{EMAILS_START}/{prospect_hash}", headers=auth)
-            found = _poll(deps, f"{EMAILS_RESULT}/{_task_hash(started)}", auth)
+            started = deps.request("POST", start_url, headers=auth)
+            found = _poll(deps, _result_url(started, EMAILS_RESULT), auth)
         except http.HttpError as exc:
             result.notes.append(f"snov: email search failed: {exc}")
             continue
@@ -123,5 +146,5 @@ def probe(domain: str, deps: ProviderDeps) -> tuple[int, list[str]]:
     auth = {"Authorization": f"Bearer {token(deps)}"}
     start = deps.request("POST", PROSPECTS_START, headers=auth,
                          params=prospects_params(domain, []))
-    prospects = (_poll(deps, f"{PROSPECTS_RESULT}/{_task_hash(start)}", auth).get("data")) or []
+    prospects = (_poll(deps, _result_url(start, PROSPECTS_RESULT), auth).get("data")) or []
     return len(prospects), sorted({k for p in prospects for k in p})
