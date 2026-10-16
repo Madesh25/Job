@@ -101,7 +101,7 @@ def test_github_fills_the_peer_slots_before_paid_lookups():
             if c.source == "GitHub"] == [
         ("Ewa Sample", "Peer engineer", "GitHub", "public GitHub profile, org vistula-cloud")]
     assert "Peer engineer: Ewa Sample (Site Reliability Engineer, Kubernetes and Terraform) " \
-        "[GitHub]" in result.message
+        "[GitHub, Poland]" in result.message
     assert d.state.get("github_org:vistula cloud") == {"org": "vistula-cloud"}
     written = {v.get("Email"): v for _, v in d.contacts.all_rows()}
     assert written["ewa.sample@vistula.example.com"]["Source"] == "GitHub"
@@ -110,6 +110,7 @@ def test_github_fills_the_peer_slots_before_paid_lookups():
 
 def test_more_slots_country_unverified_and_hr_by_bio():
     d = make(**{finder.GITHUB_SWITCH: "on", "contacts.mix": "peer=3, hiring=1, recruiter=2"})
+    d.s = d.s.model_copy(update={"contacts": {**d.s.contacts, "location": "country_first"}})
     result = find_contacts(d, PL)
     people = {c.name: (c.type, c.notes) for c in result.contacts if c.source == "GitHub"}
     assert people["Tomek Example"] == (

@@ -41,23 +41,47 @@ def _titles(open_slots: Mapping[str, int], deps: ProviderDeps) -> list[str]:
     return [t for key in wanted for t in deps.search_titles.get(key, [])]
 
 
-def search_body(domain: str, titles: list[str]) -> dict[str, Any]:
+LOCATIONS = ("Poland", "Netherlands", "Ireland")  # names as Prospeo's location list has them
+
+
+def _located(body: dict[str, Any], country: str) -> dict[str, Any]:
+    """16 Oct (strict location rule): search only people in the job's country."""
+    if country in LOCATIONS:
+        body["filters"]["person_location_search"] = {"include": [country]}
+    return body
+
+
+def search_body(domain: str, titles: list[str], country: str = "") -> dict[str, Any]:
     filters: dict[str, Any] = {"company": {"websites": {"include": [domain]}}}
     if titles:
         filters["person_job_title"] = {"include": titles, "match_mode": "CONTAINS"}
-    return {"filters": filters, "page": 1}
+    return _located({"filters": filters, "page": 1}, country)
 
 
-def wide_body(domain: str) -> dict[str, Any]:
-    return {"filters": {"company": {"websites": {"include": [domain]}},
-                        "person_seniority": {"include": WIDE_SENIORITY},
-                        "person_department": {"include": WIDE_DEPARTMENTS}},
-            "page": 1}
+def wide_body(domain: str, country: str = "") -> dict[str, Any]:
+    return _located({"filters": {"company": {"websites": {"include": [domain]}},
+                                 "person_seniority": {"include": WIDE_SENIORITY},
+                                 "person_department": {"include": WIDE_DEPARTMENTS}},
+                     "page": 1}, country)
 
 
-def _search(key: str, body: dict[str, Any], deps: ProviderDeps) -> tuple[list[Any], str | None]:
+def _search(key: str, body: dict[str, Any], deps: ProviderDeps,
+            notes: list[str] | None = None) -> tuple[list[Any], str | None]:
     """(results, problem). NO_RESULTS is a normal answer (HTTP 400 from Prospeo, no credit);
-    a problem is any other refusal."""
+    a problem is any other refusal. A refused country filter is tried once without it (the
+    people are still checked by their location afterwards)."""
+    rows, problem = _search_once(key, body, deps)
+    filters = body.get("filters") or {}
+    if problem and "INVALID_FILTERS" in problem and "person_location_search" in filters:
+        if notes is not None:
+            notes.append("prospeo: its country filter was refused, searched without it")
+        rest = {k: v for k, v in filters.items() if k != "person_location_search"}
+        return _search_once(key, {**body, "filters": rest}, deps)
+    return rows, problem
+
+
+def _search_once(key: str, body: dict[str, Any],
+                 deps: ProviderDeps) -> tuple[list[Any], str | None]:
     try:
         found = deps.request("POST", SEARCH, headers=_headers(key), json_body=body)
     except http.HttpError as exc:
@@ -82,10 +106,12 @@ def search(
     key = deps.s.prospeo_api_key
     if not key:
         return ProviderResult(skipped_reason="prospeo: PROSPEO_API_KEY not set")
-    rows, problem = _search(key, search_body(domain, _titles(open_slots, deps)), deps)
+    notes: list[str] = []
+    rows, problem = _search(key, search_body(domain, _titles(open_slots, deps), country), deps,
+                            notes)
     if problem:
-        return ProviderResult(skipped_reason=problem)
-    result = ProviderResult(credits_used=1 if rows else 0)
+        return ProviderResult(skipped_reason=problem, notes=notes)
+    result = ProviderResult(credits_used=1 if rows else 0, notes=notes)
 
     # Pick people per open slot from the (email-less) search results.
     remaining = dict(open_slots)
@@ -100,7 +126,7 @@ def search(
     if any(remaining.get(SLOT_TYPES[k], 0) > 0 for k in ("peer", "hiring")) and \
             deps.credits_left - result.credits_used > 1:
         deps.sleep(ENRICH_PAUSE)
-        rows, problem = _search(key, wide_body(domain), deps)
+        rows, problem = _search(key, wide_body(domain, country), deps, result.notes)
         if problem:
             result.notes.append(f"{problem} (wider search)")
         result.credits_used += 1 if rows else 0

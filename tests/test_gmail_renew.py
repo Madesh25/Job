@@ -5,6 +5,7 @@ import base64
 import hashlib
 import json
 import socket
+import time
 from datetime import date, datetime, timedelta
 from urllib.parse import parse_qs, urlsplit
 
@@ -229,6 +230,12 @@ def test_the_bot_answers_the_page_google_returns_to(monkeypatch, tmp_path):
                                       timeout=5).read().decode()
         assert "<h1>Done</h1>" in page and "&lt;ok&gt;" in page and "close this tab" in page
         assert seen == [f"http://127.0.0.1:8765/?state={q['state']}&code=4/abc"]
+        # The Telegram message is sent by the server thread after the page; on a busy
+        # machine it can come a moment later (16 Oct: a full test run saw [] once).
+        for _ in range(100):
+            if said:
+                break
+            time.sleep(0.05)
         assert said == ["\u2705 Saved the new Gmail token for m02 <ok>"]
     finally:
         gr.stop()

@@ -64,14 +64,22 @@ def usable(row: CachedRow, today: date, months: int, job_id: str | None = None) 
     return isinstance(found, date) and found >= months_before(today, months)
 
 
+def in_country(row: CachedRow, country: str) -> bool:
+    """Saved in the job's country and not marked "country unverified" (before 16 Oct an
+    unknown location was saved as the job's country, with that note)."""
+    return (row.values.get("Country") or "") == country and \
+        "country unverified" not in (row.values.get("Notes") or "")
+
+
 def pick(
     rows: list[CachedRow], mix: Mix, country: str, today: date, months: int,
-    job_id: str | None = None,
+    job_id: str | None = None, strict: bool = False,
 ) -> list[Chosen]:
     """Cached contacts for the mix: people who answered you before first, then the job's
-    country, then the most recent."""
+    country, then the most recent. `strict`: only people in the job's country."""
     slots = mix.slots()
-    fresh = [r for r in rows if usable(r, today, months, job_id)]
+    fresh = [r for r in rows if usable(r, today, months, job_id)
+             and (not strict or in_country(r, country))]
     fresh.sort(key=lambda r: (
         not r.values.get("Replied"),
         (r.values.get("Country") or "") != country,
