@@ -22,6 +22,16 @@ SEARCH = f"{BASE}/api/v1/mixed_people/api_search"
 MATCH = f"{BASE}/api/v1/people/match"
 PER_PAGE = 25
 NOT_ON_PLAN = "apollo: not available on this plan"
+# 16 Oct: a 403 hid Apollo's reason. The search answers 403 both for a key that is not a
+# master key (fixable in Apollo) and for a plan without API search.
+MASTER_KEY_HINT = ("the people search needs a master API key: in Apollo, Settings, "
+                   "Integrations, API, Create new key, tick \"Set as master key\"")
+
+
+def refused(exc: http.HttpError) -> str:
+    """Apollo's own words for a 401/403, plus the master key hint."""
+    detail = str(exc).split(f"HTTP {exc.status}", 1)[-1].strip() or f"HTTP {exc.status}"
+    return f"{NOT_ON_PLAN} or key ({detail}); {MASTER_KEY_HINT}"
 
 
 def _headers(key: str) -> dict[str, str]:
@@ -54,7 +64,7 @@ def search(
                              json_body=search_body(domain, country, _titles(open_slots, deps)))
     except http.HttpError as exc:
         if exc.status in (401, 403):
-            return ProviderResult(skipped_reason=NOT_ON_PLAN)
+            return ProviderResult(skipped_reason=refused(exc))
         return ProviderResult(skipped_reason=f"apollo: {exc}")
 
     # Pick people per open slot from the (email-less) search results.
@@ -76,7 +86,7 @@ def search(
                                             "reveal_phone_number": False})
         except http.HttpError as exc:
             if exc.status in (401, 403):
-                result.skipped_reason = NOT_ON_PLAN
+                result.skipped_reason = refused(exc)
                 break
             result.notes.append(f"apollo: reveal failed: {exc}")
             continue
