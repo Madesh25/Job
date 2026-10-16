@@ -52,7 +52,10 @@ bank titles such as "Vice President" fit no slot. Now, after everyone whose titl
 - **Hunter** addresses marked `invalid` (they bounce) are never used.
 - **Snov** gets at most 10 titles, as query parameters (11 gave HTTP 422).
 - API keys are cleaned of spaces, quotes and Windows line ends when read from `.env`.
-- Apollo's free plan has no API access ("apollo: not available on this plan").
+- Apollo answers HTTP 403 to the people search both for a key that is not a **master key**
+  and for a plan without API search. The bot now shows Apollo's own words plus the hint: in
+  Apollo, Settings, Integrations, API, Create new key, tick "Set as master key" (Apollo's
+  docs say free access also needs an account on a work email address).
 
 ## Second accounts (Apollo, Hunter, Snov, Prospeo)
 

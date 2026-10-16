@@ -69,7 +69,8 @@ def test_the_second_account_takes_over_when_the_first_fails():
     d.request = request
     result = find_contacts(d, PL)
     assert d.calls == ["apollo", "apollo_2"]
-    assert "apollo: not available on this plan (trying the second account)" in result.message
+    assert "apollo: not available on this plan or key (" in result.message
+    assert "Set as master key\" (trying the second account)" in result.message
     assert len(result.contacts) == 4
 
 
