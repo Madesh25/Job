@@ -80,11 +80,17 @@ def safe_url(url: str) -> str:
     return f"{parts.scheme}://{parts.hostname}{path}"
 
 
-def _retry_after(resp: httpx.Response) -> float:
+# Waits for an HTTP 429 without Retry-After (16 Oct: three 1-second waits were too short for
+# Prospeo's free plan).
+RATE_LIMIT_WAITS = (2.0, 5.0, 15.0)
+
+
+def _retry_after(resp: httpx.Response, attempt: int = 0) -> float:
+    fallback = RATE_LIMIT_WAITS[min(attempt, len(RATE_LIMIT_WAITS) - 1)]
     try:
-        return max(0.0, float(resp.headers.get("Retry-After", "1")))
+        return max(0.0, float(resp.headers.get("Retry-After", fallback)))
     except ValueError:
-        return 1.0
+        return fallback
 
 
 def _error_detail(resp: httpx.Response) -> str:
@@ -148,7 +154,7 @@ def _send(
                 _sleep(wait)
                 continue
             if resp.status_code == 429 and attempt < MAX_429_RETRIES:
-                wait = _retry_after(resp)
+                wait = _retry_after(resp, attempt)
                 log.info("%s rate limited, retrying in %.1fs", where, wait)
                 _sleep(wait)
                 attempt += 1

@@ -49,9 +49,19 @@ bank titles such as "Vice President" fit no slot. Now, after everyone whose titl
   Technology departments (1 credit when it finds people). Prospeo's `NO_RESULTS` (HTTP 400)
   is a normal answer and costs nothing; other refusals show their code (`INVALID_FILTERS`
   and the filter).
-- **Hunter** addresses marked `invalid` (they bounce) are never used.
+- **Hunter** addresses marked `invalid` (they bounce) are never used. When slots stay open
+  after its first page, Hunter searches the HR department (for the recruiter) and the next
+  page (for engineers), one credit each, only while credits are left.
+- **Snov** really waits between its result checks (2, 4, 6, 8, 10 seconds); before 16 Oct it
+  asked five times at once and gave up. It now says what it saw ("N people at <domain>, none
+  fit the open slots" or "no people found").
+- **Prospeo** pauses 2 seconds between its searches and the email step, and an HTTP 429
+  without Retry-After is retried after 2, 5 and 15 seconds (it got 429 on 16 Oct).
+- People found by the wider search are marked "wider search" in Telegram.
 - **Snov** gets at most 10 titles, as query parameters (11 gave HTTP 422).
 - API keys are cleaned of spaces, quotes and Windows line ends when read from `.env`.
+- Apollo's free plan answers `API_INACCESSIBLE`: no API people search on that plan, whatever
+  the key (16 Oct). The bot says so; remove `APOLLO_API_KEY` from `.env` to skip Apollo.
 - Apollo answers HTTP 403 to the people search both for a key that is not a **master key**
   and for a plan without API search. The bot now shows Apollo's own words plus the hint: in
   Apollo, Settings, Integrations, API, Create new key, tick "Set as master key" (Apollo's

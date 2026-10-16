@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import logging
 import re
+import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import date
@@ -85,6 +86,9 @@ class ContactDeps:
     today: Callable[[], date] = date.today
     write: bool = True
     calls: list[str] = field(default_factory=list)  # providers searched, in order
+    # Waits between a provider's calls (Snov polls its task; Prospeo's rate limit). Real
+    # lookups wait for real (16 Oct: Snov was polled 5 times at once and never answered).
+    sleep: Callable[[float], None] = lambda seconds: None
 
 
 def fake_deps(
@@ -110,6 +114,7 @@ def real_deps(s: Settings, state: BotState, write: bool = True) -> ContactDeps:
         contacts=contacts_repo_for(s, client), state=state,
         request=lambda provider: real_request(s) if paid_api_allowed(provider, s) else fixture,
         config_writer=lambda config: config_writer_for(s, client, config), write=write,
+        sleep=time.sleep,
     )
 
 
@@ -424,7 +429,7 @@ def _provider_step(deps: ContactDeps, book: CreditBook, name: str, provider: Any
             continue
         if not paid_api_allowed(name, deps.s):
             s = s.model_copy(update=FIXTURE_KEYS)
-        pdeps = ProviderDeps(s=s, request=deps.request(name),
+        pdeps = ProviderDeps(s=s, request=deps.request(name), sleep=deps.sleep,
                              search_titles=deps.s.contacts.get("search_titles") or {},
                              credits_left=left, patterns=patterns)
         deps.calls.append(account)

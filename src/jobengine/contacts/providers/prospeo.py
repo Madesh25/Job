@@ -29,6 +29,7 @@ NOT_ON_PLAN = "prospeo: not available on this plan"
 WIDE_SENIORITY = ["Senior", "Manager", "Head", "Director", "Vice President"]
 WIDE_DEPARTMENTS = ["Engineering & Technical", "Information Technology"]
 WIDE_DEPARTMENT = "engineering"  # what wide_kind gets for these people
+ENRICH_PAUSE = 2.0  # seconds between the searches and the email step (free plan rate limit)
 
 
 def _headers(key: str) -> dict[str, str]:
@@ -98,6 +99,7 @@ def search(
     wide_ids: set[str] = set()
     if any(remaining.get(SLOT_TYPES[k], 0) > 0 for k in ("peer", "hiring")) and \
             deps.credits_left - result.credits_used > 1:
+        deps.sleep(ENRICH_PAUSE)
         rows, problem = _search(key, wide_body(domain), deps)
         if problem:
             result.notes.append(f"{problem} (wider search)")
@@ -116,6 +118,7 @@ def search(
     if not picked:
         return result
 
+    deps.sleep(ENRICH_PAUSE)  # 16 Oct: the enrich right after the searches got HTTP 429
     body = {"data": [{"identifier": p["person_id"], "person_id": p["person_id"]}
                      for p in picked],
             "only_verified_email": True, "enrich_mobile": False}

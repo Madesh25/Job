@@ -31,6 +31,10 @@ MASTER_KEY_HINT = ("the people search needs a master API key: in Apollo, Setting
 def refused(exc: http.HttpError) -> str:
     """Apollo's own words for a 401/403, plus the master key hint."""
     detail = str(exc).split(f"HTTP {exc.status}", 1)[-1].strip() or f"HTTP {exc.status}"
+    if "API_INACCESSIBLE" in detail or "not included" in detail.casefold():
+        # 16 Oct: the free plan answers this; no key can change it.
+        return (f"apollo: your Apollo plan has no API people search ({detail}); only a paid "
+                "plan can search. Remove APOLLO_API_KEY from .env to skip Apollo.")
     return f"{NOT_ON_PLAN} or key ({detail}); {MASTER_KEY_HINT}"
 
 
