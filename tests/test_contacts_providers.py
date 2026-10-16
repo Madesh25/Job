@@ -89,7 +89,15 @@ def test_plan_errors_skip_the_provider():
 
     d = ProviderDeps(s=s, request=forbidden, search_titles=TITLES)
     assert apollo.search("X", DOMAIN, "Poland", {PEER: 1}, d).skipped_reason == (
-        "apollo: not available on this plan")
+        "apollo: not available on this plan or key (HTTP 403); " + apollo.MASTER_KEY_HINT)
+
+    def worded(method, url, **kw):
+        raise http.HttpError("POST api.apollo.io/api/v1/mixed_people/api_search failed: "
+                             "HTTP 403 This endpoint requires a master API key", 403)
+
+    d2 = ProviderDeps(s=s, request=worded, search_titles=TITLES)
+    assert apollo.search("X", DOMAIN, "Poland", {PEER: 1}, d2).skipped_reason.startswith(
+        "apollo: not available on this plan or key (This endpoint requires a master API key)")
     assert hunter.search("X", DOMAIN, "Poland", {PEER: 1}, d).skipped_reason == (
         "hunter: not available on this plan")
 
