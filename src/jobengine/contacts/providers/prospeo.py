@@ -1,12 +1,13 @@
 """Prospeo: a people search at the company domain (one credit per page of up to 25, no
-email), then one bulk enrich of the chosen people (one credit per email found). Never more
-enrichments than open slots or credits left. Free plan: 75 credits a month, API included.
+email), then one enrich call per chosen person (one credit per email found). Never more
+enrichments than open slots or credits left. Free plan: 75 credits a month, API included,
+about one call a second (16 Oct: the bulk call was refused with HTTP 429).
 
 Endpoints as in Prospeo's official MCP server (@prospeo/prospeo-mcp-server): POST
-https://api.prospeo.io/search-person and POST /bulk-enrich-person, API key in the `X-KEY`
+https://api.prospeo.io/search-person and POST /enrich-person, API key in the `X-KEY`
 header. Search results carry `person.person_id`, `current_job_title` and `location`;
-enrichment answers `matched[].person.email` with `email` and `status` (VERIFIED or
-UNVERIFIED). Only verified emails are asked for; mobiles never.
+enrichment answers `person.email` with `email` and `status` (VERIFIED or UNVERIFIED), or
+NO_MATCH (no credit). Only verified emails are asked for; mobiles never.
 """
 
 from __future__ import annotations
@@ -22,14 +23,14 @@ from jobengine.contacts.providers.base import ProviderDeps
 NAME = "Prospeo"
 BASE = "https://api.prospeo.io"
 SEARCH = f"{BASE}/search-person"
-ENRICH = f"{BASE}/bulk-enrich-person"
+ENRICH = f"{BASE}/enrich-person"  # one person per call (free plan)
 NOT_ON_PLAN = "prospeo: not available on this plan"
 # Wider search (16 Oct): when the titles leave slots open, one more search for senior people
 # in the company's engineering and IT departments (values from Prospeo's filter list).
 WIDE_SENIORITY = ["Senior", "Manager", "Head", "Director", "Vice President"]
 WIDE_DEPARTMENTS = ["Engineering & Technical", "Information Technology"]
 WIDE_DEPARTMENT = "engineering"  # what wide_kind gets for these people
-ENRICH_PAUSE = 2.0  # seconds between the searches and the email step (free plan rate limit)
+ENRICH_PAUSE = 1.5  # seconds before each call after the first (free plan: ~1 a second)
 
 
 def _headers(key: str) -> dict[str, str]:
@@ -144,38 +145,37 @@ def search(
     if not picked:
         return result
 
-    deps.sleep(ENRICH_PAUSE)  # 16 Oct: the enrich right after the searches got HTTP 429
-    body = {"data": [{"identifier": p["person_id"], "person_id": p["person_id"]}
-                     for p in picked],
-            "only_verified_email": True, "enrich_mobile": False}
-    try:
-        enriched = deps.request("POST", ENRICH, headers=_headers(key), json_body=body)
-    except http.HttpError as exc:
-        result.notes.append(f"prospeo: enrich failed: {exc}")
-        return result
-    code = _error(enriched)
-    if code:
-        result.notes.append(f"prospeo: enrich failed: {code}")
-        return result
-    matched = enriched.get("matched") or []
-    cost = enriched.get("total_cost")
-    result.credits_used += int(cost) if isinstance(cost, int | float) else len(matched)
-    by_id = {p["person_id"]: p for p in picked}
-    for match in matched:
-        data = match.get("person") or {}
+    # 16 Oct: the bulk email call got HTTP 429 even after 22 seconds; Prospeo's free plan
+    # takes one person per call, about one call a second. So: one /enrich-person per person.
+    for person in picked:
+        deps.sleep(ENRICH_PAUSE)
+        body = {"data": {"person_id": person["person_id"]},
+                "only_verified_email": True, "enrich_mobile": False}
+        try:
+            enriched = deps.request("POST", ENRICH, headers=_headers(key), json_body=body)
+        except http.HttpError as exc:
+            if "NO_MATCH" not in str(exc):  # no verified email for this person: no credit
+                result.notes.append(f"prospeo: enrich failed: {exc}")
+            continue
+        code = _error(enriched)
+        if code:
+            if code != "NO_MATCH":
+                result.notes.append(f"prospeo: enrich failed: {code}")
+            continue
+        data = enriched.get("person") or {}
         mail = data.get("email") or {}
         email = mail.get("email") or ""
         if not email:
             continue
-        searched = by_id.get(match.get("identifier") or data.get("person_id")) or {}
-        name = data.get("full_name") or searched.get("full_name") or " ".join(
+        result.credits_used += 1
+        name = data.get("full_name") or person.get("full_name") or " ".join(
             p for p in (data.get("first_name"), data.get("last_name")) if p) or email
-        where = (data.get("location") or searched.get("location") or {}).get("country")
+        where = (data.get("location") or person.get("location") or {}).get("country")
         result.candidates.append(Candidate(
             name=name, first_name=data.get("first_name") or name.split(" ")[0],
-            title=data.get("current_job_title") or searched.get("current_job_title") or "",
+            title=data.get("current_job_title") or person.get("current_job_title") or "",
             email=email, country=where or None, provider_verified=mail.get("status") == "VERIFIED",
-            source=NAME, country_unverified=not where, person_id=searched.get("person_id"),
-            department=WIDE_DEPARTMENT if searched.get("person_id") in wide_ids else None,
+            source=NAME, country_unverified=not where, person_id=person.get("person_id"),
+            department=WIDE_DEPARTMENT if person.get("person_id") in wide_ids else None,
         ))
     return result

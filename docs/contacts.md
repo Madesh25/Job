@@ -76,8 +76,15 @@ bank titles such as "Vice President" fit no slot. Now, after everyone whose titl
   fit the open slots" or "no people found"). The email search uses Snov's own
   `search_emails_start` and `links.result` addresses; a prospect without one is named with
   the fields Snov sent, and no call is made (16 Oct: an empty id gave HTTP 404).
-- **Prospeo** pauses 2 seconds between its searches and the email step, and an HTTP 429
-  without Retry-After is retried after 2, 5 and 15 seconds (it got 429 on 16 Oct).
+- **Prospeo** asks for emails one person per call (`/enrich-person`), 1.5 seconds apart: its
+  free plan refused the bulk call with HTTP 429 even after 22 seconds of waiting (16 Oct).
+  `NO_MATCH` (no verified email) is quiet and costs nothing. An HTTP 429 without
+  Retry-After is retried after 2, 5 and 15 seconds.
+- **Hunter** sends its country filter as a POST with every filter in the JSON body; when its
+  answer does not confirm the filter, the note lists what it answered with. Its free plan
+  stops at 10 people per search ("no next page").
+- **Snov** people get their country from `country`, or from a place field (`locality`,
+  `location`); without one, the note lists the fields Snov sent.
 - People found by the wider search are marked "wider search" in Telegram.
 - **Snov** gets at most 10 titles, as query parameters (11 gave HTTP 422).
 - API keys are cleaned of spaces, quotes and Windows line ends when read from `.env`.

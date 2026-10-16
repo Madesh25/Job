@@ -101,10 +101,10 @@ def test_prospeo_no_results_as_http_400_is_normal_and_the_wider_search_runs():
                                     "full_name": "Vera Lead"}},
                         {"person": {"person_id": "p-sales",
                                     "current_job_title": "Sales Director"}}]}
-    enriched = {"matched": [{"identifier": "p-vp", "person": {
+    enriched = {"person": {
         "person_id": "p-vp", "full_name": "Vera Lead", "first_name": "Vera",
         "email": {"email": "vera.lead@statestreet.com", "status": "VERIFIED"},
-        "location": {"country": "Ireland"}}}], "total_cost": 1}
+        "location": {"country": "Ireland"}}}
     request, calls = answers(no_results, wide, enriched)
     deps, _ = pdeps(request=request)
     result = prospeo.search("State Street", "statestreet.com", "Ireland",
@@ -113,7 +113,7 @@ def test_prospeo_no_results_as_http_400_is_normal_and_the_wider_search_runs():
     assert calls[1][1]["filters"]["person_seniority"] == {"include": prospeo.WIDE_SENIORITY}
     assert calls[1][1]["filters"]["person_department"] == {
         "include": ["Engineering & Technical", "Information Technology"]}
-    assert calls[2][1]["data"] == [{"identifier": "p-vp", "person_id": "p-vp"}]  # not sales
+    assert calls[2][1]["data"] == {"person_id": "p-vp"}  # one call, and not the sales one
     assert result.credits_used == 2  # the wider page and one email; NO_RESULTS is free
     (vera,) = result.candidates
     assert (vera.email, vera.department, wide_kind(vera.title, vera.department)) == (
@@ -163,7 +163,7 @@ def test_hunter_asks_hr_and_the_next_page_when_slots_stay_open():
     queries = []
 
     def request(method, url, **kwargs):
-        queries.append(kwargs["params"])
+        queries.append(kwargs.get("json_body") or kwargs["params"])  # filters in the body
         return (first, hr, page2)[len(queries) - 1]
 
     deps, _ = pdeps(s=settings(HUNTER_API_KEY="h"), request=request)
@@ -328,7 +328,9 @@ def test_hunter_country_filter_counts_only_when_hunter_confirms_it():
 
     deps, _ = pdeps(s=settings(HUNTER_API_KEY="h"), request=request)
     result = hunter.search("HCL", "hcl.com", "Netherlands", {PEER: 1}, deps)
-    assert calls[0] == ("POST", {"location": {"include": [{"country": "NL"}]}})
+    assert calls[0] == ("POST", {"domain": "hcl.com", "type": "personal",
+                                 "department": hunter.DEPARTMENTS, "limit": hunter.LIMIT,
+                                 "location": {"include": [{"country": "NL"}]}})
     (nl,) = result.candidates
     assert (nl.country, nl.country_unverified) == ("Netherlands", False)
 
@@ -351,3 +353,38 @@ def test_prospeo_searches_the_country_and_retries_without_a_refused_filter():
     assert "person_location_search" in calls[0][1]["filters"]
     assert "person_location_search" not in calls[1][1]["filters"]
     assert "prospeo: its country filter was refused, searched without it" in result.notes
+
+
+# ---------------------------------------------------------------- 16 Oct, fifth real run
+
+
+def test_hunter_free_plan_page_limit_is_a_short_note():
+    from jobengine.contacts.providers import hunter
+
+    first = hunter_page(*[(f"p{n}@s.com", "Analyst", "finance") for n in range(10)])
+    limited = http.HttpError('POST api.hunter.io/v2/domain-search failed: HTTP 400 [{"id": '
+                             '"pagination_error", "code": 400}]', 400)
+    request, _ = answers(first, hunter_page(), limited)
+    deps, _ = pdeps(s=settings(HUNTER_API_KEY="h"), request=request)
+    result = hunter.search("S", "s.com", "Ireland", {PEER: 1, RECRUITER: 1}, deps)
+    assert "hunter: your plan shows only 10 people per search, no next page" in result.notes
+    assert result.notes[0].startswith("hunter: its answer did not confirm the Ireland filter "
+                                      "(it answered with: nothing)")
+
+
+def test_snov_reads_a_place_field_and_names_its_fields_when_none():
+    assert snov.prospect_country({"country": "Ireland"}) == "Ireland"
+    assert snov.prospect_country({"locality": "Dublin, Ireland"}) == "Ireland"
+    assert snov.prospect_country({"location": "Amsterdam, North Holland, Netherlands"}) == \
+        "Netherlands"
+    assert snov.prospect_country({"first_name": "A"}) is None
+
+
+def test_prospeo_no_match_is_quiet_and_costs_nothing():
+    rows = {"results": [{"person": {"person_id": "p1", "current_job_title": "DevOps Engineer"}}]}
+    no_match = http.HttpError("POST api.prospeo.io/enrich-person failed: HTTP 400 NO_MATCH", 400)
+    request, calls = answers(rows, no_match)
+    deps, _ = pdeps(request=request)
+    result = prospeo.search("S", "s.com", "Ireland", {PEER: 1}, deps)
+    assert [url for url, _ in calls] == [prospeo.SEARCH, prospeo.ENRICH]
+    assert (result.credits_used, result.candidates, result.notes) == (1, [], [])

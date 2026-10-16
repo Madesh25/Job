@@ -88,18 +88,20 @@ def test_prospeo_search_then_reveal_only_open_slots():
     deps, _ = pdeps(request=request)
     result = prospeo.search("Vistula Cloud", DOMAIN, "Poland",
                             {"Peer engineer": 1, "Hiring": 1}, deps)
-    (search_url, search_body, headers), (enrich_url, enrich_body, _) = bodies
+    (search_url, search_body, headers), *enrich = bodies
     assert search_url == "https://api.prospeo.io/search-person"
     assert headers["X-KEY"] == "p-key"
     assert search_body["filters"]["company"] == {"websites": {"include": [DOMAIN]}}
     assert search_body["filters"]["person_job_title"]["match_mode"] == "CONTAINS"
     assert "Engineering Manager" in search_body["filters"]["person_job_title"]["include"]
-    assert enrich_url == "https://api.prospeo.io/bulk-enrich-person"
+    # 16 Oct: one person per email call (the free plan refused the bulk call with HTTP 429).
     # The office manager fills no slot, so only two people are revealed; verified only.
-    assert enrich_body == {"data": [{"identifier": "prs-1", "person_id": "prs-1"},
-                                    {"identifier": "prs-2", "person_id": "prs-2"}],
-                           "only_verified_email": True, "enrich_mobile": False}
-    assert result.credits_used == 3  # 1 search page + total_cost 2
+    assert [(url, body) for url, body, _ in enrich] == [
+        ("https://api.prospeo.io/enrich-person", {"data": {"person_id": pid},
+                                                  "only_verified_email": True,
+                                                  "enrich_mobile": False})
+        for pid in ("prs-1", "prs-2")]
+    assert result.credits_used == 3  # 1 search page + 2 emails
     assert [(c.name, c.email, c.country, c.provider_verified, c.source)
             for c in result.candidates] == [
         ("Ewa Example", "ewa.example@vistula.example.com", "Poland", True, "Prospeo"),
@@ -116,7 +118,7 @@ def test_prospeo_never_reveals_more_than_the_credits_left():
 
     deps, _ = pdeps(request=request, credits_left=2)  # 1 for the search, 1 reveal
     prospeo.search("V", DOMAIN, "Poland", {"Peer engineer": 1, "Hiring": 1}, deps)
-    assert len(bodies[1]["data"]) == 1
+    assert len(bodies) == 2  # the search and one email call
     deps, _ = pdeps(credits_left=1)  # only the search fits: no reveal
     result = prospeo.search("V", DOMAIN, "Poland", {"Peer engineer": 1}, deps)
     assert result.credits_used == 1 and result.candidates == []

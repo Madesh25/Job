@@ -1,9 +1,7 @@
 {
-  "error": false,
-  "total_cost": 2,
-  "matched": [
-    {
-      "identifier": "prs-1",
+  "by_key": {
+    "prs-1": {
+      "error": false,
       "free_enrichment": false,
       "person": {
         "person_id": "prs-1",
@@ -11,12 +9,20 @@
         "last_name": "Example",
         "full_name": "Ewa Example",
         "current_job_title": "Platform Engineer",
-        "email": {"status": "VERIFIED", "revealed": true, "email": "ewa.example@vistula.example.com"},
-        "location": {"city": "Krakow", "country": "Poland", "country_code": "PL"}
+        "email": {
+          "status": "VERIFIED",
+          "revealed": true,
+          "email": "ewa.example@vistula.example.com"
+        },
+        "location": {
+          "city": "Krakow",
+          "country": "Poland",
+          "country_code": "PL"
+        }
       }
     },
-    {
-      "identifier": "prs-2",
+    "prs-2": {
+      "error": false,
       "free_enrichment": false,
       "person": {
         "person_id": "prs-2",
@@ -24,11 +30,17 @@
         "last_name": "Sample",
         "full_name": "Piotr Sample",
         "current_job_title": "Engineering Manager, Infrastructure",
-        "email": {"status": "VERIFIED", "revealed": true, "email": "piotr.sample@vistula.example.com"},
-        "location": {"city": "Warsaw", "country": "Poland", "country_code": "PL"}
+        "email": {
+          "status": "VERIFIED",
+          "revealed": true,
+          "email": "piotr.sample@vistula.example.com"
+        },
+        "location": {
+          "city": "Warsaw",
+          "country": "Poland",
+          "country_code": "PL"
+        }
       }
     }
-  ],
-  "not_matched": [],
-  "invalid_datapoints": []
+  }
 }
