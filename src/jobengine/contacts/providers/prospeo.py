@@ -15,7 +15,7 @@ from collections.abc import Mapping
 from typing import Any
 
 from jobengine import http
-from jobengine.contacts.classify import classify_title
+from jobengine.contacts.classify import classify_title, wide_kind
 from jobengine.contacts.models import SLOT_TYPES, Candidate, ProviderResult
 from jobengine.contacts.providers.base import ProviderDeps
 
@@ -24,6 +24,11 @@ BASE = "https://api.prospeo.io"
 SEARCH = f"{BASE}/search-person"
 ENRICH = f"{BASE}/bulk-enrich-person"
 NOT_ON_PLAN = "prospeo: not available on this plan"
+# Wider search (16 Oct): when the titles leave slots open, one more search for senior people
+# in the company's engineering and IT departments (values from Prospeo's filter list).
+WIDE_SENIORITY = ["Senior", "Manager", "Head", "Director", "Vice President"]
+WIDE_DEPARTMENTS = ["Engineering & Technical", "Information Technology"]
+WIDE_DEPARTMENT = "engineering"  # what wide_kind gets for these people
 
 
 def _headers(key: str) -> dict[str, str]:
@@ -42,6 +47,30 @@ def search_body(domain: str, titles: list[str]) -> dict[str, Any]:
     return {"filters": filters, "page": 1}
 
 
+def wide_body(domain: str) -> dict[str, Any]:
+    return {"filters": {"company": {"websites": {"include": [domain]}},
+                        "person_seniority": {"include": WIDE_SENIORITY},
+                        "person_department": {"include": WIDE_DEPARTMENTS}},
+            "page": 1}
+
+
+def _search(key: str, body: dict[str, Any], deps: ProviderDeps) -> tuple[list[Any], str | None]:
+    """(results, problem). NO_RESULTS is a normal answer (HTTP 400 from Prospeo, no credit);
+    a problem is any other refusal."""
+    try:
+        found = deps.request("POST", SEARCH, headers=_headers(key), json_body=body)
+    except http.HttpError as exc:
+        if exc.status in (401, 403):
+            return [], NOT_ON_PLAN
+        if "NO_RESULTS" in str(exc):
+            return [], None
+        return [], f"prospeo: {exc}"
+    code = _error(found)
+    if code:
+        return [], None if code == "NO_RESULTS" else f"prospeo: {code}"
+    return list(found.get("results") or []), None
+
+
 def _error(answer: Mapping[str, Any]) -> str | None:
     return str(answer.get("error_code") or "error") if answer.get("error") else None
 
@@ -52,29 +81,36 @@ def search(
     key = deps.s.prospeo_api_key
     if not key:
         return ProviderResult(skipped_reason="prospeo: PROSPEO_API_KEY not set")
-    try:
-        found = deps.request("POST", SEARCH, headers=_headers(key),
-                             json_body=search_body(domain, _titles(open_slots, deps)))
-    except http.HttpError as exc:
-        if exc.status in (401, 403):
-            return ProviderResult(skipped_reason=NOT_ON_PLAN)
-        return ProviderResult(skipped_reason=f"prospeo: {exc}")
-    code = _error(found)
-    if code:
-        # NO_RESULTS is a normal answer (nothing at this domain) and costs nothing.
-        note = None if code == "NO_RESULTS" else f"prospeo: {code}"
-        return ProviderResult(skipped_reason=note)
-    result = ProviderResult(credits_used=1)
+    rows, problem = _search(key, search_body(domain, _titles(open_slots, deps)), deps)
+    if problem:
+        return ProviderResult(skipped_reason=problem)
+    result = ProviderResult(credits_used=1 if rows else 0)
 
     # Pick people per open slot from the (email-less) search results.
     remaining = dict(open_slots)
     picked: list[dict[str, Any]] = []
-    for row in found.get("results") or []:
+    for row in rows:
         person = row.get("person") or {}
         kind = classify_title(person.get("current_job_title"), deps.patterns)
         if person.get("person_id") and remaining.get(kind, 0) > 0:
             picked.append(person)
             remaining[kind] -= 1
+    wide_ids: set[str] = set()
+    if any(remaining.get(SLOT_TYPES[k], 0) > 0 for k in ("peer", "hiring")) and \
+            deps.credits_left - result.credits_used > 1:
+        rows, problem = _search(key, wide_body(domain), deps)
+        if problem:
+            result.notes.append(f"{problem} (wider search)")
+        result.credits_used += 1 if rows else 0
+        known = {p["person_id"] for p in picked}
+        for row in rows:
+            person = row.get("person") or {}
+            kind = wide_kind(person.get("current_job_title"), WIDE_DEPARTMENT)
+            pid = person.get("person_id")
+            if pid and pid not in known and remaining.get(kind, 0) > 0:
+                picked.append(person)
+                wide_ids.add(pid)
+                remaining[kind] -= 1
     room = max(0, min(sum(open_slots.values()), deps.credits_left - result.credits_used))
     picked = picked[:room]
     if not picked:
@@ -111,5 +147,6 @@ def search(
             title=data.get("current_job_title") or searched.get("current_job_title") or "",
             email=email, country=where or None, provider_verified=mail.get("status") == "VERIFIED",
             source=NAME, country_unverified=not where, person_id=searched.get("person_id"),
+            department=WIDE_DEPARTMENT if searched.get("person_id") in wide_ids else None,
         ))
     return result
