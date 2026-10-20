@@ -18,7 +18,7 @@ from jobengine.llm import LLMClient
 from jobengine.reference import OWNED_LEVELS, Reference
 from jobengine.resume.models import MasterResume, Plan, PlanRow
 
-STAGE = "tailor"
+STAGE = "resume"  # Config model.resume, else model.tailor
 MAX_TOKENS = 4000
 
 SYSTEM_PROMPT = """You tailor a one-page DevOps resume to one job. Return one JSON object only.

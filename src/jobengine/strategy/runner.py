@@ -421,7 +421,7 @@ def fake_deps(s: Settings, write: bool = True, state: BotState | None = None,
 
 
 def real_deps(s: Settings, state: BotState, write: bool = True) -> StrategyDeps:
-    from jobengine.llm import AnthropicLLM
+    from jobengine.llm import make_llm
     from jobengine.notion_repo import (
         NotionClient,
         config_writer_for,
@@ -454,7 +454,7 @@ def real_deps(s: Settings, state: BotState, write: bool = True) -> StrategyDeps:
     ind_deps = ind_refresh.real_deps(s, write=write)
     deps = StrategyDeps(
         s=s, config=lambda: ConfigStore.load(client, s), repo=repo, existing=existing,
-        state=state, llm=lambda config: AnthropicLLM(s, config) if llm_allowed(s) else None,
+        state=state, llm=lambda config: make_llm(s, config) if llm_allowed(s) else None,
         v16_blocks=lambda: fetch_blocks(client, s.notion_pages.get("v16_spec", "")),
         stamp_config=stamp_config if s.app_env == "prod" else None, write=write,
         ind=lambda: ind_refresh.refresh(ind_deps).text(),

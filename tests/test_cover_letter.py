@@ -36,7 +36,7 @@ def test_letter_from_the_resume_and_the_job():
     letter = write(llm)
     assert letter.text.startswith("Dear Hiring Team,") and EM not in letter.text
     stage, key, user = llm.calls[0]
-    assert stage == "tailor" and key == "cover-job1"
+    assert stage == "cover" and key == "cover-job1"
     assert "RESUME:\n" + RESUME in user and "COMPANY DETAILS: platform team" in user
     assert cover.block(letter).startswith("Cover letter (paste it if the form asks")
 

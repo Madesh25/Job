@@ -66,13 +66,13 @@ The weekly digest has a line with the month's Claude API cost so far, what it we
 pace for the whole month and last month's total, for example:
 
 ```
-Claude API in October so far: about $1.50 in 214 calls (screening and replies $0.90, resumes $0.60); on pace for about $4.65 this month. Last month: about $3.10.
+AI in October so far: about $1.50 in 214 calls (screening $0.90, resumes $0.60); on pace for about $4.65 this month. Last month: about $3.10.
 ```
 
 Every LLM call adds its estimated cost (the same prices as the "AI used" lines, half price for
 batches, web searches at $10 per 1,000) to Bot State `llm.cost_month`
 (`src/jobengine/track/costs.py`). A new month starts from zero. It is an estimate from the
-token counts: the Anthropic console has the exact bill.
+token counts: the Anthropic console (and Google's, for Gemini) has the exact bill.
 
 ## Instant reply ping
 

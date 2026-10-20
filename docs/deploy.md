@@ -125,6 +125,7 @@ or `gcloud secrets versions add NAME --data-file=-` for a new value). Names are 
 | `PROSPEO_API_KEY`, `TOMBA_API_KEY`, `TOMBA_API_SECRET` (optional) | not mounted | `prospeo-api-key`, `tomba-api-key`, `tomba-api-secret` |
 | `APOLLO_API_KEY_2`, `HUNTER_API_KEY_2`, `SNOV_CLIENT_ID_2`, `SNOV_CLIENT_SECRET_2`, `PROSPEO_API_KEY_2` (optional second accounts) | not mounted | `apollo-api-key-2`, `hunter-api-key-2`, `snov-client-id-2`, `snov-client-secret-2`, `prospeo-api-key-2` |
 | `LUSHA_API_KEY` (optional) | not mounted | `lusha-api-key` |
+| `GEMINI_API_KEY` (optional, docs/ai-models.md) | not mounted | `gemini-api-key` |
 
 Optional secrets are mounted only when they exist: the deploy checks each name and logs
 "Mounting optional secret ..." or "... not found: skipped". Create one, give the runtime

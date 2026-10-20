@@ -3,6 +3,11 @@
 The model for a stage comes from Config `model.<stage>` and goes through
 safety.resolve_model, so local and dev always use haiku. Prompts are never logged (they hold
 the job description and profile data); only stage, model and token counts are.
+
+make_llm gives the bot its client: a `claude-...` model goes to Anthropic, a `gemini-...`
+model to Google (GEMINI_API_KEY). A Gemini call that fails is answered by Haiku, so a
+Google outage or a wrong key never stops the bot. Web search and the half-price batch stay
+on Claude.
 """
 
 from __future__ import annotations
@@ -21,8 +26,15 @@ from jobengine.settings import ROOT_DIR, Settings
 
 log = logging.getLogger("jobengine.llm")
 
-STAGES = ("fetch", "score", "tailor", "email", "strategy")
+STAGES = ("fetch", "score", "tailor", "email", "strategy", "resume", "cover", "prep", "reply")
+# A stage without its own Config row uses its parent's model: before 20 Oct resumes, cover
+# letters and interview prep all used model.tailor.
+STAGE_PARENT = {"resume": "tailor", "cover": "tailor", "prep": "tailor"}
+# FakeLLM fixtures of the newer stages stay in the folder they had before (reply sorting
+# used the "score" stage).
+FIXTURE_DIR = {**STAGE_PARENT, "reply": "score"}
 DEFAULT_MODEL = "claude-haiku-4-5"
+GEMINI_PREFIX = "gemini-"
 FIXTURES = ROOT_DIR / "fixtures" / "llm"
 RETRY_INSTRUCTION = "Return only valid JSON: a single JSON object, no prose, no code fences."
 # Newer models reject sampling parameters (temperature, top_p) with a 400.
@@ -40,6 +52,12 @@ PRICES_PER_MTOK = {
     "claude-sonnet-5-5": (2.0, 10.0),
     "claude-opus-5": (5.0, 25.0),
     "claude-opus-5-5": (4.0, 20.0),
+    # Google's paid tier (20 Oct 2026). Thinking tokens are billed as output. 3.8 Flash costs
+    # 0.75 / 3.75 until 31 Dec 2026; the price from 1 Jan 2027 is used so the total is
+    # never too low.
+    "gemini-3.5-flash-lite": (0.30, 2.50),
+    "gemini-3.1-flash-lite": (0.25, 1.50),
+    "gemini-3.8-flash": (1.50, 7.50),
 }
 CACHE_READ_FACTOR = 0.1
 CACHE_WRITE_FACTOR = 1.25
@@ -56,6 +74,7 @@ class Usage:
     cache_read: int = 0
     cost: float = 0.0
     unpriced: set[str] = field(default_factory=set)  # models missing from PRICES_PER_MTOK
+    fallbacks: int = 0  # Gemini calls that failed and were answered by Haiku
 
     def add(self, model: str, usage: Any, factor: float = 1.0) -> float:
         """Count one call; returns its estimated cost in dollars (0 when unpriced)."""
@@ -89,6 +108,9 @@ class Usage:
                 f"about ${self.cost:.4f}")
         if self.unpriced:
             text += f" (no price for {', '.join(sorted(self.unpriced))})"
+        if self.fallbacks:
+            text += (f"; Gemini failed {self.fallbacks} time{'s' if self.fallbacks != 1 else ''}"
+                     f", {DEFAULT_MODEL} answered")
         return text
 
 
@@ -190,11 +212,31 @@ def _check_stage(stage: str) -> None:
         raise LLMError(f"unknown LLM stage {stage!r}; allowed: {', '.join(STAGES)}")
 
 
+def model_setting(stage: str, config: ConfigStore) -> str:
+    """The Config value for a stage: model.<stage>, else its parent's, else haiku."""
+    parent = STAGE_PARENT.get(stage)
+    raw = config.get(f"model.{stage}") or (config.get(f"model.{parent}") if parent else None)
+    return str(raw or DEFAULT_MODEL).strip() or DEFAULT_MODEL
+
+
 def model_for(stage: str, config: ConfigStore, s: Settings) -> str:
     """Config model.<stage> (first word only, e.g. "claude-sonnet-5 + web search"),
     then safety.resolve_model, which forces haiku outside prod."""
-    raw = config.get(f"model.{stage}") or DEFAULT_MODEL
-    return resolve_model(raw.split()[0], s)
+    return resolve_model(model_setting(stage, config).split()[0], s)
+
+
+def thinking_for(stage: str, config: ConfigStore) -> str | None:
+    """Gemini's thinking level from the Config value, e.g. "gemini-3.8-flash thinking:low";
+    None keeps the model's own default."""
+    for word in model_setting(stage, config).split()[1:]:
+        name, _, value = word.partition(":")
+        if name.lower() == "thinking" and value:
+            return value.lower()
+    return None
+
+
+def is_gemini(model: str) -> bool:
+    return model.startswith(GEMINI_PREFIX)
 
 
 def supports_temperature(model: str) -> bool:
@@ -264,10 +306,11 @@ class AnthropicLLM:
 
     def complete_json(
         self, stage: str, system: str, user: str, *, max_tokens: int = 2000,
-        key: str | None = None,
+        key: str | None = None, model: str | None = None,
     ) -> dict[str, Any]:
+        """`model` overrides Config (the Haiku fallback and the comparison use it)."""
         _check_stage(stage)
-        model = model_for(stage, self.config, self.s)
+        model = model or model_for(stage, self.config, self.s)
         messages: list[dict[str, Any]] = [{"role": "user", "content": user}]
         kwargs: dict[str, Any] = {
             "model": model,
@@ -323,11 +366,12 @@ class AnthropicLLM:
 
     def submit_batch(
         self, stage: str, system: str, items: list[tuple[str, str]], *, max_tokens: int = 2000,
+        model: str | None = None,
     ) -> str:
         """Send (key, user prompt) pairs as one batch; the key comes back with each answer.
         Returns the batch ID. Keys: letters, digits, - and _, at most 64 characters."""
         _check_stage(stage)
-        model = model_for(stage, self.config, self.s)
+        model = model or model_for(stage, self.config, self.s)
         requests = []
         for key, user in items:
             params: dict[str, Any] = {
@@ -376,14 +420,14 @@ class AnthropicLLM:
 
     def complete_json_with_search(
         self, stage: str, system: str, user: str, *, max_tokens: int = 4000,
-        max_uses: int = 8, key: str | None = None,
+        max_uses: int = 8, key: str | None = None, model: str | None = None,
     ) -> tuple[dict[str, Any], list[str]]:
         """complete_json with the web search tool enabled (at most `max_uses` searches).
         Returns the JSON object and the URLs the searches returned."""
         _check_stage(stage)
         if stage not in SEARCH_STAGES:
             raise LLMError(f"web search is not allowed for stage {stage}")
-        model = model_for(stage, self.config, self.s)
+        model = model or model_for(stage, self.config, self.s)
         kwargs: dict[str, Any] = {
             "model": model,
             "max_tokens": max_tokens,
@@ -426,6 +470,171 @@ class AnthropicLLM:
         raise LLMError(f"LLM {stage} research did not finish")
 
 
+GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+# Gemini counts its thinking inside maxOutputTokens: without room a short answer (the mail
+# detail pick allows 50 tokens) would be cut off. Only the tokens used are billed.
+THINKING_ROOM = 2000
+GEMINI_TIMEOUT = 120.0  # seconds: a resume plan takes longer than an API lookup
+GEMINI_DECLINED = ("SAFETY", "PROHIBITED_CONTENT", "BLOCKLIST", "SPII", "RECITATION")
+
+
+@dataclass
+class GeminiUsage:
+    """Gemini's usageMetadata in the field names Usage.add reads."""
+
+    input_tokens: int
+    output_tokens: int
+    cache_read_input_tokens: int
+
+
+def gemini_usage(meta: Any) -> GeminiUsage:
+    def count(name: str) -> int:
+        value = meta.get(name) if isinstance(meta, dict) else None
+        return value if isinstance(value, int) else 0
+
+    cached = count("cachedContentTokenCount")  # part of promptTokenCount, billed at a tenth
+    return GeminiUsage(input_tokens=max(0, count("promptTokenCount") - cached),
+                       output_tokens=count("candidatesTokenCount") + count("thoughtsTokenCount"),
+                       cache_read_input_tokens=cached)
+
+
+class GeminiLLM:
+    """Google's Gemini API (generateContent, JSON mode) through jobengine.http, so the host
+    must be on safety.allowed_hosts and a 429 waits and tries again."""
+
+    def __init__(self, s: Settings, usage: Usage | None = None):
+        if not s.gemini_api_key:
+            raise LLMError("GEMINI_API_KEY is not set")
+        self.s = s
+        self.usage = usage if usage is not None else Usage()
+
+    def _post(self, model: str, body: dict[str, Any]) -> dict[str, Any]:
+        from jobengine import http
+
+        try:
+            data = http.post_json(GEMINI_URL.format(model=model), json=body, s=self.s,
+                                  headers={"x-goog-api-key": self.s.gemini_api_key or ""},
+                                  timeout=GEMINI_TIMEOUT)
+        except http.HttpError as exc:
+            log.warning("gemini call refused: %s", exc)
+            raise LLMError(f"Gemini call failed: {exc}") from None
+        return data if isinstance(data, dict) else {}
+
+    def complete_json(
+        self, stage: str, system: str, user: str, *, model: str, max_tokens: int = 2000,
+        thinking: str | None = None,
+    ) -> dict[str, Any]:
+        _check_stage(stage)
+        contents: list[dict[str, Any]] = [{"role": "user", "parts": [{"text": user}]}]
+        config: dict[str, Any] = {"maxOutputTokens": max_tokens + THINKING_ROOM,
+                                  "responseMimeType": "application/json"}
+        if thinking:
+            config["thinkingConfig"] = {"thinkingLevel": thinking}
+        for attempt in (1, 2):
+            data = self._post(model, {"systemInstruction": {"parts": [{"text": system}]},
+                                      "contents": contents, "generationConfig": config})
+            meta = data.get("usageMetadata") or {}
+            record_cost(stage, self.usage.add(model, gemini_usage(meta)))
+            log.info("llm stage=%s model=%s input_tokens=%s output_tokens=%s thinking=%s",
+                     stage, model, meta.get("promptTokenCount"),
+                     meta.get("candidatesTokenCount"), meta.get("thoughtsTokenCount"))
+            blocked = (data.get("promptFeedback") or {}).get("blockReason")
+            candidates = data.get("candidates") or [{}]
+            first = candidates[0] if isinstance(candidates[0], dict) else {}
+            if blocked or first.get("finishReason") in GEMINI_DECLINED:
+                raise LLMError(f"Gemini declined the {stage} request")
+            parts = (first.get("content") or {}).get("parts") or []
+            text = "".join(str(part.get("text") or "") for part in parts
+                           if isinstance(part, dict) and not part.get("thought"))
+            try:
+                return parse_json_object(text)
+            except ValueError:
+                if attempt == 2:
+                    raise LLMError(f"Gemini reply for {stage} was not valid JSON twice") from None
+                contents = [*contents, {"role": "model", "parts": [{"text": text or "(empty)"}]},
+                            {"role": "user", "parts": [{"text": RETRY_INSTRUCTION}]}]
+        raise LLMError("unreachable")  # pragma: no cover
+
+
+class ModelRouter:
+    """The bot's LLM client: each stage goes to the provider of its Config model.
+
+    claude-... -> Anthropic; gemini-... -> Google, and if that call fails (an error, a wrong
+    key, broken JSON twice) the same request goes to Haiku. Web search (/update) and the
+    half-price batch exist only on Claude: a Gemini model there is replaced by Haiku."""
+
+    def __init__(self, s: Settings, config: ConfigStore, claude: Any = None,
+                 gemini: Any = None):
+        self.s = s
+        self.config = config
+        self.claude = claude if claude is not None else AnthropicLLM(s, config)
+        self.usage: Usage = self.claude.usage
+        self._gemini = gemini
+
+    def _fallback(self) -> str:
+        return resolve_model(DEFAULT_MODEL, self.s)
+
+    def gemini(self) -> GeminiLLM:
+        if self._gemini is None:
+            self._gemini = GeminiLLM(self.s, self.usage)
+        return self._gemini
+
+    def complete_json(
+        self, stage: str, system: str, user: str, *, max_tokens: int = 2000,
+        key: str | None = None,
+    ) -> dict[str, Any]:
+        model = model_for(stage, self.config, self.s)
+        if not is_gemini(model):
+            return self.claude.complete_json(stage, system, user, max_tokens=max_tokens,
+                                             key=key, model=model)
+        try:
+            return self.gemini().complete_json(stage, system, user, model=model,
+                                               max_tokens=max_tokens,
+                                               thinking=thinking_for(stage, self.config))
+        except LLMError as exc:
+            self.usage.fallbacks += 1
+            log.warning("gemini %s failed, %s answers instead: %s", stage, self._fallback(),
+                        exc)
+            return self.claude.complete_json(stage, system, user, max_tokens=max_tokens,
+                                             key=key, model=self._fallback())
+
+    def complete_json_with_search(
+        self, stage: str, system: str, user: str, *, max_tokens: int = 4000,
+        max_uses: int = 8, key: str | None = None,
+    ) -> tuple[dict[str, Any], list[str]]:
+        model = model_for(stage, self.config, self.s)
+        if is_gemini(model):
+            # Gemini's search gives hidden redirect links, so the source check of /update
+            # could not verify any tip.
+            log.info("web search runs on %s, not %s", self._fallback(), model)
+            model = self._fallback()
+        return self.claude.complete_json_with_search(stage, system, user,
+                                                     max_tokens=max_tokens, max_uses=max_uses,
+                                                     key=key, model=model)
+
+    def batch_ok(self, stage: str) -> bool:
+        """False when the stage runs on Gemini: screen/batch.py then screens at once."""
+        return not is_gemini(model_for(stage, self.config, self.s))
+
+    def submit_batch(
+        self, stage: str, system: str, items: list[tuple[str, str]], *, max_tokens: int = 2000,
+    ) -> str:
+        if not self.batch_ok(stage):
+            raise LLMError("the half-price batch needs a Claude model")
+        return self.claude.submit_batch(stage, system, items, max_tokens=max_tokens)
+
+    def batch_status(self, batch_id: str) -> BatchStatus:
+        return self.claude.batch_status(batch_id)
+
+    def batch_results(self, batch_id: str, stage: str) -> dict[str, dict[str, Any] | str]:
+        return self.claude.batch_results(batch_id, stage)
+
+
+def make_llm(s: Settings, config: ConfigStore) -> ModelRouter:
+    """The client every part of the bot uses (needs ANTHROPIC_API_KEY, as before)."""
+    return ModelRouter(s, config)
+
+
 class FakeLLM:
     """Returns fixtures/llm/<stage>/<key>.json and records every call."""
 
@@ -446,7 +655,7 @@ class FakeLLM:
         self.calls.append({"stage": stage, "key": key, "system": system, "user": user})
         if not key:
             raise LLMError(f"FakeLLM needs a fixture key for stage {stage}")
-        path = self.base / stage / f"{key}.json"
+        path = self.base / FIXTURE_DIR.get(stage, stage) / f"{key}.json"
         if not path.exists() and self.default is not None:
             return json.loads(json.dumps(self.default))
         if not path.exists():

@@ -25,7 +25,7 @@ from jobengine.apply import facts as facts_mod
 
 log = logging.getLogger("jobengine.apply")
 
-STAGE = "tailor"
+STAGE = "cover"  # Config model.cover, else model.tailor
 MIN_WORDS, MAX_WORDS = 110, 220
 MAX_TOKENS = 700
 SYSTEM_PROMPT = """You write a short cover letter for a job application.

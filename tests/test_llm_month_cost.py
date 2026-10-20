@@ -66,14 +66,14 @@ def test_new_month_starts_from_zero_and_keeps_last_month():
 
 def test_month_line():
     state = FakeBotState()
-    assert costs.month_line(state, OCT) == "Claude API in October: nothing used yet."
+    assert costs.month_line(state, OCT) == "AI in October: nothing used yet."
     costs.record(state, date(2026, 9, 20), "score", 3.1)
     for stage, dollars in (("score", 0.9), ("tailor", 0.6), ("email", 0.001)):
         costs.record(state, OCT, stage, dollars)
     assert costs.month_line(state, OCT) == (
-        "Claude API in October so far: about $1.50 in 3 calls (screening and replies $0.90, "
+        "AI in October so far: about $1.50 in 3 calls (screening $0.90, "
         "resumes $0.60); on pace for about $4.65 this month. Last month: about $3.10. "
-        "(Estimate from token counts; the Anthropic console has the exact bill.)")
+        "(Estimate from token counts; the Anthropic and Google consoles have the exact bill.)")
 
 
 def test_threads_do_not_lose_calls():
@@ -92,5 +92,5 @@ def test_the_weekly_digest_has_the_line():
     d.track.state.set(costs.KEY, {"month": "2026-10", "total": 1.234, "calls": 12,
                                   "stages": {"score": 1.234}, "last": None})
     text = d.digest_command()[0].text
-    assert "Claude API in October so far: about $1.23 in 12 calls (screening and replies " \
+    assert "AI in October so far: about $1.23 in 12 calls (screening " \
         "$1.23)" in text

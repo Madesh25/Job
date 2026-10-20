@@ -162,7 +162,7 @@ def test_summary():
 # ---------------------------------------------------------------- plan
 
 
-def test_make_plan_uses_tailor_stage_and_no_contacts(tmp_path):
+def test_make_plan_uses_resume_stage_and_no_contacts(tmp_path):
     (tmp_path / "tailor").mkdir()
     plan = (TAILOR / "plan_valid.json").read_text(encoding="utf-8")
     (tmp_path / "tailor" / "p1-r1.json").write_text(plan, encoding="utf-8")
@@ -170,7 +170,7 @@ def test_make_plan_uses_tailor_stage_and_no_contacts(tmp_path):
     p = make_plan(llm, M, JOB, REF, key="p1-r1")
     assert p.priority.bullet_edits[0] == "j0b0"
     call = llm.calls[0]
-    assert call["stage"] == "tailor" and call["system"] == SYSTEM_PROMPT
+    assert call["stage"] == "resume" and call["system"] == SYSTEM_PROMPT
     assert "alex@example.com" not in call["user"] and "555" not in call["user"]
     assert "Argo CD (Hands-on)" in call["user"]
     assert "EKS, Amazon EKS (Term Map: truthfully Kubernetes on AWS)" in call["user"]
