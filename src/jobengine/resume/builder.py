@@ -21,7 +21,7 @@ from typing import Any
 from jobengine import http
 from jobengine.config_store import ConfigStore
 from jobengine.drive_client import Drive, DriveError, FakeDrive, GoogleDrive
-from jobengine.llm import AnthropicLLM, FakeLLM, LLMClient, LLMError
+from jobengine.llm import FakeLLM, LLMClient, LLMError, make_llm
 from jobengine.notion_repo import (
     FakeJobsRepo,
     FakeResumeLogRepo,
@@ -191,7 +191,7 @@ def real_deps(s: Settings, write: bool = True) -> ResumeDeps:
         resume_log=resume_log_for(s, client),
         blocks=lambda: fetch_blocks(client, page),
         sections=lambda: load_rows(client, s),
-        llm=lambda config: AnthropicLLM(s, config),
+        llm=lambda config: make_llm(s, config),
         drive=lambda: GoogleDrive.from_settings(s),
         write=write,
         tips=lambda: load_tips(s, client),

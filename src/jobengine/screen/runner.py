@@ -14,7 +14,7 @@ from jobengine import http
 from jobengine.bot_state import BotState, FakeBotState, bot_state_for
 from jobengine.config_store import ConfigStore
 from jobengine.ind_register import IndRegister, load_register
-from jobengine.llm import AnthropicLLM, FakeLLM, LLMAuthError, LLMClient, LLMError
+from jobengine.llm import FakeLLM, LLMAuthError, LLMClient, LLMError, make_llm
 from jobengine.notion_repo import (
     FakeJobsRepo,
     JobsRepo,
@@ -114,7 +114,7 @@ def real_deps(s: Settings, write: bool = True) -> ScreenDeps:
         config=lambda: ConfigStore.load(client, s),
         reference=lambda: Reference.load(client, s),
         repo=jobs_repo_for(s, client),
-        llm=lambda config: AnthropicLLM(s, config),
+        llm=lambda config: make_llm(s, config),
         get_text=lambda url: http.get_text(url, s=s),
         write=write,
         state=bot_state_for(s, client),

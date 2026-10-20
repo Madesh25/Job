@@ -33,6 +33,7 @@ from jobengine.screen.runner import (
     _start,
     _usage_line,
     job_row,
+    screen_pending,
     unscreened_rows,
 )
 from jobengine.settings import Settings
@@ -42,6 +43,8 @@ log = logging.getLogger("jobengine.screen")
 STATE_KEY = BATCH_STATE_KEY
 COLLECT_HINT = " Send /screen collect to save the results."
 NO_BATCH = "No batch is waiting. /screen batch sends the Unscreened jobs at half price."
+NO_GEMINI_BATCH = ("Screening runs on Gemini (Config model.score), which has no half-price "
+                   "batch here: the jobs were screened now instead.")
 
 
 def waiting_rows(deps: ScreenDeps) -> set[str]:
@@ -82,6 +85,11 @@ def submit(s: Settings, deps: ScreenDeps, today: date, limit: int | None = None)
         summary.errors.append(f"Today's screening limit is reached ({used} screened).")
         return summary
     run = _start(s, deps, today)
+    if not getattr(run.llm, "batch_ok", lambda _stage: True)(SCORE_STAGE):
+        # Gemini has no batch here; at its normal price it is cheaper than Haiku's batch.
+        summary = screen_pending(s, deps, today, limit=limit)
+        summary.errors.insert(0, NO_GEMINI_BATCH)
+        return summary
     llm = _batch_llm(run.llm)
     rows = unscreened_rows(deps, today)
     workers = max(1, int(s.screening.get("workers", 4)))

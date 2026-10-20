@@ -47,6 +47,8 @@ safety:
     - api.lusha.com
     # Google OAuth token exchange when a Gmail token is renewed in Telegram (gmail_renew.py)
     - oauth2.googleapis.com
+    # Gemini, only when a Config model.<stage> names a gemini-... model (llm.py)
+    - generativelanguage.googleapis.com
   # Any subdomain of these (Workday boards are <tenant>.<wdN>.myworkdayjobs.com).
   allowed_host_suffixes:
     - myworkdayjobs.com

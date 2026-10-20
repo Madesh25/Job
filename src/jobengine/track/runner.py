@@ -770,7 +770,7 @@ def fake_deps(s: Settings, write: bool = True, jobs: JobsRepo | None = None,
 
 def real_deps(s: Settings, state: BotState, write: bool = True) -> TrackDeps:
     from jobengine.gmail_client import GmailClient, refresh_error
-    from jobengine.llm import AnthropicLLM
+    from jobengine.llm import make_llm
     from jobengine.mail.templates import load_templates
     from jobengine.notion_repo import NotionClient, contacts_repo_for, jobs_repo_for
     from jobengine.safety import llm_allowed
@@ -797,6 +797,6 @@ def real_deps(s: Settings, state: BotState, write: bool = True) -> TrackDeps:
         contacts=contacts_repo_for(s, client), state=state,
         gmail=lambda: GmailClient.from_settings(s), reference=lambda: Reference.load(client, s),
         templates=lambda: load_templates(client, page),
-        llm=lambda config: AnthropicLLM(s, config) if llm_allowed(s) else None,
+        llm=lambda config: make_llm(s, config) if llm_allowed(s) else None,
         token_check=token_check, write=write,
     )

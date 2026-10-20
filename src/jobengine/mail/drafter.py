@@ -439,7 +439,7 @@ def fake_deps(
 def real_deps(s: Settings, write: bool = True) -> MailDeps:
     from jobengine.drive_client import GoogleDrive
     from jobengine.gmail_client import GmailClient
-    from jobengine.llm import AnthropicLLM
+    from jobengine.llm import make_llm
     from jobengine.mail.templates import load_templates
     from jobengine.notion_repo import (
         NotionClient,
@@ -458,5 +458,5 @@ def real_deps(s: Settings, write: bool = True) -> MailDeps:
         contacts=contacts_repo_for(s, client), resume_log=resume_log_for(s, client),
         templates=lambda: load_templates(client, page),
         gmail=lambda: GmailClient.from_settings(s), drive=lambda: GoogleDrive.from_settings(s),
-        llm=lambda config: AnthropicLLM(s, config) if llm_allowed(s) else None, write=write,
+        llm=lambda config: make_llm(s, config) if llm_allowed(s) else None, write=write,
     )

@@ -105,7 +105,11 @@ def _error_detail(resp: httpx.Response) -> str:
         # the bot showed only "True").
         parts = [body.get("error_code"), body.get("filter_error") or body.get("message")]
         return " ".join(str(p) for p in parts if p)[:300]
-    detail = body.get("message") or body.get("error") or body.get("description") or ""
+    error = body.get("error")
+    if isinstance(error, dict) and error.get("message"):
+        # Google: {"error": {"code": 400, "status": "INVALID_ARGUMENT", "message": "..."}}
+        return " ".join(str(p) for p in (error.get("status"), error.get("message")) if p)[:300]
+    detail = body.get("message") or error or body.get("description") or ""
     errors = body.get("errors")
     if errors:  # Snov 422: which field was refused
         detail = f"{detail} {json.dumps(errors, ensure_ascii=False)}".strip()
@@ -121,6 +125,7 @@ def _send(
     json: Any = None,
     s: Settings | None = None,
     data: Mapping[str, str] | None = None,
+    timeout: float = TIMEOUT_SECONDS,
 ) -> tuple[str, httpx.Response]:
     """Send one request. HTTP 429 is retried up to MAX_429_RETRIES times (Retry-After);
     network hiccups up to twice (NETWORK_WAITS), see the comment on NETWORK_WAITS."""
@@ -128,7 +133,7 @@ def _send(
     assert_fetch_allowed(url, s)
     where = f"{method} {safe_url(url)}"
     network_tries = 0
-    with httpx.Client(transport=_transport, timeout=TIMEOUT_SECONDS) as client:
+    with httpx.Client(transport=_transport, timeout=timeout) as client:
         attempt = 0
         while attempt <= MAX_429_RETRIES:
             log.debug("%s", where)
@@ -175,12 +180,14 @@ def request_json(
     headers: Mapping[str, str] | None = None,
     json: Any = None,
     s: Settings | None = None,
+    timeout: float = TIMEOUT_SECONDS,
 ) -> Any:
     """Send one request and return the decoded JSON body.
 
     HTTP 429 is retried up to MAX_429_RETRIES times, waiting for Retry-After.
     """
-    where, resp = _send(method, url, params=params, headers=headers, json=json, s=s)
+    where, resp = _send(method, url, params=params, headers=headers, json=json, s=s,
+                        timeout=timeout)
     try:
         return resp.json()
     except ValueError:
@@ -225,8 +232,10 @@ def post_json(
     params: Mapping[str, Any] | list[tuple[str, Any]] | None = None,
     headers: Mapping[str, str] | None = None,
     s: Settings | None = None,
+    timeout: float = TIMEOUT_SECONDS,
 ) -> Any:
-    return request_json("POST", url, params=params, headers=headers, json=json, s=s)
+    return request_json("POST", url, params=params, headers=headers, json=json, s=s,
+                        timeout=timeout)
 
 
 def post_form(url: str, data: Mapping[str, str], s: Settings | None = None) -> Any:

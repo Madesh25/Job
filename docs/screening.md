@@ -96,7 +96,9 @@ as one at a time; only the wait is shorter. `screening.workers: 1` screens one a
   from `PRICES_PER_MTOK` in `src/jobengine/llm.py` (cache reads at a tenth of the input
   price). Web searches (`/update`) are billed on top and are not in that figure.
 - Resumes use Haiku too (Config `model.tailor` = `claude-haiku-4-5`; local and dev always
-  use Haiku).
+  use Haiku). Each AI job can use its own model, Gemini included: see docs/ai-models.md.
+  When `model.score` is a Gemini model, `/screen batch` and /autopilot screen at once
+  instead of sending a batch (the batch exists only on Claude).
 
 ## Half-price batch
 

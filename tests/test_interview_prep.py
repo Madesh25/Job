@@ -35,7 +35,7 @@ def test_questions_are_checked_and_failures_are_notes():
     qs = interview.questions(llm, company="Acme", role="SRE", jd="Kubernetes, Azure",
                              resume_text="EKS, Terraform", gaps=["Azure"], key="abc")
     assert qs.items == [("Why us , and why now?", interview.HONEST)]
-    assert llm.calls[0][:2] == ("tailor", "prep-abc") and "GAPS: Azure" in llm.calls[0][2]
+    assert llm.calls[0][:2] == ("prep", "prep-abc") and "GAPS: Azure" in llm.calls[0][2]
     failed = interview.questions(Llm(error=LLMError("down")), company="A", role="B", jd="x",
                                  resume_text="y", gaps=[], key="k")
     assert failed.items == [] and failed.note == "the AI call failed (LLMError)"

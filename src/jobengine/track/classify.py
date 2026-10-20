@@ -33,7 +33,7 @@ def strip_quoted(text: str, limit: int = MAX_CHARS) -> str:
 
 # ---------------------------------------------------------------- classification
 
-STAGE = "score"
+STAGE = "reply"  # Config model.reply, else haiku (not model.score)
 MAX_TOKENS = 300
 AUTO_SUBJECTS = ("automatic reply", "out of office", "autosvar", "auto:", "autoreply",
                  "odpowiedz automatyczna", "automatische antwoord")

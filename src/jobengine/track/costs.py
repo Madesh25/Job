@@ -18,8 +18,9 @@ from jobengine.bot_state import BotState
 
 KEY = "llm.cost_month"  # bot_state: {"month", "total", "calls", "stages", "last"}
 # LLM stage -> what it is in the digest ("score" is screening and reading replies).
-STAGE_NAMES = {"score": "screening and replies", "tailor": "resumes", "email": "mails",
-               "strategy": "strategy research", "fetch": "job pages"}
+STAGE_NAMES = {"score": "screening", "reply": "replies", "tailor": "resumes",
+               "resume": "resumes", "cover": "cover letters", "prep": "interview prep",
+               "email": "mails", "strategy": "strategy research", "fetch": "job pages"}
 _lock = threading.Lock()  # screening runs calls on several threads
 
 
@@ -52,16 +53,21 @@ def month_line(state: BotState, today: date) -> str:
     value = state.get(KEY) or {}
     name = today.strftime("%B")
     if value.get("month") != _month(today) or not value.get("calls"):
-        return f"Claude API in {name}: nothing used yet."
+        return f"AI in {name}: nothing used yet."
     total = float(value.get("total") or 0.0)
     days = calendar.monthrange(today.year, today.month)[1]
     pace = total / max(1, today.day) * days
-    stages = sorted((value.get("stages") or {}).items(), key=lambda kv: -kv[1])
-    split = ", ".join(f"{STAGE_NAMES.get(k, k)} ${v:.2f}" for k, v in stages if v >= 0.005)
-    text = (f"Claude API in {name} so far: about ${total:.2f} in {value['calls']} calls"
+    named: dict[str, float] = {}  # "tailor" (before 20 Oct) and "resume" are both resumes
+    for stage, dollars in (value.get("stages") or {}).items():
+        name_ = STAGE_NAMES.get(stage, stage)
+        named[name_] = named.get(name_, 0.0) + float(dollars or 0.0)
+    stages = sorted(named.items(), key=lambda kv: -kv[1])
+    split = ", ".join(f"{k} ${v:.2f}" for k, v in stages if v >= 0.005)
+    text = (f"AI in {name} so far: about ${total:.2f} in {value['calls']} calls"
             + (f" ({split})" if split else "")
             + f"; on pace for about ${pace:.2f} this month.")
     last = value.get("last") or {}
     if last.get("month"):
         text += f" Last month: about ${float(last.get('total') or 0):.2f}."
-    return text + " (Estimate from token counts; the Anthropic console has the exact bill.)"
+    return text + (" (Estimate from token counts; the Anthropic and Google consoles have the "
+                   "exact bill.)")

@@ -41,7 +41,7 @@ def test_llm_class_and_what_it_sees():
     result = classify(last("t-piotr"), llm)
     assert (result.kind, result.confidence) == (INTERVIEW, 0.93)
     user = llm.calls[0]["user"]
-    assert llm.calls[0]["stage"] == "score"
+    assert llm.calls[0]["stage"] == "reply"
     assert "Sender domain: vistula.example.com" in user
     assert "wrote:" not in user and "invented cold mail text" not in user  # quote stripped
     assert "piotr.example@" not in user  # no address, only the domain

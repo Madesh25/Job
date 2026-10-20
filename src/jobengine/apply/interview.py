@@ -24,7 +24,7 @@ from jobengine.apply import facts as facts_mod
 
 log = logging.getLogger("jobengine.apply")
 
-STAGE = "tailor"
+STAGE = "prep"  # Config model.prep, else model.tailor
 MAX_TOKENS = 1500
 MAX_QUESTIONS = 8
 MAX_DETAILS = 4
