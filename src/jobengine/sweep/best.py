@@ -1,7 +1,7 @@
 """Today's best new jobs, for screening (your decision of 30 Sep).
 
 /fetch saves every job that passes the rules. Its free match score (sweep/rank.py) is kept
-here, per page, for today, so /screen takes the best ones first (screening.daily_limit, 30):
+here, per page, for today, so /screen takes the best ones first (screening.daily_limit, 50):
 they are today's /pending list. The other new rows stay Unscreened in Notion, never lost.
 Bot State only: no Notion column is needed.
 """

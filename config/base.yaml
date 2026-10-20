@@ -77,7 +77,8 @@ screening:
   full_min_chars: 600
   # At most this many jobs go to the LLM per day (all runs together; newest posting first).
   # Rows without a description do not count. /screen <url> and /jd always run and count.
-  daily_limit: 30
+  # 20 Oct: 30 -> 50 (your decision; on DeepSeek about $0.17 a month more, on Haiku $1.85).
+  daily_limit: 50
   # /jd collects pasted messages for this long before the capture is discarded.
   jd_capture_minutes: 20
   # /autopilot approves at most this many Apply high and Apply normal jobs a day (best first);
@@ -368,7 +369,7 @@ sweep:
   # At most this many NEW jobs are saved per day (all sweeps together); 0 = no limit.
   # Your decision of 30 Sep: every job that passes the rules is saved (none is lost to a
   # daily limit). New postings are ranked by a free match score (sweep/rank.py, no LLM) and
-  # screening takes the best screening.daily_limit (30) first: today's /pending list.
+  # screening takes the best screening.daily_limit (50) first: today's /pending list.
   daily_new_limit: 0
   # Remote jobs open in one of these regions ("Remote, EU") are kept as Country Other,
   # City Remote. Remote jobs that name only other countries are still left out.
@@ -680,9 +681,11 @@ sweep:
   fulltext:
     enabled: true
     # Jobs read beyond today's room (daily_new_limit minus jobs already added), so a job whose
-    # full text matches better can still move into the best 30.
+    # full text matches better can still move into the best 50.
     lookahead: 15
-    max_pages: 45
+    # 20 Oct: 45 -> 65 with the screening limit of 50, so the best 50 (plus the lookahead)
+    # are read before ranking.
+    max_pages: 65
     # Jobs about to be saved whose page the rounds above never reached are read too (at most
     # this many), so no saved job is left without a description (Pracuj.pl alerts, 7 Oct).
     saved_max_pages: 30

@@ -116,7 +116,7 @@ by the strategy gate.
 4. **Normalise and scope.** Title filters, country and city, seniority, years required.
 5. **Dedupe and write.** Update the rows already in Notion. Every new job that passes the
    rules is created (`sweep.daily_new_limit: 0`), ranked by a free match score; screening
-   takes the best 30 first. See "Every job saved, the best 30 screened" below. Before the cut, the full description of the jobs near the top
+   takes the best 50 first. See "Every job saved, the best 50 screened" below. Before the cut, the full description of the jobs near the top
    is read from the job page ("Full descriptions" below).
 6. **Ghost risk** for every row touched.
 7. **Summary**, for example:
@@ -257,7 +257,7 @@ spend its places (or tokens) on jobs it would skip anyway:
 
 Snippets rarely state these, so the sweep reads the job pages in rounds from the top of the
 list: after each round the jobs that do not fit drop out and the next ones are read, until
-30 fitting jobs (plus the lookahead) are found or `sweep.fulltext.max_pages` pages were read.
+50 fitting jobs (plus the lookahead) are found or `sweep.fulltext.max_pages` pages were read.
 The checks only fire on clear wording; anything unclear is left for the AI screening.
 
 `Years required` is a text column that shows the experience as posted: `2-3 years`,
@@ -353,7 +353,7 @@ The page reader (`http.get_page`) is separate from the API client:
 - redirects are followed by hand, at most 5, and every hop is checked again
 - LinkedIn is never read, not even when a redirect points there
 - only HTML or text answers, at most 3 MB
-- only for jobs that may be saved today, at most `sweep.fulltext.max_pages` (45) per sweep
+- only for jobs that may be saved today, at most `sweep.fulltext.max_pages` (65 since 20 Oct) per sweep
 - email alert links (tracking links) are followed to the real job page, whose link replaces
   the tracking link; LinkedIn links never. Rows already in Notion are not re-read.
 
@@ -538,14 +538,14 @@ Lever, SmartRecruiters, Workday and amazon.jobs responses, job and careers pages
 Opportunities rows (a repost, a posting seen again, and an old row that becomes High ghost
 risk). All companies are invented and all email addresses are at `example.com`.
 
-## Every job saved, the best 30 screened
+## Every job saved, the best 50 screened
 
 Your decision of 30 Sep: no job that passes the rules is lost to a daily limit. Every new
 job that passes the title, place, age and fit rules is saved in Notion
 (`sweep.daily_new_limit: 0`; a number above 0 brings back a daily cap, counted across all
 sweeps that day in Bot State key `sweep.day`). Each saved job's match score is kept in Bot
 State `sweep.best_today`, and `/screen` (and `/screen batch`) takes today's best-scored rows
-first, up to `screening.daily_limit` (30): they are today's `/pending` list. The other new
+first, up to `screening.daily_limit` (50 since 20 Oct): they are today's `/pending` list. The other new
 rows stay Unscreened in Notion, visible in the Today view, and are never dropped.
 
 Rules of 30 Sep that decide what "passes":
