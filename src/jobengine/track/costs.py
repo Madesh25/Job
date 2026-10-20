@@ -20,7 +20,8 @@ KEY = "llm.cost_month"  # bot_state: {"month", "total", "calls", "stages", "last
 # LLM stage -> what it is in the digest ("score" is screening and reading replies).
 STAGE_NAMES = {"score": "screening", "reply": "replies", "tailor": "resumes",
                "resume": "resumes", "cover": "cover letters", "prep": "interview prep",
-               "email": "mails", "strategy": "strategy research", "fetch": "job pages"}
+               "email": "mails", "strategy": "strategy research", "fetch": "job pages",
+               "people": "contact search"}
 _lock = threading.Lock()  # screening runs calls on several threads
 
 

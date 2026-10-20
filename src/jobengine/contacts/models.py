@@ -24,6 +24,7 @@ class Candidate:
     country_unverified: bool = False
     person_id: str | None = None  # provider id, for a later reveal
     department: str | None = None  # the provider's department ("it", "hr"), when it says
+    found_on: str | None = None  # AI web search: the public page that names the person
 
 
 @dataclass

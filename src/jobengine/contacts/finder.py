@@ -17,6 +17,7 @@ from jobengine.bot_state import BotState, FakeBotState
 from jobengine.config_store import ConfigStore
 from jobengine.contacts import cache as contact_cache
 from jobengine.contacts import jd_emails
+from jobengine.contacts import web_search as ai_search
 from jobengine.contacts.classify import (
     PERSONAL_DOMAINS,
     classify_title,
@@ -90,23 +91,43 @@ class ContactDeps:
     # Waits between a provider's calls (Snov polls its task; Prospeo's rate limit). Real
     # lookups wait for real (16 Oct: Snov was polled 5 times at once and never answered).
     sleep: Callable[[float], None] = lambda seconds: None
+    # AI web search (Config contacts.ai_search = on): the LLM client with web search, and how
+    # a public page is read to check a name on it.
+    llm: Callable[[ConfigStore], Any] = lambda config: None
+    read_page: Callable[[str], str] = lambda url: ""
 
 
 def fake_deps(
     s: Settings, jobs: JobsRepo | None = None, state: BotState | None = None, write: bool = True,
 ) -> ContactDeps:
+    import json
+
+    from jobengine.llm import FakeLLM
+
     fixture = FixtureHttp(s)
+    pages = json.loads((FIXTURES / "web_pages.json").read_text(encoding="utf-8"))
+
+    def read_page(url: str) -> str:
+        if url not in pages:
+            raise http.HttpError(f"GET {http.safe_url(url)} failed: HTTP 404", 404)
+        return pages[url]
+
     return ContactDeps(
         s=s, config=ConfigStore.fake, reference=Reference.fake,
         jobs=jobs or FakeJobsRepo.from_fixture(FIXTURES / "job_opportunities_seed.json"),
         contacts=FakeContactsRepo.from_fixture(FIXTURES / "contacts_seed.json"),
         state=state or FakeBotState(), request=lambda provider: fixture, write=write,
+        llm=lambda config: FakeLLM(), read_page=read_page,
     )
 
 
 def real_deps(s: Settings, state: BotState, write: bool = True) -> ContactDeps:
     if not s.notion_token:
         raise ValueError("contact finder cannot run: NOTION_TOKEN missing")
+    from jobengine.llm import make_llm
+    from jobengine.safety import llm_allowed
+    from jobengine.sweep.fulltext import blocked_hosts
+
     client = NotionClient(s.notion_token, s)
     fixture = FixtureHttp(s)
     return ContactDeps(
@@ -116,6 +137,8 @@ def real_deps(s: Settings, state: BotState, write: bool = True) -> ContactDeps:
         request=lambda provider: real_request(s) if paid_api_allowed(provider, s) else fixture,
         config_writer=lambda config: config_writer_for(s, client, config), write=write,
         sleep=time.sleep,
+        llm=lambda config: make_llm(s, config) if llm_allowed(s) else None,
+        read_page=lambda url: http.get_page(url, s, blocked=blocked_hosts(s))[1],
     )
 
 
@@ -402,6 +425,9 @@ def find_contacts(deps: ContactDeps, job_id: str, paid: bool = True) -> Contacts
         if unplaced and open_slots() and strict_location(deps.s, country):
             _confirm_step(deps, book, unplaced, company, domain, country, result, chosen, seen,
                           by_email, open_slots, patterns, personal)
+        if open_slots() and (config.get(ai_search.SWITCH) or "").strip().lower() == "on":
+            _ai_step(deps, config, book, company, domain, country, result, chosen, seen,
+                     by_email, open_slots, patterns, personal)
         if deps.calls and not paid_api_allowed("apollo", deps.s):
             # 16 Oct: "No contacts found" for every real company hid that no provider was asked.
             result.notes.append(f"Contact lookups: {contact_lookups(deps.s)}.")
@@ -534,6 +560,60 @@ def _confirm_step(deps: ContactDeps, book: CreditBook, unplaced: list[Candidate]
         if not picked.cached:
             picked.notes = "; ".join(p for p in (picked.notes, "location from Prospeo") if p)
         chosen.append(picked)
+
+
+def _ai_step(deps: ContactDeps, config: ConfigStore, book: CreditBook, company: str,
+             domain: str, country: str, result: ContactsResult, chosen: list[Chosen],
+             seen: set[str], by_email: dict[str, tuple[str, dict[str, Any]]],
+             open_slots: Callable[[], dict[str, int]], patterns: Any, personal: Any) -> None:
+    """20 Oct: the AI searches the company's public pages for people in the country; Hunter
+    or Prospeo give their email (contacts/web_search.py). Only with real look-ups: test data
+    would put invented addresses next to real names."""
+    from jobengine.sweep.fulltext import blocked_hosts
+
+    live = {n: paid_api_allowed(n, deps.s) for n in ("hunter", "prospeo")}
+    if not any(live.values()):
+        result.notes.append("AI search: off while contact look-ups use test data")
+        return
+    llm = deps.llm(config)
+    if llm is None:
+        result.notes.append("AI search: no AI key here")
+        return
+
+    def provider(name: str) -> ProviderDeps | None:
+        if not live[name] or book.counters.get(name) is None or book.available(name) <= 0:
+            return None
+        return ProviderDeps(s=deps.s, request=deps.request(name), sleep=deps.sleep,
+                            search_titles={}, patterns=patterns)
+
+    hunter_deps, prospeo_deps = provider("hunter"), provider("prospeo")
+    if hunter_deps is None and prospeo_deps is None:
+        result.notes.append("AI search: skipped, no Hunter or Prospeo credits left to find "
+                            "the emails")
+        return
+    lookups = min(ai_search.MAX_LOOKUPS, sum(open_slots().values()) + 2)
+    deps.calls.append("ai search")
+    found, spent = ai_search.search(llm, company, domain, country, open_slots(),
+                                    deps.read_page, hunter_deps, prospeo_deps,
+                                    blocked=blocked_hosts(deps.s), lookups=lookups)
+    for name, credits in spent.items():
+        book.spend(name, credits)
+    if found.skipped_reason:
+        result.notes.append(found.skipped_reason)
+    result.notes.extend(found.notes)
+    left_out: list[Candidate] = []
+    for candidate, kind, note in fill_slots(found.candidates, open_slots(), country, domain,
+                                            seen, patterns, personal,
+                                            strict=strict_location(deps.s, country),
+                                            left_out=left_out):
+        picked = _chosen(candidate, kind, note, by_email, country)
+        if not picked.cached:
+            picked.notes = "; ".join(p for p in (
+                picked.notes, f"found by AI web search on {candidate.found_on}") if p)
+        chosen.append(picked)
+    note = _left_out_note(left_out, country)
+    if note:
+        result.notes.append(f"AI search: {note}")
 
 
 GITHUB_SWITCH = "contacts.github"  # Notion Config: "on" reads the company's GitHub org first
