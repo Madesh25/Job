@@ -13,7 +13,7 @@ from jobengine.bot_state import BotState
 from jobengine.settings import Settings
 
 KEY = "screen.day"
-DEFAULT_DAILY_LIMIT = 30
+DEFAULT_DAILY_LIMIT = 50
 
 
 def daily_limit(s: Settings) -> int:

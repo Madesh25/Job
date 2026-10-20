@@ -23,7 +23,7 @@ python -m jobengine.screen --row https://jobs.example.com/123
 
 ## Daily limit
 
-At most `screening.daily_limit` jobs (30, in `config/base.yaml`) go to the LLM per day,
+At most `screening.daily_limit` jobs (50 since 20 Oct, 30 before; in `config/base.yaml`) go to the LLM per day,
 counting every run that day together (CLI, `/fetch`, `/screen`, the daily job). The newest
 postings go first; the rest stay `Unscreened` and are picked up by the next day's runs.
 
