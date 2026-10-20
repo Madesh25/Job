@@ -238,6 +238,17 @@ def post_json(
                         timeout=timeout)
 
 
+def redirect_location(url: str, s: Settings | None = None) -> str | None:
+    """Where a redirect link points, without opening that address (Google's grounding links
+    in /update). None when the answer is not a redirect."""
+    where, resp = _send("GET", url, s=s)
+    if resp.status_code not in (301, 302, 303, 307, 308):
+        log.info("%s: no redirect (HTTP %s)", where, resp.status_code)
+        return None
+    target = resp.headers.get("location") or ""
+    return urljoin(url, target) if target else None
+
+
 def post_form(url: str, data: Mapping[str, str], s: Settings | None = None) -> Any:
     """POST a form (application/x-www-form-urlencoded) and return the JSON answer: the
     Google OAuth token exchange (gmail_renew.py)."""

@@ -505,7 +505,7 @@ class Desk:
                 return [self.country_menu()]
             self.choose_country(None if arg == "all" else arg)
             return self.pending(0)
-        if action in ("ra", "rb", "rq", "ia", "na", "nr", "fg", "fc") and arg:
+        if action in ("ra", "rb", "cl", "rq", "ia", "na", "nr", "fg", "fc") and arg:
             return self.resume_tap(action, arg)
         if action in ("rc", "lk", "rd") and arg:
             return self.track_tap(action, data)
@@ -600,14 +600,17 @@ class Desk:
 
     def on_job_approved(
         self, page_id: str, values: dict[str, Any], *, correction: str | None = None,
-        force: bool = False, force_terms: list[str] | None = None,
+        force: bool = False, force_terms: list[str] | None = None, claude: bool = False,
     ) -> list[Reply]:
-        """Build (or show) the resume for an approved job."""
+        """Build (or show) the resume for an approved job. `claude`: the "Rebuild with
+        Claude" button (the resume model is Gemini)."""
         if self.resume is None:
             return [Reply(NO_RESUME)]
-        self.say(Reply(f"Building resume for {values.get('Company')}..."))
+        who = " with Claude" if claude else ""
+        self.say(Reply(f"Building resume for {values.get('Company')}{who}..."))
+        deps = resume_builder.with_claude(self.resume) if claude else self.resume
         outcome = resume_builder.build_resume(
-            self.resume, page_id, correction=correction, force=force, force_terms=force_terms)
+            deps, page_id, correction=correction, force=force, force_terms=force_terms)
         if outcome.status == "correction_refused" and correction:
             # "Add anyway": list it in the skills section; you learn it before the interview.
             self.state.set(FORCE_KEY, {"job": page_id, "text": correction})
@@ -628,6 +631,9 @@ class Desk:
         if outcome.log_id:
             log = outcome.log_id.replace("-", "")
             buttons = [("Approve resume", f"ra:{log}"), ("Rebuild", f"rq:{log}")]
+        if outcome.model and not outcome.model.startswith("claude-"):
+            # Gemini wrote it: one tap gets the same job written by Claude instead.
+            buttons.append(("Rebuild with Claude", f"cl:{short_id(outcome.job_id)}"))
         plan = outcome.plan
         forced = {f.casefold() for f in (plan.forced_skills if plan else [])}
         gaps = [g for g in (plan.gaps_reported if plan else []) if g.casefold() not in forced]
@@ -655,10 +661,10 @@ class Desk:
     def resume_tap(self, action: str, arg: str) -> list[Reply]:
         if self.resume is None:
             return [Reply(NO_RESUME)]
-        if action == "rb":
+        if action in ("rb", "cl"):
             self.state.delete(REBUILD_KEY)
             values = (self.repo.get_values(arg) if self.repo else None) or {}
-            return self.on_job_approved(arg, values, force=True)
+            return self.on_job_approved(arg, values, force=True, claude=action == "cl")
         if action == "fg":  # "Add <gap>" under a preview
             job_id, _, term = arg.partition(":")
             values = (self.repo.get_values(job_id) if self.repo else None) or {}
