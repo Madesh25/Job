@@ -5,9 +5,11 @@ safety.resolve_model, so local and dev always use haiku. Prompts are never logge
 the job description and profile data); only stage, model and token counts are.
 
 make_llm gives the bot its client: a `claude-...` model goes to Anthropic, a `gemini-...`
-model to Google (GEMINI_API_KEY). A Gemini call that fails is answered by Haiku, so a
-Google outage or a wrong key never stops the bot. Web search and the half-price batch stay
-on Claude.
+model to Google (GEMINI_API_KEY), a `deepseek-...` model to DeepSeek (DEEPSEEK_API_KEY). A
+call that fails there is answered by Haiku, so an outage or a wrong key never stops the bot.
+DeepSeek only ever gets job texts (screening): a DeepSeek model in any other stage is
+replaced by Haiku. The half-price batch exists only on Claude. No AI gets access to Gmail,
+Drive or Notion: the bot's own code does that and sends the AI text only.
 """
 
 from __future__ import annotations
@@ -35,6 +37,12 @@ STAGE_PARENT = {"resume": "tailor", "cover": "tailor", "prep": "tailor"}
 FIXTURE_DIR = {**STAGE_PARENT, "reply": "score"}
 DEFAULT_MODEL = "claude-haiku-4-5"
 GEMINI_PREFIX = "gemini-"
+DEEPSEEK_PREFIX = "deepseek-"
+# The only stages DeepSeek may run: they send the job text and nothing about you or your
+# mail (your choice, 20 Oct).
+DEEPSEEK_STAGES = ("score",)
+# Config row naming the model of the "Rebuild with Claude" button under a resume preview.
+REBUILD_MODEL_KEY = "model.resume_rebuild"
 FIXTURES = ROOT_DIR / "fixtures" / "llm"
 RETRY_INSTRUCTION = "Return only valid JSON: a single JSON object, no prose, no code fences."
 # Newer models reject sampling parameters (temperature, top_p) with a 400.
@@ -58,6 +66,10 @@ PRICES_PER_MTOK = {
     "gemini-3.5-flash-lite": (0.30, 2.50),
     "gemini-3.1-flash-lite": (0.25, 1.50),
     "gemini-3.8-flash": (1.50, 7.50),
+    # DeepSeek (20 Oct 2026, cache misses; a cache hit is far cheaper, a tenth is assumed).
+    "deepseek-v4-flash": (0.14, 0.28),
+    "deepseek-v4.1-flash": (0.30, 1.20),
+    "deepseek-v4-pro": (1.74, 3.48),
 }
 CACHE_READ_FACTOR = 0.1
 CACHE_WRITE_FACTOR = 1.25
@@ -74,7 +86,8 @@ class Usage:
     cache_read: int = 0
     cost: float = 0.0
     unpriced: set[str] = field(default_factory=set)  # models missing from PRICES_PER_MTOK
-    fallbacks: int = 0  # Gemini calls that failed and were answered by Haiku
+    fallbacks: int = 0  # Gemini or DeepSeek calls that failed and were answered by Haiku
+    others: set[str] = field(default_factory=set)  # non-Claude models used, for the line
 
     def add(self, model: str, usage: Any, factor: float = 1.0) -> float:
         """Count one call; returns its estimated cost in dollars (0 when unpriced)."""
@@ -106,11 +119,13 @@ class Usage:
         text = (f"AI used: {self.calls} call{'s' if self.calls != 1 else ''}, "
                 f"{self.input_tokens:,} tokens in, {self.output_tokens:,} out, "
                 f"about ${self.cost:.4f}")
+        if self.others:
+            text += f" with {', '.join(sorted(self.others))}"
         if self.unpriced:
             text += f" (no price for {', '.join(sorted(self.unpriced))})"
         if self.fallbacks:
-            text += (f"; Gemini failed {self.fallbacks} time{'s' if self.fallbacks != 1 else ''}"
-                     f", {DEFAULT_MODEL} answered")
+            text += (f"; {self.fallbacks} call{'s' if self.fallbacks != 1 else ''} failed, "
+                     f"{DEFAULT_MODEL} answered")
         return text
 
 
@@ -237,6 +252,10 @@ def thinking_for(stage: str, config: ConfigStore) -> str | None:
 
 def is_gemini(model: str) -> bool:
     return model.startswith(GEMINI_PREFIX)
+
+
+def is_deepseek(model: str) -> bool:
+    return model.startswith(DEEPSEEK_PREFIX)
 
 
 def supports_temperature(model: str) -> bool:
@@ -475,6 +494,10 @@ GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:ge
 # detail pick allows 50 tokens) would be cut off. Only the tokens used are billed.
 THINKING_ROOM = 2000
 GEMINI_TIMEOUT = 120.0  # seconds: a resume plan takes longer than an API lookup
+# Gemini 3 search grounding: 5,000 prompts a month free, then $14 per 1,000 searches. The
+# paid price is counted so the total is never too low.
+GEMINI_SEARCH_DOLLARS = 0.014
+GROUNDING_REDIRECT = "https://vertexaisearch.cloud.google.com/grounding-api-redirect/"
 GEMINI_DECLINED = ("SAFETY", "PROHIBITED_CONTENT", "BLOCKLIST", "SPII", "RECITATION")
 
 
@@ -534,6 +557,7 @@ class GeminiLLM:
             data = self._post(model, {"systemInstruction": {"parts": [{"text": system}]},
                                       "contents": contents, "generationConfig": config})
             meta = data.get("usageMetadata") or {}
+            self.usage.others.add(model)
             record_cost(stage, self.usage.add(model, gemini_usage(meta)))
             log.info("llm stage=%s model=%s input_tokens=%s output_tokens=%s thinking=%s",
                      stage, model, meta.get("promptTokenCount"),
@@ -555,21 +579,183 @@ class GeminiLLM:
                             {"role": "user", "parts": [{"text": RETRY_INSTRUCTION}]}]
         raise LLMError("unreachable")  # pragma: no cover
 
+    def complete_json_with_search(
+        self, stage: str, system: str, user: str, *, model: str, max_tokens: int = 4000,
+        thinking: str | None = None,
+    ) -> tuple[dict[str, Any], list[str]]:
+        """Grounding with Google Search. Google gives each result as a redirect link, so
+        every link is opened once (redirect only, the page itself is never read) to get the
+        real address the /update source check needs. A tip without its own source gets the
+        results Google says support its text."""
+        _check_stage(stage)
+        if stage not in SEARCH_STAGES:
+            raise LLMError(f"web search is not allowed for stage {stage}")
+        config: dict[str, Any] = {"maxOutputTokens": max_tokens + THINKING_ROOM}
+        if thinking:
+            config["thinkingConfig"] = {"thinkingLevel": thinking}
+        data = self._post(model, {"systemInstruction": {"parts": [{"text": system}]},
+                                  "contents": [{"role": "user", "parts": [{"text": user}]}],
+                                  "tools": [{"google_search": {}}],
+                                  "generationConfig": config})
+        meta = data.get("usageMetadata") or {}
+        candidates = data.get("candidates") or [{}]
+        first = candidates[0] if isinstance(candidates[0], dict) else {}
+        grounding = first.get("groundingMetadata") or {}
+        queries = grounding.get("webSearchQueries") or []
+        self.usage.others.add(model)
+        record_cost(stage, self.usage.add(model, gemini_usage(meta))
+                    + GEMINI_SEARCH_DOLLARS * len(queries))
+        log.info("llm stage=%s model=%s input_tokens=%s output_tokens=%s searches=%s", stage,
+                 model, meta.get("promptTokenCount"), meta.get("candidatesTokenCount"),
+                 len(queries))
+        if first.get("finishReason") in GEMINI_DECLINED:
+            raise LLMError(f"Gemini declined the {stage} request")
+        parts = (first.get("content") or {}).get("parts") or []
+        text = "".join(str(part.get("text") or "") for part in parts
+                       if isinstance(part, dict) and not part.get("thought"))
+        try:
+            raw = parse_json_object(text)
+        except ValueError:
+            raise LLMError(f"Gemini reply for {stage} was not valid JSON") from None
+        chunks = [self._real_url(str((c.get("web") or {}).get("uri") or ""))
+                  for c in grounding.get("groundingChunks") or [] if isinstance(c, dict)]
+        attach_sources(raw, grounding.get("groundingSupports") or [], chunks)
+        return raw, list(dict.fromkeys(u for u in chunks if u))
+
+    def _real_url(self, url: str) -> str:
+        """The address behind a Google grounding redirect link ("" when it cannot be read)."""
+        from jobengine import http
+
+        if not url:
+            return ""
+        if not url.startswith(GROUNDING_REDIRECT):
+            return url
+        try:
+            return http.redirect_location(url, self.s) or ""
+        except http.HttpError as exc:
+            log.info("grounding link not resolved: %s", exc)
+            return ""
+
+
+def _norm_text(text: str) -> str:
+    return " ".join(str(text).casefold().split())
+
+
+def attach_sources(raw: dict[str, Any], supports: list[Any], urls: list[str]) -> None:
+    """Add to each tip the search results Google says support part of its text."""
+    tips = raw.get("tips") if isinstance(raw, dict) else None
+    for tip in tips if isinstance(tips, list) else []:
+        if not isinstance(tip, dict):
+            continue
+        text = _norm_text(f"{tip.get('tip') or ''} {tip.get('why') or ''}")
+        found: list[str] = []
+        for support in supports:
+            if not isinstance(support, dict):
+                continue
+            segment = _norm_text((support.get("segment") or {}).get("text") or "")
+            if len(segment) < 12 or segment not in text:
+                continue
+            for index in support.get("groundingChunkIndices") or []:
+                if isinstance(index, int) and 0 <= index < len(urls) and urls[index]:
+                    found.append(urls[index])
+        if found:
+            own = tip.get("sources") or []
+            own = [own] if isinstance(own, str) else list(own)
+            tip["sources"] = list(dict.fromkeys([*own, *found]))
+
+
+DEEPSEEK_URL = "https://api.deepseek.com/chat/completions"
+
+
+@dataclass
+class DeepSeekUsage:
+    """DeepSeek's usage block in the field names Usage.add reads."""
+
+    input_tokens: int
+    output_tokens: int
+    cache_read_input_tokens: int
+
+
+def deepseek_usage(usage: Any) -> DeepSeekUsage:
+    def count(name: str) -> int:
+        value = usage.get(name) if isinstance(usage, dict) else None
+        return value if isinstance(value, int) else 0
+
+    hit = count("prompt_cache_hit_tokens")
+    return DeepSeekUsage(input_tokens=max(0, count("prompt_tokens") - hit),
+                         output_tokens=count("completion_tokens"), cache_read_input_tokens=hit)
+
+
+class DeepSeekLLM:
+    """DeepSeek's chat API (OpenAI style, JSON mode) through jobengine.http. Only the stages
+    in DEEPSEEK_STAGES may call it."""
+
+    def __init__(self, s: Settings, usage: Usage | None = None):
+        if not s.deepseek_api_key:
+            raise LLMError("DEEPSEEK_API_KEY is not set")
+        self.s = s
+        self.usage = usage if usage is not None else Usage()
+
+    def complete_json(
+        self, stage: str, system: str, user: str, *, model: str, max_tokens: int = 2000,
+        thinking: str | None = None,
+    ) -> dict[str, Any]:
+        from jobengine import http
+
+        _check_stage(stage)
+        if stage not in DEEPSEEK_STAGES:
+            raise LLMError(f"DeepSeek is only used for {', '.join(DEEPSEEK_STAGES)}, "
+                           f"not {stage}")
+        messages: list[dict[str, Any]] = [{"role": "system", "content": system},
+                                          {"role": "user", "content": user}]
+        for attempt in (1, 2):
+            try:
+                data = http.post_json(
+                    DEEPSEEK_URL, s=self.s, timeout=GEMINI_TIMEOUT,
+                    headers={"Authorization": f"Bearer {self.s.deepseek_api_key or ''}"},
+                    json={"model": model, "messages": messages, "max_tokens": max_tokens,
+                          "temperature": 0, "response_format": {"type": "json_object"}})
+            except http.HttpError as exc:
+                log.warning("deepseek call refused: %s", exc)
+                raise LLMError(f"DeepSeek call failed: {exc}") from None
+            data = data if isinstance(data, dict) else {}
+            usage = data.get("usage") or {}
+            self.usage.others.add(model)
+            record_cost(stage, self.usage.add(model, deepseek_usage(usage)))
+            log.info("llm stage=%s model=%s input_tokens=%s output_tokens=%s", stage, model,
+                     usage.get("prompt_tokens"), usage.get("completion_tokens"))
+            choices = data.get("choices") or [{}]
+            first = choices[0] if isinstance(choices[0], dict) else {}
+            if first.get("finish_reason") == "content_filter":
+                raise LLMError(f"DeepSeek declined the {stage} request")
+            text = str((first.get("message") or {}).get("content") or "")
+            try:
+                return parse_json_object(text)
+            except ValueError:
+                if attempt == 2:
+                    raise LLMError(f"DeepSeek reply for {stage} was not valid JSON twice"
+                                   ) from None
+                messages = [*messages, {"role": "assistant", "content": text or "(empty)"},
+                            {"role": "user", "content": RETRY_INSTRUCTION}]
+        raise LLMError("unreachable")  # pragma: no cover
+
 
 class ModelRouter:
     """The bot's LLM client: each stage goes to the provider of its Config model.
 
-    claude-... -> Anthropic; gemini-... -> Google, and if that call fails (an error, a wrong
-    key, broken JSON twice) the same request goes to Haiku. Web search (/update) and the
-    half-price batch exist only on Claude: a Gemini model there is replaced by Haiku."""
+    claude-... -> Anthropic; gemini-... -> Google; deepseek-... -> DeepSeek (screening only).
+    A Gemini or DeepSeek call that fails (an error, a wrong or missing key, broken JSON
+    twice) is sent again to Haiku. The half-price batch exists only on Claude."""
 
     def __init__(self, s: Settings, config: ConfigStore, claude: Any = None,
-                 gemini: Any = None):
+                 gemini: Any = None, deepseek: Any = None):
         self.s = s
         self.config = config
         self.claude = claude if claude is not None else AnthropicLLM(s, config)
         self.usage: Usage = self.claude.usage
         self._gemini = gemini
+        self._deepseek = deepseek
+        self.overrides: dict[str, str] = {}  # stage -> model, e.g. "Rebuild with Claude"
 
     def _fallback(self) -> str:
         return resolve_model(DEFAULT_MODEL, self.s)
@@ -579,42 +765,70 @@ class ModelRouter:
             self._gemini = GeminiLLM(self.s, self.usage)
         return self._gemini
 
+    def deepseek(self) -> DeepSeekLLM:
+        if self._deepseek is None:
+            self._deepseek = DeepSeekLLM(self.s, self.usage)
+        return self._deepseek
+
+    def model(self, stage: str) -> str:
+        """The model this stage uses now: an override, else Config (haiku outside prod).
+        DeepSeek outside its stages becomes haiku."""
+        override = self.overrides.get(stage)
+        model = resolve_model(override, self.s) if override else model_for(
+            stage, self.config, self.s)
+        if is_deepseek(model) and stage not in DEEPSEEK_STAGES:
+            log.warning("model.%s is %s, but DeepSeek only gets job texts (%s): %s answers",
+                        stage, model, ", ".join(DEEPSEEK_STAGES), self._fallback())
+            return self._fallback()
+        return model
+
+    def _failed(self, stage: str, model: str, exc: Exception) -> str:
+        self.usage.fallbacks += 1
+        log.warning("%s %s failed, %s answers instead: %s", model, stage, self._fallback(), exc)
+        return self._fallback()
+
     def complete_json(
         self, stage: str, system: str, user: str, *, max_tokens: int = 2000,
         key: str | None = None,
     ) -> dict[str, Any]:
-        model = model_for(stage, self.config, self.s)
-        if not is_gemini(model):
-            return self.claude.complete_json(stage, system, user, max_tokens=max_tokens,
-                                             key=key, model=model)
-        try:
-            return self.gemini().complete_json(stage, system, user, model=model,
-                                               max_tokens=max_tokens,
-                                               thinking=thinking_for(stage, self.config))
-        except LLMError as exc:
-            self.usage.fallbacks += 1
-            log.warning("gemini %s failed, %s answers instead: %s", stage, self._fallback(),
-                        exc)
-            return self.claude.complete_json(stage, system, user, max_tokens=max_tokens,
-                                             key=key, model=self._fallback())
+        model = self.model(stage)
+        if is_gemini(model) or is_deepseek(model):
+            client: Any = None
+            try:
+                client = self.gemini() if is_gemini(model) else self.deepseek()
+                return client.complete_json(stage, system, user, model=model,
+                                            max_tokens=max_tokens,
+                                            thinking=thinking_for(stage, self.config))
+            except LLMError as exc:
+                model = self._failed(stage, model, exc)
+        return self.claude.complete_json(stage, system, user, max_tokens=max_tokens,
+                                         key=key, model=model)
 
     def complete_json_with_search(
         self, stage: str, system: str, user: str, *, max_tokens: int = 4000,
         max_uses: int = 8, key: str | None = None,
     ) -> tuple[dict[str, Any], list[str]]:
-        model = model_for(stage, self.config, self.s)
+        """Gemini searches with Google (it cannot be told a maximum number of searches);
+        DeepSeek has no web search, so a DeepSeek model here becomes haiku."""
+        model = self.model(stage)
         if is_gemini(model):
-            # Gemini's search gives hidden redirect links, so the source check of /update
-            # could not verify any tip.
-            log.info("web search runs on %s, not %s", self._fallback(), model)
+            try:
+                return self.gemini().complete_json_with_search(
+                    stage, system, user, model=model, max_tokens=max_tokens,
+                    thinking=thinking_for(stage, self.config))
+            except LLMError as exc:
+                model = self._failed(stage, model, exc)
+        elif is_deepseek(model):
             model = self._fallback()
         return self.claude.complete_json_with_search(stage, system, user,
                                                      max_tokens=max_tokens, max_uses=max_uses,
                                                      key=key, model=model)
 
     def batch_ok(self, stage: str) -> bool:
-        """False when the stage runs on Gemini: screen/batch.py then screens at once."""
-        return not is_gemini(model_for(stage, self.config, self.s))
+        """False when the stage runs on Gemini or DeepSeek: screen/batch.py then screens at
+        once (both are cheaper at full price than the Claude batch)."""
+        model = self.model(stage)
+        return not (is_gemini(model) or is_deepseek(model))
 
     def submit_batch(
         self, stage: str, system: str, items: list[tuple[str, str]], *, max_tokens: int = 2000,
@@ -628,6 +842,13 @@ class ModelRouter:
 
     def batch_results(self, batch_id: str, stage: str) -> dict[str, dict[str, Any] | str]:
         return self.claude.batch_results(batch_id, stage)
+
+
+def rebuild_model(config: ConfigStore) -> str:
+    """The Claude model of the "Rebuild with Claude" button (Config model.resume_rebuild)."""
+    raw = str(config.get(REBUILD_MODEL_KEY) or DEFAULT_MODEL).split()
+    model = raw[0] if raw else DEFAULT_MODEL
+    return model if model.startswith("claude-") else DEFAULT_MODEL
 
 
 def make_llm(s: Settings, config: ConfigStore) -> ModelRouter:

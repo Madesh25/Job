@@ -11,6 +11,8 @@ review, with a full description) and runs each task with both models:
 - prep: the /prep interview questions.
 - resume: a full resume build without writing anything; both PDFs go to out/compare/.
 
+A DeepSeek model may only run the score task (--tasks score): it never gets your resume.
+
 Nothing is written to Notion, Gmail or Drive. The models are called by name, so this also
 runs locally, where the bot itself always uses haiku (llm.force_model). A Gemini call is not
 answered by Haiku here: a failure is counted as a failure. The report is
@@ -32,10 +34,13 @@ from pathlib import Path
 from typing import Any
 
 from jobengine.llm import (
+    DEEPSEEK_STAGES,
     AnthropicLLM,
+    DeepSeekLLM,
     GeminiLLM,
     LLMError,
     Usage,
+    is_deepseek,
     is_gemini,
 )
 from jobengine.settings import ROOT_DIR, Settings
@@ -64,7 +69,11 @@ class Pinned:
 
 
 def pinned(s: Settings, config: Any, model: str, thinking: str | None = None) -> Pinned:
-    """The real client for `model` (needs ANTHROPIC_API_KEY or GEMINI_API_KEY)."""
+    """The real client for `model` (ANTHROPIC_API_KEY, GEMINI_API_KEY or DEEPSEEK_API_KEY)."""
+    if is_deepseek(model):
+        deepseek = DeepSeekLLM(s)
+        return Pinned(model, lambda stage, system, user, max_tokens: deepseek.complete_json(
+            stage, system, user, model=model, max_tokens=max_tokens), deepseek.usage)
     if is_gemini(model):
         gemini = GeminiLLM(s)
         return Pinned(model, lambda stage, system, user, max_tokens: gemini.complete_json(
@@ -384,6 +393,10 @@ def main(argv: list[str] | None = None) -> int:
     unknown = [t for t in tasks if t not in TASKS]
     if unknown:
         print(f"Unknown task: {', '.join(unknown)}. Choose from {', '.join(TASKS)}.")
+        return 2
+    private = [t for t in tasks if t not in DEEPSEEK_STAGES]
+    if is_deepseek(args.model) and private:
+        print(f"DeepSeek gets job texts only: use --tasks score (not {', '.join(private)}).")
         return 2
 
     logging.basicConfig(level=logging.WARNING, format="%(asctime)s %(message)s",

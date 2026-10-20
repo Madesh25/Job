@@ -49,6 +49,10 @@ safety:
     - oauth2.googleapis.com
     # Gemini, only when a Config model.<stage> names a gemini-... model (llm.py)
     - generativelanguage.googleapis.com
+    # Google's search result links in /update on Gemini: only the redirect is read
+    - vertexaisearch.cloud.google.com
+    # DeepSeek, only when Config model.score names a deepseek-... model (llm.py)
+    - api.deepseek.com
   # Any subdomain of these (Workday boards are <tenant>.<wdN>.myworkdayjobs.com).
   allowed_host_suffixes:
     - myworkdayjobs.com

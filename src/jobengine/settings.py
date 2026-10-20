@@ -32,6 +32,7 @@ SECRET_VARS = {
     "TELEGRAM_CHAT_ID": "telegram_chat_id",
     "ANTHROPIC_API_KEY": "anthropic_api_key",
     "GEMINI_API_KEY": "gemini_api_key",  # optional: only for Config models named gemini-...
+    "DEEPSEEK_API_KEY": "deepseek_api_key",  # optional: model.score = deepseek-... only
     "GMAIL_ALERTS_TOKEN_JSON": "gmail_alerts_token_json",  # old name, read as the m02 mailbox
     # The two job-alert mailboxes (6 Oct): madeshwaranm02 and madeshwaran.manikam.
     "GMAIL_ALERTS_TOKEN_JSON_m02": "gmail_alerts_token_json_m02",
@@ -98,6 +99,7 @@ class Settings(BaseModel):
     telegram_chat_id: str | None = None
     anthropic_api_key: str | None = None
     gemini_api_key: str | None = None
+    deepseek_api_key: str | None = None
     gmail_alerts_token_json: str | None = None
     gmail_alerts_token_json_m02: str | None = None
     gmail_alerts_token_json_mm: str | None = None

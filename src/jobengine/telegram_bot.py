@@ -147,6 +147,7 @@ TAP_TOASTS = {"ap": "Checking the job link, then building your resume...",
               "dr": "Writing Gmail drafts...", "fx": "Finding contacts and writing drafts...",
               "fr": "Listing those jobs...", "li": "Working on the LinkedIn job...",
               "ra": "Saving the resume...", "rb": "Building the resume again...",
+              "cl": "Building the resume again with Claude...",
               "rq": "Send what to change...", "ia": "Marking as applied...",
               "na": "Not applying...", "nr": "Saving the reason...",
               "gs": "Adding it to your skills..."}

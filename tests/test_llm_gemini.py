@@ -187,7 +187,7 @@ def test_a_failed_gemini_call_is_answered_by_haiku():
     assert claude.calls == [("cover", DEFAULT_MODEL)]
     assert llm.usage.fallbacks == 1
     llm.usage.calls = 1
-    assert "Gemini failed 1 time, claude-haiku-4-5 answered" in llm.usage.line()
+    assert "1 call failed, claude-haiku-4-5 answered" in llm.usage.line()
 
 
 def test_missing_gemini_key_falls_back_too():
@@ -199,11 +199,8 @@ def test_missing_gemini_key_falls_back_too():
     assert llm.usage.fallbacks == 1
 
 
-def test_web_search_and_batch_stay_on_claude():
-    llm, claude, _gemini = router({"model.strategy": "gemini-3.8-flash",
-                                   "model.score": "gemini-3.5-flash-lite"})
-    llm.complete_json_with_search("strategy", "s", "u")
-    assert claude.calls == [("strategy", DEFAULT_MODEL, "search")]
+def test_batch_stays_on_claude():
+    llm, _claude, _gemini = router({"model.score": "gemini-3.5-flash-lite"})
     assert not llm.batch_ok("score")
     with pytest.raises(LLMError, match="needs a Claude model"):
         llm.submit_batch("score", "s", [("a", "u")])

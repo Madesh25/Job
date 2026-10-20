@@ -117,6 +117,7 @@ class BuildOutcome:
     plan: Plan | None = None
     fill: float | None = None
     changes: list[str] = field(default_factory=list)
+    model: str | None = None  # the model that wrote the plan (None: a test client)
 
     @property
     def ok(self) -> bool:
@@ -659,7 +660,34 @@ def build_resume(
         changes=changes.lines,
         caption=caption(revision, values, fill, changes, plan, log_id, ctx.fill_min,
                         ctx.fill_max, usage=_usage_line(llm)),
+        model=_model_of(llm),
     )
+
+
+def _model_of(llm: Any) -> str | None:
+    """The resume model of a ModelRouter (the "Rebuild with Claude" button needs it)."""
+    from jobengine.resume.plan import STAGE
+
+    model = getattr(llm, "model", None)
+    return model(STAGE) if callable(model) else None
+
+
+def with_claude(deps: ResumeDeps) -> ResumeDeps:
+    """The same deps with the resume written by Claude (Config model.resume_rebuild, else
+    haiku) instead of the Config model.resume."""
+    from dataclasses import replace
+
+    from jobengine.llm import rebuild_model
+    from jobengine.resume.plan import STAGE
+
+    def llm(config: ConfigStore) -> LLMClient:
+        client = deps.llm(config)
+        overrides = getattr(client, "overrides", None)
+        if isinstance(overrides, dict):
+            overrides[STAGE] = rebuild_model(config)
+        return client
+
+    return replace(deps, llm=llm)
 
 
 def _usage_line(llm: Any) -> str | None:
