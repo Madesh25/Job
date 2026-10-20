@@ -18,6 +18,7 @@ sends the AI only the text it needs (a job description, a reply, your resume tex
 | /prep interview questions | your resume and the job | `model.prep` | `gemini-3.5-flash-lite` |
 | Resume build | your Golden Master and the job | `model.resume` | `gemini-3.5-flash-lite`, with a "Rebuild with Claude" button |
 | /update strategy research | your target roles and countries, web search | `model.strategy` | `gemini-3.5-flash-lite` with Google Search |
+| Contact search (docs/contacts.md) | the company, its website and the country, web search | `model.people` | `gemini-3.5-flash-lite` with Google Search |
 
 Rules the code keeps whatever the Config says:
 - **DeepSeek only ever screens.** It gets the job text and nothing about you or your mail. A

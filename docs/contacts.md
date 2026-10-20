@@ -178,6 +178,35 @@ GitHub allows 60 calls an hour without a token. Set `GITHUB_TOKEN` (a fine-grain
 no permissions: it only reads public data) for 5,000 an hour. Like the providers, real calls
 happen only in prod with `DRY_RUN=false`; elsewhere invented fixtures answer.
 
+## AI web search for contacts (20 Oct)
+
+The last step, when the cache, the job description, GitHub and the providers left slots
+open. Config `contacts.ai_search` = `on` turns it on (off when the row is missing).
+
+1. The AI (Config `model.people`; plan: `gemini-3.5-flash-lite` with Google Search, Haiku
+   when not set; DeepSeek is never used here) searches the company's **public pages** for
+   people in the job's country who fit the open slots: team and about pages, engineering
+   blogs, conference and meetup speaker pages, press releases, GitHub. Never LinkedIn or
+   another social network. At most 6 names, at most 5 searches.
+2. Each name is checked, so the AI cannot invent people:
+   - its page must be one the search really returned (LinkedIn and the sites that block the
+     bot are never used);
+   - the bot reads that page once (a plain public page read, like a job page) and the full
+     name and the company must both be on it (Polish letters match plain ones);
+   - the person counts as in the country only when the page names the country or one of its
+     cities (the strict location rule leaves the others out).
+3. The email is **never guessed**: Hunter's email finder (name + company domain, 1 credit
+   when it finds one), else Prospeo's enrich by name (1 credit, verified emails only). An
+   address Hunter calls invalid is dropped, never replaced. At most 4 look-ups per job.
+4. The contact is saved like any other: Source `Hunter` or `Prospeo`, Notes `found by AI web
+   search on <site>`. The answer says how many names were found, checked and given an email,
+   and why the others were dropped (counts only).
+
+Only with real look-ups (prod with DRY_RUN false, or CONTACTS_LIVE=true on the PC): with test
+data an invented address would sit next to a real name, so the step is skipped with the note
+"AI search: off while contact look-ups use test data". Cost: one AI call with web search per
+job (Gemini: free up to 5,000 a month) and the Hunter or Prospeo credits of the emails found.
+
 ## The flow
 
 1. Mix from Config `contacts.mix` (`peer=2, hiring=1, recruiter=1`) and `contacts.per_job`;

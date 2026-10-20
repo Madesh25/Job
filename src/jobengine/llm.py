@@ -28,7 +28,8 @@ from jobengine.settings import ROOT_DIR, Settings
 
 log = logging.getLogger("jobengine.llm")
 
-STAGES = ("fetch", "score", "tailor", "email", "strategy", "resume", "cover", "prep", "reply")
+STAGES = ("fetch", "score", "tailor", "email", "strategy", "resume", "cover", "prep", "reply",
+          "people")
 # A stage without its own Config row uses its parent's model: before 20 Oct resumes, cover
 # letters and interview prep all used model.tailor.
 STAGE_PARENT = {"resume": "tailor", "cover": "tailor", "prep": "tailor"}
@@ -197,7 +198,7 @@ class BatchLLM(LLMClient, Protocol):
 # Anthropic's server-side web search tool (basic version: works on every current model,
 # including the haiku that local and dev are forced to use).
 WEB_SEARCH_TOOL = "web_search_20250305"
-SEARCH_STAGES = ("strategy",)  # the only stage that may search the web
+SEARCH_STAGES = ("strategy", "people")  # the stages that may search the web
 MAX_CONTINUATIONS = 4
 
 
@@ -638,30 +639,38 @@ class GeminiLLM:
 
 
 def _norm_text(text: str) -> str:
-    return " ".join(str(text).casefold().split())
+    """Words only, lower case: JSON quotes and commas around a value do not count."""
+    return " ".join(re.sub(r"[^\w]+", " ", str(text).casefold()).split())
 
 
 def attach_sources(raw: dict[str, Any], supports: list[Any], urls: list[str]) -> None:
-    """Add to each tip the search results Google says support part of its text."""
-    tips = raw.get("tips") if isinstance(raw, dict) else None
-    for tip in tips if isinstance(tips, list) else []:
-        if not isinstance(tip, dict):
-            continue
-        text = _norm_text(f"{tip.get('tip') or ''} {tip.get('why') or ''}")
-        found: list[str] = []
-        for support in supports:
-            if not isinstance(support, dict):
+    """Add to each item (a /update tip, a person of the contact search) the search results
+    Google says support it: the supported text lies within the item, or one of the item's
+    values (a name, a tip) lies within the supported text."""
+    for items in (raw.values() if isinstance(raw, dict) else []):
+        for item in items if isinstance(items, list) else []:
+            if not isinstance(item, dict):
                 continue
-            segment = _norm_text((support.get("segment") or {}).get("text") or "")
-            if len(segment) < 12 or segment not in text:
-                continue
-            for index in support.get("groundingChunkIndices") or []:
-                if isinstance(index, int) and 0 <= index < len(urls) and urls[index]:
-                    found.append(urls[index])
-        if found:
-            own = tip.get("sources") or []
-            own = [own] if isinstance(own, str) else list(own)
-            tip["sources"] = list(dict.fromkeys([*own, *found]))
+            values = [_norm_text(v) for k, v in item.items()
+                      if k not in ("sources", "quote") and isinstance(v, str)]
+            text = " ".join(values)
+            found: list[str] = []
+            for support in supports:
+                if not isinstance(support, dict):
+                    continue
+                segment = _norm_text((support.get("segment") or {}).get("text") or "")
+                if len(segment) < 8:
+                    continue
+                if segment not in text and not any(len(v) >= 8 and v in segment
+                                                   for v in values[:1]):
+                    continue
+                for index in support.get("groundingChunkIndices") or []:
+                    if isinstance(index, int) and 0 <= index < len(urls) and urls[index]:
+                        found.append(urls[index])
+            if found:
+                own = item.get("sources") or []
+                own = [own] if isinstance(own, str) else list(own)
+                item["sources"] = list(dict.fromkeys([*own, *found]))
 
 
 DEEPSEEK_URL = "https://api.deepseek.com/chat/completions"
