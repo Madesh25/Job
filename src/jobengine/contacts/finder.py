@@ -99,6 +99,32 @@ class ContactDeps:
     read_page: Callable[[str], str] = lambda url: ""
     # A domain the bot found itself: (company, domain) -> saved in Target Companies (prod).
     save_domain: Callable[[str, str], None] = lambda company, domain: None
+    # Providers that refused with HTTP 429 after the waits in this look-up (_breaker).
+    busy: set[str] = field(default_factory=set)
+
+
+def _breaker(deps: ContactDeps) -> ContactDeps:
+    """22 Oct: once a provider still answers HTTP 429 after the waits, every later call to it
+    in the same look-up fails at once (no request, no 22 s of waits). CodiLime took 3.5
+    minutes: Prospeo refused 8 times, from its search, the location check and the AI search."""
+    busy: set[str] = set()
+
+    def request(provider: str) -> Request:
+        inner = deps.request(provider)
+
+        def call(method: str, url: str, **kwargs: Any) -> Any:
+            if provider in busy:
+                raise http.HttpError(f"{provider}: skipped, busy (HTTP 429) in this look-up",
+                                     429)
+            try:
+                return inner(method, url, **kwargs)
+            except http.HttpError as exc:
+                if exc.status == 429:
+                    busy.add(provider)
+                raise
+        return call
+
+    return replace(deps, request=request, busy=busy)
 
 
 def fake_deps(
@@ -388,6 +414,7 @@ APPLY_ONLY_NOTE = ("Apply only: no paid lookup for this job (outreach budget). T
 def find_contacts(deps: ContactDeps, job_id: str, paid: bool = True) -> ContactsResult:
     """`paid` False (an apply-only job, Module 10): only the free sources, the Contacts cache
     and emails in the job description; no domain question and no provider calls."""
+    deps = _breaker(deps)
     today = deps.today()
     values = deps.jobs.get_values(job_id) if deps.jobs else None
     if not values:
@@ -578,6 +605,7 @@ def _provider_step(deps: ContactDeps, book: CreditBook, name: str, provider: Any
 # Bot State key + account: a provider that refused for the month (ProviderResult.month_off).
 OFF_KEY = "contacts.off:"
 
+BUSY_CHECK = "prospeo: busy (HTTP 429), the location check stopped"
 MAX_CONFIRM = 3  # Prospeo look-ups per job for people another site found without a location
 
 
@@ -591,6 +619,10 @@ def _confirm_step(deps: ContactDeps, book: CreditBook, unplaced: list[Candidate]
     the ones whose title fits an open slot, Prospeo is asked where they are (one credit per
     person it knows); people it places in the job's country fill the slots."""
     if not deps.s.prospeo_api_key or book.counters.get("prospeo") is None:
+        return
+    if "prospeo" in deps.busy:
+        result.notes.append(f"prospeo: busy, could not check where {len(unplaced)} people "
+                            "without a location are")
         return
     s = deps.s if paid_api_allowed("prospeo", deps.s) else \
         deps.s.model_copy(update=FIXTURE_KEYS)
@@ -619,6 +651,10 @@ def _confirm_step(deps: ContactDeps, book: CreditBook, unplaced: list[Candidate]
         deps.sleep(1.5)
         where, credits = prospeo.locate(candidate.email, pdeps)
         book.spend("prospeo", credits)
+        if "prospeo" in deps.busy:
+            asked -= 1
+            result.notes.append(BUSY_CHECK)
+            break
         if where and where.casefold() == country.casefold():
             placed += 1
             confirmed.append(replace(candidate, country=country, country_unverified=False))
