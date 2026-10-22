@@ -534,6 +534,11 @@ def _provider_step(deps: ContactDeps, book: CreditBook, name: str, provider: Any
             result.notes.append(f"{account}: no credits left this month"
                                 + (", trying the second account" if has_next else ", skipped"))
             continue
+        month = deps.today().strftime("%Y-%m")
+        off = deps.state.get(OFF_KEY + account) or {}
+        if off.get("month") == month:
+            result.notes.append(f"{account}: skipped this month ({off.get('why')})")
+            continue
         if not paid_api_allowed(name, deps.s):
             s = s.model_copy(update=FIXTURE_KEYS)
         pdeps = ProviderDeps(s=s, request=deps.request(name), sleep=deps.sleep,
@@ -543,6 +548,9 @@ def _provider_step(deps: ContactDeps, book: CreditBook, name: str, provider: Any
         found = provider.search(company, domain, country, open_slots(), pdeps)
         book.spend(account, found.credits_used)
         result.notes.extend(found.notes)
+        if found.month_off:
+            deps.state.set(OFF_KEY + account, {"month": month,
+                                               "why": "its API needs a paid plan"})
         if found.skipped_reason:
             failed_over = has_next and not found.candidates
             result.notes.append(found.skipped_reason
@@ -566,6 +574,9 @@ def _provider_step(deps: ContactDeps, book: CreditBook, name: str, provider: Any
             unplaced.extend(c for c in left_out if c.country_unverified)
         return
 
+
+# Bot State key + account: a provider that refused for the month (ProviderResult.month_off).
+OFF_KEY = "contacts.off:"
 
 MAX_CONFIRM = 3  # Prospeo look-ups per job for people another site found without a location
 

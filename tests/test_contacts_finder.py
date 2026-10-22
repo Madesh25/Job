@@ -238,3 +238,33 @@ def test_config_writer_refuses_other_keys(env):
 
     with pytest.raises(SafetyError):
         check_config_write("model.tailor")
+
+
+def test_snov_402_is_said_once_and_snov_is_skipped_until_the_1st():
+    # 22 Oct: Snov's free plan answers HTTP 402 "ran out of credits" on every API call.
+    from jobengine.contacts.finder import OFF_KEY
+    from jobengine.contacts.providers import snov
+
+    d = make()
+    fixture = FixtureHttp(d.s)
+
+    def request(provider):
+        def refuse(method, url, **kw):
+            if provider == "snov":
+                raise http.HttpError(f"{method} {http.safe_url(url)} failed: HTTP 402", 402)
+            raise http.HttpError(f"{method} {http.safe_url(url)} failed: HTTP 403", 403)
+        return refuse if provider in ("snov", "apollo", "hunter") else fixture
+
+    d.request = request
+    first = find_contacts(d, PL)
+    assert snov.NO_API in first.message
+    assert d.state.get(OFF_KEY + "snov") == {"month": "2026-10",
+                                             "why": "its API needs a paid plan"}
+    d.calls.clear()
+    second = find_contacts(d, PL)
+    assert "snov" not in d.calls
+    assert "snov: skipped this month (its API needs a paid plan)" in second.message
+    d.today = lambda: date(2026, 11, 1)  # a new month: Snov is asked again
+    d.calls.clear()
+    find_contacts(d, PL)
+    assert "snov" in d.calls

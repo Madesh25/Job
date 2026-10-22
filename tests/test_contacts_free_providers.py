@@ -213,3 +213,21 @@ def test_counters_are_allowlisted_and_simulated_outside_prod():
     book = CreditBook(config_with(prospeo="1 / 75 per month"), TODAY)
     book.spend("prospeo", 3)
     assert book.available("prospeo") == 71
+
+
+def test_prospeo_429_after_the_waits_is_one_line_and_stops_the_emails():
+    calls = []
+    fixture = FixtureHttp(settings())
+
+    def request(method, url, **kwargs):
+        calls.append(url)
+        if url.endswith("/enrich-person"):
+            raise http.HttpError(f"POST {url} failed: HTTP 429 Rate limit exceeded", 429)
+        return fixture(method, url, **kwargs)
+
+    deps, _ = pdeps(request=request)
+    result = prospeo.search("Vistula Cloud", DOMAIN, "Poland",
+                            {"Peer engineer": 1, "Hiring": 1}, deps)
+    assert calls.count("https://api.prospeo.io/enrich-person") == 1  # not one per person
+    assert result.notes.count(prospeo.BUSY) == 1
+    assert not any("enrich failed" in note for note in result.notes)
