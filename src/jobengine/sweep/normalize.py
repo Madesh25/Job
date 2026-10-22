@@ -125,7 +125,10 @@ def seniority(title: str) -> str:
     return "Unknown"
 
 
-_RANGE = re.compile(rf"(\d{{1,2}})\s*{_DASH}\s*(\d{{1,2}})\s*(?:years?|yrs?|lat[a]?)\b")
+# 23 Oct: "3 to 5 years" (and Polish "od 3 do 5 lat") read as no years at all; only a dash
+# joined a range.
+_RANGE = re.compile(rf"(\d{{1,2}})\s*(?:{_DASH}|\s(?:to|do)\s)\s*(\d{{1,2}})\s*"
+                    r"(?:years?|yrs?|lat[a]?)\b")
 _PLUS = (
     re.compile(r"(\d{1,2})\s*\+\s*(?:years?|yrs?|lat[a]?)\b"),
     re.compile(r"at\s+least\s+(\d{1,2})\s*(?:years?|yrs?)\b"),

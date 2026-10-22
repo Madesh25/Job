@@ -135,6 +135,8 @@ def test_seniority(title, expected):
         ("3+ years of experience. 5+ years preferred", 3),  # nice-to-have years ignored
         ("5+ years of experience is a plus", 5),  # only nice-to-have years: they count
         ("4\u20136 years with Linux", 4),
+        ("3 to 5 years of experience with AWS", 3),  # 23 Oct: "to" joins a range too
+        ("od 3 do 5 lat do\u015bwiadczenia", 3),
         ("Wymagamy: 3 lata doswiadczenia", 3),
         ("min. 4 lat doswiadczenia", 4),
         ("No experience numbers here", None),
