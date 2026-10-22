@@ -147,3 +147,20 @@ def test_left_slots_counts_only_the_total_in_any_mix():
     taken = [PEER, PEER, PEER]
     assert sum(left_slots(slots, taken, flexible=True).values()) == 1
     assert left_slots(slots, taken, flexible=False) == {HIRING: 1, RECRUITER: 1}
+
+
+def test_people_outside_it_never_fill_a_slot():
+    from jobengine.contacts.classify import fill_slots, wide_kind
+    # 22 Oct, Murata: a legal team leader took the Hiring slot through "team lead", and the
+    # wider search took a supply-chain project engineer through "engineer".
+    for title in ("Legal Team Leader/Legal Counsel", "SCM Senior Project Engineer",
+                  "Senior Sales Engineer", "Head of Finance", "Electrical Engineer"):
+        assert classify_title(title) == OTHER, title
+        assert wide_kind(title, "engineering") == OTHER, title
+    assert classify_title("HR Teamleader") == RECRUITER  # HR still fills the recruiter slot
+    assert classify_title("DevOps Team Lead") == HIRING
+    got = fill_slots([person("Cara Law", "Legal Team Leader/Legal Counsel"),
+                      person("Dan Chain", "SCM Senior Project Engineer"),
+                      person("Eve Ops", "Senior DevOps Engineer")],
+                     {PEER: 2, HIRING: 1}, "Poland", "acme.example.com", set(), flexible=True)
+    assert [c.name for c, _, _ in got] == ["Eve Ops"]

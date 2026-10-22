@@ -41,8 +41,27 @@ JUNIOR = re.compile(r"\b(junior|jr|intern|internship|trainee|graduate|apprentice
                     r"werkstudent|sta[zż]ysta|praktykant|stagiair)\b", re.I)
 
 
+# 22 Oct (O-15, Murata): "Legal Team Leader" took the Hiring slot through "team lead", and the
+# wider search took "SCM Senior Project Engineer" through "engineer". Your rule is tech,
+# managers and HR: a title naming a field outside IT never fills a peer or hiring slot (HR
+# still fills the recruiter slot). Words that IT titles also use (production, quality,
+# communications, scm, product) are left out on purpose.
+NON_IT = re.compile(r"\b(legal|counsel|lawyer|attorney|paralegal|finance|financial|"
+                    r"accountant|accounting|tax|treasury|sales|account (manager|executive)|"
+                    r"business development|marketing|brand|procurement|purchasing|buyer|"
+                    r"supply chain|logistics|warehouse|manufacturing|process engineer|"
+                    r"project engineer|mechanical|electrical|electronics|hardware|analog|"
+                    r"chemical|civil|construction|facilities|facility|maintenance|"
+                    r"field service|customer service|office manager|executive assistant)\b",
+                    re.I)
+
+
 def is_junior(title: str | None) -> bool:
     return bool(JUNIOR.search(title or ""))
+
+
+def is_non_it(title: str | None) -> bool:
+    return bool(NON_IT.search(title or ""))
 
 
 def left_slots(slots: Mapping[str, int], taken: Iterable[str], flexible: bool) -> dict[str, int]:
@@ -65,6 +84,8 @@ def classify_title(title: str | None, patterns: Mapping[str, str] | None = None)
     patterns = patterns or DEFAULT_PATTERNS
     text = (title or "").casefold()
     for key in ("recruiter", "hiring", "peer"):
+        if key != "recruiter" and is_non_it(text):
+            return OTHER
         if patterns.get(key) and re.search(patterns[key], text):
             return SLOT_TYPES[key]
     return OTHER
@@ -77,7 +98,7 @@ def wide_kind(title: str | None, department: str | None = None) -> str:
     text, dept = title or "", (department or "").strip().casefold()
     if dept in HR_DEPARTMENTS and text:
         return SLOT_TYPES["recruiter"]
-    if not (WIDE_TECH.search(text) or dept in TECH_DEPARTMENTS):
+    if is_non_it(text) or not (WIDE_TECH.search(text) or dept in TECH_DEPARTMENTS):
         return OTHER
     if WIDE_LEAD.search(text):
         return SLOT_TYPES["hiring"]
