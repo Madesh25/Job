@@ -2,11 +2,15 @@
 
 1. The AI (Config model.people, a model with web search) searches the company's public pages
    for people who work there in the job's country: team pages, engineering blogs,
-   conference and meetup speaker pages, press releases, GitHub. Never LinkedIn.
-2. Every name is checked: the page must be one the search really returned (not LinkedIn,
-   not a site that blocks the bot), and the bot reads that page once to see the name and
-   the company on it. The person counts as in the country only when the page names the
-   country or one of its cities.
+   conference and meetup speaker pages, press releases, GitHub. Since 22 Oct (your decision,
+   contacts.ai_linkedin_titles) also LinkedIn profile results, by their TITLE in the search
+   results only ("Anna Lis - Platform Engineer - Acme | LinkedIn"); LinkedIn is never opened.
+2. Every name is checked: the page must be one the search really returned (not a site that
+   blocks the bot), and the bot reads that page once to see the name and the company on it.
+   A LinkedIn result is checked on its title instead (name and company in it). The person
+   counts as in the country only when the page names the country or one of its cities, or
+   the LinkedIn address is the country's own (nl., pl. or ie.linkedin.com); the others are
+   left to the location check (Prospeo) and the strict rule. Junior titles are skipped.
 3. The email is never guessed: Hunter's email finder (name + company domain, 1 credit when
    it finds one), else Prospeo's enrich by name (1 credit). An address Hunter calls invalid
    is dropped. The contact is saved with that provider as Source and the page in Notes.
@@ -23,6 +27,7 @@ from typing import Any
 from urllib.parse import urlsplit
 
 from jobengine import http
+from jobengine.contacts.classify import is_junior
 from jobengine.contacts.models import Candidate, ProviderResult
 from jobengine.contacts.providers.base import ProviderDeps
 from jobengine.contacts.providers.github import COUNTRY_WORDS
@@ -45,6 +50,15 @@ SLOT_ROLES = {
               "platform",
     "Recruiter/TA": "recruiters, talent acquisition or HR people",
 }
+
+LINKEDIN_CODES = {"pl": "Poland", "nl": "Netherlands", "ie": "Ireland"}
+LINKEDIN_RULE = """
+You may also use LinkedIn profile results: only what the search result itself shows (its
+title, such as "Anna Lis - Platform Engineer - Acme | LinkedIn"). Searches like the company
+name, the country and a role, with site:linkedin.com/in, work well. For such a person the
+source is the LinkedIn result URL exactly as the search returned it. Never people whose
+title says junior, intern, trainee or graduate.
+"""
 
 SYSTEM_PROMPT = """You find people who work at one company in one country, for a job seeker
 who wants to write to them. Search the web for the company's public pages: its own team and
@@ -73,6 +87,14 @@ class Person:
     sources: list[str] = field(default_factory=list)
     page: str = ""  # the page the name was checked on
     placed: bool = False  # the page names the job's country or one of its cities
+
+
+def system_prompt(linkedin: bool) -> str:
+    text = SYSTEM_PROMPT.replace("MAX_PEOPLE", str(MAX_PEOPLE))
+    if linkedin:
+        text = text.replace(" Never use LinkedIn or any social network page.", "")
+        text += LINKEDIN_RULE
+    return text
 
 
 def user_prompt(company: str, domain: str, country: str, open_slots: Mapping[str, int]) -> str:
@@ -120,25 +142,63 @@ def placed_in(text: str, country: str) -> bool:
     return any(re.search(rf"(?<!\w){re.escape(_plain(w))}(?!\w)", text) for w in words)
 
 
+def _linkedin(host: str) -> bool:
+    return host == "linkedin.com" or host.endswith(".linkedin.com")
+
+
+def linkedin_country(host: str) -> str | None:
+    """nl.linkedin.com is a profile shown for the Netherlands (Google shows the profile's
+    country site); www.linkedin.com says nothing."""
+    return LINKEDIN_CODES.get(host.split(".")[0]) if _linkedin(host) else None
+
+
+def check_title(person: Person, url: str, title: str, company: str, domain: str,
+                country: str) -> bool:
+    """A LinkedIn result, checked on its search result title only (never opened)."""
+    text = _plain(title)
+    if not (_words_in(_plain(person.name).split(), text) and names_company(text, company,
+                                                                           domain)):
+        return False
+    host = (urlsplit(url).hostname or "").lower()
+    person.page, person.placed = url, linkedin_country(host) == country
+    return True
+
+
 def check(people: list[Person], search_urls: list[str], company: str, domain: str,
-          country: str, read_page: Callable[[str], str], blocked: tuple[str, ...] = ()
+          country: str, read_page: Callable[[str], str], blocked: tuple[str, ...] = (),
+          titles: Mapping[str, str] | None = None, linkedin: bool = False,
           ) -> tuple[list[Person], list[str]]:
-    """The people whose name and company are on a page the search returned. Notes say why
-    the others were dropped (counts only, never names)."""
+    """The people whose name and company are on a page the search returned (or, with
+    `linkedin`, in the title of a LinkedIn result). Notes say why the others were dropped
+    (counts only, never names)."""
     known = {norm_url(u): u for u in search_urls if norm_url(u)}
     kept: list[Person] = []
-    no_page = unreadable = not_named = 0
+    no_page = unreadable = not_named = junior = 0
     texts: dict[str, str | None] = {}
     for person in people:
-        pages = []
+        if is_junior(person.title):
+            junior += 1
+            continue
+        pages, profiles = [], []
         for url in person.sources:
             real = known.get(norm_url(url))
             host = (urlsplit(real or "").hostname or "").lower()
-            if real and "linkedin" not in host and not any(
-                    host == b or host.endswith("." + b) for b in blocked):
-                pages.append(real)
+            if not real or any(host == b or host.endswith("." + b) for b in blocked):
+                continue
+            if _linkedin(host):
+                if linkedin and (titles or {}).get(real):
+                    profiles.append(real)
+                continue  # LinkedIn is never opened
+            pages.append(real)
+        if any(check_title(person, url, (titles or {})[url], company, domain, country)
+               for url in profiles):
+            kept.append(person)
+            continue
         if not pages:
-            no_page += 1
+            if profiles:
+                not_named += 1
+            else:
+                no_page += 1
             continue
         found = False
         for url in pages:
@@ -163,6 +223,8 @@ def check(people: list[Person], search_urls: list[str], company: str, domain: st
         else:
             not_named += 1
     notes = []
+    if junior:
+        notes.append(f"{junior} junior")
     if no_page:
         notes.append(f"{no_page} without a page from the search")
     if unreadable:
@@ -220,21 +282,25 @@ def find_email(person: Person, domain: str, hunter: ProviderDeps | None,
 def search(llm: Any, company: str, domain: str, country: str,
            open_slots: Mapping[str, int], read_page: Callable[[str], str],
            hunter: ProviderDeps | None, prospeo: ProviderDeps | None,
-           blocked: tuple[str, ...] = (), lookups: int = MAX_LOOKUPS
+           blocked: tuple[str, ...] = (), lookups: int = MAX_LOOKUPS, linkedin: bool = False,
            ) -> tuple[ProviderResult, dict[str, int]]:
     """Candidates for the open slots and the credits spent per provider."""
     result = ProviderResult()
     spent = {"hunter": 0, "prospeo": 0}
+    titles: dict[str, str] = {}
     try:
         raw, urls = llm.complete_json_with_search(
-            STAGE, SYSTEM_PROMPT.replace("MAX_PEOPLE", str(MAX_PEOPLE)),
+            STAGE, system_prompt(linkedin),
             user_prompt(company, domain, country, open_slots), max_tokens=MAX_TOKENS,
-            max_uses=MAX_SEARCHES, key=f"people-{domain}")
+            max_uses=MAX_SEARCHES, key=f"people-{domain}", titles=titles)
     except LLMError as exc:
         result.skipped_reason = f"AI search: {exc}"
         return result, spent
     people = parse_people(raw)
-    kept, notes = check(people, urls, company, domain, country, read_page, blocked)
+    log.info("AI search for %s: %d search results, %d names returned", company, len(urls),
+             len(people))
+    kept, notes = check(people, urls, company, domain, country, read_page, blocked,
+                        titles=titles, linkedin=linkedin)
     found = 0
     for person in kept[:lookups]:
         email, verified, provider, h, p = find_email(person, domain, hunter, prospeo)
@@ -244,12 +310,15 @@ def search(llm: Any, company: str, domain: str, country: str,
             continue
         found += 1
         host = urlsplit(person.page).hostname or person.page
+        if _linkedin(host.lower()):
+            host = "a LinkedIn search result (title only)"
         result.candidates.append(Candidate(
             name=person.name, first_name=person.name.split()[0], title=person.title,
             email=email, country=country if person.placed else None,
             provider_verified=verified, source=provider,
             country_unverified=not person.placed, found_on=host))
-    line = (f"AI search: {len(people)} names on public pages, {len(kept)} checked on their "
-            f"page, {found} with an email from Hunter or Prospeo")
+    where = "public pages and LinkedIn results" if linkedin else "public pages"
+    line = (f"AI search: {len(people)} names on {where}, {len(kept)} checked, {found} with "
+            "an email from Hunter or Prospeo")
     result.notes.append(line + (f" (dropped: {'; '.join(notes)})" if notes else ""))
     return result, spent

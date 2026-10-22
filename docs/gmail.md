@@ -23,7 +23,7 @@ bot checks every draft and sends the ones that pass (see "Mail mode" below).
   `[DEV] to <real address> | ` (`[LOCAL]` locally). Prod has the real recipient and the plain
   template subject.
 - **DRY_RUN** (the default): no draft is created and nothing is written. The bot logs
-  `DRY RUN: would create draft to <addr>` and shows the first rendered mail in Telegram.
+  `DRY RUN: would create draft to <addr>` and shows one full example mail per template in Telegram (cold mail, referral ask; 22 Oct, before only the first mail).
 - **Never mailed:** contacts with Status `Bounced` or `Do not contact`, Type `Other` (except a
   generic mailbox when Config `mail.generic_greeting_name` exists), and anyone drafted in the
   last Config `mail.same_person_cooldown_days` (30) days for another role.

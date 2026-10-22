@@ -1037,7 +1037,7 @@ def strategy_repo_for(s: Settings, client: NotionClient) -> NotionStrategyRepo |
 # ---------------------------------------------------------------- Target Companies (Module 08)
 
 TARGET_COMPANY_PROPERTY_TYPES = {"IND sponsor": "select", "Last checked": "date",
-                                 "ATS platform": "select"}
+                                 "ATS platform": "select", "Domain": "rich_text"}
 
 
 def target_companies_writer(s: Settings, client: NotionClient) -> Any:

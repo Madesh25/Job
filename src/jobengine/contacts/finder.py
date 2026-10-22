@@ -23,7 +23,9 @@ from jobengine.contacts.classify import (
     classify_title,
     country_ok,
     fill_slots,
+    is_junior,
     keep,
+    left_slots,
     parse_mix,
     wide_kind,
 )
@@ -55,7 +57,7 @@ from jobengine.reference import Reference
 from jobengine.safety import contact_lookups, paid_api_allowed
 from jobengine.screen.runner import description
 from jobengine.settings import ROOT_DIR, Settings
-from jobengine.sweep.normalize import canon_company
+from jobengine.sweep.normalize import canon_company, without_region
 
 log = logging.getLogger("jobengine.contacts")
 
@@ -95,6 +97,8 @@ class ContactDeps:
     # a public page is read to check a name on it.
     llm: Callable[[ConfigStore], Any] = lambda config: None
     read_page: Callable[[str], str] = lambda url: ""
+    # A domain the bot found itself: (company, domain) -> saved in Target Companies (prod).
+    save_domain: Callable[[str, str], None] = lambda company, domain: None
 
 
 def fake_deps(
@@ -125,11 +129,23 @@ def real_deps(s: Settings, state: BotState, write: bool = True) -> ContactDeps:
     if not s.notion_token:
         raise ValueError("contact finder cannot run: NOTION_TOKEN missing")
     from jobengine.llm import make_llm
+    from jobengine.notion_repo import target_companies_writer
     from jobengine.safety import llm_allowed
     from jobengine.sweep.fulltext import blocked_hosts
 
     client = NotionClient(s.notion_token, s)
     fixture = FixtureHttp(s)
+    writer = target_companies_writer(s, client)
+
+    def save_domain(company: str, domain: str) -> None:
+        target = Reference.load(client, s).company(company)
+        if writer is None or target is None or target.domain:
+            return  # not in prod, not in Target Companies, or a domain you typed is there
+        try:
+            writer(target.row_id, {"Domain": domain})
+        except http.HttpError as exc:
+            log.warning("Domain %s not saved for %s: %s", domain, company, exc)
+
     return ContactDeps(
         s=s, config=lambda: ConfigStore.load(client, s),
         reference=lambda: Reference.load(client, s), jobs=jobs_repo_for(s, client),
@@ -139,6 +155,7 @@ def real_deps(s: Settings, state: BotState, write: bool = True) -> ContactDeps:
         sleep=time.sleep,
         llm=lambda config: make_llm(s, config) if llm_allowed(s) else None,
         read_page=lambda url: http.get_page(url, s, blocked=blocked_hosts(s))[1],
+        save_domain=save_domain,
     )
 
 
@@ -195,6 +212,32 @@ def find_domain(company: str, reference: Reference, config: ConfigStore,
         if value and valid_domain(value, company):
             return valid_domain(value, company)
     return None
+
+
+def discover_domain(deps: ContactDeps, config: ConfigStore, company: str, country: str,
+                    values: dict[str, Any], jd: str, result: ContactsResult) -> str | None:
+    """22 Oct (your request): find the email domain without asking you
+    (contacts/domain_search.py). A sure domain is remembered and saved; None: ask."""
+    from jobengine.contacts import domain_search
+
+    target = deps.reference().company(company)
+    options = domain_options(company, [values.get("URL"),
+                                       target.careers_url if target else None], jd)
+    domain = domain_search.from_job_pages(company, options)
+    how = f"domain {domain} found on the job's pages" if domain else ""
+    if domain is None:
+        llm = deps.llm(config)
+        if llm is None:
+            return None
+        domain, how = domain_search.from_ai(llm, company, country, valid_domain, base_domain,
+                                            _not_company)
+        if domain is None:
+            result.notes.append(how)
+            return None
+    deps.state.set(state_key(company), {"domain": domain, "found": how})
+    deps.save_domain(company, domain)
+    result.notes.append(f"{how}, saved for next time")
+    return domain
 
 
 def job_ref(job_id: str) -> str:
@@ -289,6 +332,12 @@ def _country(value: str | None) -> str:
 CHECKED_COUNTRIES = ("Poland", "Netherlands", "Ireland")
 
 
+def flexible_roles(s: Settings) -> bool:
+    """Config contacts.roles: any (the default since 22 Oct, your rule: engineers, managers
+    and HR in any mix up to the total) or mix (the fixed contacts.mix numbers)."""
+    return str((s.contacts or {}).get("roles") or "any").strip().lower() != "mix"
+
+
 def strict_location(s: Settings, country: str) -> bool:
     """Config contacts.location strict (the default) for a job in one of our countries."""
     rule = str((s.contacts or {}).get("location") or "strict").strip().lower()
@@ -360,11 +409,7 @@ def find_contacts(deps: ContactDeps, job_id: str, paid: bool = True) -> Contacts
     seen = {c.email.lower() for c in chosen} | blocked
 
     def open_slots() -> dict[str, int]:
-        slots = mix.slots()
-        for c in chosen:
-            if c.type in slots:
-                slots[c.type] -= 1
-        return {k: v for k, v in slots.items() if v > 0}
+        return left_slots(mix.slots(), [c.type for c in chosen], flexible_roles(deps.s))
 
     # 2. Job description.
     body = deps.jobs.read_body(job_id) if deps.jobs else []
@@ -395,6 +440,8 @@ def find_contacts(deps: ContactDeps, job_id: str, paid: bool = True) -> Contacts
         result.notes.append(APPLY_ONLY_NOTE)
     elif open_slots():
         domain = find_domain(company, deps.reference(), config, deps.state)
+        if domain is None:
+            domain = discover_domain(deps, config, company, country, values, jd, result)
         if domain is None:
             result.status = "waiting_domain"
             result.waiting_for_domain = True
@@ -498,7 +545,8 @@ def _provider_step(deps: ContactDeps, book: CreditBook, name: str, provider: Any
         for candidate, kind, note in fill_slots(found.candidates, open_slots(), country,
                                                 domain, seen, patterns, personal,
                                                 strict=strict_location(deps.s, country),
-                                                left_out=left_out):
+                                                left_out=left_out,
+                                                flexible=flexible_roles(deps.s)):
             picked = _chosen(candidate, kind, note, by_email, country)
             if index and not picked.cached:
                 picked.notes = "; ".join(p for p in (picked.notes, f"found with {label}") if p)
@@ -532,9 +580,13 @@ def _confirm_step(deps: ContactDeps, book: CreditBook, unplaced: list[Candidate]
     slots = open_slots()
 
     def fits(c: Candidate) -> bool:
+        if is_junior(c.title):
+            return False
         kind = classify_title(c.title, patterns)
         if kind not in slots:
             kind = wide_kind(c.title, c.department)
+        if flexible_roles(deps.s) and kind in TYPE_ORDER:
+            return sum(slots.values()) > 0  # any mix: any open slot will do
         return slots.get(kind, 0) > 0
 
     asked = placed = 0
@@ -555,10 +607,14 @@ def _confirm_step(deps: ContactDeps, book: CreditBook, unplaced: list[Candidate]
         result.notes.append(f"prospeo: checked where {asked} people without a location are: "
                             f"{placed} in {country}")
     for candidate, kind, note in fill_slots(confirmed, open_slots(), country, domain, seen,
-                                            patterns, personal, strict=True):
+                                            patterns, personal, strict=True,
+                                            flexible=flexible_roles(deps.s)):
         picked = _chosen(candidate, kind, note, by_email, country)
         if not picked.cached:
-            picked.notes = "; ".join(p for p in (picked.notes, "location from Prospeo") if p)
+            ai_note = (f"found by AI web search on {candidate.found_on}" if candidate.found_on
+                       else "")
+            picked.notes = "; ".join(p for p in (picked.notes, ai_note,
+                                                 "location from Prospeo") if p)
         chosen.append(picked)
 
 
@@ -593,9 +649,11 @@ def _ai_step(deps: ContactDeps, config: ConfigStore, book: CreditBook, company: 
         return
     lookups = min(ai_search.MAX_LOOKUPS, sum(open_slots().values()) + 2)
     deps.calls.append("ai search")
-    found, spent = ai_search.search(llm, company, domain, country, open_slots(),
-                                    deps.read_page, hunter_deps, prospeo_deps,
-                                    blocked=blocked_hosts(deps.s), lookups=lookups)
+    linkedin = bool((deps.s.contacts or {}).get("ai_linkedin_titles", True))
+    found, spent = ai_search.search(llm, without_region(company), domain, country,
+                                    open_slots(), deps.read_page, hunter_deps, prospeo_deps,
+                                    blocked=blocked_hosts(deps.s), lookups=lookups,
+                                    linkedin=linkedin)
     for name, credits in spent.items():
         book.spend(name, credits)
     if found.skipped_reason:
@@ -605,7 +663,8 @@ def _ai_step(deps: ContactDeps, config: ConfigStore, book: CreditBook, company: 
     for candidate, kind, note in fill_slots(found.candidates, open_slots(), country, domain,
                                             seen, patterns, personal,
                                             strict=strict_location(deps.s, country),
-                                            left_out=left_out):
+                                            left_out=left_out,
+                                            flexible=flexible_roles(deps.s)):
         picked = _chosen(candidate, kind, note, by_email, country)
         if not picked.cached:
             picked.notes = "; ".join(p for p in (
@@ -614,6 +673,11 @@ def _ai_step(deps: ContactDeps, config: ConfigStore, book: CreditBook, company: 
     note = _left_out_note(left_out, country)
     if note:
         result.notes.append(f"AI search: {note}")
+    unplaced = [c for c in left_out if c.country_unverified]
+    if unplaced and open_slots() and strict_location(deps.s, country):
+        # A LinkedIn result rarely shows the country: Prospeo is asked where they are.
+        _confirm_step(deps, book, unplaced, company, domain, country, result, chosen, seen,
+                      by_email, open_slots, patterns, personal)
 
 
 GITHUB_SWITCH = "contacts.github"  # Notion Config: "on" reads the company's GitHub org first
@@ -658,7 +722,7 @@ def _github_step(deps: ContactDeps, config: ConfigStore, company: str, domain: s
         result.notes.append(found.skipped_reason)
     for candidate in found.candidates:
         key = candidate.email.strip().lower()
-        if key in seen or not keep(candidate, domain, personal):
+        if key in seen or not keep(candidate, domain, personal) or is_junior(candidate.title):
             continue
         where = country_ok(candidate, country)
         if where == "outside" or (where == "unverified" and strict_location(deps.s, country)):
@@ -666,7 +730,8 @@ def _github_step(deps: ContactDeps, config: ConfigStore, company: str, domain: s
         kind = classify_title(candidate.title, patterns)
         if kind not in (RECRUITER, HIRING):
             kind = PEER  # a member of the company's engineering organisation
-        if open_slots().get(kind, 0) <= 0:
+        room = open_slots()
+        if room.get(kind, 0) <= 0 and not (flexible_roles(deps.s) and room):
             continue
         seen.add(key)
         note = "country unverified" if where == "unverified" else ""

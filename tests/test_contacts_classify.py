@@ -104,3 +104,46 @@ def test_jd_emails():
     assert found["kasia@vistula.example.com"].name == "Kasia Nowak-Example"
     assert "someone@gmail.com" not in found
     assert "team@vistula.example.com" not in found  # no name and not a generic mailbox
+
+
+# ---------------------------------------------------------------- 22 Oct: any mix, no juniors
+
+
+def person(name, title, country="Poland"):
+    from jobengine.contacts.models import Candidate
+    return Candidate(name=name, first_name=name.split()[0], title=title,
+                     email=f"{name.split()[0].lower()}@acme.example.com", country=country,
+                     provider_verified=True, source="Hunter")
+
+
+def test_any_mix_fills_open_slots_with_any_type():
+    from jobengine.contacts.classify import fill_slots
+    from jobengine.contacts.models import HIRING, PEER, RECRUITER
+    people = [person("Ann One", "DevOps Engineer"), person("Bob Two", "Platform Engineer"),
+              person("Cid Three", "Cloud Engineer"), person("Dee Four", "SRE")]
+    slots = {PEER: 2, HIRING: 1, RECRUITER: 1}
+    fixed = fill_slots(people, slots, "Poland", "acme.example.com", set())
+    assert len(fixed) == 2  # the old rule: only the 2 peer slots
+    flexible = fill_slots(people, slots, "Poland", "acme.example.com", set(), flexible=True)
+    assert [c.name for c, _, _ in flexible] == ["Ann One", "Bob Two", "Cid Three", "Dee Four"]
+    assert {kind for _, kind, _ in flexible} == {PEER}  # their type (and template) stays
+
+
+def test_junior_people_are_never_taken():
+    from jobengine.contacts.classify import fill_slots, is_junior
+    from jobengine.contacts.models import PEER
+    assert is_junior("Junior DevOps Engineer") and is_junior("DevOps Intern")
+    assert is_junior("Stażysta DevOps") and not is_junior("Senior DevOps Engineer")
+    got = fill_slots([person("Ann One", "Junior DevOps Engineer"),
+                      person("Bob Two", "Graduate Cloud Engineer")], {PEER: 2}, "Poland",
+                     "acme.example.com", set(), flexible=True)
+    assert got == []
+
+
+def test_left_slots_counts_only_the_total_in_any_mix():
+    from jobengine.contacts.classify import left_slots
+    from jobengine.contacts.models import HIRING, PEER, RECRUITER
+    slots = {PEER: 2, HIRING: 1, RECRUITER: 1}
+    taken = [PEER, PEER, PEER]
+    assert sum(left_slots(slots, taken, flexible=True).values()) == 1
+    assert left_slots(slots, taken, flexible=False) == {HIRING: 1, RECRUITER: 1}

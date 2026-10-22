@@ -178,6 +178,43 @@ GitHub allows 60 calls an hour without a token. Set `GITHUB_TOKEN` (a fine-grain
 no permissions: it only reads public data) for 5,000 an hour. Like the providers, real calls
 happen only in prod with `DRY_RUN=false`; elsewhere invented fixtures answer.
 
+## Which people (22 Oct, your rule)
+
+- **Country first:** the strict location rule above stays.
+- **Any role, up to 4:** `contacts.roles` = `any` (default, `config/base.yaml`): engineers,
+  engineering or IT managers and HR in any mix, the best first; the slots of the mix are no
+  longer fixed (4 engineers is fine). Each person keeps a type, which picks the mail template
+  (engineer: referral ask; manager or HR: cold mail). `mix` brings back the fixed numbers of
+  Config `contacts.mix`. People in finance, sales or legal are still left out.
+- **No junior people:** titles with junior, jr, intern, trainee, graduate, apprentice,
+  student, werkstudent, stażysta, praktykant or stagiair are never taken, from any source.
+- Fewer than 4 is fine: nothing is forced.
+
+## Real credits left (22 Oct)
+
+When look-ups are real, /credits ends with "Real credits left", asked from Hunter
+(`/v2/account`), Snov (`/v1/get-balance`) and Prospeo (`/account-information`) at that
+moment; these calls are free. On 22 Oct the bot's own count said Snov 3 of 50 while Snov
+answered "out of credits": the providers' numbers are the truth. On the PC the Config
+counters stay simulated (never written); in prod they are still written after each look-up.
+
+## Company domain found by the bot (22 Oct, your request)
+
+When a company has no Domain (Target Companies, Config `contacts.domains`, or one you gave),
+the bot finds it itself (`src/jobengine/contacts/domain_search.py`), the first sure answer
+wins:
+
+1. The job's own pages (job link, careers page, emails in the description): sure when exactly
+   one domain there carries the company's name.
+2. An AI web search (Config `model.people`): sure only when a search result really lives on
+   that domain and the domain or the result's title names the company, and it is no job
+   board, recruiting software, LinkedIn or personal mail domain.
+
+A sure domain is remembered (Bot State) and, in prod, written to Target Companies `Domain`
+when that cell is empty (the only Target Companies column contacts may write). The answer
+says "domain X found ..., saved for next time". Only when nothing is sure does the bot ask
+you, as before. Emails are still never guessed: the finders give them.
+
 ## AI web search for contacts (20 Oct)
 
 The last step, when the cache, the job description, GitHub and the providers left slots
@@ -186,15 +223,24 @@ open. Config `contacts.ai_search` = `on` turns it on (off when the row is missin
 1. The AI (Config `model.people`; plan: `gemini-3.5-flash-lite` with Google Search, Haiku
    when not set; DeepSeek is never used here) searches the company's **public pages** for
    people in the job's country who fit the open slots: team and about pages, engineering
-   blogs, conference and meetup speaker pages, press releases, GitHub. Never LinkedIn or
-   another social network. At most 6 names, at most 5 searches.
+   blogs, conference and meetup speaker pages, press releases, GitHub. At most 6 names, at
+   most 5 searches. The searches it ran are written to the log.
+   **22 Oct, your decision:** LinkedIn profile results too, by their **title in the search
+   results only** ("Anna Lis - Platform Engineer - Acme | LinkedIn"); LinkedIn is never
+   opened (`contacts.ai_linkedin_titles: true` in `config/base.yaml`, false switches it off).
+   Works with Claude's web search; Gemini gives only the site name as the title, so on
+   Gemini LinkedIn people cannot be checked and are dropped.
 2. Each name is checked, so the AI cannot invent people:
-   - its page must be one the search really returned (LinkedIn and the sites that block the
-     bot are never used);
+   - its page must be one the search really returned (the sites that block the bot are never
+     used);
    - the bot reads that page once (a plain public page read, like a job page) and the full
-     name and the company must both be on it (Polish letters match plain ones);
+     name and the company must both be on it (Polish letters match plain ones); a LinkedIn
+     result is checked on its title instead, never opened;
    - the person counts as in the country only when the page names the country or one of its
-     cities (the strict location rule leaves the others out).
+     cities, or the LinkedIn address is the country's own (`nl.`, `pl.`, `ie.linkedin.com`);
+     the others are looked up in Prospeo by email (up to 3, "location from Prospeo") and the
+     strict location rule leaves out who is not placed;
+   - junior titles are dropped before any email look-up.
 3. The email is **never guessed**: Hunter's email finder (name + company domain, 1 credit
    when it finds one), else Prospeo's enrich by name (1 credit, verified emails only). An
    address Hunter calls invalid is dropped, never replaced. At most 4 look-ups per job.
@@ -215,8 +261,9 @@ job (Gemini: free up to 5,000 a month) and the Hunter or Prospeo credits of the 
 3. Job description: a named person's email becomes a Recruiter/TA contact (Source Job
    posting); a generic mailbox (`careers@`, `jobs@`, `hr@`, ...) is saved as Type Other.
 4. Domain: Target Companies `Domain`, then Config `contacts.domains`
-   (`Company Name = domain.tld` lines), then a domain you gave in Telegram. Job board and ATS
-   hosts (greenhouse.io, lever.co, teamtailor.com, ...) are never used. Unknown: the bot asks
+   (`Company Name = domain.tld` lines), then a domain you gave in Telegram or the bot found
+   (22 Oct, "Company domain found by the bot" above). Job board and ATS hosts
+   (greenhouse.io, lever.co, teamtailor.com, ...) are never used. Still unknown: the bot asks
    and the lookup waits for your reply.
 5. GitHub (free, when Config `contacts.github` is `on`; see above) for the Peer engineer
    slots, then the waterfall for the slots still open: Apollo (search, then one reveal per open slot), Hunter (one
