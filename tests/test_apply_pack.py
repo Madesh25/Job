@@ -103,7 +103,7 @@ def job(country, **extra):
 @pytest.mark.parametrize("country, permit, floor", [
     ("Poland", "Polish work permit (type A)", "No visa salary minimum"),
     ("Netherlands", "Highly Skilled Migrant", "EUR 4,357 a month gross"),
-    ("Ireland", "Critical Skills Employment Permit (from EUR 40,904 with my degree)",
+    ("Ireland", "Critical Skills Employment Permit (from EUR 40,904 with a relevant degree",
      "EUR 40,904 a year for a Critical Skills Employment Permit (relevant degree), EUR 36,605"),
 ])
 def test_pack_per_country(country, permit, floor):

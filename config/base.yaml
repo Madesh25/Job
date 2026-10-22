@@ -137,8 +137,9 @@ apply_pack:
         (Highly Skilled Migrant minimum under 30, 2026)"
     Ireland:
       permit: "I need an Irish employment permit. DevOps is on the Critical Skills Occupations
-        List: a Critical Skills Employment Permit (from EUR 40,904 with my degree) or a General
-        Employment Permit (from EUR 36,605), neither with a labour market test."
+        List: a Critical Skills Employment Permit (from EUR 40,904 with a relevant degree,
+        EUR 68,911 without) or a General Employment Permit (from EUR 36,605), neither with a
+        labour market test."
       salary_floor: "EUR 40,904 a year for a Critical Skills Employment Permit (relevant degree),
         EUR 36,605 for a General Employment Permit (DETE minimums from 1 March 2026; basic pay
         only, bonuses do not count)"
