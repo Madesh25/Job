@@ -88,3 +88,22 @@ def test_robots_txt_that_forbids_the_search_is_respected():
 
     result = nofluffjobs.fetch(S, get=get, pause=lambda _: None)
     assert "robots.txt" in result.notes[0]
+
+
+def test_the_newer_angular_page_data_is_read_too():
+    # 22 Oct: every search gave 0 jobs. Newer Angular names the block "ng-state" and writes
+    # plain JSON (no &q; escapes); the job list may sit deeper.
+    state = {"NG_KEY": {"body": {"searchResponse": {"postings": JOBS, "totalCount": 3}}},
+             "other": {"postings": []}}
+    html = ('<html><script type="application/json" id="ng-state">'
+            f"{json.dumps(state)}</script></html>")
+    assert [j["title"] for j in nofluffjobs.postings_from_page(html)] == [
+        j["title"] for j in JOBS]
+
+
+def test_no_job_list_gives_the_page_shape_for_the_log():
+    html = ('<html><script id="ng-state" type="application/json">{"a": 1}</script>'
+            '<script id="other" type="application/json">[]</script></html>')
+    assert nofluffjobs.postings_from_page(html) == []
+    assert nofluffjobs.page_shape(html) == (
+        f"{len(html)} characters, JSON blocks: ng-state, other, word 'postings' absent")

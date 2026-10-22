@@ -473,5 +473,6 @@ def test_hunter_people_are_placed_through_prospeo_under_strict():
     result = finder.find_contacts(d, "fixture-clean-pl")
     assert located and len(located) <= finder.MAX_CONFIRM
     assert any("location from Prospeo" in (c.notes or "") for c in result.contacts)
-    assert f"prospeo: checked where {len(located)} people without a location are: " \
-           f"{len(located)} in Poland" in result.message
+    who = "1 person without a location is" if len(located) == 1 else \
+        f"{len(located)} people without a location are"
+    assert f"prospeo: checked where {who}: {len(located)} in Poland" in result.message
