@@ -355,7 +355,15 @@ def _left_out_note(left_out: list[Candidate], country: str) -> str | None:
             + " (Config contacts.location)")
 
 
-def _summary(result: ContactsResult, generic: list[Chosen], credits: str) -> str:
+def _missing_words(missing: dict[str, int], flexible: bool) -> str:
+    """Config contacts.roles any: any type fills any slot, so only the total is missing."""
+    if flexible:
+        return f"{sum(missing.values())} more (engineers, managers or HR)"
+    return ", ".join(f"{n} {SLOT_WORDS[k]}" for k, n in missing.items())
+
+
+def _summary(result: ContactsResult, generic: list[Chosen], credits: str,
+             flexible: bool = False) -> str:
     lines = [f"Contacts for {result.company}, {result.role} ({result.country})"]
     for kind in TYPE_ORDER:
         lines += [c.label() for c in result.contacts if c.type == kind]
@@ -365,7 +373,7 @@ def _summary(result: ContactsResult, generic: list[Chosen], credits: str) -> str
         lines.append(NONE_FOUND)
         lines.append(credits)
     elif result.missing:
-        missing = ", ".join(f"{n} {SLOT_WORDS[k]}" for k, n in result.missing.items())
+        missing = _missing_words(result.missing, flexible)
         lines.append(f"{found} of {result.target} found. Missing: {missing}. {credits}")
     else:
         lines.append(f"{found} of {result.target} found. {credits}")
@@ -482,7 +490,7 @@ def find_contacts(deps: ContactDeps, job_id: str, paid: bool = True) -> Contacts
     result.contacts = chosen
     result.missing = open_slots()
     _write(deps, job_id, values, chosen, generic, today)
-    result.message = _summary(result, generic, book.line())
+    result.message = _summary(result, generic, book.line(), flexible_roles(deps.s))
     return result
 
 

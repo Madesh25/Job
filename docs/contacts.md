@@ -311,7 +311,8 @@ job (Gemini: free up to 5,000 a month) and the Hunter or Prospeo credits of the 
   contacts** button, which does the same). Then "Finding contacts for ..." and the list, for
   example
   `4 of 4 found. Credits: Apollo 2/75, Hunter 0/25, Snov 0/50`, or
-  `2 of 4 found. Missing: 1 hiring, 1 recruiter.`, or
+  `2 of 4 found. Missing: 2 more (engineers, managers or HR).` (with Config
+  `contacts.roles` mix: `Missing: 1 hiring, 1 recruiter.`), or
   `No contacts found. Apply through the portal only.`
   When contacts were found, a **Write Gmail drafts** button writes the drafts; they are not
   written until you tap it. In mail mode send the button is **Check and send mails** (see

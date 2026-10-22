@@ -195,9 +195,16 @@ def test_without_a_counter_the_free_plan_is_skipped_and_not_listed():
     result = find_contacts(d, PL)
     assert d.calls == []
     assert found_line(result) == (
-        "2 of 4 found. Missing: 1 peer, 1 hiring. Credits: Apollo 75/75, Hunter 25/25, "
-        "Snov 50/50")
+        "2 of 4 found. Missing: 2 more (engineers, managers or HR). Credits: Apollo 75/75, "
+        "Hunter 25/25, Snov 50/50")  # contacts.roles any: only the total is missing
     assert "prospeo" not in result.message and "tomba" not in result.message
+
+
+def test_fixed_mix_still_names_the_missing_types():
+    d = make(**USED_UP)
+    d.s.contacts["roles"] = "mix"
+    result = find_contacts(d, PL)
+    assert found_line(result).startswith("2 of 4 found. Missing: 1 peer, 1 hiring. ")
 
 
 def test_counters_are_allowlisted_and_simulated_outside_prod():
