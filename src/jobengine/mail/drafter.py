@@ -364,7 +364,17 @@ def summary(deps: MailDeps, result: DraftsResult, config: ConfigStore) -> str:
         if waiting > cap:
             lines.append(f"You have {waiting} unsent drafts; send at most {cap} today.")
     if result.dry_run and result.mails:
-        lines += ["", "First mail:", result.mails[0].preview()]
+        # 22 Oct (Phase 11 O-05): only the first mail was shown, so the referral ask and its
+        # job link could not be checked. Now one full mail per template.
+        shown: set[str] = set()
+        for line, mail in zip(result.drafted, result.mails, strict=False):
+            if line.template in shown:
+                continue
+            shown.add(line.template)
+            kind = KIND.get(line.template, "mail")
+            who = line.name or line.email
+            lines += ["", f"Example {kind} ({line.template} template, to {who}):",
+                      mail.preview()]
     return "\n".join(lines)
 
 

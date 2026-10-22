@@ -97,8 +97,13 @@ def test_dry_run_creates_nothing_and_previews(tmp_path):
     assert deps.contacts.writes == []
     assert deps.jobs.writes == []
     assert "DRY RUN: 4 drafts not created." in result.message
-    assert "First mail:" in result.message and "Subject: [DEV] to piotr." in result.message
+    assert "Subject: [DEV] to piotr." in result.message
     assert "Attachment: " in result.message
+    # 22 Oct: one example per template, so the referral ask and its job link can be checked
+    examples = [line for line in result.message.splitlines() if line.startswith("Example ")]
+    assert len(examples) == len({line.split("(")[1].split(" template")[0] for line in examples})
+    assert any("referral ask" in line for line in examples)
+    assert any("cold mail" in line for line in examples)
 
 
 def test_no_write_flag_is_like_dry_run(tmp_path):

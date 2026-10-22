@@ -52,7 +52,7 @@ from jobengine.strategy import runner as strategy_runner
 from jobengine.strategy import tips as tips_mod
 from jobengine.strategy.runner import StrategyDeps
 from jobengine.sweep.fulltext import blocked_hosts
-from jobengine.sweep.normalize import dedupe_key
+from jobengine.sweep.normalize import dedupe_key, without_region
 from jobengine.sweep.rank import Ranker
 from jobengine.track import commands as track_commands
 from jobengine.track import runner as track_runner
@@ -827,8 +827,9 @@ class Desk:
             return None
         log.info("approve resume: writing the cover letter for %s", job_id)
         return cover.write(
-            self.resume.llm(self.deps.config()), company=values.get("Company") or "",
-            role=values.get("Role") or "", country=values.get("Country") or "", jd=jd,
+            self.resume.llm(self.deps.config()),
+            company=without_region(values.get("Company") or ""), role=values.get("Role") or "",
+            country=values.get("Country") or "", jd=jd,
             resume_text=resume_text, details=specific_details(body),
             gaps=split_gaps(values.get("Gaps")), key=job_id.replace("-", ""),
             facts=apply_facts.facts(self.s, self.deps.config()))
@@ -894,7 +895,7 @@ class Desk:
         jd, _kind = description(body)
         gaps = split_gaps(values.get("Gaps"))
         have = list(self.ranker().keywords(jd).have) if jd else []
-        company, role = values.get("Company") or "", values.get("Role") or ""
+        company, role = without_region(values.get("Company") or ""), values.get("Role") or ""
         llm = self.resume.llm(self.deps.config()) if self.resume is not None else None
         qs = (interview.questions(llm, company=company, role=role, jd=jd,
                                   resume_text=self._master_text(), gaps=gaps,
@@ -934,7 +935,7 @@ class Desk:
         first = who.split()[0] if who.split() else None
         name = " ".join(str(config.get("profile.name") or "").split())
         return [Reply(interview.thanks_text(
-            template, first=first, company=values.get("Company") or "",
+            template, first=first, company=without_region(values.get("Company") or ""),
             role=values.get("Role") or "", detail=detail, name=name))]
 
     # ------------------------------------------------------------ outreach budget (Module 10)
@@ -1032,7 +1033,8 @@ class Desk:
                      for kind in ("peer", "recruiter", "hiring")}
         me = config.get("linkedin.signature") or self.s.apply_pack.get("linkedin_signature")
         text = linkedin_notes.notes(
-            rows, role=values.get("Role") or "", company=values.get("Company") or "",
+            rows, role=values.get("Role") or "",
+            company=without_region(values.get("Company") or ""),
             link=values.get("URL") or "", me=str(me or ""),
             templates={k: v for k, v in templates.items() if v})
         return [Reply(text[:MAX_TEXT])]
@@ -1223,6 +1225,14 @@ class Desk:
             key_state = "key set" if keys[provider] else "no key"
             lines.append(f"{account_label(provider)}: {value}{when}, {key_state}")
         lines.append(f"Contact lookups: {contact_lookups(self.s)}.")
+        if paid_api_allowed("hunter", self.s):
+            # 22 Oct: the counters above are the bot's own count (only simulated on the PC);
+            # the providers' own numbers are the truth.
+            from jobengine.contacts import balance
+            from jobengine.contacts.providers.base import real_request
+
+            lines += ["", "Real credits left (asked from each provider now, free):",
+                      *balance.lines(self.s, lambda name: real_request(self.s))]
         return [Reply("\n".join(lines))]
 
     def domain_answer(self, replied_to: str, text: str) -> list[Reply] | None:

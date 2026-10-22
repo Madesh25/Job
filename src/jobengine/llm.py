@@ -179,7 +179,7 @@ class LLMClient(Protocol):
 class SearchLLM(LLMClient, Protocol):
     def complete_json_with_search(
         self, stage: str, system: str, user: str, *, max_tokens: int = 4000,
-        max_uses: int = 8, key: str | None = None,
+        max_uses: int = 8, key: str | None = None, titles: dict[str, str] | None = None,
     ) -> tuple[dict[str, Any], list[str]]: ...
 
 
@@ -221,6 +221,32 @@ def search_urls(content: list[Any]) -> list[str]:
                 if _field(citation, "url"):
                     urls.append(_field(citation, "url"))
     return list(dict.fromkeys(urls))
+
+
+def search_titles(content: list[Any]) -> dict[str, str]:
+    """URL -> title of every web search result in a response (22 Oct: the contact search
+    checks a LinkedIn result by its title only, never opening LinkedIn)."""
+    titles: dict[str, str] = {}
+    for block in content:
+        if _field(block, "type") != "web_search_tool_result":
+            continue
+        results = _field(block, "content")
+        for item in results if isinstance(results, list) else []:
+            if _field(item, "url") and _field(item, "title"):
+                titles[_field(item, "url")] = str(_field(item, "title"))
+    return titles
+
+
+def search_queries(content: list[Any]) -> list[str]:
+    """The searches the model ran (logged, so a search that found nobody can be explained)."""
+    out = []
+    for block in content:
+        if _field(block, "type") == "server_tool_use":
+            query = (_field(block, "input") or {}).get("query") if isinstance(
+                _field(block, "input"), dict) else None
+            if query:
+                out.append(str(query))
+    return out
 
 
 def _check_stage(stage: str) -> None:
@@ -441,9 +467,11 @@ class AnthropicLLM:
     def complete_json_with_search(
         self, stage: str, system: str, user: str, *, max_tokens: int = 4000,
         max_uses: int = 8, key: str | None = None, model: str | None = None,
+        titles: dict[str, str] | None = None,
     ) -> tuple[dict[str, Any], list[str]]:
         """complete_json with the web search tool enabled (at most `max_uses` searches).
-        Returns the JSON object and the URLs the searches returned."""
+        Returns the JSON object and the URLs the searches returned; `titles` (when given)
+        gets each result's title."""
         _check_stage(stage)
         if stage not in SEARCH_STAGES:
             raise LLMError(f"web search is not allowed for stage {stage}")
@@ -471,6 +499,11 @@ class AnthropicLLM:
                              None))
             content = list(response.content)
             urls.extend(search_urls(content))
+            if titles is not None:
+                titles.update(search_titles(content))
+            queries = search_queries(content)
+            if queries:
+                log.info("llm stage=%s searched: %s", stage, " | ".join(queries))
             stop = getattr(response, "stop_reason", None)
             if stop == "refusal":
                 raise LLMError(f"LLM declined the {stage} request")
@@ -582,7 +615,7 @@ class GeminiLLM:
 
     def complete_json_with_search(
         self, stage: str, system: str, user: str, *, model: str, max_tokens: int = 4000,
-        thinking: str | None = None,
+        thinking: str | None = None, titles: dict[str, str] | None = None,
     ) -> tuple[dict[str, Any], list[str]]:
         """Grounding with Google Search. Google gives each result as a redirect link, so
         every link is opened once (redirect only, the page itself is never read) to get the
@@ -609,6 +642,8 @@ class GeminiLLM:
         log.info("llm stage=%s model=%s input_tokens=%s output_tokens=%s searches=%s", stage,
                  model, meta.get("promptTokenCount"), meta.get("candidatesTokenCount"),
                  len(queries))
+        if queries:
+            log.info("llm stage=%s searched: %s", stage, " | ".join(map(str, queries)))
         if first.get("finishReason") in GEMINI_DECLINED:
             raise LLMError(f"Gemini declined the {stage} request")
         parts = (first.get("content") or {}).get("parts") or []
@@ -618,8 +653,12 @@ class GeminiLLM:
             raw = parse_json_object(text)
         except ValueError:
             raise LLMError(f"Gemini reply for {stage} was not valid JSON") from None
-        chunks = [self._real_url(str((c.get("web") or {}).get("uri") or ""))
-                  for c in grounding.get("groundingChunks") or [] if isinstance(c, dict)]
+        webs = [c.get("web") or {} for c in grounding.get("groundingChunks") or []
+                if isinstance(c, dict)]
+        chunks = [self._real_url(str(w.get("uri") or "")) for w in webs]
+        if titles is not None:  # Google gives the site name here, not the page title
+            titles.update({u: str(w.get("title") or "") for u, w in zip(chunks, webs,
+                                                                         strict=True) if u})
         attach_sources(raw, grounding.get("groundingSupports") or [], chunks)
         return raw, list(dict.fromkeys(u for u in chunks if u))
 
@@ -815,7 +854,7 @@ class ModelRouter:
 
     def complete_json_with_search(
         self, stage: str, system: str, user: str, *, max_tokens: int = 4000,
-        max_uses: int = 8, key: str | None = None,
+        max_uses: int = 8, key: str | None = None, titles: dict[str, str] | None = None,
     ) -> tuple[dict[str, Any], list[str]]:
         """Gemini searches with Google (it cannot be told a maximum number of searches);
         DeepSeek has no web search, so a DeepSeek model here becomes haiku."""
@@ -824,14 +863,14 @@ class ModelRouter:
             try:
                 return self.gemini().complete_json_with_search(
                     stage, system, user, model=model, max_tokens=max_tokens,
-                    thinking=thinking_for(stage, self.config))
+                    thinking=thinking_for(stage, self.config), titles=titles)
             except LLMError as exc:
                 model = self._failed(stage, model, exc)
         elif is_deepseek(model):
             model = self._fallback()
         return self.claude.complete_json_with_search(stage, system, user,
                                                      max_tokens=max_tokens, max_uses=max_uses,
-                                                     key=key, model=model)
+                                                     key=key, model=model, titles=titles)
 
     def batch_ok(self, stage: str) -> bool:
         """False when the stage runs on Gemini or DeepSeek: screen/batch.py then screens at
@@ -894,9 +933,10 @@ class FakeLLM:
 
     def complete_json_with_search(
         self, stage: str, system: str, user: str, *, max_tokens: int = 4000,
-        max_uses: int = 8, key: str | None = None,
+        max_uses: int = 8, key: str | None = None, titles: dict[str, str] | None = None,
     ) -> tuple[dict[str, Any], list[str]]:
-        """fixtures/llm/<stage>/<key>.json holds {"reply": {...}, "search_urls": [...]}."""
+        """fixtures/llm/<stage>/<key>.json holds {"reply": {...}, "search_urls": [...]},
+        optionally "search_titles": {url: title}."""
         _check_stage(stage)
         if stage not in SEARCH_STAGES:
             raise LLMError(f"web search is not allowed for stage {stage}")
@@ -906,6 +946,8 @@ class FakeLLM:
         if not key or not path.exists():
             raise LLMError(f"FakeLLM has no fixture {stage}/{key}.json")
         data = json.loads(path.read_text(encoding="utf-8"))
+        if titles is not None:
+            titles.update(data.get("search_titles") or {})
         return data.get("reply") or {}, list(data.get("search_urls") or [])
 
     def submit_batch(

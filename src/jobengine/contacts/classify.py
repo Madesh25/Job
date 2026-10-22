@@ -36,6 +36,27 @@ TECH_DEPARTMENTS = frozenset({"it", "engineering", "engineering & technical",
                               "information technology"})
 HR_DEPARTMENTS = frozenset({"hr", "human resources"})
 WIDE_NOTE = "senior, wider search"
+# 22 Oct (your rule): junior people are never contacts; they cannot refer or hire.
+JUNIOR = re.compile(r"\b(junior|jr|intern|internship|trainee|graduate|apprentice|student|"
+                    r"werkstudent|sta[zż]ysta|praktykant|stagiair)\b", re.I)
+
+
+def is_junior(title: str | None) -> bool:
+    return bool(JUNIOR.search(title or ""))
+
+
+def left_slots(slots: Mapping[str, int], taken: Iterable[str], flexible: bool) -> dict[str, int]:
+    """Open slots after the people already taken. `flexible` (Config contacts.roles any): a
+    type may take another type's slot, so only the total counts; the slot taken back is the
+    one with the most room."""
+    remaining = dict(slots)
+    for kind in taken:
+        if remaining.get(kind, 0) > 0:
+            remaining[kind] -= 1
+        elif flexible and remaining and max(remaining.values()) > 0:
+            donor = max(remaining, key=lambda k: remaining[k])
+            remaining[donor] -= 1
+    return {k: v for k, v in remaining.items() if v > 0}
 EMAIL_RE = re.compile(r"^[^@\s]+@([A-Za-z0-9-]+\.)+[A-Za-z]{2,}$")
 
 
@@ -111,6 +132,7 @@ def fill_slots(
     personal: Iterable[str] = PERSONAL_DOMAINS,
     strict: bool = False,
     left_out: list[Candidate] | None = None,
+    flexible: bool = False,
 ) -> list[tuple[Candidate, str, str]]:
     """Choose candidates for the open slots: (candidate, type, note).
 
@@ -120,13 +142,15 @@ def fill_slots(
     lowercase emails already used (cache and this run) and is updated. Candidates beyond the
     open slots are dropped. `strict` (Config contacts.location): only people placed in the
     job's country (or named in the job posting) count; the others go to `left_out`.
+    `flexible` (Config contacts.roles any, 22 Oct): after each type's own slots, the best
+    people left of any type fill the slots still open. Junior people are always skipped.
     """
     remaining = dict(open_slots)
     ranked: dict[str, list[tuple[int, Candidate]]] = {t: [] for t in remaining}
     wider: set[int] = set()
     order = {"in": 0, "unverified": 1, "outside": 2}
     for index, candidate in enumerate(candidates):
-        if not keep(candidate, domain, personal):
+        if not keep(candidate, domain, personal) or is_junior(candidate.title):
             continue
         if strict and candidate.source != "Job posting" and \
                 country_ok(candidate, country) != "in":
@@ -157,6 +181,25 @@ def fill_slots(
                 note = f"{WIDE_NOTE}, {note}" if note else WIDE_NOTE
             chosen.append((candidate, kind, note))
             remaining[kind] -= 1
+    if flexible and sum(v for v in remaining.values() if v > 0):
+        # Any mix: the slots still open go to the best people left, whatever their type.
+        rest = sorted(((rank, kind, c) for kind, items in ranked.items() for rank, c in items
+                       if c.email.strip().lower() not in seen), key=lambda x: x[0])
+        for _, kind, candidate in rest:
+            room = {k: v for k, v in remaining.items() if v > 0}
+            if not room:
+                break
+            key = candidate.email.strip().lower()
+            if key in seen:
+                continue
+            seen.add(key)
+            where = country_ok(candidate, country)
+            note = {"outside": f"outside {country}", "unverified": "country unverified"}.get(
+                where, "")
+            if id(candidate) in wider:
+                note = f"{WIDE_NOTE}, {note}" if note else WIDE_NOTE
+            chosen.append((candidate, kind, note))
+            remaining[max(room, key=lambda k: room[k])] -= 1
     return chosen
 
 

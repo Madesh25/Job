@@ -268,6 +268,14 @@ contacts:
   # unknown location are left out, even if a slot stays empty. country_first = people in the
   # country first, then unknown, then outside. Remote/Other jobs have no country to check.
   location: strict
+  # Which people (22 Oct, your rule): any = engineers, engineering or IT managers and HR in any
+  # mix up to the total (contacts.per_job, 4), the best first; mix = the fixed numbers of
+  # Config contacts.mix. Junior, intern, trainee and graduate titles are never taken.
+  roles: any
+  # AI contact search (Config contacts.ai_search = on): also LinkedIn profile results, read by
+  # their title in the search results only; LinkedIn is never opened (your decision, 22 Oct).
+  # Works with Claude's web search (model.people on Claude); Gemini gives no result titles.
+  ai_linkedin_titles: true
   # Title patterns (lowercase regex), checked in this order. Anything else is Other.
   title_patterns:
     recruiter: "recruit|talent acquisition|sourcer|talent partner|people partner|hr business partner|rekrut|\\bhr\\b|human resources|people (operations|ops)|talent (manager|lead|specialist)|kadr"

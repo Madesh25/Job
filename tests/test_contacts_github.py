@@ -95,6 +95,7 @@ def test_off_unless_config_says_on():
 
 def test_github_fills_the_peer_slots_before_paid_lookups():
     d = make(**{finder.GITHUB_SWITCH: "on"})
+    d.s = d.s.model_copy(update={"contacts": {**d.s.contacts, "roles": "mix"}})  # fixed mix
     result = find_contacts(d, PL)
     assert d.calls == ["github", "apollo"]  # the open peer slot went to GitHub first
     assert [(c.name, c.type, c.source, c.notes) for c in result.contacts

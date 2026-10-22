@@ -16,6 +16,7 @@ from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from jobengine.config_store import ConfigStore
 from jobengine.llm import LLMClient, LLMError
 from jobengine.mail.templates import TYPE_TEMPLATE, Template, approved
+from jobengine.sweep.normalize import without_region
 
 log = logging.getLogger("jobengine.mail")
 
@@ -148,7 +149,8 @@ def placeholder_values(job: MailJob, name: str, config: ConfigStore,
     """`greeting` (Config mail.generic_greeting_name, generic mailboxes only) is used whole."""
     values = {
         "first_name": greeting.strip() if greeting else first_name(name),
-        "company": job.company.strip(),
+        # "State Street (IE)" is the Target Companies row name, not the company's name.
+        "company": without_region(job.company).strip(),
         "role": clean_role(job.role),
         "city": city_for(job),
         "country": job.country.strip(),

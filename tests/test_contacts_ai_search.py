@@ -42,21 +42,24 @@ EMAILS = {"Łukasz": ("lukasz.wojcik@vistula.example.com", "valid"),
 
 
 class SearchLLM:
-    def __init__(self, answer=ANSWER, urls=(TEAM, TALK, LINKEDIN), fail=False):
+    def __init__(self, answer=ANSWER, urls=(TEAM, TALK, LINKEDIN), fail=False, titles=None):
         self.answer, self.urls, self.fail, self.calls = answer, list(urls), fail, []
+        self.titles = titles or {}
 
     def complete_json_with_search(self, stage, system, user, **kwargs):
-        self.calls.append((stage, user, kwargs.get("max_uses")))
+        self.calls.append((stage, user, kwargs.get("max_uses"), system))
         if self.fail:
             raise LLMError("call failed: HTTP 503")
+        if kwargs.get("titles") is not None:
+            kwargs["titles"].update(self.titles)
         return self.answer, self.urls
 
 
 class Providers:
     """Hunter's email finder and Prospeo's enrich by name, recorded."""
 
-    def __init__(self, prospeo=None):
-        self.calls, self.prospeo = [], prospeo or {}
+    def __init__(self, prospeo=None, locations=None):
+        self.calls, self.prospeo, self.locations = [], prospeo or {}, locations or {}
 
     def __call__(self, method, url, *, params=None, headers=None, json_body=None):
         if "email-finder" in url:
@@ -64,6 +67,12 @@ class Providers:
             email, status = EMAILS.get(params["first_name"], ("", None))
             return {"data": {"email": email or None,
                              "verification": {"status": status} if status else None}}
+        if "email" in json_body["data"]:  # Prospeo locate: where is this person?
+            email = json_body["data"]["email"]
+            self.calls.append(("locate", email))
+            if email in self.locations:
+                return {"person": {"location": {"country": self.locations[email]}}}
+            return {"error": True, "error_code": "NO_MATCH"}
         first = json_body["data"]["first_name"]
         self.calls.append(("prospeo", first, json_body["data"]["company_website"]))
         if first in self.prospeo:
@@ -108,9 +117,9 @@ def test_ai_search_fills_the_open_slots(no_waterfall):
     # the single name never reach an email look-up.
     asked = {c[1] for c in providers.calls}
     assert asked == {"Łukasz", "Marta", "Zofia", "Jan"}
-    assert ("AI search: 6 names on public pages, 4 checked on their page, 3 with an email "
-            "from Hunter or Prospeo (dropped: 1 without a page from the search; 1 not named "
-            "with the company on their page)") in result.message
+    assert ("AI search: 6 names on public pages and LinkedIn results, 4 checked, 3 with an "
+            "email from Hunter or Prospeo (dropped: 1 without a page from the search; 1 not "
+            "named with the company on their page)") in result.message
     assert "Zofia" not in result.message
     assert d.contacts.rows  # written to Contacts like any other contact
     assert any(row["Source"] == "Hunter" and "AI web search" in row["Notes"]
@@ -170,3 +179,66 @@ def test_gemini_sources_are_attached_to_people():
     attach_sources(raw, [{"segment": {"text": '"name": "Marta Nowak", "title": "Head'},
                           "groundingChunkIndices": [0]}], [TEAM])
     assert raw["people"][0]["sources"] == [TEAM]
+
+
+# ---------------------------------------------------------------- 22 Oct: LinkedIn titles
+
+EN = chr(0x2013)  # titles use an en dash; the repo itself never contains one
+NL_PROFILE = "https://nl.linkedin.com/in/anna-lis-123"
+WWW_PROFILE = "https://www.linkedin.com/in/piotr-nowy-9"
+
+
+def test_linkedin_result_is_checked_by_its_title_only(no_waterfall):
+    answer = {"people": [person("Anna Lis", "Platform Engineer", [NL_PROFILE]),
+                         person("Piotr Nowy", "Engineering Manager", [WWW_PROFILE]),
+                         person("Zed Fake", "SRE", [NL_PROFILE])]}
+    titles = {NL_PROFILE: "Anna Lis - Platform Engineer - Vistula Cloud | LinkedIn",
+              WWW_PROFILE: f"Piotr Nowy {EN} Engineering Manager {EN} Vistula Cloud | LinkedIn"}
+    read = []
+    llm = SearchLLM(answer=answer, urls=(NL_PROFILE, WWW_PROFILE), titles=titles)
+    providers = Providers(locations={"piotr.nowy@vistula.example.com": "Netherlands"})
+    d = deps(llm=llm, providers=providers)
+    d.read_page = lambda url: read.append(url) or ""
+    d.jobs.rows[PL]["Country"] = "Netherlands"
+    EMAILS["Anna"] = ("anna.lis@vistula.example.com", "valid")
+    EMAILS["Piotr"] = ("piotr.nowy@vistula.example.com", "valid")
+    try:
+        result = find_contacts(d, PL)
+    finally:
+        del EMAILS["Anna"], EMAILS["Piotr"]
+    assert read == []  # LinkedIn is never opened
+    assert "site:linkedin.com/in" in llm.calls[0][3]
+    got = {c.name: c for c in result.contacts}
+    # nl.linkedin.com places Anna in the Netherlands; Piotr's www. address says nothing, so
+    # Prospeo is asked where he is (Netherlands); Zed is not in any title.
+    assert set(got) == {"Anna Lis", "Piotr Nowy"}
+    assert "found by AI web search on a LinkedIn search result (title only)" in got[
+        "Anna Lis"].notes
+    assert "location from Prospeo" in got["Piotr Nowy"].notes
+    assert ("locate", "piotr.nowy@vistula.example.com") in providers.calls
+    assert "1 not named with the company on their page" in result.message
+
+
+def test_linkedin_titles_can_be_switched_off(no_waterfall):
+    answer = {"people": [person("Anna Lis", "Platform Engineer", [NL_PROFILE])]}
+    llm = SearchLLM(answer=answer, urls=(NL_PROFILE,),
+                    titles={NL_PROFILE: "Anna Lis - Vistula Cloud | LinkedIn"})
+    d = deps(llm=llm, providers=Providers())
+    d.s = d.s.model_copy(update={"contacts": {**d.s.contacts, "ai_linkedin_titles": False}})
+    result = find_contacts(d, PL)
+    assert "Never use LinkedIn" in llm.calls[0][3]
+    assert result.contacts == [] or all(c.name != "Anna Lis" for c in result.contacts)
+
+
+def test_junior_names_are_dropped_before_any_lookup():
+    people = ai.parse_people({"people": [person("Anna Lis", "Junior DevOps Engineer", [TEAM])]})
+    kept, notes = ai.check(people, [TEAM], "Vistula Cloud", DOMAIN, "Poland",
+                           lambda url: "Anna Lis at Vistula Cloud, Krakow")
+    assert kept == [] and notes == ["1 junior"]
+
+
+def test_linkedin_country_from_the_address():
+    assert ai.linkedin_country("nl.linkedin.com") == "Netherlands"
+    assert ai.linkedin_country("pl.linkedin.com") == "Poland"
+    assert ai.linkedin_country("www.linkedin.com") is None
+    assert ai.linkedin_country("nl.example.com") is None
