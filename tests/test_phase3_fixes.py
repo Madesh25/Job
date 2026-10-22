@@ -18,3 +18,10 @@ def test_linkedin_card_link_drops_the_tracking_query():
     assert short_link(long) == "https://www.linkedin.com/comm/jobs/view/4312345678/"
     assert short_link("https://justjoin.it/job-offer/x?utm=1") == \
         "https://justjoin.it/job-offer/x?utm=1"
+
+
+def test_a_gap_never_starts_with_and_or_or():
+    # Phase 9 P9-12, P9-15: "SLOs, SLIs, and Error Budgets" gave the gap "and Error Budgets".
+    from jobengine.screen.models import split_gaps
+    assert split_gaps("SLOs, SLIs, and Error Budgets") == ["SLOs", "SLIs", "Error Budgets"]
+    assert split_gaps("Helm; or ArgoCD; Android") == ["Helm", "ArgoCD", "Android"]

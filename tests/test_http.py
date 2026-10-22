@@ -117,6 +117,16 @@ def test_429_gives_up_after_max_retries(transport, monkeypatch):
     assert info.value.status == 429
 
 
+def test_a_long_retry_after_is_not_waited_for(transport, monkeypatch):
+    _, responses = transport
+    waits = []
+    monkeypatch.setattr(http, "_sleep", waits.append)
+    responses.append(httpx.Response(429, headers={"Retry-After": "300"}))
+    with pytest.raises(http.HttpError, match="asked to wait 300s") as info:
+        http.get_json("https://www.amazon.jobs/en/search.json", s=S)
+    assert info.value.status == 429 and waits == []
+
+
 def failing(errors, then=None):
     """A transport that raises each error in turn, then answers `then` (or 200 {"ok": 1})."""
     calls = []

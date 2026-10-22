@@ -120,8 +120,12 @@ class LossReport:
     def add(self, source: str, bucket: str, job: str = "") -> None:
         counts = self.by_source.setdefault(source, {})
         counts[bucket] = counts.get(bucket, 0) + 1
-        if bucket not in KEPT_BUCKETS and job and counts[bucket] <= MAX_DROPPED_PER_REASON:
-            self.dropped.append((source, bucket, job))
+        # The count is postings; the examples list each job once (Phase 9 P9-18: the same
+        # job twice under "Dutch required", two postings of one job).
+        entry = (source, bucket, job)
+        if bucket not in KEPT_BUCKETS and job and counts[bucket] <= MAX_DROPPED_PER_REASON \
+                and entry not in self.dropped:
+            self.dropped.append(entry)
 
     def reasons(self) -> list[tuple[str, int]]:
         """Drop reasons with their complete counts, the biggest first."""

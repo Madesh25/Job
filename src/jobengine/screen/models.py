@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from datetime import date
 from typing import Any
@@ -179,14 +180,20 @@ def split_gaps(text: str | None) -> list[str]:
     return join_list([p.strip() for p in parts if p.strip()])
 
 
+# Phase 9 P9-12, P9-15: a list such as "SLOs, SLIs, and Error Budgets" split at its commas
+# left the gap "and Error Budgets".
+_LEADING_JOIN = re.compile(r"^(?:and|or|&)\s+", re.I)
+
+
 def join_list(gaps: list[str]) -> list[str]:
     seen: set[str] = set()
     out = []
     for gap in gaps:
-        key = gap.strip().casefold()
+        gap = _LEADING_JOIN.sub("", gap.strip())
+        key = gap.casefold()
         if key and key not in seen:
             seen.add(key)
-            out.append(gap.strip())
+            out.append(gap)
     return out
 
 

@@ -526,6 +526,9 @@ High is never skipped. It is only reported, last in the summary.
   which uses only `users.messages.list` and `users.messages.get`.
 - Notion: `Notion-Version: 2025-09-03`, data source endpoints, about 3 requests per second,
   HTTP 429 retried with `Retry-After`. The sweep never changes a Notion schema.
+- Any site that answers HTTP 429 with a `Retry-After` over 60 seconds is not waited for: the
+  request fails at once with HTTP 429 and the sweep moves on (22 Oct: one amazon.jobs read
+  waited 6.5 minutes).
 - The `httpx` and `httpcore` loggers are kept at WARNING, because they would otherwise log full
   request URLs, Adzuna key included.
 - Tests and CI never touch the network (`tests/conftest.py` makes any socket connection fail).
