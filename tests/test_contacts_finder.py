@@ -268,3 +268,32 @@ def test_snov_402_is_said_once_and_snov_is_skipped_until_the_1st():
     d.calls.clear()
     find_contacts(d, PL)
     assert "snov" in d.calls
+
+
+
+def test_after_a_429_the_provider_is_not_called_again_in_the_look_up():
+    # 22 Oct, CodiLime: Prospeo refused 8 times (its search, the location check, the AI
+    # search), 22 seconds of waits each. After the first refusal nothing reaches it again.
+    from jobengine.contacts.finder import _breaker
+
+    d = make()
+    reached = []
+
+    def request(provider):
+        def call(method, url, **kw):
+            reached.append(provider)
+            if provider == "prospeo":
+                raise http.HttpError(f"{method} {url} failed: HTTP 429", 429)
+            return {"ok": True}
+        return call
+
+    d.request = request
+    looked_up = _breaker(d)
+    for _ in range(3):
+        with pytest.raises(http.HttpError) as err:
+            looked_up.request("prospeo")("POST", "https://api.prospeo.io/enrich-person")
+        assert err.value.status == 429
+    assert reached == ["prospeo"]  # only the first call went out
+    assert looked_up.busy == {"prospeo"}
+    assert looked_up.request("hunter")("GET", "https://api.hunter.io/v2/x") == {"ok": True}
+    assert _breaker(d).busy == set()  # the next look-up tries Prospeo again

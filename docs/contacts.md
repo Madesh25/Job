@@ -206,8 +206,10 @@ happen only in prod with `DRY_RUN=false`; elsewhere invented fixtures answer.
   (HTTP 402), skipped until the 1st`; later look-ups that month show `snov: skipped this
   month` and make no Snov call (Bot State `contacts.off:snov`). On the 1st it is asked again.
 - **Prospeo HTTP 429:** after the usual waits (2, 5 and 15 seconds) a refusal gives one line,
-  `prospeo: busy (rate limit ...), stopped for this look-up`, and no more Prospeo email calls
-  in that look-up. Try again a few minutes later.
+  `prospeo: busy (rate limit ...), stopped for this look-up`, and no more Prospeo calls in
+  that look-up: not its other emails, not the location check (`prospeo: busy, could not
+  check where N people without a location are`), not the AI search. The next look-up asks
+  Prospeo again. Try again a few minutes later.
 
 ## Real credits left (22 Oct)
 
