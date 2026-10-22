@@ -201,3 +201,17 @@ def test_unsent_drafts_warning(tmp_path):
     deps = deps_for(settings(), tmp_path, config={"mail.daily_send_cap": "3"})
     result = drafter.create_drafts(deps, "fixture-clean-pl")
     assert "You have 5 unsent drafts; send at most 3 today." in result.message
+
+
+def test_no_draft_for_a_saved_contact_that_breaks_the_title_rules():
+    # 22 Oct: Murata's legal team leader was saved (and linked to the job) before #137.
+    def reason(title, kind):
+        line = drafter.DraftLine(page_id="ct-1", name="Ann", email="ann@murata.example.com",
+                                 type=kind)
+        return drafter._skip_reason({"Title": title, "Type": kind}, line, None, TODAY, 30,
+                                    (), None, set())
+    assert reason("Legal Team Leader/Legal Counsel", "Hiring") == (
+        "title outside your contact rules (junior or not IT)")
+    assert reason("Junior DevOps Engineer", "Peer engineer") is not None
+    assert reason("HR Teamleader", "Recruiter/TA") is None
+    assert reason("Senior DevOps Engineer", "Peer engineer") is None

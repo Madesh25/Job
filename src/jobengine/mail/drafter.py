@@ -18,6 +18,7 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from jobengine.config_store import ConfigStore
+from jobengine.contacts.classify import title_allowed
 from jobengine.contacts.jd_emails import GENERIC_MAILBOXES
 from jobengine.contacts.models import HIRING, OTHER, PEER, RECRUITER
 from jobengine.drive_client import Drive, DriveError
@@ -280,6 +281,8 @@ def _skip_reason(contact: dict[str, Any], line: DraftLine, job: MailJob, today: 
         return status
     if not line.email or "@" not in line.email:
         return "no email"
+    if line.type != OTHER and not title_allowed(contact.get("Title"), line.type):
+        return "title outside your contact rules (junior or not IT)"
     if line.email.casefold() in emails_done:
         return "same email as another contact"
     if contact.get("Gmail draft ID") or contact.get("Gmail thread ID"):

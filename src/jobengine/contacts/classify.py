@@ -64,6 +64,15 @@ def is_non_it(title: str | None) -> bool:
     return bool(NON_IT.search(title or ""))
 
 
+def title_allowed(title: str | None, kind: str | None) -> bool:
+    """A saved contact still meets the title rules: no junior, and no title outside IT
+    except in the recruiter (HR) slot. Used for the cache and before drafts, so a person
+    saved before a rule came in (#135 juniors, #137 non-IT) is neither reused nor mailed."""
+    if is_junior(title):
+        return False
+    return kind == SLOT_TYPES["recruiter"] or not is_non_it(title)
+
+
 def left_slots(slots: Mapping[str, int], taken: Iterable[str], flexible: bool) -> dict[str, int]:
     """Open slots after the people already taken. `flexible` (Config contacts.roles any): a
     type may take another type's slot, so only the total counts; the slot taken back is the
