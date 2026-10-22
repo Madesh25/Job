@@ -199,6 +199,16 @@ happen only in prod with `DRY_RUN=false`; elsewhere invented fixtures answer.
   student, werkstudent, stażysta, praktykant or stagiair are never taken, from any source.
 - Fewer than 4 is fine: nothing is forced.
 
+## Provider limits (22 Oct)
+
+- **Snov HTTP 402:** Snov's API works only on a paid plan (it says "ran out of credits"
+  although its site shows credits). The answer says once `snov: its API needs a paid plan
+  (HTTP 402), skipped until the 1st`; later look-ups that month show `snov: skipped this
+  month` and make no Snov call (Bot State `contacts.off:snov`). On the 1st it is asked again.
+- **Prospeo HTTP 429:** after the usual waits (2, 5 and 15 seconds) a refusal gives one line,
+  `prospeo: busy (rate limit ...), stopped for this look-up`, and no more Prospeo email calls
+  in that look-up. Try again a few minutes later.
+
 ## Real credits left (22 Oct)
 
 When look-ups are real, /credits ends with "Real credits left", asked from Hunter

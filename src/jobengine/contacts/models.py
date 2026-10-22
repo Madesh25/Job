@@ -33,6 +33,9 @@ class ProviderResult:
     credits_used: int = 0
     skipped_reason: str | None = None
     notes: list[str] = field(default_factory=list)
+    # 22 Oct: the provider refused for the whole month (Snov HTTP 402 on a free plan): the
+    # finder does not call it again until the 1st.
+    month_off: bool = False
 
 
 @dataclass(frozen=True)

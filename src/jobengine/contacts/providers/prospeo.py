@@ -32,6 +32,11 @@ WIDE_DEPARTMENTS = ["Engineering & Technical", "Information Technology"]
 WIDE_DEPARTMENT = "engineering"  # what wide_kind gets for these people
 ENRICH_PAUSE = 1.5  # seconds before each call after the first (free plan: ~1 a second)
 
+# 22 Oct: after many look-ups the free plan answers HTTP 429 even after the waits; one line
+# instead of an error per person, and no more Prospeo calls in that search.
+BUSY = ("prospeo: busy (rate limit, HTTP 429 after waiting), stopped for this look-up; "
+        "try again in a few minutes")
+
 
 def _headers(key: str) -> dict[str, str]:
     return {"X-KEY": key, "Content-Type": "application/json"}
@@ -102,6 +107,8 @@ def _search_once(key: str, body: dict[str, Any],
     except http.HttpError as exc:
         if exc.status in (401, 403):
             return [], NOT_ON_PLAN
+        if exc.status == 429:
+            return [], BUSY
         if "NO_RESULTS" in str(exc):
             return [], None
         return [], f"prospeo: {exc}"
@@ -196,6 +203,9 @@ def search(
         try:
             enriched = deps.request("POST", ENRICH, headers=_headers(key), json_body=body)
         except http.HttpError as exc:
+            if exc.status == 429:  # still refused after the waits: one line, then stop
+                result.notes.append(BUSY)
+                break
             if "NO_MATCH" not in str(exc):  # no verified email for this person: no credit
                 result.notes.append(f"prospeo: enrich failed: {exc}")
             continue

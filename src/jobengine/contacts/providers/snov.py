@@ -19,6 +19,10 @@ from jobengine.contacts.models import SLOT_TYPES, Candidate, ProviderResult
 from jobengine.contacts.providers.base import ProviderDeps
 from jobengine.contacts.providers.github import country_of
 
+# 22 Oct: Snov answers HTTP 402 "ran out of credits" although its site shows credits: its API
+# works only on a paid plan. Said once; the finder skips Snov until the 1st.
+NO_API = "snov: its API needs a paid plan (HTTP 402), skipped until the 1st"
+
 
 def prospect_country(prospect: dict[str, Any]) -> str | None:
     """The prospect's country: `country`, else a place field Snov may send instead (16 Oct:
@@ -113,6 +117,8 @@ def search(
     except http.HttpError as exc:
         if exc.status in (401, 403):
             return ProviderResult(skipped_reason="snov: not available on this plan")
+        if exc.status == 402:
+            return ProviderResult(skipped_reason=NO_API, month_off=True)
         return ProviderResult(skipped_reason=f"snov: {exc}")
 
     remaining = dict(open_slots)
