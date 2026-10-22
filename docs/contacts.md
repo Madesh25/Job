@@ -185,7 +185,12 @@ happen only in prod with `DRY_RUN=false`; elsewhere invented fixtures answer.
   engineering or IT managers and HR in any mix, the best first; the slots of the mix are no
   longer fixed (4 engineers is fine). Each person keeps a type, which picks the mail template
   (engineer: referral ask; manager or HR: cold mail). `mix` brings back the fixed numbers of
-  Config `contacts.mix`. People in finance, sales or legal are still left out.
+  Config `contacts.mix`.
+- **No people outside IT** (22 Oct): a title naming legal, finance, sales, marketing,
+  procurement, supply chain, logistics, manufacturing, project or process engineering,
+  mechanical, electrical, electronics, hardware, construction or facilities never fills
+  a peer or hiring slot, from any source and also in the wider search ("Legal Team
+  Leader" is not a manager for you). HR people still fill the recruiter slot.
 - **No junior people:** titles with junior, jr, intern, trainee, graduate, apprentice,
   student, werkstudent, stażysta, praktykant or stagiair are never taken, from any source.
 - Fewer than 4 is fine: nothing is forced.
