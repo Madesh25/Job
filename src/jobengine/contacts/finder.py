@@ -621,8 +621,9 @@ def _confirm_step(deps: ContactDeps, book: CreditBook, unplaced: list[Candidate]
     if not deps.s.prospeo_api_key or book.counters.get("prospeo") is None:
         return
     if "prospeo" in deps.busy:
-        result.notes.append(f"prospeo: busy, could not check where {len(unplaced)} people "
-                            "without a location are")
+        who = "1 person" if len(unplaced) == 1 else f"{len(unplaced)} people"
+        result.notes.append(f"prospeo: busy, could not check where {who} without a location "
+                            f"{'is' if len(unplaced) == 1 else 'are'}")
         return
     s = deps.s if paid_api_allowed("prospeo", deps.s) else \
         deps.s.model_copy(update=FIXTURE_KEYS)
@@ -659,8 +660,9 @@ def _confirm_step(deps: ContactDeps, book: CreditBook, unplaced: list[Candidate]
             placed += 1
             confirmed.append(replace(candidate, country=country, country_unverified=False))
     if asked:
-        result.notes.append(f"prospeo: checked where {asked} people without a location are: "
-                            f"{placed} in {country}")
+        who = "1 person" if asked == 1 else f"{asked} people"
+        result.notes.append(f"prospeo: checked where {who} without a location "
+                            f"{'is' if asked == 1 else 'are'}: {placed} in {country}")
     for candidate, kind, note in fill_slots(confirmed, open_slots(), country, domain, seen,
                                             patterns, personal, strict=True,
                                             flexible=flexible_roles(deps.s)):

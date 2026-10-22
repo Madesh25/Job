@@ -33,32 +33,62 @@ JOB_URL = SITE + "/pl/job/{slug}"
 DEFAULT_TERMS = ("devops engineer", "site reliability engineer", "platform engineer",
                  "cloud engineer", "kubernetes engineer", "infrastructure engineer",
                  "devsecops engineer")
-STATE = re.compile(r'<script id="serverApp-state" type="application/json">(.*?)</script>',
-                   re.S)
-# Angular escapes these characters in its transfer state.
+# The page data block. 22 Oct: every search answered with 0 jobs, most likely because the
+# site moved to a newer Angular, which names the block "ng-state" (it was "serverApp-state")
+# and no longer escapes quotes as &q;. Any JSON script block is read now, and the job list
+# is looked for at any depth.
+STATE = re.compile(r'<script\b[^>]*type="application/json"[^>]*>(.*?)</script>', re.S | re.I)
+SCRIPT_ID = re.compile(r'<script\b[^>]*\bid="([^"]+)"[^>]*type="application/json"', re.I)
+# Angular escapes these characters in its older transfer state.
 UNESCAPE = (("&q;", '"'), ("&s;", "'"), ("&l;", "<"), ("&g;", ">"), ("&a;", "&"))
 PAUSE_SECONDS = 1.0
+MAX_DEPTH = 8
 
 Getter = Callable[[str], tuple[str, str]]  # url -> (final url, page text)
 
 
+def _job_list(value: Any, depth: int = 0) -> list[dict[str, Any]] | None:
+    """The first `postings` list of jobs (dicts with a url and a title) inside `value`."""
+    if depth > MAX_DEPTH:
+        return None
+    if isinstance(value, dict):
+        found = value.get("postings")
+        if isinstance(found, list) and any(
+                isinstance(j, dict) and j.get("url") and j.get("title") for j in found):
+            return found
+        children = value.values()
+    elif isinstance(value, list):
+        children = value
+    else:
+        return None
+    for child in children:
+        jobs = _job_list(child, depth + 1)
+        if jobs is not None:
+            return jobs
+    return None
+
+
 def postings_from_page(text: str) -> list[dict[str, Any]]:
     """The job list in a search page, or [] when the page has none (layout changed)."""
-    match = STATE.search(text)
-    if not match:
-        return []
-    raw = match.group(1)
-    for old, new in UNESCAPE:
-        raw = raw.replace(old, new)
-    try:
-        state = json.loads(raw)
-    except ValueError:
-        return []
-    for value in state.values():
-        found = value.get("searchResponse") if isinstance(value, dict) else None
-        if isinstance(found, dict) and isinstance(found.get("postings"), list):
-            return found["postings"]
+    for raw in STATE.findall(text):
+        if "&q;" in raw:
+            for old, new in UNESCAPE:
+                raw = raw.replace(old, new)
+        try:
+            state = json.loads(raw)
+        except ValueError:
+            continue
+        jobs = _job_list(state)
+        if jobs is not None:
+            return jobs
     return []
+
+
+def page_shape(text: str) -> str:
+    """What a search page holds when no job list was found, for the log (no content)."""
+    ids = list(dict.fromkeys(SCRIPT_ID.findall(text)))[:5]
+    return (f"{len(text)} characters, JSON blocks: {', '.join(ids) or 'none'}, "
+            f"word 'postings' {'present' if 'postings' in text else 'absent'}")
 
 
 def _day(ms: Any) -> date | None:
@@ -147,8 +177,10 @@ def fetch(s: Settings, get: Getter | None = None,
             log.info("nofluffjobs %r page %d: %d postings", term, page, len(jobs))
             if not jobs:
                 if page == 1:
+                    shape = page_shape(text)
+                    log.info("nofluffjobs %r: no job list found (%s)", term, shape)
                     result.notes.append(f"nofluffjobs {term!r}: no jobs found on the page "
-                                        "(the page layout may have changed)")
+                                        f"(the page layout may have changed: {shape})")
                 break
             for job in jobs:
                 posting = to_posting(job)
