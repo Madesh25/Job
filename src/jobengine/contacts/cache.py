@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from datetime import date
 from typing import Any
 
+from jobengine.contacts.classify import title_allowed
 from jobengine.contacts.models import TYPE_ORDER, Chosen, Mix
 from jobengine.sweep.normalize import canon_company
 
@@ -64,6 +65,11 @@ def usable(row: CachedRow, today: date, months: int, job_id: str | None = None) 
     return isinstance(found, date) and found >= months_before(today, months)
 
 
+def still_fits(row: CachedRow) -> bool:
+    """22 Oct: the title rules apply to saved people too (classify.title_allowed)."""
+    return title_allowed(row.values.get("Title"), row.values.get("Type"))
+
+
 def in_country(row: CachedRow, country: str) -> bool:
     """Saved in the job's country and not marked "country unverified" (before 16 Oct an
     unknown location was saved as the job's country, with that note)."""
@@ -78,7 +84,7 @@ def pick(
     """Cached contacts for the mix: people who answered you before first, then the job's
     country, then the most recent. `strict`: only people in the job's country."""
     slots = mix.slots()
-    fresh = [r for r in rows if usable(r, today, months, job_id)
+    fresh = [r for r in rows if usable(r, today, months, job_id) and still_fits(r)
              and (not strict or in_country(r, country))]
     fresh.sort(key=lambda r: (
         not r.values.get("Replied"),

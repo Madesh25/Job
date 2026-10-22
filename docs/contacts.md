@@ -191,6 +191,10 @@ happen only in prod with `DRY_RUN=false`; elsewhere invented fixtures answer.
   mechanical, electrical, electronics, hardware, construction or facilities never fills
   a peer or hiring slot, from any source and also in the wider search ("Legal Team
   Leader" is not a manager for you). HR people still fill the recruiter slot.
+- **Saved contacts follow the same rules** (22 Oct): a contact saved before a rule came
+  in (a junior before #135, someone outside IT before #137) is not reused from the cache,
+  and `/drafts` skips them with "title outside your contact rules (junior or not IT)",
+  even when they are still linked to the job. Their Contacts rows stay as they are.
 - **No junior people:** titles with junior, jr, intern, trainee, graduate, apprentice,
   student, werkstudent, stażysta, praktykant or stagiair are never taken, from any source.
 - Fewer than 4 is fine: nothing is forced.

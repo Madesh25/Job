@@ -40,3 +40,21 @@ def test_cache_fills_the_whole_mix():
     chosen = pick(northwind, MIX, "Ireland", TODAY, 6)
     assert [c.type for c in chosen] == ["Peer engineer", "Peer engineer", "Hiring",
                                         "Recruiter/TA"]
+
+
+def test_saved_people_that_break_the_title_rules_are_not_reused():
+    from jobengine.contacts.cache import CachedRow
+
+    def saved(name, title, kind):
+        return CachedRow(f"ct-{name}", {"Name": name, "Title": title, "Type": kind,
+                                        "Email": f"{name}@murata.example.com",
+                                        "Country": "Netherlands", "Date found": TODAY})
+
+    # 22 Oct: Murata's contacts were saved before #137 and came back from the cache.
+    murata = [saved("alsu", "SCM Senior Project Engineer", "Peer engineer"),
+              saved("che", "Senior Product Engineer", "Peer engineer"),
+              saved("christine", "Legal Team Leader/Legal Counsel", "Hiring"),
+              saved("joost", "HR Teamleader", "Recruiter/TA"),
+              saved("jan", "Junior DevOps Engineer", "Peer engineer")]
+    chosen = pick(murata, MIX, "Netherlands", TODAY, 6)
+    assert [c.name for c in chosen] == ["che", "joost"]
