@@ -146,3 +146,14 @@ def test_a_reason_list_takes_jobs_from_every_source_and_each_job_once():
     labels = {"gmail": "Email alerts", "adzuna": "Adzuna", "jooble": "Jooble"}
     text = report.report_text(labels, "2026-10-05", "devops")
     assert "[Jooble]" in text and text.count("- Mail job 0 [Email alerts]") == 1
+
+
+def test_the_same_job_is_listed_once_but_counted_per_posting():
+    # Phase 9 P9-18: one job, two postings, shown twice under "Dutch required".
+    from jobengine.sweep.models import LossReport
+
+    loss = LossReport()
+    for _ in range(2):
+        loss.add("ats", "Dutch required", "Rabobank, Cloud Engineer (Netherlands)")
+    assert loss.by_source["ats"]["Dutch required"] == 2
+    assert loss.dropped == [("ats", "Dutch required", "Rabobank, Cloud Engineer (Netherlands)")]

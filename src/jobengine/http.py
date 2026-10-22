@@ -83,6 +83,9 @@ def safe_url(url: str) -> str:
 # Waits for an HTTP 429 without Retry-After (16 Oct: three 1-second waits were too short for
 # Prospeo's free plan).
 RATE_LIMIT_WAITS = (2.0, 5.0, 15.0)
+# A server may ask for a long Retry-After (22 Oct: one amazon.jobs read waited 6.5 minutes in
+# the sweep). Longer than this, the request fails at once with HTTP 429 and the sweep moves on.
+MAX_RETRY_AFTER = 60.0
 
 
 def _retry_after(resp: httpx.Response, attempt: int = 0) -> float:
@@ -160,6 +163,9 @@ def _send(
                 continue
             if resp.status_code == 429 and attempt < MAX_429_RETRIES:
                 wait = _retry_after(resp, attempt)
+                if wait > MAX_RETRY_AFTER:
+                    raise HttpError(f"{where} failed: rate limited, asked to wait {wait:.0f}s",
+                                    429)
                 log.info("%s rate limited, retrying in %.1fs", where, wait)
                 _sleep(wait)
                 attempt += 1
