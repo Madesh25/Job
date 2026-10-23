@@ -565,7 +565,7 @@ def test_fetch_never_screens_by_itself():
     assert "New jobs added to Notion: 8" in text
     assert calls == [] and "Screening done" not in text
     assert text.endswith("Next: /screen checks the new jobs against your profile (uses the AI, "
-                         "at most 30 jobs a day).")
+                         "at most 50 jobs a day).")
 
 
 def test_desk_failures_are_reported_not_raised(desk):
