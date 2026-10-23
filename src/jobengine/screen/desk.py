@@ -1624,7 +1624,8 @@ class Desk:
                 jobs.append((list(found.have), list(found.missing)))
         config = self.deps.config()
         profile = " ".join(str(config.get(k) or "") for k in keywords_report.PROFILE_KEYS)
-        return [Reply(keywords_report.report(jobs, profile)[:MAX_TEXT])]
+        same = keywords_report.aliases(self.reference().term_map)
+        return [Reply(keywords_report.report(jobs, profile, same)[:MAX_TEXT])]
 
     def _skill_buttons(self, gaps: list[str]) -> list[Reply]:
         """One small message per short gap name with Hands-on and Production buttons (your

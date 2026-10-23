@@ -17,6 +17,8 @@ No AI, nothing written.
 from __future__ import annotations
 
 import re
+from collections.abc import Iterable, Mapping
+from typing import Any
 
 BEST = ("Approved", "Applied", "Screening", "Interview", "Offer")
 MAX_JOBS = 40
@@ -32,8 +34,32 @@ def on_profile(term: str, profile: str) -> bool:
     return bool(profile.strip()) and _norm(term) in _norm(profile)
 
 
-def report(jobs: list[tuple[list[str], list[str]]], profile: str) -> str:
-    """`jobs`: (tools you have, tools you lack) named by each job's description."""
+def aliases(term_map: Iterable[Any]) -> dict[str, str]:
+    """Names in one Active Term Map row count as one entry (23 Oct, P9-13: "rca" and "root
+    cause analysis" were listed apart): lower-case name -> the row's names joined by " / "."""
+    out: dict[str, str] = {}
+    for row in term_map:
+        terms = [t.strip() for t in getattr(row, "jd_terms", ()) if t.strip()]
+        if len(terms) > 1 and getattr(row, "backs", False):
+            label = " / ".join(terms)
+            for term in terms:
+                out.setdefault(term.lower(), label)
+    return out
+
+
+def report(jobs: list[tuple[list[str], list[str]]], profile: str,
+           same: Mapping[str, str] | None = None) -> str:
+    """`jobs`: (tools you have, tools you lack) named by each job's description. `same`
+    (aliases()) merges the names of one Term Map row into one entry."""
+    same = same or {}
+    members: dict[str, list[str]] = {}
+    for term, label in same.items():
+        members.setdefault(label, []).append(term)
+
+    def merged(terms: list[str]) -> list[str]:
+        return list(dict.fromkeys(same.get(t.lower(), t) for t in terms))
+
+    jobs = [(merged(yours), merged(missing)) for yours, missing in jobs]
     if not jobs:
         return ("No jobs to count yet: the report uses your Approved, Applied and Interview "
                 "jobs with a description.")
@@ -55,7 +81,7 @@ def report(jobs: list[tuple[list[str], list[str]]], profile: str) -> str:
             note = "you do not have it: keep it off your profile (/gaps)"
         elif not profile.strip():
             note = "you have it"
-        elif on_profile(term, profile):
+        elif any(on_profile(t, profile) for t in members.get(term, [term])):
             note = "on your profile"
         else:
             note = "you have it, NOT on your profile: add it"
