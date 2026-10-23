@@ -62,7 +62,14 @@ Not applying -> "Why?" [the job is closed or expired] [not a fit after all] [ano
 - The preview file is named like the final one (`Madeshwaran_Devops_<Company>.pdf`); the
   caption says the version. It lists the page fill against the 88 to 96% target, the skills
   removed, added, renamed and moved, and each edited bullet as old words -> new words.
-- "Add anyway": each gap on a preview has an `Add <skill>` button, and a refused instruction
+- "Add skills" (FR-1, 23 Oct, Phase 9 P9-20): a preview with two or more gaps has one
+  `Add skills` button instead of one button per gap. It lists the job's gaps that are skill
+  names (at most 3 words, not yours yet; at most 8), one per row; each tap ticks or unticks
+  one (the list message is edited in place), and `Rebuild with N skills` builds one new
+  revision with all of them (the same forced skills as below). The picked skills are also
+  added to Skills Inventory as Hands-on (your choice of 23 Oct; Notes "Added from a resume
+  preview on <date>"), so screening and the next resumes count them. `Cancel` adds nothing.
+- "Add anyway": a preview with one gap has an `Add <skill>` button, and a refused instruction
   ("add PowerShell") has `Add anyway (I'll learn it)`. The next revision lists that skill in
   the Technical Skills tables only (never in the experience bullets), the caption says
   "Added at your request (learn it before the interview)", the plan stores it as

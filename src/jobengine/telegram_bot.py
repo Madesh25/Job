@@ -153,7 +153,8 @@ TAP_TOASTS = {"ap": "Checking the job link, then building your resume...",
               "cl": "Building the resume again with Claude...",
               "rq": "Send what to change...", "ia": "Marking as applied...",
               "na": "Not applying...", "nr": "Saving the reason...",
-              "gs": "Adding it to your skills...", "sc": "Screening..."}
+              "gs": "Adding it to your skills...", "sc": "Screening...",
+              "gt": "Updated", "gr": "Adding them and rebuilding...", "gp": "Listing them..."}
 # Every other button: a tap always gets a sign that the bot is working (5 Oct test notes).
 TAP_DEFAULT = "Working on it..."
 
@@ -229,6 +230,12 @@ def _download(token: str, file_path: str, timeout: float) -> dict[str, Any]:
         raise TelegramNetworkError(
             f"file download failed: {type(exc).__name__} {reason}".replace(token, "<token>")
         ) from None
+
+
+def keyboard(buttons: list[tuple[str, str]], column: bool = False) -> dict[str, Any]:
+    """Inline buttons: one row, or one button per row (a list to pick from)."""
+    keys = [{"text": label, "callback_data": data} for label, data in buttons]
+    return {"inline_keyboard": [[k] for k in keys] if column else [keys]}
 
 
 def register_menu(client: TelegramClient, s: Settings) -> None:
@@ -318,6 +325,10 @@ def console_transport(
             return {"ok": True, "result": True}
         if method == "editMessageText":
             print(f"bot (updated)> {payload['text']}", file=stdout, flush=True)
+            rows = (payload.get("reply_markup") or {}).get("inline_keyboard") or []
+            keys = [f"[{b['text']}: tap {b['callback_data']}]" for row in rows for b in row]
+            if keys:
+                print("     " + " ".join(keys), file=stdout, flush=True)
             return {"ok": True, "result": {}}
         if method == "getFile":
             return {"ok": True, "result": {"file_path": payload["file_id"]}}
@@ -387,7 +398,8 @@ class TelegramClient:
         return self._call("getUpdates", payload, timeout=timeout + 10) or []
 
     def send_message(
-        self, chat_id: str, text: str, buttons: list[tuple[str, str]] | None = None
+        self, chat_id: str, text: str, buttons: list[tuple[str, str]] | None = None,
+        column: bool = False,
     ) -> int | None:
         """Send a message and return its message_id (None if Telegram did not say).
         `buttons` are (label, callback data) pairs shown in one row under the message. A text
@@ -398,9 +410,7 @@ class TelegramClient:
         for i, part in enumerate(parts):
             payload: dict[str, Any] = {"chat_id": chat_id, "text": part}
             if buttons and i == len(parts) - 1:
-                payload["reply_markup"] = {"inline_keyboard": [
-                    [{"text": label, "callback_data": data} for label, data in buttons]
-                ]}
+                payload["reply_markup"] = keyboard(buttons, column)
             result = self._call("sendMessage", payload)
         return (result or {}).get("message_id") if isinstance(result, dict) else None
 
@@ -453,10 +463,12 @@ class TelegramClient:
         return [c for c in result or [] if isinstance(c, dict)] if isinstance(result, list) \
             else []
 
-    def edit_message(self, chat_id: str, message_id: int, text: str) -> None:
-        self._call(
-            "editMessageText", {"chat_id": chat_id, "message_id": message_id, "text": text}
-        )
+    def edit_message(self, chat_id: str, message_id: int, text: str,
+                     buttons: list[tuple[str, str]] | None = None, column: bool = False) -> None:
+        payload: dict[str, Any] = {"chat_id": chat_id, "message_id": message_id, "text": text}
+        if buttons is not None:
+            payload["reply_markup"] = keyboard(buttons, column)
+        self._call("editMessageText", payload)
 
 
 class ProgressMessage:
@@ -808,7 +820,8 @@ def send_replies(client: TelegramClient, s: Settings, chat_id: str, replies: lis
             client.send_document(chat_id, name, data, telegram_text(reply.text, s),
                                  reply.buttons or None)
         else:
-            client.send_message(chat_id, telegram_text(reply.text, s), reply.buttons or None)
+            client.send_message(chat_id, telegram_text(reply.text, s), reply.buttons or None,
+                                column=reply.column)
 
 
 def _bind_notify(client: TelegramClient, s: Settings, desk: Desk | None) -> None:
@@ -940,6 +953,16 @@ def handle_callback(
             replies = [Reply("Buttons are not available in this bot.")]
         else:
             replies = _guarded("Button", lambda: desk.tap(data))
+    message_id = (query.get("message") or {}).get("message_id")
+    if replies and replies[0].edit and message_id:
+        # A picker button changes its own message (FR-1) instead of adding a new one.
+        first, *replies = replies
+        try:
+            client.edit_message(sender, int(message_id), telegram_text(first.text, s),
+                                first.buttons, column=first.column)
+        except TelegramError as exc:
+            log.warning("could not edit the message: %s", exc)
+            replies.insert(0, first)
     send_replies(client, s, sender, replies)
 
 
