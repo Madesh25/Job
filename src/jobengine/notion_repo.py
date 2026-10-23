@@ -1057,6 +1057,56 @@ def target_companies_writer(s: Settings, client: NotionClient) -> Any:
     return write
 
 
+class CompanyAdder:
+    """/add (23 Oct): adds a Target Companies row, and unticks Active for its Undo button.
+    Only safety.target_companies_add_fields, only through safety.target_companies_add_target."""
+
+    TYPES = {"Company": "title", "Careers URL": "url", "ATS platform": "select",
+             "Region": "select", "Active": "checkbox", "Last checked": "date",
+             "Notes": "rich_text"}
+
+    def __init__(self, client: NotionClient, data_source: str):
+        self.client = client
+        self.data_source = data_source
+
+    def add(self, props: dict[str, Any]) -> str:
+        from jobengine.safety import check_target_companies_add
+
+        check_target_companies_add(list(props))
+        body = {"parent": {"type": "data_source_id", "data_source_id": self.data_source},
+                "properties": {k: notion_value(self.TYPES[k], v) for k, v in props.items()}}
+        return str(self.client.request("POST", "/pages", body)["id"])
+
+    def deactivate(self, page_id: str) -> None:
+        self.client.request("PATCH", f"/pages/{page_id}",
+                            {"properties": {"Active": notion_value("checkbox", False)}})
+
+
+class FakeCompanyAdder:
+    """In-memory CompanyAdder for tests and --fake."""
+
+    def __init__(self) -> None:
+        self.rows: dict[str, dict[str, Any]] = {}
+
+    def add(self, props: dict[str, Any]) -> str:
+        from jobengine.safety import check_target_companies_add
+
+        check_target_companies_add(list(props))
+        page_id = f"tc-{len(self.rows) + 1:04d}"
+        self.rows[page_id] = dict(props)
+        return page_id
+
+    def deactivate(self, page_id: str) -> None:
+        self.rows[page_id]["Active"] = False
+
+
+def company_adder(s: Settings, client: NotionClient) -> CompanyAdder | None:
+    from jobengine.safety import target_companies_add_target
+
+    target = target_companies_add_target(s)
+    return CompanyAdder(client, target) if target else None
+
+
 # ---------------------------------------------------------------- Skills Inventory (/gaps)
 
 
