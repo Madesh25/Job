@@ -41,26 +41,18 @@ from jobengine.sweep.normalize import (
     title_scope,
 )
 from jobengine.sweep.rank import Ranker
-from jobengine.sweep.sources import (
-    adzuna,
-    ats,
-    gmail_alerts,
-    iamexpat,
-    jooble,
-    nofluffjobs,
-    remote_boards,
-)
+from jobengine.sweep.sources import adzuna, ats, gmail_alerts, iamexpat, jooble, nofluffjobs
 
 log = logging.getLogger("jobengine.sweep")
 
-SOURCES = ("gmail", "adzuna", "jooble", "nofluffjobs", "iamexpat", "remote", "ats")
+SOURCES = ("gmail", "adzuna", "jooble", "nofluffjobs", "iamexpat", "ats")
 Prefilter = Callable[[str, str], bool]
 Progress = Callable[[str], None]
 
 # Plain names for the Telegram messages.
 SOURCE_LABELS = {"gmail": "Email alerts", "adzuna": "Adzuna", "jooble": "Jooble",
                  "nofluffjobs": "NoFluffJobs", "iamexpat": "IamExpat",
-                 "remote": "Remote job boards", "ats": "Company career sites"}
+                 "ats": "Company career sites"}
 PROGRESS_EVERY = 25
 # bot_state key read by /sources and /health (Module 07).
 LAST_SUMMARY = "sweep.last_summary"
@@ -96,8 +88,6 @@ class SweepDeps:
     jooble: Callable[[], SourceResult] = lambda: SourceResult(name="jooble")
     nofluffjobs: Callable[[], SourceResult] = lambda: SourceResult(name="nofluffjobs")
     iamexpat: Callable[[], SourceResult] = lambda: SourceResult(name="iamexpat")
-    # (bot_state) -> postings; bot_state keeps the time of the last Remotive call.
-    remote: Callable[..., SourceResult] = lambda state=None: SourceResult(name="remote")
 
 
 def fake_deps(s: Settings, repo: JobsRepo | None = None) -> SweepDeps:
@@ -142,7 +132,6 @@ def real_deps(s: Settings) -> SweepDeps:
         jooble=lambda: jooble.fetch(s),
         nofluffjobs=lambda: nofluffjobs.fetch(s),
         iamexpat=lambda: iamexpat.fetch(s),
-        remote=lambda state=None: remote_boards.fetch(s, state),
     )
 
 
@@ -459,8 +448,6 @@ def run_sweep(
         try:
             if name == "ats":
                 return deps.ats(companies, keep, state)
-            if name == "remote":
-                return deps.remote(state)
             return getattr(deps, name)()
         except http.HttpError as exc:
             return SourceResult(name=name, skipped_reason=f"{name} failed: {exc}")
