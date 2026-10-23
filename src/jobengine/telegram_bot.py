@@ -1032,6 +1032,7 @@ def autopilot_check(client: TelegramClient, s: Settings, desk: Desk | None,
     replies += _guarded("Gmail token", lambda: [Reply(text) for text in gmail_renew.reminder(
         s, desk.state, desk.deps.config(), date.today())])
     replies += _guarded("LinkedIn connections", desk.connections_reminder)
+    replies += _guarded("Leftover credits", desk.leftover_tick)
     if replies:
         send_replies(client, s, str(s.telegram_chat_id), replies)
 

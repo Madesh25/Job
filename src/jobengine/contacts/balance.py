@@ -66,6 +66,27 @@ def prospeo_left(s: Settings, request: Request) -> str:
     return text + (f" (new credits in {renewal} days)" if renewal is not None else "")
 
 
+def prospeo_account(s: Settings, request: Request) -> tuple[int | None, Any]:
+    """(credits left, days until new credits) for the leftover run."""
+    data = request("POST", PROSPEO_ACCOUNT, headers={"X-KEY": s.prospeo_api_key or "",
+                                                      "Content-Type": "application/json"},
+                   json_body={}) or {}
+    left = _find(data, "remaining_credits", "credits_remaining")
+    return (int(left) if isinstance(left, int | float) else None,
+            _find(data, "next_quota_renewal_days"))
+
+
+def hunter_account(s: Settings, request: Request) -> tuple[int | None, Any]:
+    """(credits left, reset date) for the leftover run. Hunter counts credits (23 Oct:
+    hunter.io/usage shows "30 remaining (20 used of 50)"); older answers count searches."""
+    data = request("GET", HUNTER_ACCOUNT, params={"api_key": s.hunter_api_key}) or {}
+    requests = (data.get("data") or {}).get("requests") or {}
+    pool = requests.get("credits") or requests.get("searches") or {}
+    used, available = pool.get("used"), pool.get("available")
+    left = available - used if isinstance(used, int) and isinstance(available, int) else None
+    return left, _find(data, "reset_date")
+
+
 CHECKS: dict[str, tuple[str, Callable[[Settings], Any], Callable[[Settings, Request], str]]] = {
     "hunter": ("Hunter", lambda s: s.hunter_api_key, hunter),
     "snov": ("Snov", lambda s: s.snov_client_id and s.snov_client_secret, snov_left),

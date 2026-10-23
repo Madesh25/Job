@@ -102,6 +102,7 @@ def desk_tasks(s: Settings, desk: Desk, client: tb.TelegramClient,
         if reminder:
             send([Reply(reminder)])
         send(desk.connections_reminder())  # the monthly LinkedIn export, when it is due
+        send(desk.leftover_tick())  # credits left on the day before a provider renews
         return {"ok": report.ok, "sent": len(report.sent), "replies": len(report.replies),
                 "followups": len(report.followups), "reminder": bool(reminder)}
 

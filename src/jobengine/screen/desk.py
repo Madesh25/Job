@@ -522,6 +522,8 @@ class Desk:
             return self.referral_tap(arg)
         if action == "rm" and arg:  # "Mail them": the referral ask to connections by mail
             return self.referral_mail_tap(arg)
+        if action == "rl" and arg:  # "Location and email": Prospeo for those connections
+            return self.connection_lookup_tap(arg)
         if action == "dm" and arg:  # a domain button under the domain question
             return self.domain_tap(arg)
         if action == "fr" and arg:  # a reason button under /fetchreport
@@ -1039,6 +1041,10 @@ class Desk:
         reply.text += "\n\n" + connections.block(matches, company,
                                                   values.get("Country") or "", self.today())
         reply.buttons = [*reply.buttons, ("Referral asks", f"rf:{short_id(job_id)}")]
+        if self.contacts is not None and any(m.row.person.url and not m.country
+                                             for m in matches):
+            reply.buttons = [*reply.buttons, ("Location and email",
+                                              f"rl:{short_id(job_id)}")]
 
     def referral_tap(self, job_id: str) -> list[Reply]:
         """A LinkedIn message per connection at the company (the peer note: they are already
@@ -1083,6 +1089,87 @@ class Desk:
                            "contacts of this job, then Write Gmail drafts uses the referral "
                            "template word for word.")
         return [reply]
+
+    def connection_lookup_tap(self, job_id: str) -> list[Reply]:
+        """Prospeo by the LinkedIn profile link for at most MAX_ON_DEMAND connections at the
+        company without a country (1 credit each when found)."""
+        from jobengine.contacts import connection_lookup as lookup
+        from jobengine.resume.builder import notion_id
+
+        c = self.contacts
+        if self.repo is None or c is None or self.connections is None:
+            return [Reply("Contacts are not available in this bot.")]
+        if not paid_api_allowed("prospeo", self.s) or not self.s.prospeo_api_key:
+            return [Reply("Prospeo is not asked here: " + contact_lookups(self.s))]
+        job_id = notion_id(job_id)
+        values = self.repo.get_values(job_id) or {}
+        picks = [m.row for m in self._connections_at(values)
+                 if m.row.person.url and not m.country][:lookup.MAX_ON_DEMAND]
+        if not picks:
+            return [Reply("Every connection there already has a country.")]
+        request = c.request("prospeo")
+        key = str(self.s.prospeo_api_key)
+        out = lookup.run(self.connections, picks,
+                         lambda row: lookup.prospeo_lookup(row, request, key),
+                         pause=lambda: c.sleep(lookup.PROSPEO_PAUSE))
+        company = without_region(values.get("Company") or "")
+        text = lookup.summary("Prospeo", out, f"at {company}")
+        matches = self._connections_at(values)
+        text += "\n\n" + connections.block(matches, company, values.get("Country") or "",
+                                            self.today())
+        return [Reply(text[:MAX_TEXT], [("Referral asks", f"rf:{short_id(job_id)}")])]
+
+    def leftover_tick(self) -> list[Reply]:
+        """Your idea of 23 Oct: on the last day before Prospeo or Hunter renews, the credits
+        left are spent on your connections (Target Companies first). Asked once a day."""
+        from jobengine.contacts import balance
+        from jobengine.contacts import connection_lookup as lookup
+
+        c = self.contacts
+        if c is None or self.connections is None or self.state is None:
+            return []
+        live = [name for name, key in (("prospeo", self.s.prospeo_api_key),
+                                       ("hunter", self.s.hunter_api_key))
+                if key and paid_api_allowed(name, self.s)]
+        today = self.today()
+        if not live or lookup.checked_today(self.state, today):
+            return []
+        replies: list[Reply] = []
+        rows: list[Any] | None = None
+        for name in live:
+            request = c.request(name)
+            try:
+                if name == "prospeo":
+                    left, days = balance.prospeo_account(self.s, request)
+                    renews = lookup.renewal_from_days(days, today)
+                else:
+                    left, reset = balance.hunter_account(self.s, request)
+                    renews = (lookup.renewal_from_date(reset) or lookup.renewal_from_day(
+                        self.s.contacts.get("hunter_renewal_day"), today))
+            except (http.HttpError, ValueError, TypeError) as exc:
+                log.warning("%s balance not read for the leftover run: %s", name, exc)
+                continue
+            if not lookup.leftover_due(self.state, name, left, renews, today):
+                continue
+            assert renews is not None and left is not None
+            if rows is None:
+                rows = self.connections.rows()
+            targets = list(c.reference().companies)
+            limit = min(left, lookup.MAX_LEFTOVER)
+            if name == "prospeo":
+                key = str(self.s.prospeo_api_key)
+                out = lookup.run(self.connections, lookup.prospeo_picks(rows, targets, limit),
+                                 lambda row, r=request, k=key: lookup.prospeo_lookup(row, r, k),
+                                 pause=lambda: c.sleep(lookup.PROSPEO_PAUSE))
+            else:
+                key = str(self.s.hunter_api_key)
+                out = lookup.run(self.connections, lookup.hunter_picks(rows, targets, limit),
+                                 lambda pick, r=request, k=key: lookup.hunter_lookup(
+                                     pick[0], pick[1], r, k))
+            lookup.mark_done(self.state, name, renews)
+            why = f"{left} credits left, new credits on {renews:%d %b}"
+            replies.append(Reply(lookup.summary(name.title(), out, why)))
+        return replies
 
     def referral_mail_tap(self, job_id: str) -> list[Reply]:
         """Adds the connections with an email as Peer contacts of the job (Source Other, a
