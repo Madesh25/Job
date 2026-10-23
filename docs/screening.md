@@ -36,6 +36,19 @@ postings go first; the rest stay `Unscreened` and are picked up by the next day'
 When the limit is reached the summary says so:
 `daily limit 30 reached (30 screened today): 99 Unscreened rows wait for the next run.`
 
+**`/screen` asks first (23 Oct, Phase 9 P9-19).** When more jobs wait than today's limit
+leaves, `/screen` screens nothing yet and shows how many wait, the limit, and the cost over
+it (about $0.003 a job on Haiku), with buttons:
+
+- **Today's N**: what is left of today's limit (the best N first), the rest wait for tomorrow;
+- **M (over the limit)**: today's room plus one more day's limit;
+- **All N**: every waiting job now.
+
+A button runs that many with the usual progress message and counts toward the day; the
+summary then says "this run's limit of M reached" when jobs are still left. When the limit
+covers every waiting job, `/screen` runs at once as before. `/autopilot` and the afternoon
+check never ask (they keep to the daily limit).
+
 On your laptop use `APP_ENV=local` (the default): only `local` reads `.env`, and it still
 writes to the DEV Sandbox. On Windows cmd: `set APP_ENV=local`. A real run needs
 `NOTION_TOKEN` and `ANTHROPIC_API_KEY` in `.env`, and the `job-engine-dev` integration

@@ -517,7 +517,8 @@ def find_row(repo: JobsRepo, ref: str) -> JobRow | None:
 
 
 def _limit_note(s: Settings, used: int, left: int, limit: int | None) -> str:
-    cap = f"--limit {limit}" if limit is not None else f"daily limit {daily.daily_limit(s)}"
+    cap = (f"this run's limit of {limit}" if limit is not None
+           else f"daily limit {daily.daily_limit(s)}")
     return (f"{cap} reached ({used} screened today): {left} Unscreened rows wait for the "
             "next run. /screen <url> screens one job now.")
 

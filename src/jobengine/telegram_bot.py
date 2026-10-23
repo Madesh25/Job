@@ -153,7 +153,7 @@ TAP_TOASTS = {"ap": "Checking the job link, then building your resume...",
               "cl": "Building the resume again with Claude...",
               "rq": "Send what to change...", "ia": "Marking as applied...",
               "na": "Not applying...", "nr": "Saving the reason...",
-              "gs": "Adding it to your skills..."}
+              "gs": "Adding it to your skills...", "sc": "Screening..."}
 # Every other button: a tap always gets a sign that the bot is working (5 Oct test notes).
 TAP_DEFAULT = "Working on it..."
 
@@ -696,6 +696,10 @@ def handle_one(
                 run_autopilot(client, s, chat, desk, fetch)
         return
     if desk is not None and parse_command(text) == "screen" and len(text.split()) == 1:
+        choice = _guarded("/screen", lambda: [r for r in [desk.screen_choice()] if r])
+        if choice:  # more jobs wait than today's limit leaves: the buttons decide (P9-19)
+            send_replies(client, s, chat, choice)
+            return
         with Typing(client, chat):
             run_screen(client, s, chat, desk)
         return
@@ -891,6 +895,11 @@ def handle_callback(
                                TAP_TOASTS.get(data.partition(":")[0], TAP_DEFAULT))
     except TelegramError as exc:
         log.warning("answerCallbackQuery failed: %s", exc)
+    action, _, arg = data.partition(":")
+    if action == "sc" and arg.isdigit() and desk is not None:  # a /screen choice button
+        with Typing(client, sender):
+            run_screen(client, s, sender, desk, limit=int(arg))
+        return
     with Typing(client, sender), SlowWatch(client, sender, data):
         if desk is None:
             replies = [Reply("Buttons are not available in this bot.")]
@@ -942,14 +951,15 @@ def _stopped(client: TelegramClient, s: Settings, chat_id: str, name: str,
 
 def run_screen(
     client: TelegramClient, s: Settings, chat_id: str, desk: Desk,
-    clock: Callable[[], float] = time.monotonic,
+    clock: Callable[[], float] = time.monotonic, limit: int | None = None,
 ) -> None:
-    """/screen without a job: it can take minutes, so show one progress message like /fetch."""
+    """/screen without a job: it can take minutes, so show one progress message like /fetch.
+    `limit`: a /screen choice button (that many now, over today's limit if needed)."""
     progress = ProgressMessage(client, chat_id, s, clock=clock, name="Screening",
                                first="Screening new jobs")
     try:
         with CONTROL.job("/screen"):
-            replies = desk.screen_replies("", progress.update)
+            replies = desk.screen_replies("", progress.update, limit)
     except Stopped:
         _stopped(client, s, chat_id, "/screen", progress)
         return
