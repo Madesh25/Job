@@ -558,6 +558,16 @@ sweep:
       irishjobs.ie: IrishJobs.ie
       jobs.ie: Jobs.ie
       jobsireland.ie: JobsIreland
+      # 23 Oct: more boards for your alerts (Poland, the Netherlands, Ireland)
+      glassdoor.com: Glassdoor
+      glassdoor.nl: Glassdoor
+      glassdoor.ie: Glassdoor
+      glassdoor.co.uk: Glassdoor
+      solid.jobs: Solid.Jobs
+      rocketjobs.pl: RocketJobs
+      welcometothejungle.com: Welcome to the Jungle
+      monsterboard.nl: Monsterboard
+      recruitireland.com: Recruit Ireland
     # Boards that only list one country's jobs: that country is used when a card names only a
     # city, or no place at all. LinkedIn and Indeed list every country, so they are not here.
     board_country:
@@ -571,6 +581,10 @@ sweep:
       JobsIreland: Ireland
       IamExpat: Netherlands
       Nationale Vacaturebank: Netherlands
+      Solid.Jobs: Poland
+      RocketJobs: Poland
+      Monsterboard: Netherlands
+      Recruit Ireland: Ireland
     # Board -> job link pattern. The last capturing group is the posting ID.
     # These are only used to recognise links inside emails; links are never requested.
     job_url_patterns:
@@ -715,7 +729,11 @@ sweep:
     # 10 Oct: justjoin.it and theprotocol.it added; their terms forbid automatic downloading
     # (JustJoin IT 11.3) and copying their database (theprotocol.it IV.3d). Their alert jobs
     # get the description from the same job on another site (sweep/crossmatch.py).
-    blocked_hosts: [pracuj.pl, irishjobs.ie, jobs.ie, justjoin.it, theprotocol.it]
+    # 23 Oct: the new alert boards are never opened either until their terms are checked
+    # (Glassdoor's terms forbid scraping; RocketJobs is JustJoin IT's sister site).
+    blocked_hosts: [pracuj.pl, irishjobs.ie, jobs.ie, justjoin.it, theprotocol.it,
+                    glassdoor.com, glassdoor.nl, glassdoor.ie, glassdoor.co.uk, solid.jobs,
+                    rocketjobs.pl, welcometothejungle.com, monsterboard.nl, recruitireland.com]
     # gmail: the job links in alert emails (JustJoin IT, NoFluffJobs, Pracuj.pl, ...) are
     # followed to the real job page, whose link and full description are kept. LinkedIn is
     # never read, whatever this says.

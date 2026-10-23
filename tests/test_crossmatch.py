@@ -150,8 +150,11 @@ def test_blocked_boards_are_filled_too():
     downloading); their alert jobs take the description of the same job on another board."""
     sender_boards = S.sweep["gmail"]["sender_boards"]
     boards = crossmatch.waiting_boards(sender_boards, fulltext.blocked_hosts(S))
-    assert boards == ("LinkedIn", "Pracuj.pl", "IrishJobs.ie", "Jobs.ie", "JustJoin IT",
-                      "theprotocol.it")
+    assert boards[:6] == ("LinkedIn", "Pracuj.pl", "IrishJobs.ie", "Jobs.ie", "JustJoin IT",
+                          "theprotocol.it")
+    # 23 Oct: the new alert boards are never opened either, so they are filled the same way.
+    assert set(boards[6:]) == {"Glassdoor", "Solid.Jobs", "RocketJobs", "Welcome to the Jungle",
+                               "Monsterboard", "Recruit Ireland"}
     repo = FakeJobsRepo([
         linkedin_row(page_id="jj-1", Board="JustJoin IT"),
         linkedin_row(page_id="tp-1", Board="theprotocol.it", Role="DevOps Engineer (Remote)"),

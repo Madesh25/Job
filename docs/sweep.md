@@ -449,6 +449,13 @@ Poland"); other card lines are searched too. Boards that only list one country
 (`sweep.gmail.board_country`: JustJoin IT, NoFluffJobs, Pracuj.pl, theprotocol.it, Bulldogjob
 for Poland; IrishJobs.ie, Jobs.ie, JobsIreland for Ireland; IamExpat and Nationale
 Vacaturebank for the Netherlands) give that country when a card names only a city or none.
+23 Oct, more alert boards: Glassdoor (glassdoor.com, .nl, .ie, .co.uk), Solid.Jobs and
+RocketJobs (Poland), Welcome to the Jungle, Monsterboard (the Netherlands) and Recruit Ireland
+(Ireland). Their sites are on `sweep.fulltext.blocked_hosts` until their terms are checked
+(Glassdoor's forbid scraping; RocketJobs is JustJoin IT's sister site), so their jobs get a
+description from the same job on another site, or wait for `/jd`. The first real emails are
+checked with `/alertcheck`; a board whose cards come out wrong gets a card layout or link
+pattern then.
 When one link holds the whole card (LinkedIn's newer alerts, JustJoin IT), its lines are
 read in the order of `sweep.gmail.card_layouts` (default: title, then "Company · Place";
 JustJoin IT: company, city, title); button lines such as "Easy Apply" are left out. Links
