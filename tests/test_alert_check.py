@@ -157,3 +157,25 @@ def test_alerts_in_spam_are_read_and_flagged():
     text = gmail_alerts.check(S, load_messages=lambda: messages)
     assert "⚠️ 1 of these emails are in Spam (read anyway)." in text
     assert "'Never send it to Spam' for:" in text
+
+
+def test_the_new_alert_boards_are_known_and_never_opened():
+    # 23 Oct: Glassdoor, Solid.Jobs, RocketJobs, Welcome to the Jungle, Monsterboard and
+    # Recruit Ireland alerts are read; their sites are never opened (terms not checked yet).
+    from jobengine import http
+    from jobengine.sweep import fulltext
+
+    boards = CFG["sender_boards"]
+    found = {gmail_alerts.board_for_sender(sender, boards) for sender in (
+        "Glassdoor Jobs <noreply@glassdoor.com>", "x <alerts@mail.glassdoor.nl>",
+        "Solid.Jobs <oferty@solid.jobs>", "RocketJobs <no-reply@rocketjobs.pl>",
+        "WTTJ <hello@welcometothejungle.com>", "Monsterboard <jobs@monsterboard.nl>",
+        "Recruit Ireland <alerts@recruitireland.com>")}
+    assert found == {"Glassdoor", "Solid.Jobs", "RocketJobs", "Welcome to the Jungle",
+                     "Monsterboard", "Recruit Ireland"}
+    assert CFG["board_country"]["Solid.Jobs"] == "Poland"
+    assert CFG["board_country"]["Recruit Ireland"] == "Ireland"
+    blocked = fulltext.blocked_hosts(S)
+    for host in ("www.glassdoor.com", "click.glassdoor.nl", "solid.jobs", "rocketjobs.pl",
+                 "www.welcometothejungle.com", "www.monsterboard.nl", "www.recruitireland.com"):
+        assert http.host_in(host, blocked), host
