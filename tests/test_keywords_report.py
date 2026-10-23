@@ -55,3 +55,23 @@ def test_first_digest_of_the_month_reminds(desk):  # noqa: F811
     first = run_weekly_digest(desk.track, datetime(2026, 10, 5, 9, tzinfo=UTC))
     later = run_weekly_digest(desk.track, datetime(2026, 10, 12, 9, tzinfo=UTC))
     assert "Monthly: /keywords" in first and "Monthly: /keywords" not in later
+
+
+def test_names_of_one_term_map_row_count_as_one_entry():
+    # 23 Oct (P9-13): "rca" and "root cause analysis" were listed apart.
+    from jobengine.reference import TermRow
+
+    rows = [TermRow("t1", ("Incident management", "root cause analysis", "RCA"),
+                    "triaging incidents from alert to root cause", "Active"),
+            TermRow("t2", ("Helm",), "Helm charts", "Active"),
+            TermRow("t3", ("Spinnaker", "Spin"), "(none)", "Needs review")]
+    same = keywords_report.aliases(rows)
+    assert same == {"incident management": "Incident management / root cause analysis / RCA",
+                    "root cause analysis": "Incident management / root cause analysis / RCA",
+                    "rca": "Incident management / root cause analysis / RCA"}
+    jobs = [(["rca", "root cause analysis", "kubernetes"], []), (["RCA"], [])]
+    text = keywords_report.report(jobs, "Kubernetes and RCA", same)
+    assert "1. Incident management / root cause analysis / RCA: 2 jobs (on your profile)" in text
+    entries = [line for line in text.splitlines() if line[:1].isdigit()]
+    assert [e.split(":")[0] for e in entries] == [
+        "1. Incident management / root cause analysis / RCA", "2. kubernetes"]
