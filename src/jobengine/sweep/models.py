@@ -227,6 +227,7 @@ class SweepSummary:
     needs_language: int = 0  # needs a language other than English (sweep/fit.py)
     b2b_only: int = 0  # Poland, B2B contract only (sweep/fit.py)
     no_sponsorship: int = 0  # no visa sponsorship or relocation stated (sweep/fit.py)
+    fully_remote: int = 0  # the description says fully remote (sweep/fit.py, 23 Oct)
     low_match: int = 0  # below sweep.min_skill_match of your tools (sweep/runner.py)
     full_read: int = 0  # job pages that gave a full description (sweep/fulltext.py)
     blocked_sites: list[str] = field(default_factory=list)  # "Name (HTTP 403)"
@@ -297,6 +298,9 @@ class SweepSummary:
         if self.no_sponsorship:
             lines.append(f"\U0001F6C2 No visa sponsorship or relocation (not saved): "
                          f"{self.no_sponsorship}")
+        if self.fully_remote:
+            lines.append(f"\U0001F3E0 Fully remote, you want office or hybrid (not saved): "
+                         f"{self.fully_remote}")
         if self.low_match:
             lines.append(f"\U0001F9E9 Too few of your skills (not saved): {self.low_match}")
         if self.other_cities:

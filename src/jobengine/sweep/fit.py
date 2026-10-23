@@ -7,6 +7,8 @@ screening spends tokens. Pure functions, no I/O.
 - Contract: a job in Poland that offers only a B2B contract.
 - Visa: the posting says there is no visa sponsorship or relocation, or that the right to
   work in the EU (or the country) is required.
+- Fully remote (23 Oct, you want office or hybrid only): "fully remote", "100% remote",
+  "w pelni zdalna" and no hybrid or office wording.
 
 They only fire on clear wording; anything unclear is left for the AI screening.
 """
@@ -179,14 +181,36 @@ def no_sponsorship(description: str | None) -> bool:
     return bool(_NO_SPONSORSHIP.search(text))
 
 
+# "This is not a fully remote role" is not a remote job; "hybrid" or an office anywhere keeps it.
+_FULLY_REMOTE = re.compile(
+    r"(?<!not )(?<!not a )\b(?:fully|completely|100\s*%)[\s-]*remote\b|\bremote[\s-]only\b"
+    r"|\b100\s*%\s*zdaln|\bw\s+pe[lł]ni\s+zdaln|\bvolledig\s+(?:remote|op\s+afstand)"
+)
+_OFFICE = re.compile(
+    r"\bhybrid|\bhybryd|\bhybride\b|\bon[\s-]?site\b|\bin[\s-]office\b|\bin the office\b"
+    r"|\b(?:from|at|in) (?:the|our) office|\boffice[\s-]based\b|\bw biurze\b|\bstacjonarn"
+    r"|\bop kantoor\b|\bop locatie\b"
+)
+
+
+def fully_remote(description: str | None) -> bool:
+    """True when the posting says the job is fully remote and names no hybrid or office work."""
+    if not description:
+        return False
+    text = description.lower()
+    return bool(_FULLY_REMOTE.search(text)) and not _OFFICE.search(text)
+
+
 NO_SPONSORSHIP = "No visa sponsorship"
 B2B_ONLY = "B2B only"
+FULLY_REMOTE = "Fully remote"
 
 
 def cannot_take(country: str | None, description: str | None, salary: str | None = None,
-                title: str | None = None) -> str | None:
+                title: str | None = None, remote_ok: bool = True) -> str | None:
     """Why a free check rules the job out ("German required", "B2B only", "No visa
-    sponsorship"), else None. skip_reason() gives the Job Opportunities option for it."""
+    sponsorship", "Fully remote" when remote_ok is False), else None. skip_reason() gives the
+    Job Opportunities option for it."""
     lang = language_block(description, title)
     if lang:
         return f"{lang} required"
@@ -194,6 +218,8 @@ def cannot_take(country: str | None, description: str | None, salary: str | None
         return B2B_ONLY
     if no_sponsorship(description):
         return NO_SPONSORSHIP
+    if not remote_ok and fully_remote(description):
+        return FULLY_REMOTE
     return None
 
 

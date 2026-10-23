@@ -476,6 +476,13 @@ for `/jd`.
 - Country and city come from `sweep.locations`. Adzuna `location.area` is tried first. A
   country with no city but "remote" in the location gives city `Remote`. A country missing
   from Config `countries.active`, or a location that cannot be placed, is out of scope.
+- **Office or hybrid only** (23 Oct, `sweep.remote_jobs: false`): a job whose place or title
+  says remote ("Remote, Poland", "Warsaw, Poland (Remote)", "DevOps Engineer (Remote)",
+  "praca zdalna") is out of scope as `remote job (you want office or hybrid)`, unless it also
+  names hybrid or office work ("Poland (Remote/Hybrid)", "praca hybrydowa", "On-site" are
+  kept). A description that says "fully remote", "100% remote", "remote only" or "w pelni
+  zdalna" with no hybrid or office wording is not saved either: summary line `Fully remote,
+  you want office or hybrid (not saved)`. `remote_jobs: true` brings the old rules back.
 - Canonical form: lowercase, accents stripped (plus `ł` to `l`), only `a-z 0-9 + #` and single
   spaces. Company legal suffixes (`Sp. z o.o.`, `S.A.`, `B.V.`, `N.V.`, `Ltd`, `GmbH` and so on)
   and title gender markers (`(m/f/d)`, `(k/m)`, `m/w/d`, `(f/m/x)`, `(remote)`, `(hybrid)`)
@@ -554,9 +561,9 @@ rows stay Unscreened in Notion, visible in the Today view, and are never dropped
 Rules of 30 Sep that decide what "passes":
 - titles searched: DevOps, Site Reliability, Platform, Cloud, Kubernetes, Infrastructure and
   DevSecOps Engineer (Adzuna, Jooble and the company job boards);
-- places: Poland, the Netherlands, Ireland, and remote jobs open across the EU or Europe
-  (`sweep.remote_regions`), saved as Country Other, City Remote (the resume says "Open to
-  relocate to Europe");
+- places: Poland, the Netherlands and Ireland only, office or hybrid only (your decision of
+  23 Oct, `sweep.remote_jobs: false`; before it, remote jobs open across the EU were kept as
+  Country Other, City Remote through `sweep.remote_regions`, now empty);
 - only postings of the last 2 days (`sweep.max_posted_age_days`);
 - B2B-only jobs in Poland, other languages, no sponsorship, too senior and low skill match
   are still skipped;

@@ -263,6 +263,9 @@ class Rules:
     # A remote job open in one of these regions ("Remote, EU") is kept as Country Other,
     # City Remote (your decision of 30 Sep). Empty: remote jobs need one of the countries.
     remote_regions: tuple[str, ...] = ()
+    # False (your decision of 23 Oct: office or hybrid only): a job whose place or title is
+    # remote, with no hybrid or office word, is left out, even in one of your countries.
+    remote_jobs: bool = True
 
     @classmethod
     def from_config(cls, sweep: Mapping[str, Any]) -> Rules:
@@ -279,6 +282,7 @@ class Rules:
             title_exclude=tuple(sweep.get("title_exclude") or ()),
             locations=locations,
             remote_regions=tuple(canon(r) for r in sweep.get("remote_regions") or ()),
+            remote_jobs=bool(sweep.get("remote_jobs", True)),
         )
 
 
@@ -333,6 +337,22 @@ def remote_region(text: str, rules: Rules) -> bool:
         _has_term(value, rules.remote_regions) is not None
 
 
+REMOTE_WORDS = ("remote", "zdalnie", "zdalna", "praca zdalna", "thuiswerken")
+# Any of these keeps the job: "Warsaw (Hybrid)", "Remote or office", "praca hybrydowa".
+OFFICE_WORDS = ("hybrid", "hybrydowa", "hybrydowo", "hybrydowy", "hybride", "office",
+                "on site", "onsite", "biuro", "stacjonarnie", "stacjonarna", "kantoor")
+REMOTE_ONLY = "remote job (you want office or hybrid)"
+
+
+def remote_only(location_text: str, title: str = "", city: str | None = None) -> bool:
+    """True for a remote job: City Remote, or "remote" in the place or title, with no hybrid
+    or office word ("Warsaw (Remote)" yes; "Warsaw (Hybrid)", "Remote or hybrid" no)."""
+    text = canon(f"{location_text} {title}")
+    if _has_term(text, OFFICE_WORDS):
+        return False
+    return city == REMOTE_CITY or _has_term(text, REMOTE_WORDS) is not None
+
+
 def place(location_text: str, rules: Rules, area: Iterable[str] = ()
           ) -> tuple[str | None, str | None]:
     """detect_location, and a remote EU or Europe job as (Other, Remote)."""
@@ -360,6 +380,8 @@ def normalize(
         return Skipped(raw, f"location not recognised ({raw.location_text or 'empty'})")
     if not place_allowed(country, city, active_countries, rules):
         return Skipped(raw, f"country not active ({country})")
+    if not rules.remote_jobs and remote_only(raw.location_text, raw.title, city):
+        return Skipped(raw, REMOTE_ONLY)
     return Job(
         source=raw.source,
         board=raw.board,

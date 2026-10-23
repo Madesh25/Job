@@ -37,6 +37,7 @@ from jobengine.sweep.normalize import (
     parse_active_countries,
     place,
     place_allowed,
+    remote_only,
     senior_in_text,
     title_scope,
 )
@@ -231,12 +232,14 @@ class FitRules:
     ranker: Ranker | None = None
     min_match: float = DEFAULT_MIN_SKILL_MATCH
     min_terms: int = DEFAULT_MIN_SKILL_TERMS
+    remote_ok: bool = True  # sweep.remote_jobs
 
     @classmethod
     def from_settings(cls, s: Settings, ranker: Ranker | None) -> FitRules:
         return cls(max_years=max_years(s), ranker=ranker,
                    min_match=float(s.sweep.get("min_skill_match", DEFAULT_MIN_SKILL_MATCH)),
-                   min_terms=int(s.sweep.get("min_skill_terms", DEFAULT_MIN_SKILL_TERMS)))
+                   min_terms=int(s.sweep.get("min_skill_terms", DEFAULT_MIN_SKILL_TERMS)),
+                   remote_ok=bool(s.sweep.get("remote_jobs", True)))
 
 
 LOW_MATCH = "Low skill match"
@@ -257,7 +260,8 @@ def not_a_fit(job: Job, rules: FitRules) -> str | None:
     label ("German required", "B2B only", "No visa sponsorship"), or "Low skill match"."""
     if too_senior(job, rules.max_years):
         return "too senior"
-    reason = fit.cannot_take(job.country, job.description, job.salary, job.role)
+    reason = fit.cannot_take(job.country, job.description, job.salary, job.role,
+                             rules.remote_ok)
     if reason:
         return reason
     share = skill_share(job, rules)
@@ -278,6 +282,8 @@ def _count(summary: SweepSummary, reason: str, jobs: list[Job] | None = None) ->
         summary.b2b_only += n
     elif reason == fit.NO_SPONSORSHIP:
         summary.no_sponsorship += n
+    elif reason == fit.FULLY_REMOTE:
+        summary.fully_remote += n
     elif reason == LOW_MATCH:
         summary.low_match += n
     else:
@@ -428,6 +434,8 @@ def run_sweep(
 
     def keep(title: str, location: str) -> bool:
         country, city = place(location, rules)
+        if not rules.remote_jobs and remote_only(location, title, city):
+            return False
         return title_scope(title, rules) is None and place_allowed(country, city, active, rules)
 
     summary = SweepSummary(countries=list(active), labels=dict(SOURCE_LABELS))

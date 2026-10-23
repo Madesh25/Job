@@ -322,7 +322,8 @@ class _Run:
             return ScreenResult(page_id=row.page_id, verdict="Unscreened", description_kind=kind)
         limit = int(self.s.screening.get("max_years_required", MAX_YEARS))
         years_fix = years_update(row, jd)
-        early = pre_gate(row, years_required(jd), limit, jd)
+        early = pre_gate(row, years_required(jd), limit, jd,
+                         bool(self.s.sweep.get("remote_jobs", True)))
         if early:  # skipped for free, no tokens spent
             result = ScreenResult(page_id=row.page_id, verdict="Skip", skip_reason=early.reason,
                                   description_kind=kind, llm_used=False,

@@ -386,9 +386,12 @@ sweep:
   # daily limit). New postings are ranked by a free match score (sweep/rank.py, no LLM) and
   # screening takes the best screening.daily_limit (50) first: today's /pending list.
   daily_new_limit: 0
-  # Remote jobs open in one of these regions ("Remote, EU") are kept as Country Other,
-  # City Remote. Remote jobs that name only other countries are still left out.
-  remote_regions: [eu, europe, european union, emea]
+  # Your decision of 23 Oct: Poland, the Netherlands and Ireland only, office or hybrid only.
+  # remote_jobs: false leaves out a job whose place or title is remote ("Warsaw (Remote)")
+  # or whose description says fully remote, unless it also names hybrid or office work.
+  # remote_regions (kept as Country Other, City Remote) is empty: no "Remote, EU" jobs.
+  remote_jobs: false
+  remote_regions: []
   # Title filters (section 4). Matched as whole words on the canonical (lowercase ASCII) title.
   title_include:
     - devops
