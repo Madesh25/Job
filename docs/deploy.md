@@ -123,7 +123,7 @@ or `gcloud secrets versions add NAME --data-file=-` for a new value). Names are 
 | `JOOBLE_API_KEY` (optional) | `jooble-api-key` | `jooble-api-key` |
 | `GITHUB_TOKEN` (optional) | `github-token` | `github-token` |
 | `PROSPEO_API_KEY`, `TOMBA_API_KEY`, `TOMBA_API_SECRET` (optional) | not mounted | `prospeo-api-key`, `tomba-api-key`, `tomba-api-secret` |
-| `APOLLO_API_KEY_2`, `HUNTER_API_KEY_2`, `SNOV_CLIENT_ID_2`, `SNOV_CLIENT_SECRET_2`, `PROSPEO_API_KEY_2` (optional second accounts) | not mounted | `apollo-api-key-2`, `hunter-api-key-2`, `snov-client-id-2`, `snov-client-secret-2`, `prospeo-api-key-2` |
+| `APOLLO_API_KEY_2`, `HUNTER_API_KEY_2`, `SNOV_CLIENT_ID_2`, `SNOV_CLIENT_SECRET_2`, `PROSPEO_API_KEY_2`, `TOMBA_API_KEY_2`, `TOMBA_API_SECRET_2` (optional second accounts) | not mounted | `apollo-api-key-2`, `hunter-api-key-2`, `snov-client-id-2`, `snov-client-secret-2`, `prospeo-api-key-2`, `tomba-api-key-2`, `tomba-api-secret-2` |
 | `LUSHA_API_KEY` (optional) | not mounted | `lusha-api-key` |
 | `GEMINI_API_KEY` (optional, docs/ai-models.md) | not mounted | `gemini-api-key` |
 | `DEEPSEEK_API_KEY` (optional, docs/ai-models.md) | not mounted | `deepseek-api-key` |

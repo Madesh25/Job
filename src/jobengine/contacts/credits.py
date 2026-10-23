@@ -20,8 +20,8 @@ log = logging.getLogger("jobengine.contacts.credits")
 PROVIDERS = ("apollo", "hunter", "snov", "prospeo", "tomba")
 # Free plans added later: left out of the credits line until their Config counter exists.
 OPTIONAL = ("prospeo", "tomba")
-# Second accounts (6 Oct): `credits.<provider>_2`, used when the first runs out.
-SECOND = ("apollo_2", "hunter_2", "snov_2", "prospeo_2")
+# Second accounts (6 Oct; Tomba 23 Oct): `credits.<provider>_2`, used when the first runs out.
+SECOND = ("apollo_2", "hunter_2", "snov_2", "prospeo_2", "tomba_2")
 COUNTER_RE = re.compile(r"^\s*(\d+)\s*/\s*(\d+)")
 
 

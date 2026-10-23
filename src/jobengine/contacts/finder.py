@@ -528,6 +528,7 @@ SECOND_FIELDS = {
     "hunter": {"hunter_api_key": "hunter_api_key_2"},
     "snov": {"snov_client_id": "snov_client_id_2", "snov_client_secret": "snov_client_secret_2"},
     "prospeo": {"prospeo_api_key": "prospeo_api_key_2"},
+    "tomba": {"tomba_api_key": "tomba_api_key_2", "tomba_api_secret": "tomba_api_secret_2"},
 }
 
 

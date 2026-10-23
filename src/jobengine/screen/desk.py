@@ -1502,7 +1502,8 @@ class Desk:
                 "tomba": self.s.tomba_api_key and self.s.tomba_api_secret,
                 "apollo_2": self.s.apollo_api_key_2, "hunter_2": self.s.hunter_api_key_2,
                 "snov_2": self.s.snov_client_id_2 and self.s.snov_client_secret_2,
-                "prospeo_2": self.s.prospeo_api_key_2}
+                "prospeo_2": self.s.prospeo_api_key_2,
+                "tomba_2": self.s.tomba_api_key_2 and self.s.tomba_api_secret_2}
         lines = ["Provider credits (reset on the 1st):"]
         for provider in (*PROVIDERS, *SECOND):
             key = f"credits.{provider}"

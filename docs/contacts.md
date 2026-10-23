@@ -102,9 +102,9 @@ bank titles such as "Vice President" fit no slot. Now, after everyone whose titl
   Apollo, Settings, Integrations, API, Create new key, tick "Set as master key" (Apollo's
   docs say free access also needs an account on a work email address).
 
-## Second accounts (Apollo, Hunter, Snov, Prospeo)
+## Second accounts (Apollo, Hunter, Snov, Prospeo, Tomba)
 
-Each of the four can have a second (free) account. Put its keys in `.env` (Secret Manager in
+Each of the five can have a second (free) account. Put its keys in `.env` (Secret Manager in
 prod, mounted when the secret exists):
 
 | Provider | Second account keys | Config counter |
@@ -113,6 +113,7 @@ prod, mounted when the secret exists):
 | Hunter | `HUNTER_API_KEY_2` | `credits.hunter_2` |
 | Snov | `SNOV_CLIENT_ID_2`, `SNOV_CLIENT_SECRET_2` | `credits.snov_2` |
 | Prospeo | `PROSPEO_API_KEY_2` | `credits.prospeo_2` |
+| Tomba | `TOMBA_API_KEY_2`, `TOMBA_API_SECRET_2` | `credits.tomba_2` |
 
 - The first account is always used first. The second is used only when the first has no
   credits left this month, or when its search fails (a refused key or an exhausted plan).
@@ -122,6 +123,13 @@ prod, mounted when the secret exists):
   for one run only.
 - Contacts found with a second account say so in Notes ("found with Hunter-2"). `/credits`
   shows the second accounts that have a key or a Config row.
+- **Test a second key (23 Oct):** when look-ups are real (`CONTACTS_LIVE=true` on your PC),
+  `/credits` asks every account with a key, second ones too, what it has left ("Tomba-2: 25
+  of 25 searches left"). These calls spend no credit. "could not ask (401 ...)" means a wrong
+  key or secret. Tomba's account answer was not seen yet: if it gives no numbers, the line
+  says "the key works" instead.
+- Apollo and Snov: a second free account does not help. Apollo's free plan has no API
+  people search and Snov's API needs a paid plan; both answer the same for any free account.
 - No IP switching or other tricks: each account is a normal free account used within its
   own limits.
 
@@ -214,8 +222,9 @@ happen only in prod with `DRY_RUN=false`; elsewhere invented fixtures answer.
 ## Real credits left (22 Oct)
 
 When look-ups are real, /credits ends with "Real credits left", asked from Hunter
-(`/v2/account`), Snov (`/v1/get-balance`) and Prospeo (`/account-information`) at that
-moment; these calls are free. On 22 Oct the bot's own count said Snov 3 of 50 while Snov
+(`/v2/account`), Snov (`/v1/get-balance`), Prospeo (`/account-information`) and Tomba
+(`/v1/me`, since 23 Oct) at that moment, for each account with a key (second accounts too);
+these calls are free. On 22 Oct the bot's own count said Snov 3 of 50 while Snov
 answered "out of credits": the providers' numbers are the truth. On the PC the Config
 counters stay simulated (never written); in prod they are still written after each look-up.
 
