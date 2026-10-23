@@ -267,6 +267,9 @@ resume:
   # (or " | ") separates the parts.
   relocation_template: "Chennai, India | Open to relocate to {country}"
 contacts:
+  # Hunter's new credits come on this day of each month (hunter.io/usage, 23 Oct). Used for
+  # the leftover run (contacts/connection_lookup.py) when Hunter's answer has no reset date.
+  hunter_renewal_day: 23
   # Where contacts must be (16 Oct, your choice "strict"): strict = only people a provider
   # places in the job's country (Poland, Netherlands, Ireland); people outside it or with an
   # unknown location are left out, even if a slot stays empty. country_first = people in the

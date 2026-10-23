@@ -423,9 +423,27 @@ days, are added as Peer engineer contacts of the job (Source Other, Notes "Linke
 connection (<kind>); referral ask") and marked Referral Asked with today's Last asked. Write
 Gmail drafts then uses the referral ask template word for word.
 
-Next: the location and work email of the connections at a job's company from Prospeo (by
-the LinkedIn profile link, 1 credit when found), on demand and with the credits left on the
-day before each provider renews.
+### Location and work email (feature 1, step 3, 23 Oct)
+
+The export has no location and LinkedIn is never opened. `contacts/connection_lookup.py`:
+
+- **Prospeo** `/enrich-person` by the LinkedIn profile link: Country (Location source
+  Prospeo) and a VERIFIED work email; 1 credit when it finds the person, none for NO_MATCH.
+- **Hunter** `/email-finder` by name and the company's Target Companies Domain: a work
+  email (1 credit when found; an address Hunter calls invalid is not kept). No location.
+
+Only empty fields are written, and a personal address is never a work email. Paid calls
+follow `safety.paid_api_allowed` (prod with DRY_RUN off, or CONTACTS_LIVE on your PC).
+
+1. **On demand:** the "Location and email" button (`rl:`) under a job's connections asks
+   Prospeo for at most 3 people there without a country.
+2. **Leftover credits (your idea):** once a day the bot asks Prospeo and Hunter how many
+   credits are left and when new ones come (Prospeo: days left; Hunter: its reset date, else
+   `contacts.hunter_renewal_day`, 23). On the last day before a renewal it spends what is
+   left, at most 60 people per provider, on your engineers, managers and HR at Target
+   Companies first (Prospeo: then anyone without a country; Hunter: only Target Companies
+   with a Domain). Once per renewal (Bot State `connections.leftover`); the answer says how
+   many were looked up and filled.
 
 ## Recruitment agencies (flow feature 7, /agencies)
 
