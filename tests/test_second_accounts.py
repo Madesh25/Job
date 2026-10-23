@@ -43,7 +43,8 @@ def test_accounts_need_every_key_of_the_second_account():
 
 def test_tomba_second_account_needs_key_and_secret():
     # 23 Oct: you made a second Tomba account.
-    s = load_settings("local", {"TOMBA_API_KEY_2": "t2", "TOMBA_API_SECRET_2": " t2s\r"})
+    s = load_settings("local", {"TOMBA_API_KEY": "t1", "TOMBA_API_SECRET": "x1",
+                                "TOMBA_API_KEY_2": "t2", "TOMBA_API_SECRET_2": " t2s\r"})
     [_, (name, second)] = accounts("tomba", s)
     assert name == "tomba_2" and (second.tomba_api_key, second.tomba_api_secret) == ("t2", "t2s")
     assert accounts("tomba", load_settings("local", {"TOMBA_API_KEY_2": "t2"}))[1:] == []
@@ -146,3 +147,29 @@ def test_second_account_counter_from_config_is_written():
     book.spend("apollo_2", 1)
     assert written == [("credits.hunter_2", "4 / 25 per month")]
     assert "Hunter-2 4/25" in book.line() and "Apollo-2 1/75" in book.line()
+
+
+def test_a_second_account_is_asked_even_without_the_first_key():
+    # 23 Oct /credits: only Tomba-2 had a key, and no Tomba line came.
+    from jobengine.contacts import balance
+
+    s = load_settings("local", {"TOMBA_API_KEY_2": "t2", "TOMBA_API_SECRET_2": "x2"})
+    answer = {"data": {"requests": {"domains": {"used": 0, "available": 25}}}}
+    assert balance.lines(s, lambda name: lambda *a, **k: answer) == [
+        "Tomba-2: 25 of 25 searches left this month (from Tomba itself)"]
+
+
+def test_only_a_second_account_is_used_on_its_own():
+    s = load_settings("local", {"TOMBA_API_KEY_2": "t2", "TOMBA_API_SECRET_2": "x2"})
+    assert [name for name, _ in accounts("tomba", s)] == ["tomba_2"]
+    d = make(TOMBA_API_KEY_2="t2", TOMBA_API_SECRET_2="x2")
+    config = ConfigStore.fake()
+    row = type(config._rows["credits.apollo"])
+    for key in ("credits.apollo", "credits.hunter", "credits.snov", "credits.prospeo"):
+        config._rows[key] = row(key=key, value="75 / 75 per month", updated=TODAY)
+    d.config = lambda: config
+    config._rows["credits.tomba_2"] = row(key="credits.tomba_2", value="0 / 25 per month",
+                                          updated=TODAY)
+    result = find_contacts(d, PL)
+    assert "tomba_2" in d.calls and "tomba" not in d.calls
+    assert "Tomba-2 1/25" in result.message

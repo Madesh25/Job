@@ -118,9 +118,9 @@ def lines(s: Settings, request_for: Callable[[str], Request]) -> list[str]:
 
     out = []
     for name, (label, has_key, check) in CHECKS.items():
-        if not has_key(s):
-            continue
         for account, settings in accounts(name, s):
+            if not has_key(settings):
+                continue  # 23 Oct: a second account is asked even without a first key
             shown = account_label(account)
             try:
                 out.append(f"{shown}: {check(settings, request_for(name))} (from {label} "
