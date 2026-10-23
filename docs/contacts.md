@@ -368,6 +368,37 @@ Hunter `v2/domain-search`, Snov OAuth plus the v2 `domain-search/prospects` star
 and read the answers tolerantly. Run the probe for each provider before the first real lookup;
 if a field or endpoint differs, the probe output shows it.
 
+## Your LinkedIn connections (flow feature 1, step 1, 23 Oct)
+
+Notion table **🤝 LinkedIn Connections** (one table for every env, your decision of 23 Oct;
+`notion.read.linkedin_connections`). Its first seven columns have the same names as
+LinkedIn's `Connections.csv` (First Name, Last Name, URL, Email Address, Company, Position,
+Connected On), so the first import can be done in Notion (Merge with CSV, after deleting the
+"Notes:" lines at the top of the file). Kind is a Notion formula from Position (HR, Manager,
+Engineer, Other). Referral, Last asked and Notes are yours; the bot never changes them.
+
+The bot never opens LinkedIn. Once a month:
+
+1. LinkedIn > Me > Settings & Privacy > Data privacy > Get a copy of your data > Connections
+   (or the full archive) > Request archive.
+2. When LinkedIn's email comes, download the zip and send it to the bot as a file (the zip or
+   only `Connections.csv`; up to 20 MB, Telegram's limit for bots). Other files are not read.
+3. The bot matches people by profile URL (by name and company when there is none):
+   - new people are added (First seen = today);
+   - a new company, position or email is written (an empty email never wipes a saved one);
+   - people missing from the export are ticked **Removed**; a Removed person who is back is
+     unticked;
+   - the answer lists what changed and the next due date.
+4. A file with less than half of the people in the table is refused and nothing changes (a
+   cut or wrong file would tick most people Removed).
+
+`/connections` shows the last import and the steps. From 30 days after the last import the
+bot reminds you once a week (long polling: with the scheduled checks; Cloud Run: the daily
+task). The date is kept in Bot State (`connections.imported`). In `--fake`, type
+`file <path to the zip>` to send the export.
+
+Next step (feature 1, step 2): use the table for referrals.
+
 ## Recruitment agencies (flow feature 7, /agencies)
 
 `src/jobengine/contacts/agencies.py`. Established recruiters with IT teams in Poland, the

@@ -122,6 +122,13 @@ def skills_write_target(s: Settings) -> str | None:
     return s.notion_read.get("skills_inventory")
 
 
+def connections_write_target(s: Settings) -> str | None:
+    """🤝 LinkedIn Connections (contacts/connections.py), your decision of 23 Oct: one table
+    for every env, like Skills Inventory. It is your own reference table, written only when
+    you send your LinkedIn export to the bot; nothing else writes to it."""
+    return s.notion_read.get("linkedin_connections")
+
+
 def llm_allowed(s: Settings) -> bool:
     """LLM calls need ANTHROPIC_API_KEY. DRY_RUN does not block them: they cost cents and
     nothing can be tested without them. DRY_RUN blocks Gmail writes, Drive writes and paid

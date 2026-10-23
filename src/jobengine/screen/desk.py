@@ -19,6 +19,7 @@ from jobengine import http
 from jobengine.apply import answers, autofill, cover, interview
 from jobengine.apply import facts as apply_facts
 from jobengine.bot_state import BotState, FakeBotState
+from jobengine.contacts import connections
 from jobengine.contacts import finder as contact_finder
 from jobengine.contacts.finder import ContactDeps
 from jobengine.llm import LLMError
@@ -282,6 +283,8 @@ class Desk:
         # /gaps "Hands-on" / "Production" buttons: adds a Skills Inventory row (real_desk and
         # fake_desk set it; None means the buttons are not offered).
         self.add_skill: Callable[[str, str, str], None] | None = None
+        # 🤝 LinkedIn Connections (contacts/connections.py): None when not set up here.
+        self.connections: connections.ConnectionsStore | None = None
         # Set by the bot for each update: sends a reply at once (before a long build).
         self.notify: Callable[[Reply], None] | None = None
         self.today = today
@@ -1375,6 +1378,30 @@ class Desk:
             replies += self._skill_buttons([names[key] for key, _ in ranked])
         return replies
 
+    def connections_command(self) -> list[Reply]:
+        """/connections: when the LinkedIn connections were last updated and how to update."""
+        return [Reply(connections.status(self.state, self.today(),
+                                         self.connections is not None))]
+
+    def connections_file(self, name: str, data: bytes) -> list[Reply]:
+        """Your LinkedIn export (zip or Connections.csv), sent to the bot as a file."""
+        if self.connections is None:
+            return self.connections_command()
+
+        def say(text: str) -> None:
+            if self.notify is not None:
+                self.notify(Reply(text))
+
+        return [Reply(connections.run_import(self.connections, self.state, data, name,
+                                             self.today(), say))]
+
+    def connections_reminder(self) -> list[Reply]:
+        """The monthly reminder to send a new export (once a week while it is due)."""
+        if self.connections is None:
+            return []
+        text = connections.reminder(self.state, self.today())
+        return [Reply(text)] if text else []
+
     def keywords_command(self) -> list[Reply]:
         """/keywords: the tools your best jobs name most, against your LinkedIn profile text
         (feature 8)."""
@@ -1978,6 +2005,7 @@ def fake_desk(s: Settings, today: date, now: Callable[[], datetime] | None = Non
     desk.skills_added = []  # type: ignore[attr-defined]
     desk.add_skill = lambda name, level, note: desk.skills_added.append(  # type: ignore[attr-defined]
         (name, level, note))
+    desk.connections = connections.FakeConnections()
     return desk
 
 
@@ -2029,4 +2057,5 @@ def real_desk(s: Settings) -> Desk | None:
     from jobengine.notion_repo import skill_writer
 
     desk.add_skill = skill_writer(client, s)
+    desk.connections = connections.store_for(s, client)
     return desk
