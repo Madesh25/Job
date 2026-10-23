@@ -518,6 +518,10 @@ class Desk:
             return self.outreach_tap(arg)
         if action == "ln" and arg:  # "LinkedIn notes" under the contacts
             return self.linkedin_notes(arg)
+        if action == "rf" and arg:  # "Referral asks": your LinkedIn connections there
+            return self.referral_tap(arg)
+        if action == "rm" and arg:  # "Mail them": the referral ask to connections by mail
+            return self.referral_mail_tap(arg)
         if action == "dm" and arg:  # a domain button under the domain question
             return self.domain_tap(arg)
         if action == "fr" and arg:  # a reason button under /fetchreport
@@ -998,8 +1002,120 @@ class Desk:
         self.say(Reply(f"{what} for {values.get('Company') or 'this job'}..."))
         result = contact_finder.find_contacts(self.contacts, job_id, paid=paid)
         if result.status == "done":
-            return self._then_drafts(Reply(result.message), job_id, result.contacts)
-        return [_contacts_reply(result)]
+            replies = self._then_drafts(Reply(result.message), job_id, result.contacts)
+            self._add_connections(replies[0], job_id, values, result.contacts)
+            return replies
+        reply = _contacts_reply(result)
+        self._add_connections(reply, job_id, values, [])
+        return [reply]
+
+    # ------------------------------------------------------------ referrals (feature 1)
+
+    def _connections_at(self, values: dict[str, Any]) -> list[connections.Match]:
+        if self.connections is None or not values.get("Company"):
+            return []
+        try:
+            rows = self.connections.rows_like(values["Company"])
+        except Exception as exc:  # the contacts answer still comes without them
+            log.warning("LinkedIn connections not read: %s", exc)
+            return []
+        return connections.at_company(rows, values["Company"], values.get("Country") or "")
+
+    def _add_connections(self, reply: Reply, job_id: str, values: dict[str, Any],
+                         found: list[Any]) -> None:
+        """Your LinkedIn connections at the company under the contacts answer, with a
+        "Referral asks" button. People the finder found who are also your connections give
+        the connection a country and work email (layer 1, free)."""
+        matches = self._connections_at(values)
+        if not matches:
+            return
+        if found and self.connections is not None:
+            try:
+                connections.learn_from_contacts(self.connections, matches, found)
+                matches = self._connections_at(values)
+            except Exception as exc:
+                log.warning("LinkedIn connections not updated from contacts: %s", exc)
+        company = without_region(values.get("Company") or "")
+        reply.text += "\n\n" + connections.block(matches, company,
+                                                  values.get("Country") or "", self.today())
+        reply.buttons = [*reply.buttons, ("Referral asks", f"rf:{short_id(job_id)}")]
+
+    def referral_tap(self, job_id: str) -> list[Reply]:
+        """A LinkedIn message per connection at the company (the peer note: they are already
+        connected, so it is a message, not an invitation), and "Mail them" when some have an
+        email."""
+        from jobengine.contacts import linkedin_notes
+        from jobengine.resume.builder import notion_id
+
+        if self.repo is None:
+            return [Reply(NO_TARGET)]
+        job_id = notion_id(job_id)
+        values = self.repo.get_values(job_id) or {}
+        matches = self._connections_at(values)
+        if not matches:
+            return [Reply(f"No LinkedIn connection at {values.get('Company') or 'this company'} "
+                          "in the 🤝 LinkedIn Connections table.")]
+        config = self.deps.config()
+        base = self.s.apply_pack.get("linkedin_notes") or {}
+        template = (config.get("linkedin.note_peer") or base.get("peer")
+                    or linkedin_notes.DEFAULTS["peer"])
+        me = config.get("linkedin.signature") or self.s.apply_pack.get("linkedin_signature")
+        company = without_region(values.get("Company") or "")
+        today = self.today()
+        blocks = [f"Referral asks for {values.get('Role') or 'the role'} at {company}: send "
+                  "each one yourself as a LinkedIn message (the bot never opens LinkedIn)."]
+        for m in matches[:connections.MAX_SHOWN]:
+            p = m.row.person
+            asked = m.asked_on(today)
+            note = linkedin_notes.note(template, name=p.name, role=values.get("Role") or "",
+                                       company=company, link=values.get("URL") or "",
+                                       me=str(me or ""))
+            head = f"{p.name} ({p.position or m.kind}, {m.country or 'location unknown'})"
+            if asked:
+                head += f": asked on {asked:%d %b}, wait before asking again"
+            where = p.url or f'search "{p.name} {company}" on LinkedIn'
+            blocks.append(f"{head}\n{where}\n{note}")
+        reply = Reply("\n\n".join(blocks)[:MAX_TEXT])
+        can_mail = connections.mailable(matches, today)
+        if can_mail and self.mail is not None:
+            reply.buttons = [(f"Mail them ({len(can_mail)})", f"rm:{short_id(job_id)}")]
+            reply.text += (f"\n\n{len(can_mail)} of them have an email: Mail them adds them as "
+                           "contacts of this job, then Write Gmail drafts uses the referral "
+                           "template word for word.")
+        return [reply]
+
+    def referral_mail_tap(self, job_id: str) -> list[Reply]:
+        """Adds the connections with an email as Peer contacts of the job (Source Other, a
+        Notes line saying LinkedIn connection) and marks them Asked in the table."""
+        from jobengine.contacts.models import PEER, Chosen
+        from jobengine.resume.builder import notion_id
+
+        if self.repo is None or self.contacts is None or self.contacts.contacts is None:
+            return [Reply("Contacts are not available in this bot.")]
+        job_id = notion_id(job_id)
+        values = self.repo.get_values(job_id) or {}
+        today = self.today()
+        matches = connections.mailable(self._connections_at(values), today)
+        if not matches:
+            return [Reply("No connection to mail: none has an email, or all were asked in "
+                          f"the last {connections.ASKED_DAYS} days.")]
+        by_email = {(v.get("Email") or "").strip().lower(): pid
+                    for pid, v in self.contacts.contacts.all_rows() if v.get("Email")}
+        chosen = []
+        for m in matches:
+            country = m.country if m.country in ("Poland", "Netherlands", "Ireland") else "Other"
+            chosen.append(Chosen(
+                name=m.row.person.name, title=m.row.person.position, email=m.email, type=PEER,
+                source="Other", country=country,
+                notes=f"LinkedIn connection ({m.kind}); referral ask",
+                page_id=by_email.get(m.email.lower())))
+        contact_finder.write_contacts(self.contacts, job_id, values, chosen, today)
+        if self.connections is not None:
+            connections.mark_asked(self.connections, matches, today)
+        names = ", ".join(m.row.person.name for m in matches)
+        return self._then_drafts(Reply(f"Added as contacts of this job: {names}. They are "
+                                       "marked Asked in 🤝 LinkedIn Connections."),
+                                 job_id, chosen)
 
     def _then_drafts(self, first: Reply, job_id: str, contacts: list[Any]) -> list[Reply]:
         """The contacts summary with a "Write Gmail drafts" button: drafts are only written

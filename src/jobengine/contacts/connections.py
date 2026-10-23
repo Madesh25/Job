@@ -43,6 +43,8 @@ COLUMNS = {  # Connection field -> (Notion column, Notion type); the CSV's own n
     "position": ("Position", "rich_text"),
     "connected_on": ("Connected On", "rich_text"),
 }
+INFO_COLUMNS = {"Country": "rich_text", "Location source": "select", "Work email": "email",
+                "Referral": "select", "Last asked": "date"}
 # A change in these is written; a name or date change alone is not worth a Notion write.
 WATCHED = ("company", "position", "email")
 STAMP_KEY = "connections.imported"  # bot_state: {"date": <iso>, "count": <people>}
@@ -88,6 +90,8 @@ class StoredRow:
     page_id: str
     person: Connection
     removed: bool = False
+    # The bot's and your columns: Country, Location source, Work email, Referral, Last asked.
+    info: dict[str, Any] = field(default_factory=dict, compare=False)
 
 
 @dataclass
@@ -105,6 +109,8 @@ class ImportPlan:
 
 class ConnectionsStore(Protocol):
     def rows(self) -> list[StoredRow]: ...
+
+    def rows_like(self, company: str) -> list[StoredRow]: ...
 
     def create(self, person: Connection, today: date) -> None: ...
 
@@ -315,6 +321,152 @@ def reminder(state: Any, today: date) -> str | None:
             f"{when:%d %b %Y}. New connections are not in the table yet.\n{HOW_TO}")
 
 
+# ---------------------------------------------------------------- referrals (step 2)
+
+ENGINEER, MANAGER, HR, OTHER_KIND = "Engineer", "Manager", "HR", "Other"
+KIND_ORDER = (ENGINEER, MANAGER, HR, OTHER_KIND)
+MAX_SHOWN = 10
+ASKED_DAYS = 30  # someone asked within this many days is shown with the date, not asked again
+
+
+def kind(position: str | None) -> str:
+    """Engineer, Manager, HR or Other from the position, with the contact rules' words (the
+    Notion Kind formula is a simpler copy for the table)."""
+    from jobengine.contacts.classify import classify_title, wide_kind
+    from jobengine.contacts.models import HIRING, PEER, RECRUITER
+
+    found = classify_title(position)
+    if found not in (PEER, HIRING, RECRUITER):
+        found = wide_kind(position)
+    return {PEER: ENGINEER, HIRING: MANAGER, RECRUITER: HR}.get(found, OTHER_KIND)
+
+
+def same_company(theirs: str | None, job_company: str | None) -> bool:
+    """"Capgemini Polska" and "Capgemini (IE)" are Capgemini; "Data Corp" is not "Data"."""
+    from jobengine.sweep.normalize import canon_company, without_region
+
+    a = canon_company(without_region(theirs))
+    b = canon_company(without_region(job_company))
+    if len(a) < 3 or len(b) < 3:
+        return False
+    return a == b or a.startswith(b + " ") or b.startswith(a + " ")
+
+
+def company_word(company: str | None) -> str:
+    """The first word of the company's plain name, to narrow the Notion query."""
+    from jobengine.sweep.normalize import canon_company, without_region
+
+    words = canon_company(without_region(company)).split()
+    return words[0] if words and len(words[0]) >= 3 else ""
+
+
+def same_person(a: str | None, b: str | None) -> bool:
+    from jobengine.sweep.normalize import canon
+
+    return bool(a and b) and canon(a) == canon(b)
+
+
+@dataclass(frozen=True)
+class Match:
+    row: StoredRow
+    kind: str
+
+    @property
+    def country(self) -> str:
+        return str(self.row.info.get("Country") or "")
+
+    @property
+    def email(self) -> str:
+        """Work email first; else the export's (usually personal) email (your OK, 23 Oct)."""
+        return str(self.row.info.get("Work email") or self.row.person.email or "")
+
+    def asked_on(self, today: date) -> date | None:
+        when = self.row.info.get("Last asked")
+        if isinstance(when, date) and (today - when).days < ASKED_DAYS:
+            return when
+        return None
+
+
+def at_company(rows: Iterable[StoredRow], company: str, country: str) -> list[Match]:
+    """Your connections at the job's company: the job's country first, then location
+    unknown, then other countries; engineers, then managers, HR and the rest. Removed and
+    junior people are left out (a junior cannot refer or hire, your rule of 22 Oct)."""
+    from jobengine.contacts.classify import is_junior
+
+    found = [Match(row, kind(row.person.position)) for row in rows
+             if not row.removed and same_company(row.person.company, company)
+             and not is_junior(row.person.position)]
+
+    def order(m: Match) -> tuple[int, int, str]:
+        where = m.country.casefold()
+        place = 0 if where and where == country.casefold() else (1 if not where else 2)
+        return place, KIND_ORDER.index(m.kind), m.row.person.name
+
+    return sorted(found, key=order)
+
+
+def block(matches: list[Match], company: str, country: str, today: date) -> str:
+    """The lines under a job's contacts answer."""
+    lines = [f"🤝 Your LinkedIn connections at {company}: {len(matches)}"]
+    for m in matches[:MAX_SHOWN]:
+        p = m.row.person
+        where = m.country or "location unknown"
+        asked = m.asked_on(today)
+        extra = f", asked {asked:%d %b}" if asked else ""
+        mail = ", has an email" if m.email else ""
+        lines.append(f"- {p.name}: {p.position or 'no position'} [{m.kind}, {where}{mail}"
+                     f"{extra}]")
+    if len(matches) > MAX_SHOWN:
+        lines.append(f"... and {len(matches) - MAX_SHOWN} more in the 🤝 LinkedIn Connections "
+                     "table.")
+    in_country = sum(1 for m in matches if m.country.casefold() == country.casefold())
+    if matches and not in_country:
+        lines.append(f"None is known to work in {country}; a referral from another office "
+                     "usually still counts (most companies have one internal referral system).")
+    return "\n".join(lines)
+
+
+def mailable(matches: list[Match], today: date) -> list[Match]:
+    """Connections the referral ask can be mailed to: an email, a tech, manager or HR
+    position (the drafts' own title rule), not asked in the last ASKED_DAYS days."""
+    return [m for m in matches if m.email and m.kind != OTHER_KIND
+            and m.asked_on(today) is None]
+
+
+def learn_from_contacts(store: ConnectionsStore, matches: list[Match],
+                        contacts: Iterable[Any]) -> list[str]:
+    """Layer 1 (free): a person the contact finder found who is also your connection gives
+    the connection a Country and a work email (only empty fields are filled). Returns the
+    names matched."""
+    from jobengine.contacts.classify import is_personal, valid_email
+
+    named = []
+    for contact in contacts:
+        m = next((m for m in matches if same_person(m.row.person.name,
+                                                    getattr(contact, "name", ""))), None)
+        if m is None:
+            continue
+        named.append(m.row.person.name)
+        props: dict[str, Any] = {}
+        country = getattr(contact, "country", "") or ""
+        if not m.country and country and country != "Other":
+            props["Country"] = ("rich_text", country)
+            props["Location source"] = ("select", "Contacts")
+        email = getattr(contact, "email", "") or ""
+        if (not m.row.info.get("Work email") and valid_email(email)
+                and not is_personal(email.lower())):
+            props["Work email"] = ("email", email)
+        if props:
+            store.update(m.row.page_id, props)
+    return named
+
+
+def mark_asked(store: ConnectionsStore, matches: list[Match], today: date) -> None:
+    for m in matches:
+        store.update(m.row.page_id, {"Referral": ("select", "Asked"),
+                                     "Last asked": ("date", today)})
+
+
 # ---------------------------------------------------------------- Notion and the fake
 
 
@@ -333,11 +485,31 @@ class NotionConnections:
     def rows(self) -> list[StoredRow]:
         from jobengine.notion_repo import page_values
 
-        columns = tuple(column for column, _kind in COLUMNS.values()) + ("Removed",)
+        columns = (tuple(column for column, _kind in COLUMNS.values()) + ("Removed",)
+                   + tuple(INFO_COLUMNS))
         out = []
         for page in self.client.query(self.data_source_id, properties=columns):
             values = page_values(page)
-            out.append(StoredRow(page["id"], _person(values), bool(values.get("Removed"))))
+            info = {name: values.get(name) for name in INFO_COLUMNS if values.get(name)}
+            out.append(StoredRow(page["id"], _person(values), bool(values.get("Removed")),
+                                 info))
+        return out
+
+    def rows_like(self, company: str) -> list[StoredRow]:
+        """Rows whose Company contains the company's first word (a few Notion requests, not
+        the whole table); same_company then decides."""
+        word = company_word(company)
+        if not word:
+            return []
+        body = {"filter": {"property": "Company", "rich_text": {"contains": word}}}
+        from jobengine.notion_repo import page_values
+
+        out = []
+        for page in self.client.query(self.data_source_id, body):
+            values = page_values(page)
+            info = {name: values.get(name) for name in INFO_COLUMNS if values.get(name)}
+            out.append(StoredRow(page["id"], _person(values), bool(values.get("Removed")),
+                                 info))
         return out
 
     def _props(self, props: dict[str, Any]) -> dict[str, Any]:
@@ -369,14 +541,20 @@ class FakeConnections:
     def __init__(self, people: Iterable[Connection] = ()):
         self.table: dict[str, dict[str, Any]] = {}
         for i, person in enumerate(people):
-            self.table[f"conn-{i}"] = {"person": person, "removed": False, "first_seen": None}
+            self.table[f"conn-{i}"] = {"person": person, "removed": False, "first_seen": None,
+                                       "info": {}}
 
     def rows(self) -> list[StoredRow]:
-        return [StoredRow(pid, row["person"], row["removed"]) for pid, row in self.table.items()]
+        return [StoredRow(pid, row["person"], row["removed"], dict(row.get("info") or {}))
+                for pid, row in self.table.items()]
+
+    def rows_like(self, company: str) -> list[StoredRow]:
+        word = company_word(company)
+        return [row for row in self.rows() if word and word in row.person.company.casefold()]
 
     def create(self, person: Connection, today: date) -> None:
         self.table[f"conn-{len(self.table)}"] = {"person": person, "removed": False,
-                                                 "first_seen": today}
+                                                 "first_seen": today, "info": {}}
 
     def update(self, page_id: str, props: dict[str, Any]) -> None:
         row = self.table[page_id]
@@ -384,6 +562,9 @@ class FakeConnections:
         for column, (_kind, value) in props.items():
             if column == "Removed":
                 row["removed"] = bool(value)
+                continue
+            if column in INFO_COLUMNS:
+                row.setdefault("info", {})[column] = value
                 continue
             attr = next(a for a, (c, _k) in COLUMNS.items() if c == column)
             values[attr] = value
