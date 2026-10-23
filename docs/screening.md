@@ -302,6 +302,29 @@ In the fake bot (`python -m jobengine.telegram_bot --fake`), `tap <data>` presse
 for example `tap ap:pl-clean`. The fake bot uses the sweep and screening fixtures in one
 in-memory Job Opportunities; rows without an LLM fixture are screened as "nothing stated".
 
+## /add <job link> (23 Oct, your request)
+
+When LinkedIn or another app sends you to the company's own job page, send that link with
+`/add <link>`. The bot:
+
+1. opens the page (never LinkedIn or a site on `sweep.fulltext.blocked_hosts`: those answer
+   with the /jd way instead) and reads the job from its schema.org JobPosting (title,
+   company, place, description), else from the page itself;
+2. saves the job in Job Opportunities (Board `Company site`; the same row when the link is
+   already there) with the description, and screens it;
+3. adds the company to Target Companies, unless it is already there (`Citi` matches
+   `Citi (IE)`) or a recruitment agency: Careers URL is its job board when the link shows one
+   (Greenhouse, Lever, SmartRecruiters, Workday, Ashby, Workable, Recruitee, Personio,
+   Teamtailor), else the site's home page (its board is found on the next /fetch); Region
+   from the job's country; Active ticked; a Notes line with the link. An **Undo** button
+   unticks Active. Only these fields are written (`safety.target_companies_add_fields`), and
+   Target Companies is shared by every env (your decision of 23 Oct, like Skills Inventory);
+4. marks the job Approved and builds the resume (you apply to it, whatever the screening
+   says; a remote job is saved too, with a note).
+
+A page that shows no description (it loads it with scripts) or no company or role answers
+with the /jd way: `/jd <link>`, paste the text, `/done`.
+
 ## Checking it on your laptop
 
 1. `python -m jobengine.screen --fake --today 2026-10-01` prints the summary above.

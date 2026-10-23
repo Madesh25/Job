@@ -61,6 +61,8 @@ HELP_TEXT = (
     "/autopilot when - the morning schedule (Config schedule.autopilot) and the next run\n"
     "/pending - review screened jobs one at a time, one country at a time (Approve, Skip, "
     "Next); /pending poland, netherlands, ireland, remote or all\n"
+    "/add <job link> - a job on a company site (where LinkedIn or another app sends you): "
+    "saved, screened, resume built, company added to Target Companies\n"
     "/jd <url> - paste a job description (LinkedIn, Pracuj.pl and other blocked sites), "
     "then /done\n"
     "/jd - list jobs waiting for a description\n"
@@ -155,11 +157,12 @@ TAP_TOASTS = {"ap": "Checking the job link, then building your resume...",
               "rq": "Send what to change...", "ia": "Marking as applied...",
               "na": "Not applying...", "nr": "Saving the reason...",
               "gs": "Adding it to your skills...", "sc": "Screening...",
-              "gt": "Updated", "gr": "Adding them and rebuilding...", "gp": "Listing them..."}
+              "gt": "Updated", "gr": "Adding them and rebuilding...", "gp": "Listing them...",
+              "tu": "Undoing..."}
 # Every other button: a tap always gets a sign that the bot is working (5 Oct test notes).
 TAP_DEFAULT = "Working on it..."
 
-DESK_COMMANDS = ("next", "pending", "jd", "done", "screen", "gaps", "contacts", "credits",
+DESK_COMMANDS = ("next", "pending", "add", "jd", "done", "screen", "gaps", "contacts", "credits",
                  "outreach", "drafts", "answer", "answers", "autofill", "fetchcontacts",
                  "alertcheck", "fetchreport", "linkedin", "today", "followups", "stats",
                  "sources", "health", "digest", "update", "rules")
@@ -916,6 +919,8 @@ def desk_replies(update: dict[str, Any], s: Settings, desk: Desk | None) -> list
         return _guarded("/update", lambda: desk.update_command(args))
     if command == "rules":
         return _guarded("/rules", desk.rules_command)
+    if command == "add":
+        return _guarded("/add", lambda: desk.add_command(args))
     if command == "jd":
         return _guarded("/jd", lambda: desk.jd(args))
     if command == "done":

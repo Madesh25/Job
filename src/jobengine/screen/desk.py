@@ -32,7 +32,15 @@ from jobengine.reference import Reference
 from jobengine.resume import builder as resume_builder
 from jobengine.resume.builder import BuildOutcome, ResumeDeps
 from jobengine.safety import contact_lookups, paid_api_allowed
-from jobengine.screen import autopilot, batch, jd_capture, keywords_report, learning, waiting
+from jobengine.screen import (
+    add_link,
+    autopilot,
+    batch,
+    jd_capture,
+    keywords_report,
+    learning,
+    waiting,
+)
 from jobengine.screen.jd_capture import Capture, Captures
 from jobengine.screen.models import JobRow, ScreenSummary, split_gaps
 from jobengine.screen.runner import (
@@ -49,12 +57,13 @@ from jobengine.screen.runner import (
     waiting_for_jd,
 )
 from jobengine.screen.tiering import rank_key
+from jobengine.screen.visa import agency_by_name
 from jobengine.settings import ROOT_DIR, Settings
 from jobengine.strategy import runner as strategy_runner
 from jobengine.strategy import tips as tips_mod
 from jobengine.strategy.runner import StrategyDeps
 from jobengine.sweep.fulltext import blocked_hosts
-from jobengine.sweep.normalize import dedupe_key, without_region
+from jobengine.sweep.normalize import Rules, dedupe_key, place, remote_only, without_region
 from jobengine.sweep.rank import Ranker
 from jobengine.track import commands as track_commands
 from jobengine.track import runner as track_runner
@@ -85,6 +94,13 @@ MAX_WAITING_LIST = 25
 MIN_PER_BOARD = 5
 REFERENCE_TTL_SECONDS = 600
 NO_TARGET = "DRY RUN: no Job Opportunities target in this environment, nothing to show."
+ADD_USAGE = ("Send /add <job link>: the job's page on the company site (the page LinkedIn or "
+             "another app sends you to). The bot reads it, saves and screens the job, adds the "
+             "company to Target Companies and builds your resume.")
+ADD_PASTE = "Paste the description instead: send /jd {url}, paste the text, then /done."
+ADD_BLOCKED = ("The bot never opens {host} pages. Open the job there, tap Apply, and send /add "
+               "with the company site's link it takes you to.\nOr " + ADD_PASTE[0].lower() +
+               ADD_PASTE[1:])
 # The bot sends a long text as several messages (telegram_bot.split_text); this only stops
 # a runaway answer.
 MAX_TEXT = 20000
@@ -292,6 +308,8 @@ class Desk:
         self.add_skill: Callable[[str, str, str], None] | None = None
         # 🤝 LinkedIn Connections (contacts/connections.py): None when not set up here.
         self.connections: connections.ConnectionsStore | None = None
+        # /add (23 Oct): adds a Target Companies row (notion_repo.CompanyAdder); None: not here.
+        self.companies: Any = None
         # Set by the bot for each update: sends a reply at once (before a long build).
         self.notify: Callable[[Reply], None] | None = None
         self.today = today
@@ -526,6 +544,8 @@ class Desk:
             return self.outreach_tap(arg)
         if action == "ln" and arg:  # "LinkedIn notes" under the contacts
             return self.linkedin_notes(arg)
+        if action == "tu" and arg:  # "Undo" under a company /add put in Target Companies
+            return self.add_undo(arg)
         if action == "rf" and arg:  # "Referral asks": your LinkedIn connections there
             return self.referral_tap(arg)
         if action == "rm" and arg:  # "Mail them": the referral ask to connections by mail
@@ -2271,6 +2291,103 @@ class Desk:
         replies.extend(self._card_for(capture.page_id))
         return replies
 
+    # ------------------------------------------------------------ /add <job link> (23 Oct)
+
+    def add_command(self, args: str) -> list[Reply]:
+        """/add <job link>: the company's own job page (LinkedIn and other apps usually send
+        you there). Reads it, saves and screens the job, adds the company to Target
+        Companies, then builds the resume (you apply to it, so it is Approved)."""
+        if self.repo is None:
+            return [Reply(NO_TARGET)]
+        url, _ = jd_capture.parse_jd_command(args)
+        if url is None:
+            return [Reply(ADD_USAGE)]
+        host = (urlsplit(url).hostname or "").lower()
+        if "linkedin" in host or http.host_in(host, blocked_hosts(self.s)):
+            return [Reply(ADD_BLOCKED.format(host=host, url=url))]
+        self.say(Reply("Reading the job page..."))
+        try:
+            final, page = self.get_page(url)
+        except http.HttpError as exc:
+            return [Reply(f"Could not open the job page ({exc}).\n{ADD_PASTE.format(url=url)}")]
+        job = add_link.read_page(final, page)
+        if not job.description or not job.title or not job.company:
+            missing = "description" if not job.description else "company or role"
+            return [Reply(f"The page does not show the job's {missing} in a way the bot can "
+                          f"read.\n{ADD_PASTE.format(url=url)}")]
+        rules = Rules.from_config(self.s.sweep)
+        country, city = place(job.location, rules)
+        if country not in add_link.COUNTRIES:
+            country, city = None, None
+        row = self._find(final) or self._find(url)
+        page_id = row.page_id if row else self._add_row(job, final, country, city)
+        size = int(self.s.screening.get("block_chars", 2000))
+        limit = int(self.s.screening.get("max_blocks", 90))
+        text = job.description
+        if row is None or not "".join(self.repo.read_body(page_id)).strip():
+            self.repo.append_body(page_id, ["Description source: /add (full)",
+                                            *[text[i:i + size] for i in range(0, len(text),
+                                                                               size)][:limit]])
+        where = ", ".join(p for p in (city, country) if p) or job.location or "place not given"
+        replies = [Reply(f"{'Found' if row else 'Saved'}: {job.company}, {job.title} ({where})."
+                         " Screening it now...")]
+        if not rules.remote_jobs and remote_only(job.location, job.title, city):
+            replies.append(Reply("Note: this job looks remote (you want office or hybrid). "
+                                 "It is saved because you chose it."))
+        replies.append(Reply(self.screen(page_id)))
+        replies.extend(self._add_company(job.company, final, country))
+        values = self.repo.get_values(page_id) or {}
+        self.repo.update(page_id, {"Status": "Approved"})
+        replies.extend(self.on_job_approved(page_id, values))
+        return replies
+
+    def _add_row(self, job: add_link.PageJob, url: str, country: str | None,
+                 city: str | None) -> str:
+        assert self.repo is not None
+        today = self.today()
+        plan: dict[str, Any] = {
+            "Company": job.company, "Role": job.title, "URL": url, "Board": "Company site",
+            "Status": "New", "Screen verdict": "Unscreened", "First seen": today,
+            "Swept date": today, "Times seen": 1,
+            "Dedupe key": dedupe_key(job.company, job.title, city, country or ""),
+        }
+        if country:
+            plan["Country"] = country
+        if city:
+            plan["City"] = city
+        return self.repo.create(plan, [])
+
+    def _add_company(self, company: str, url: str, country: str | None) -> list[Reply]:
+        """The job's company into Target Companies, unless it is there or an agency."""
+        known = add_link.known_company(company, [c.name for c in self.reference().companies])
+        if known:
+            return [Reply(f"{known} is already in Target Companies.")]
+        if agency_by_name(company, self.deps.config()):
+            return [Reply(f"{company} looks like a recruitment agency: not added to Target "
+                          "Companies.")]
+        if self.companies is None:
+            return [Reply(f"{company} is not in Target Companies; it cannot be added from "
+                          "here (no Notion access).")]
+        props = add_link.company_props(company, url, country, self.today())
+        page_id = self.companies.add(props)
+        self._reference = None  # read Target Companies again next time
+        board = props["ATS platform"]
+        how = f"its {board} job board" if board not in ("Custom", "Unknown") else \
+            "its site (the job board is found on the next /fetch)"
+        return [Reply(f"Added {company} to Target Companies with {how}: "
+                      f"{props['Careers URL']}\nEvery /fetch checks it from now on.",
+                      [("Undo", f"tu:{short_id(page_id)}")])]
+
+    def add_undo(self, arg: str) -> list[Reply]:
+        from jobengine.resume.builder import notion_id
+
+        if self.companies is None:
+            return [Reply("Target Companies cannot be changed from here.")]
+        self.companies.deactivate(notion_id(arg))
+        self._reference = None
+        return [Reply("Undone: the company stays in Target Companies with Active unticked, "
+                      "so /fetch no longer checks it.")]
+
     def _card_for(self, page_id: str) -> list[Reply]:
         assert self.repo is not None
         rows = self.ranked()
@@ -2333,6 +2450,9 @@ def fake_desk(s: Settings, today: date, now: Callable[[], datetime] | None = Non
     desk.add_skill = lambda name, level, note: desk.skills_added.append(  # type: ignore[attr-defined]
         (name, level, note))
     desk.connections = connections.FakeConnections()
+    from jobengine.notion_repo import FakeCompanyAdder
+
+    desk.companies = FakeCompanyAdder()
     return desk
 
 
@@ -2385,4 +2505,7 @@ def real_desk(s: Settings) -> Desk | None:
 
     desk.add_skill = skill_writer(client, s)
     desk.connections = connections.store_for(s, client)
+    from jobengine.notion_repo import company_adder
+
+    desk.companies = company_adder(s, client)
     return desk

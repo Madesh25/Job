@@ -122,6 +122,26 @@ def skills_write_target(s: Settings) -> str | None:
     return s.notion_read.get("skills_inventory")
 
 
+# /add (23 Oct, your request): the only fields of a new Target Companies row, and "Active" for
+# its Undo button.
+target_companies_add_fields = ["Company", "Careers URL", "ATS platform", "Region", "Active",
+                               "Last checked", "Notes"]
+
+
+def target_companies_add_target(s: Settings) -> str | None:
+    """Target Companies, for /add only: your decision of 23 Oct ("that company needs to be
+    added to my Target Companies list"). The table is shared by every env, like Skills
+    Inventory. A row is added only for the company of a job link you send with /add (never
+    an agency, never one already listed), and its Undo button only unticks Active."""
+    return s.notion_read.get("target_companies")
+
+
+def check_target_companies_add(fields: list[str] | tuple[str, ...] | set[str]) -> None:
+    bad = [f for f in fields if f not in target_companies_add_fields]
+    if bad:
+        raise SafetyError(f"refusing to write Target Companies fields {bad}")
+
+
 def connections_write_target(s: Settings) -> str | None:
     """🤝 LinkedIn Connections (contacts/connections.py), your decision of 23 Oct: one table
     for every env, like Skills Inventory. It is your own reference table, written only when
