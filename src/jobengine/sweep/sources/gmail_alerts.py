@@ -210,7 +210,9 @@ def label_term(label: str) -> str:
 
 
 def alert_query(gmail_cfg: Mapping[str, Any]) -> str:
-    """The Gmail search: the alert label or a known sender, in the last `days` days."""
+    """The Gmail search: the alert label or a known sender, in the last `days` days. Spam is
+    searched too (23 Oct: Gmail put that day's LinkedIn alerts in Spam and /fetch never saw
+    them), but only for the label or a known sender; without either, Spam stays out."""
     if gmail_cfg.get("query"):
         return str(gmail_cfg["query"])
     days = int(gmail_cfg.get("days") or 2)
@@ -220,8 +222,9 @@ def alert_query(gmail_cfg: Mapping[str, Any]) -> str:
     senders = list(gmail_cfg.get("sender_boards") or {})
     if senders:
         parts.append("from:(" + " OR ".join(senders) + ")")
-    which = f" ({' OR '.join(parts)})" if parts else ""
-    return f"newer_than:{days}d -in:spam -in:trash{which}"
+    if not parts:
+        return f"newer_than:{days}d -in:spam -in:trash"
+    return f"newer_than:{days}d -in:trash ({' OR '.join(parts)})"
 
 
 TOKEN_NAMES = "GMAIL_ALERTS_TOKEN_JSON_m02 and GMAIL_ALERTS_TOKEN_JSON_mm"
@@ -246,7 +249,8 @@ def _loader(token_json: str, gmail_cfg: Mapping[str, Any]) -> Callable[[], list[
     def load_messages() -> list[GmailMessage]:
         service = gmail_reader.build_service(token_json)
         return gmail_reader.fetch_messages(
-            service, alert_query(gmail_cfg), int(gmail_cfg.get("max_messages", 100)))
+            service, alert_query(gmail_cfg), int(gmail_cfg.get("max_messages", 100)),
+            include_spam=True)
 
     return load_messages
 
@@ -369,6 +373,12 @@ def check(s: Settings, load_messages: Callable[[], list[GmailMessage]] | None = 
             lines.append(f"  ... and {len(dropped) - MAX_DROPPED_SHOWN} more dropped")
     if len(messages) > limit:
         lines.append(f"... and {len(messages) - limit} more email(s).")
+    spam = sorted({parseaddr(m.sender)[1] or m.sender for m in messages if m.in_spam})
+    if spam:
+        count = sum(1 for m in messages if m.in_spam)
+        lines.append(f"⚠️ {count} of these emails are in Spam (read anyway). Gmail deletes Spam "
+                     "after 30 days: mark them Not spam and add a Gmail filter with 'Never "
+                     f"send it to Spam' for: {', '.join(spam)}.")
     lines.append(f"Jobs found in the emails shown: {total}, in scope (title and place): {kept}. "
                  f"Different jobs: {len(distinct)}, of them in scope: {len(distinct_kept)} "
                  "(the same job in several emails counts once in /fetch). /fetch then checks "
