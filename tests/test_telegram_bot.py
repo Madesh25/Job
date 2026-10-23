@@ -46,6 +46,8 @@ class FakeTelegram:
         if method == "sendMessage":
             self.sent.append((payload["chat_id"], payload["text"]))
             return {"ok": True, "result": {}}
+        if method == "setMyCommands":
+            return {"ok": True, "result": True}
         return {"ok": False, "description": f"unexpected {method}"}
 
 
@@ -982,8 +984,30 @@ def test_run_registers_the_menu_before_announcing():
     fake = FakeTelegram(fail_with=None)
     tb.run(settings(), tb.TelegramClient(fake), max_polls=0)
     methods = [m for m, _ in fake.calls]
-    assert methods[:2] == ["setMyCommands", "sendMessage"]
+    assert methods[:4] == ["setMyCommands", "setMyCommands", "getMyCommands", "sendMessage"]
     assert fake.calls[0][1]["commands"] == tb.bot_commands()
+    # 23 Oct: a menu set for your chat hides the default one, so yours is set too.
+    assert fake.calls[1][1]["scope"] == {"type": "chat", "chat_id": CHAT_ID}
+
+
+def test_the_menu_is_read_back_and_a_missing_command_is_logged(caplog):
+    class Menu(FakeTelegram):
+        def __call__(self, method, payload, timeout):
+            if method == "getMyCommands":
+                self.calls.append((method, payload))
+                return {"ok": True, "result": [{"command": "start", "description": "x"}]}
+            return super().__call__(method, payload, timeout)
+
+    with caplog.at_level("WARNING"):
+        tb.register_menu(tb.TelegramClient(Menu()), settings())
+    assert "/ menu: Telegram shows 1 of" in caplog.text and "connections" in caplog.text
+
+
+def test_the_fake_bot_keeps_the_menu_it_was_given():
+    client = tb.TelegramClient(tb.console_transport(CHAT_ID, io.StringIO(""), io.StringIO()))
+    tb.register_menu(client, settings())
+    scope = {"type": "chat", "chat_id": CHAT_ID}
+    assert "connections" in {c["command"] for c in client.get_commands(scope)}
 
 
 def test_tap_answers_at_once_with_a_note_and_typing(desk):

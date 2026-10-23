@@ -231,6 +231,27 @@ def _download(token: str, file_path: str, timeout: float) -> dict[str, Any]:
         ) from None
 
 
+def register_menu(client: TelegramClient, s: Settings) -> None:
+    """The / menu Telegram suggests while you type. Set for every chat and for your chat:
+    Telegram shows a chat's own menu before the default one, so an older menu set for your
+    chat hid new commands (23 Oct: /connections was not suggested). Read back and logged."""
+    commands = bot_commands()
+    scope = {"type": "chat", "chat_id": str(s.telegram_chat_id)}
+    try:
+        client.set_commands(commands)
+        client.set_commands(commands, scope)
+        shown = {c.get("command") for c in client.get_commands(scope)}
+    except TelegramError as exc:  # the menu is a convenience: never stop the bot over it
+        log.warning("could not set the / menu: %s", exc)
+        return
+    missing = [c["command"] for c in commands if c["command"] not in shown]
+    if missing:
+        log.warning("/ menu: Telegram shows %d of %d commands; missing: %s",
+                    len(commands) - len(missing), len(commands), ", ".join(missing))
+    else:
+        log.info("/ menu: %d commands set (every chat and yours)", len(commands))
+
+
 def multipart(payload: dict[str, Any]) -> tuple[bytes, str]:
     """multipart/form-data body for sendDocument: the file plus the other fields."""
     boundary = uuid.uuid4().hex
@@ -262,6 +283,7 @@ def console_transport(
     next_id = 0  # update ids
     message_id = 0  # bot message numbers, shown with documents for `reply <n> <text>`
     sent: dict[int, str] = {}  # message number -> text or caption, for replies
+    menus: dict[str, Any] = {}  # the / menu per scope (setMyCommands, getMyCommands)
 
     def call(method: str, payload: dict[str, Any], timeout: float) -> dict[str, Any]:
         nonlocal next_id, message_id
@@ -287,8 +309,12 @@ def console_transport(
             if keys:
                 print("     " + " ".join(keys), file=stdout, flush=True)
             return {"ok": True, "result": {"message_id": message_id}}
-        if method in ("answerCallbackQuery", "sendChatAction", "setMyCommands",
-                      "deleteMessage"):
+        if method == "setMyCommands":
+            menus[str(payload.get("scope"))] = payload["commands"]
+            return {"ok": True, "result": True}
+        if method == "getMyCommands":
+            return {"ok": True, "result": menus.get(str(payload.get("scope")), [])}
+        if method in ("answerCallbackQuery", "sendChatAction", "deleteMessage"):
             return {"ok": True, "result": True}
         if method == "editMessageText":
             print(f"bot (updated)> {payload['text']}", file=stdout, flush=True)
@@ -415,8 +441,17 @@ class TelegramClient:
         """Show "typing..." in the chat (Telegram clears it after about 5 seconds)."""
         self._call("sendChatAction", {"chat_id": chat_id, "action": "typing"})
 
-    def set_commands(self, commands: list[dict[str, str]]) -> None:
-        self._call("setMyCommands", {"commands": commands})
+    def set_commands(self, commands: list[dict[str, str]],
+                     scope: dict[str, str] | None = None) -> None:
+        payload: dict[str, Any] = {"commands": commands}
+        if scope:
+            payload["scope"] = scope
+        self._call("setMyCommands", payload)
+
+    def get_commands(self, scope: dict[str, str] | None = None) -> list[dict[str, str]]:
+        result = self._call("getMyCommands", {"scope": scope} if scope else {})
+        return [c for c in result or [] if isinstance(c, dict)] if isinstance(result, list) \
+            else []
 
     def edit_message(self, chat_id: str, message_id: int, text: str) -> None:
         self._call(
@@ -1150,10 +1185,7 @@ def run(
     scheduled /autopilot starts when it is due. With `background` (the real bot) updates are
     answered on a background thread so /end can stop a long run; /restart stops the running
     job, then calls `restart`."""
-    try:
-        client.set_commands(bot_commands())
-    except TelegramError as exc:  # the menu is a convenience: never stop the bot over it
-        log.warning("could not set the / menu: %s", exc)
+    register_menu(client, s)
     client.send_message(str(s.telegram_chat_id), telegram_text("Job Engine bot started.", s))
     offset: int | None = None
     started = time.time()
