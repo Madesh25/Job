@@ -54,7 +54,7 @@ def gmail_write_allowed(s: Settings) -> bool:
 config_writable_keys = ["credits.apollo", "credits.hunter", "credits.snov",
                         "credits.prospeo", "credits.tomba", "credits.apollo_2",
                         "credits.hunter_2", "credits.snov_2", "credits.prospeo_2",
-                        "last_strategy_update"]
+                        "credits.tomba_2", "last_strategy_update"]
 # The only Target Companies properties the code may write (Module 08, prod only).
 # Domain (22 Oct): the email domain the contact finder found itself, written only when the
 # row has none (contacts/domain_search.py).

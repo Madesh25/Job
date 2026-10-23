@@ -11,13 +11,16 @@ from collections.abc import Callable, Mapping
 from typing import Any
 
 from jobengine import http
-from jobengine.contacts.providers import snov
+from jobengine.contacts.credits import account_label
+from jobengine.contacts.providers import snov, tomba
 from jobengine.contacts.providers.base import ProviderDeps, Request
 from jobengine.settings import Settings
 
 HUNTER_ACCOUNT = "https://api.hunter.io/v2/account"
 SNOV_BALANCE = "https://api.snov.io/v1/get-balance"
 PROSPEO_ACCOUNT = "https://api.prospeo.io/account-information"
+# Tomba's account call (tomba-io/python, tomba/services/account.py: GET /v1/me).
+TOMBA_ACCOUNT = "https://api.tomba.io/v1/me"
 
 
 def _find(data: Any, *names: str) -> Any:
@@ -66,6 +69,19 @@ def prospeo_left(s: Settings, request: Request) -> str:
     return text + (f" (new credits in {renewal} days)" if renewal is not None else "")
 
 
+def tomba_left(s: Settings, request: Request) -> str:
+    """Domain searches left. Tomba's answer was not seen yet (23 Oct): when it has no
+    used/available pair, the line still shows that the key works."""
+    data = request("GET", TOMBA_ACCOUNT,
+                   headers=tomba.headers(s.tomba_api_key or "", s.tomba_api_secret or "")) or {}
+    pool = _find(data, "domains", "searches")
+    used = pool.get("used") if isinstance(pool, Mapping) else None
+    available = pool.get("available") if isinstance(pool, Mapping) else None
+    if not isinstance(used, int) or not isinstance(available, int):
+        return "the key works; Tomba did not say how many searches are left"
+    return f"{max(0, available - used)} of {available} searches left this month"
+
+
 def prospeo_account(s: Settings, request: Request) -> tuple[int | None, Any]:
     """(credits left, days until new credits) for the leftover run."""
     data = request("POST", PROSPEO_ACCOUNT, headers={"X-KEY": s.prospeo_api_key or "",
@@ -91,17 +107,24 @@ CHECKS: dict[str, tuple[str, Callable[[Settings], Any], Callable[[Settings, Requ
     "hunter": ("Hunter", lambda s: s.hunter_api_key, hunter),
     "snov": ("Snov", lambda s: s.snov_client_id and s.snov_client_secret, snov_left),
     "prospeo": ("Prospeo", lambda s: s.prospeo_api_key, prospeo_left),
+    "tomba": ("Tomba", lambda s: s.tomba_api_key and s.tomba_api_secret, tomba_left),
 }
 
 
 def lines(s: Settings, request_for: Callable[[str], Request]) -> list[str]:
-    """One line per provider with a key: what the provider itself says is left."""
+    """One line per account with a key (second accounts too, 23 Oct): what the provider
+    itself says is left."""
+    from jobengine.contacts.finder import accounts
+
     out = []
     for name, (label, has_key, check) in CHECKS.items():
         if not has_key(s):
             continue
-        try:
-            out.append(f"{label}: {check(s, request_for(name))} (from {label} itself)")
-        except (http.HttpError, ValueError, TypeError) as exc:
-            out.append(f"{label}: could not ask ({exc})")
+        for account, settings in accounts(name, s):
+            shown = account_label(account)
+            try:
+                out.append(f"{shown}: {check(settings, request_for(name))} (from {label} "
+                           "itself)")
+            except (http.HttpError, ValueError, TypeError) as exc:
+                out.append(f"{shown}: could not ask ({exc})")
     return out
