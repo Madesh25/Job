@@ -18,6 +18,7 @@ from collections import Counter
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, replace
 from datetime import UTC, date, datetime, timedelta
+from email.utils import parsedate_to_datetime
 from typing import Any
 from urllib.parse import parse_qs, urlencode, urljoin, urlsplit, urlunsplit
 from xml.etree import ElementTree
@@ -44,7 +45,8 @@ SF_ROWS = 200
 # asked again for fewer.
 SF_ROWS_SMALL = 50
 SUPPORTED = ("greenhouse", "lever", "smartrecruiters", "workday", "amazon", "avature", "ashby",
-             "successfactors", "phenom", "oracle")
+             "successfactors", "phenom", "oracle", "workable", "recruitee", "personio",
+             "teamtailor")
 # Searches for boards that are too big to read whole (Workday, Amazon).
 DEFAULT_SEARCH_TERMS = ("devops", "site reliability", "sre", "platform engineer",
                         "cloud engineer", "kubernetes", "infrastructure engineer", "devsecops")
@@ -77,10 +79,18 @@ ORACLE_URL = re.compile(
     re.I)
 # Avature career sites list jobs on a server-rendered SearchJobs page, for example
 # https://apply.deloittece.com/en_US/careers/SearchJobs/?523=[5515]
+# 23 Oct: job systems of many Dutch and Polish mid-size companies.
+WORKABLE_URL = re.compile(r"apply\.workable\.com/([\w-]+)", re.I)
+WORKABLE_HOST = re.compile(r"//([\w-]+)\.workable\.com", re.I)  # older <account>.workable.com
+RECRUITEE_URL = re.compile(r"//([\w-]+)\.recruitee\.com", re.I)
+PERSONIO_URL = re.compile(r"//([\w-]+)\.jobs\.personio\.(de|com)", re.I)
+TEAMTAILOR_URL = re.compile(r"//([\w-]+)\.teamtailor\.com", re.I)
 AVATURE_URL = re.compile(r"^https://[^/\s]+/[a-z]{2}_[A-Z]{2}/[\w-]+/SearchJobs\b", re.I)
 PAGE_URL = re.compile(r"(?:https?:)?//[^\s\"'<>\\]+", re.I)
 # Path parts that are never a board token.
 NOT_TOKENS = {"static", "js", "css", "assets", "embed", "wday", "api", "v1", "images"}
+# Subdomains that are no company (www.workable.com, app.recruitee.com, 23 Oct).
+NOT_ACCOUNTS = NOT_TOKENS | {"j", "www", "app", "apply", "help", "support", "career", "careers"}
 
 # SmartRecruiters reports ISO country codes; the feed states the country explicitly.
 SR_COUNTRIES = {"pl": "Poland", "nl": "Netherlands", "ie": "Ireland"}
@@ -94,7 +104,7 @@ Prefilter = Callable[[str, str], bool]
 @dataclass(frozen=True)
 class Board:
     ats: str  # greenhouse, lever, smartrecruiters, workday, ashby, avature, successfactors,
-    # phenom, oracle or amazon
+    # phenom, oracle, amazon, workable, recruitee, personio or teamtailor
     token: str  # Workday: the tenant
     eu: bool = False
     host: str = ""  # Workday only: <tenant>.wd3.myworkdayjobs.com
@@ -143,6 +153,19 @@ def board_from_url(url: str) -> Board | None:
         return Board("phenom", match.group(1))
     if match := ORACLE_URL.search(url):
         return Board("oracle", match.group(2), host=match.group(1).lower())
+    if match := WORKABLE_URL.search(url) or WORKABLE_HOST.search(url):
+        token = match.group(1)
+        return None if token.lower() in NOT_ACCOUNTS else Board("workable", token)
+    if match := RECRUITEE_URL.search(url):
+        token = match.group(1)
+        return None if token.lower() in NOT_ACCOUNTS else Board("recruitee", token)
+    if match := PERSONIO_URL.search(url):
+        token = match.group(1)
+        return None if token.lower() in NOT_ACCOUNTS else Board("personio", token,
+                                                              site=match.group(2).lower())
+    if match := TEAMTAILOR_URL.search(url):
+        token = match.group(1)
+        return None if token.lower() in NOT_ACCOUNTS else Board("teamtailor", token)
     if AMAZON_URL.search(url):
         return Board("amazon", "amazon")
     if AVATURE_URL.search(url):
@@ -580,6 +603,165 @@ def ashby(company: TargetCompany, board: Board, get: Getter, keep: Prefilter):
                 description=job.get("descriptionPlain") or html_to_text(job.get("descriptionHtml")),
             )
         )
+    return postings, dropped, 0
+
+
+# ---------------------------------------------------------------- Workable, Recruitee,
+# Personio and Teamtailor (23 Oct). Their public career-site feeds; the field names are read
+# defensively (the docs found were thin), so an unknown shape gives fewer fields, not an error.
+
+WORKABLE_API = "https://apply.workable.com/api/v1/widget/accounts/{token}"
+RECRUITEE_API = "https://{token}.recruitee.com/api/offers/"
+PERSONIO_FEED = "https://{token}.jobs.personio.{tld}/xml?language=en"
+TEAMTAILOR_FEED = "https://{token}.teamtailor.com/jobs.rss"
+
+
+def _place(*parts: Any, remote: bool = False) -> str:
+    text = ", ".join(dict.fromkeys(str(p).strip() for p in parts if p and str(p).strip()))
+    return f"{text} (Remote)".strip() if remote else text
+
+
+def _first(job: Mapping[str, Any], *names: str) -> Any:
+    for name in names:
+        if job.get(name) not in (None, "", []):
+            return job[name]
+    return None
+
+
+def _workable_location(job: Mapping[str, Any]) -> str:
+    places = [_place(p.get("city"), p.get("region"), p.get("country"))
+              for p in job.get("locations") or [] if isinstance(p, Mapping)]
+    text = " / ".join(dict.fromkeys(p for p in places if p)) or _place(
+        job.get("city"), job.get("state"), job.get("country"))
+    return _place(text, remote=bool(job.get("telecommuting") or job.get("remote")))
+
+
+def workable(company: TargetCompany, board: Board, get: Getter, keep: Prefilter):
+    """Workable's public career widget (apply.workable.com/<account>)."""
+    data = get(WORKABLE_API.format(token=board.token), {"details": "true"}) or {}
+    postings, dropped = [], 0
+    for job in data.get("jobs") or []:
+        title = job.get("title") or ""
+        location = _workable_location(job)
+        if not keep(title, location):
+            dropped += 1
+            continue
+        code = _first(job, "shortcode", "id") or ""
+        url = _first(job, "url", "shortlink", "application_url") or (
+            f"https://apply.workable.com/{board.token}/j/{code}/" if code else "")
+        postings.append(RawPosting(
+            source=SOURCE, board=BOARD, title=title, company=company.name,
+            location_text=location, url=url, posting_id=f"workable-{board.token}-{code}",
+            posted_date=_iso_date(_first(job, "published_on", "created_at", "published")),
+            description=html_to_text(_first(job, "description", "full_description")),
+        ))
+    return postings, dropped, 0
+
+
+def recruitee(company: TargetCompany, board: Board, get: Getter, keep: Prefilter):
+    """Recruitee's public careers site API (<company>.recruitee.com/api/offers/)."""
+    data = get(RECRUITEE_API.format(token=board.token), {}) or {}
+    postings, dropped = [], 0
+    for job in data.get("offers") or []:
+        if job.get("status") not in (None, "published"):
+            continue
+        title = job.get("title") or ""
+        places = [_place(p.get("city"), p.get("country"))
+                  for p in job.get("locations") or [] if isinstance(p, Mapping)]
+        location = _place(" / ".join(dict.fromkeys(p for p in places if p)) or _place(
+            _first(job, "location", "city"), job.get("country")),
+            remote=bool(job.get("remote")) and not job.get("hybrid"))
+        if not keep(title, location):
+            dropped += 1
+            continue
+        body = "\n".join(filter(None, (html_to_text(job.get("description")),
+                                       html_to_text(job.get("requirements")))))
+        postings.append(RawPosting(
+            source=SOURCE, board=BOARD, title=title, company=company.name,
+            location_text=location,
+            url=_first(job, "careers_url", "url") or "",
+            posting_id=f"recruitee-{board.token}-{_first(job, 'id', 'slug')}",
+            posted_date=_iso_date(_first(job, "published_at", "created_at")),
+            description=body or None,
+        ))
+    return postings, dropped, 0
+
+
+def _children(node: ElementTree.Element) -> dict[str, str]:
+    """{tag without namespace: text} of a node's direct children."""
+    return {child.tag.rsplit("}", 1)[-1]: (child.text or "").strip() for child in node}
+
+
+def personio(company: TargetCompany, board: Board, page: PageGetter, keep: Prefilter):
+    """Personio's public job feed (<company>.jobs.personio.de/xml)."""
+    tld = board.site or "de"
+    _, text = page(PERSONIO_FEED.format(token=board.token, tld=tld))
+    try:
+        root = ElementTree.fromstring(text.encode("utf-8") if isinstance(text, str) else text)
+    except ElementTree.ParseError:
+        return [], 0, 0
+    postings, dropped = [], 0
+    for position in root.iter("position"):
+        fields = _children(position)
+        offices = [fields.get("office")] + [(o.text or "").strip()
+                                           for o in position.iter("additionalOffice")]
+        title = fields.get("name") or ""
+        location = " / ".join(dict.fromkeys(o for o in offices if o))
+        if not keep(title, location):
+            dropped += 1
+            continue
+        parts = []
+        for section in position.iter("jobDescription"):
+            section_fields = _children(section)
+            parts += [section_fields.get("name") or "",
+                      html_to_text(section_fields.get("value")) or ""]
+        job_id = fields.get("id") or ""
+        postings.append(RawPosting(
+            source=SOURCE, board=BOARD, title=title, company=company.name,
+            location_text=location,
+            url=f"https://{board.token}.jobs.personio.{tld}/job/{job_id}" if job_id else "",
+            posting_id=f"personio-{board.token}-{job_id}",
+            posted_date=_iso_date(fields.get("createdAt")),
+            description="\n".join(p for p in parts if p) or None,
+        ))
+    return postings, dropped, 0
+
+
+def teamtailor(company: TargetCompany, board: Board, page: PageGetter, keep: Prefilter):
+    """Teamtailor's public jobs feed (<company>.teamtailor.com/jobs.rss, first 100 jobs)."""
+    _, text = page(TEAMTAILOR_FEED.format(token=board.token))
+    try:
+        root = ElementTree.fromstring(text.encode("utf-8") if isinstance(text, str) else text)
+    except ElementTree.ParseError:
+        return [], 0, 0
+    postings, dropped = [], 0
+    for item in root.iter("item"):
+        fields = _children(item)
+        places = []
+        for node in item.iter():
+            if node.tag.rsplit("}", 1)[-1] == "location":
+                loc = _children(node)
+                places.append(_place(loc.get("city") or loc.get("name"), loc.get("country"))
+                              or (node.text or "").strip())
+        remote = (fields.get("remoteStatus") or "").lower() in ("fully", "remote", "temporary")
+        title = fields.get("title") or ""
+        location = _place(" / ".join(dict.fromkeys(p for p in places if p)), remote=remote)
+        if not keep(title, location):
+            dropped += 1
+            continue
+        link = fields.get("link") or ""
+        try:
+            posted = parsedate_to_datetime(fields.get("pubDate") or "").date()
+        except (TypeError, ValueError):
+            posted = None
+        postings.append(RawPosting(
+            source=SOURCE, board=BOARD, title=title, company=company.name,
+            location_text=location, url=link,
+            posting_id=f"teamtailor-{board.token}-" + (fields.get("guid") or link).rstrip("/")
+            .rsplit("/", 1)[-1],
+            posted_date=posted,
+            description=html_to_text(fields.get("description")),
+        ))
     return postings, dropped, 0
 
 
@@ -1068,6 +1250,8 @@ class Detector:
                 (Board("smartrecruiters", slug),
                  f"https://api.smartrecruiters.com/v1/companies/{slug}/postings", {"limit": 1}),
                 (Board("ashby", slug), ASHBY_API.format(token=slug), {}),
+                (Board("workable", slug), WORKABLE_API.format(token=slug), {}),
+                (Board("recruitee", slug), RECRUITEE_API.format(token=slug), {}),
             )
             for board, url, params in probes:
                 try:
@@ -1091,8 +1275,10 @@ def _has_jobs(data: Any) -> bool:
     if isinstance(data, list):  # Lever
         return bool(data)
     if isinstance(data, dict):
-        if "jobs" in data:  # Greenhouse
+        if "jobs" in data:  # Greenhouse, Ashby, Workable
             return bool(data["jobs"])
+        if "offers" in data:  # Recruitee
+            return bool(data["offers"])
         if "totalFound" in data:  # SmartRecruiters answers for any name
             return int(data.get("totalFound") or 0) > 0
     return False
@@ -1197,6 +1383,14 @@ def fetch(
                 postings, dropped, _ = phenom(company, board, page, keep, terms)
             elif board.ats == "oracle":
                 postings, dropped, _ = oracle(company, board, get, keep, terms)
+            elif board.ats == "workable":
+                postings, dropped, _ = workable(company, board, get, keep)
+            elif board.ats == "recruitee":
+                postings, dropped, _ = recruitee(company, board, get, keep)
+            elif board.ats == "personio":
+                postings, dropped, _ = personio(company, board, feed, keep)
+            elif board.ats == "teamtailor":
+                postings, dropped, _ = teamtailor(company, board, feed, keep)
             else:
                 postings, dropped, _ = smartrecruiters(company, board, get, keep, sr_budget)
         except http.HttpError as exc:

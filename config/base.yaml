@@ -32,6 +32,8 @@ safety:
     - api.eu.lever.co
     - api.smartrecruiters.com
     - api.ashbyhq.com
+    # Workable's public career widget (sweep/sources/ats.py, 23 Oct)
+    - apply.workable.com
     # Dell's Oracle Cloud HCM career site on its own domain (5 Oct)
     - enterpriseplatform.dell.com
     - jooble.org
@@ -59,6 +61,8 @@ safety:
   # Any subdomain of these (Workday boards are <tenant>.<wdN>.myworkdayjobs.com).
   allowed_host_suffixes:
     - myworkdayjobs.com
+    # Recruitee career sites (<company>.recruitee.com/api/offers/, 23 Oct)
+    - recruitee.com
     # Oracle Cloud HCM career sites (<tenant>.fa.<region>.oraclecloud.com)
     - oraclecloud.com
 screening:
