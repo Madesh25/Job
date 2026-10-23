@@ -175,6 +175,7 @@ description: never contacts, emails or phone numbers.
 | 4 | Tech mismatch | a mandatory tool has no term backed by a Production or Hands-on skill or an Active Term Map row (`Learning` skills and `(none)` rows do not back). Terms match without extra words (`MS Azure` is Azure, `Linux OS` is Linux, `Apache Kafka` is Kafka), each part of a slash term counts (`Unix/Linux` is backed by Linux) and by other names (`Amazon Web Services` is AWS, `K8s` is Kubernetes). General phrases with no tool name (`build tooling`, `artifact repositories`, `CI/CD pipelines`) never fail it. **Off by default since 1 Oct** (`screening.tech_mismatch_skips: false`): the unbacked tools go to `Gaps`, each counts as one gap in the tier (so 2 missing tools give at best Apply low), and you decide in /pending | `Tech mismatch` only when switched on; unbacked terms in `Gaps` |
 | 5 | Already applied | another row with the same Dedupe key, or the same company and role, is Applied or later | `Already applied` |
 | 6 | Expired | Expires is before today | `Expired` |
+| 8 | Remote (23 Oct) | `sweep.remote_jobs: false` (office or hybrid only) and the row's City is `Remote`, or the description says fully remote with no hybrid or office wording (sweep/fit.py) | `Other` ("remote job, you want office or hybrid" / "Fully remote" in the notes) |
 
 Exactly 5 years passes and only ranks lower.
 

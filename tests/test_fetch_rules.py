@@ -31,19 +31,55 @@ def test_the_seven_titles_are_searched():
     assert "devsecops" in S.sweep["adzuna"]["what_or"]
 
 
-def test_remote_eu_jobs_are_kept_as_other_remote():
-    for text in ("Remote, EU", "Remote (Europe)", "Fully remote - EMEA", "Remote within the EU"):
+def test_only_office_or_hybrid_jobs_in_your_countries_are_kept():
+    # Your decision of 23 Oct: Poland, the Netherlands and Ireland, office or hybrid only.
+    assert RULES.remote_jobs is False and RULES.remote_regions == ()
+    for text in ("Remote, EU", "Remote (Europe)", "Fully remote - EMEA", "Remote",
+                 "Remote, Poland", "Warsaw, Mazowieckie, Poland (Remote)", "Dublin (remote)",
+                 "Krakow, praca zdalna"):
+        assert isinstance(normalize(raw(text), RULES, ACTIVE), Skipped), text
+    assert normalize(raw("Remote, Poland"), RULES, ACTIVE).reason == (
+        "remote job (you want office or hybrid)")
+    assert isinstance(normalize(raw("Warsaw", "DevOps Engineer (Remote)"), RULES, ACTIVE),
+                      Skipped)
+    for text in ("Warsaw, Mazowieckie, Poland (Hybrid)", "Amsterdam", "Poland (Remote/Hybrid)",
+                 "Krakow (praca hybrydowa)", "Dublin, Ireland (On-site)"):
         job = normalize(raw(text), RULES, ACTIVE)
         assert not isinstance(job, Skipped), text
-        assert (job.country, job.city) == ("Other", "Remote")
-    # Remote with no region, or a region-less other country, is still left out.
-    assert isinstance(normalize(raw("Remote"), RULES, ACTIVE), Skipped)
     assert isinstance(normalize(raw("Berlin, Germany"), RULES, ACTIVE), Skipped)
-    # A remote job in Poland stays a Poland job.
-    job = normalize(raw("Remote, Poland"), RULES, ACTIVE)
-    assert job.country == "Poland"
-    none = Rules(RULES.title_include, RULES.title_exclude, RULES.locations)
-    assert isinstance(normalize(raw("Remote, EU"), none, ACTIVE), Skipped)
+    # With remote jobs switched back on, the old rules apply again.
+    old = Rules(RULES.title_include, RULES.title_exclude, RULES.locations, ("eu",))
+    job = normalize(raw("Remote, EU"), old, ACTIVE)
+    assert (job.country, job.city) == ("Other", "Remote")
+    assert normalize(raw("Remote, Poland"), old, ACTIVE).country == "Poland"
+
+
+def test_a_fully_remote_description_is_not_saved():
+    from jobengine.sweep import fit
+
+    assert fit.fully_remote("This is a fully remote role, work from anywhere in Poland.")
+    assert fit.fully_remote("Praca 100% zdalna.") and fit.fully_remote("100% remote")
+    assert not fit.fully_remote("Fully remote or hybrid from our Warsaw office.")
+    assert not fit.fully_remote("This is not a fully remote role.")
+    assert not fit.fully_remote("Remote work 2 days a week.")
+    assert fit.cannot_take("Poland", "Fully remote team.", remote_ok=False) == "Fully remote"
+    assert fit.cannot_take("Poland", "Fully remote team.") is None  # remote jobs allowed
+    assert fit.skip_reason(fit.FULLY_REMOTE) == "Other"  # no new Notion option needed
+
+
+def test_screening_skips_remote_rows_for_free():
+    from jobengine.screen.gates import pre_gate
+    from jobengine.screen.models import JobRow
+
+    row = JobRow(page_id="p", company="Acme", role="DevOps Engineer", country="Other",
+                 city="Remote")
+    hit = pre_gate(row, None, 4, "Run Kubernetes.", remote_ok=False)
+    assert (hit.gate, hit.reason, hit.detail) == (8, "Other",
+                                                  "remote job, you want office or hybrid")
+    office = JobRow(page_id="p", company="Acme", role="DevOps Engineer", country="Poland",
+                    city="Warszawa")
+    assert pre_gate(office, None, 4, "100% remote.", remote_ok=False).detail == "Fully remote"
+    assert pre_gate(office, None, 4, "Hybrid, 2 days in the office.", remote_ok=False) is None
 
 
 def test_every_fitting_job_is_saved_and_scored():

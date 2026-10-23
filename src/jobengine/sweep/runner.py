@@ -37,30 +37,23 @@ from jobengine.sweep.normalize import (
     parse_active_countries,
     place,
     place_allowed,
+    remote_only,
     senior_in_text,
     title_scope,
 )
 from jobengine.sweep.rank import Ranker
-from jobengine.sweep.sources import (
-    adzuna,
-    ats,
-    gmail_alerts,
-    iamexpat,
-    jooble,
-    nofluffjobs,
-    remote_boards,
-)
+from jobengine.sweep.sources import adzuna, ats, gmail_alerts, iamexpat, jooble, nofluffjobs
 
 log = logging.getLogger("jobengine.sweep")
 
-SOURCES = ("gmail", "adzuna", "jooble", "nofluffjobs", "iamexpat", "remote", "ats")
+SOURCES = ("gmail", "adzuna", "jooble", "nofluffjobs", "iamexpat", "ats")
 Prefilter = Callable[[str, str], bool]
 Progress = Callable[[str], None]
 
 # Plain names for the Telegram messages.
 SOURCE_LABELS = {"gmail": "Email alerts", "adzuna": "Adzuna", "jooble": "Jooble",
                  "nofluffjobs": "NoFluffJobs", "iamexpat": "IamExpat",
-                 "remote": "Remote job boards", "ats": "Company career sites"}
+                 "ats": "Company career sites"}
 PROGRESS_EVERY = 25
 # bot_state key read by /sources and /health (Module 07).
 LAST_SUMMARY = "sweep.last_summary"
@@ -96,8 +89,6 @@ class SweepDeps:
     jooble: Callable[[], SourceResult] = lambda: SourceResult(name="jooble")
     nofluffjobs: Callable[[], SourceResult] = lambda: SourceResult(name="nofluffjobs")
     iamexpat: Callable[[], SourceResult] = lambda: SourceResult(name="iamexpat")
-    # (bot_state) -> postings; bot_state keeps the time of the last Remotive call.
-    remote: Callable[..., SourceResult] = lambda state=None: SourceResult(name="remote")
 
 
 def fake_deps(s: Settings, repo: JobsRepo | None = None) -> SweepDeps:
@@ -142,7 +133,6 @@ def real_deps(s: Settings) -> SweepDeps:
         jooble=lambda: jooble.fetch(s),
         nofluffjobs=lambda: nofluffjobs.fetch(s),
         iamexpat=lambda: iamexpat.fetch(s),
-        remote=lambda state=None: remote_boards.fetch(s, state),
     )
 
 
@@ -242,12 +232,14 @@ class FitRules:
     ranker: Ranker | None = None
     min_match: float = DEFAULT_MIN_SKILL_MATCH
     min_terms: int = DEFAULT_MIN_SKILL_TERMS
+    remote_ok: bool = True  # sweep.remote_jobs
 
     @classmethod
     def from_settings(cls, s: Settings, ranker: Ranker | None) -> FitRules:
         return cls(max_years=max_years(s), ranker=ranker,
                    min_match=float(s.sweep.get("min_skill_match", DEFAULT_MIN_SKILL_MATCH)),
-                   min_terms=int(s.sweep.get("min_skill_terms", DEFAULT_MIN_SKILL_TERMS)))
+                   min_terms=int(s.sweep.get("min_skill_terms", DEFAULT_MIN_SKILL_TERMS)),
+                   remote_ok=bool(s.sweep.get("remote_jobs", True)))
 
 
 LOW_MATCH = "Low skill match"
@@ -268,7 +260,8 @@ def not_a_fit(job: Job, rules: FitRules) -> str | None:
     label ("German required", "B2B only", "No visa sponsorship"), or "Low skill match"."""
     if too_senior(job, rules.max_years):
         return "too senior"
-    reason = fit.cannot_take(job.country, job.description, job.salary, job.role)
+    reason = fit.cannot_take(job.country, job.description, job.salary, job.role,
+                             rules.remote_ok)
     if reason:
         return reason
     share = skill_share(job, rules)
@@ -289,6 +282,8 @@ def _count(summary: SweepSummary, reason: str, jobs: list[Job] | None = None) ->
         summary.b2b_only += n
     elif reason == fit.NO_SPONSORSHIP:
         summary.no_sponsorship += n
+    elif reason == fit.FULLY_REMOTE:
+        summary.fully_remote += n
     elif reason == LOW_MATCH:
         summary.low_match += n
     else:
@@ -439,6 +434,8 @@ def run_sweep(
 
     def keep(title: str, location: str) -> bool:
         country, city = place(location, rules)
+        if not rules.remote_jobs and remote_only(location, title, city):
+            return False
         return title_scope(title, rules) is None and place_allowed(country, city, active, rules)
 
     summary = SweepSummary(countries=list(active), labels=dict(SOURCE_LABELS))
@@ -459,8 +456,6 @@ def run_sweep(
         try:
             if name == "ats":
                 return deps.ats(companies, keep, state)
-            if name == "remote":
-                return deps.remote(state)
             return getattr(deps, name)()
         except http.HttpError as exc:
             return SourceResult(name=name, skipped_reason=f"{name} failed: {exc}")

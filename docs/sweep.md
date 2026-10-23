@@ -111,8 +111,7 @@ by the strategy gate.
    `/fetch is blocked: strategy last updated <date>, older than <n> days. Run /update first.`
 2. **Load.** Target Companies (read only) and the Job Opportunities index (dedupe keys and
    posting IDs).
-3. **Collect** from each source: Gmail alerts, Adzuna, Jooble, NoFluffJobs, IamExpat, the
-   remote job boards (Remotive, We Work Remotely) and ATS feeds (Greenhouse, Lever,
+3. **Collect** from each source: Gmail alerts, Adzuna, ATS feeds (Greenhouse, Lever,
    SmartRecruiters, Workday, amazon.jobs).
 4. **Normalise and scope.** Title filters, country and city, seniority, years required.
 5. **Dedupe and write.** Update the rows already in Notion. Every new job that passes the
@@ -139,7 +138,6 @@ careers site that links to no known ATS).
 | Jooble | `JOOBLE_API_KEY` (free, https://jooble.org/api/about) | Job search over many job boards, Ireland included. One call per country and term in `sweep.jooble` (3 x 4 = 12 calls). Board is the site Jooble found the job on when it is a known board (IrishJobs.ie, Indeed and so on, from `sweep.gmail.sender_boards`), else `Other`. The feed gives a snippet; the full text is read from the job page. Skipped without the key. |
 | NoFluffJobs | none | FETCH 4 (5 Oct): the public search page (`sweep.nofluffjobs`, newest first, `pages` pages per term, one request a second, robots.txt respected) carries its jobs as page data (`serverApp-state`): title, company, cities, posted date, salary. Poland. The description is read from the job page. A 403 or a changed page stops it quietly with a note in the summary. |
 | IamExpat | none | FETCH 7 (5 Oct): the IT and technology jobs page (`sweep.iamexpat`), because the site search ignores the search word. One request a sweep, robots.txt respected; the page data (Next.js `initialJobAds`) gives the newest 20 IT jobs with title, company, city, posted date, salary and a short description. Netherlands. Most titles are dropped by the title filter (on 5 Oct, 1 of 20 was a target role). A 403 or a changed page stops it quietly with a note. EURES was probed too and is not used: its search matches any one word and ignores the date filter (2 of 50 results were relevant). |
-| Remote job boards | nothing | 23 Oct (`sweep.remote_boards`, `sweep/sources/remote_boards.py`): remote jobs open in Europe. **Remotive**: its public API (`remotive.com/api/remote-jobs`, category `devops`), one call per `/fetch` and none within `min_hours` (6) of the last, because its rules allow at most 4 calls a day; the row links to the Remotive page and the Board is `Remotive` (its rules: link back and name Remotive). Jobs show 24 hours after Remotive posts them. **We Work Remotely**: the public RSS feed of the DevOps and Sysadmin category (free with the links pointing back to WWR), Board `We Work Remotely`; titles read "Company: Role". The place is written as `Remote, <region>`: Europe, EMEA, Europe Only or one of your countries is kept (Country Other or that country, City Remote); USA, UK only and the like are dropped. "Worldwide" or "Anywhere in the World" jobs are kept only with `worldwide: true` (false by default). A failure or a changed feed is one note line; the other board is still read. |
 | ATS feeds | nothing | Every active Target Company on Greenhouse, Lever, SmartRecruiters, Workday, Ashby, Avature, amazon.jobs, a SAP SuccessFactors job feed (Careers URL `https://<site>/services/rss/job/?locale=en_US`), a Phenom search page (`https://<site>/global/en/search-results`) or an Oracle Cloud HCM site (`https://<tenant>.fa.<region>.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX_<n>`, or on the company's own domain, like Dell's `enterpriseplatform.dell.com/.../sites/careers`, whose host must be on `safety.allowed_hosts`). A Workday job listed without a place (Accenture) is placed by its detail call instead of being dropped. Companies in `sweep.ats.own_site_companies` (own job site, no public list: Google, Meta, Infosys, TCS, IBM, Microsoft and others; your choice C of 5 Oct) stay in Target Companies for contacts and referrals, are covered by your alerts, and are neither looked up nor listed under "No job board found": the summary shows one count line. An Oracle site whose location filter lists only its biggest places (JPMorgan: 40, all in the US) is asked for each country by name to find that country's filter id. Workday searches use the site's own country filter (Poland, the Netherlands, Ireland) when it has one: big sites otherwise filled the first page with jobs elsewhere (Accenture, HPE, Shell: 0 of 148, 91 and 40 on 5 Oct). The board comes from `Careers URL`, from the careers page it links to, from the company name on Greenhouse, Lever, SmartRecruiters or Ashby, or from `sweep.ats_boards`. A company whose Careers URL changed is checked again at the next `/fetch` (the weekly cache notes the link). A Workday search word the site refuses (Dell answered HTTP 422) only loses that word. Board is `Company site`. |
 
 A source whose secret is missing is skipped with a line in the summary; the run continues.
@@ -478,6 +476,13 @@ for `/jd`.
 - Country and city come from `sweep.locations`. Adzuna `location.area` is tried first. A
   country with no city but "remote" in the location gives city `Remote`. A country missing
   from Config `countries.active`, or a location that cannot be placed, is out of scope.
+- **Office or hybrid only** (23 Oct, `sweep.remote_jobs: false`): a job whose place or title
+  says remote ("Remote, Poland", "Warsaw, Poland (Remote)", "DevOps Engineer (Remote)",
+  "praca zdalna") is out of scope as `remote job (you want office or hybrid)`, unless it also
+  names hybrid or office work ("Poland (Remote/Hybrid)", "praca hybrydowa", "On-site" are
+  kept). A description that says "fully remote", "100% remote", "remote only" or "w pelni
+  zdalna" with no hybrid or office wording is not saved either: summary line `Fully remote,
+  you want office or hybrid (not saved)`. `remote_jobs: true` brings the old rules back.
 - Canonical form: lowercase, accents stripped (plus `ł` to `l`), only `a-z 0-9 + #` and single
   spaces. Company legal suffixes (`Sp. z o.o.`, `S.A.`, `B.V.`, `N.V.`, `Ltd`, `GmbH` and so on)
   and title gender markers (`(m/f/d)`, `(k/m)`, `m/w/d`, `(f/m/x)`, `(remote)`, `(hybrid)`)
@@ -556,9 +561,9 @@ rows stay Unscreened in Notion, visible in the Today view, and are never dropped
 Rules of 30 Sep that decide what "passes":
 - titles searched: DevOps, Site Reliability, Platform, Cloud, Kubernetes, Infrastructure and
   DevSecOps Engineer (Adzuna, Jooble and the company job boards);
-- places: Poland, the Netherlands, Ireland, and remote jobs open across the EU or Europe
-  (`sweep.remote_regions`), saved as Country Other, City Remote (the resume says "Open to
-  relocate to Europe");
+- places: Poland, the Netherlands and Ireland only, office or hybrid only (your decision of
+  23 Oct, `sweep.remote_jobs: false`; before it, remote jobs open across the EU were kept as
+  Country Other, City Remote through `sweep.remote_regions`, now empty);
 - only postings of the last 2 days (`sweep.max_posted_age_days`);
 - B2B-only jobs in Poland, other languages, no sponsorship, too senior and low skill match
   are still skipped;

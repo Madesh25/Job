@@ -45,7 +45,7 @@ def _stated_years(*values: int | None) -> int | None:
 
 
 def pre_gate(row: JobRow, jd_years: int | None, limit: int = MAX_YEARS,
-             jd: str | None = None) -> GateHit | None:
+             jd: str | None = None, remote_ok: bool = True) -> GateHit | None:
     """The checks that need no LLM: the title, the years in Notion or in the description
     text, and the language and contract checks the sweep uses (sweep/fit.py). A row that
     fails them is skipped without spending tokens."""
@@ -60,9 +60,13 @@ def pre_gate(row: JobRow, jd_years: int | None, limit: int = MAX_YEARS,
         return GateHit(1, "Seniority", "Senior title and no years stated")
     if years is None and senior_in_text(jd):
         return GateHit(1, "Seniority", "the description calls the role senior, no years stated")
-    label = fit.cannot_take(row.country, jd, row.salary, row.role)
+    if not remote_ok and (row.city or "") == "Remote":
+        return GateHit(8, fit.skip_reason(fit.FULLY_REMOTE),
+                       "remote job, you want office or hybrid")
+    label = fit.cannot_take(row.country, jd, row.salary, row.role, remote_ok)
     if label:
-        gate = 3 if label == fit.B2B_ONLY else 7 if label == fit.NO_SPONSORSHIP else 2
+        gate = (3 if label == fit.B2B_ONLY else 7 if label == fit.NO_SPONSORSHIP
+                else 8 if label == fit.FULLY_REMOTE else 2)
         return GateHit(gate, fit.skip_reason(label), label)
     return None
 

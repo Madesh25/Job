@@ -1,5 +1,7 @@
 """Email alerts: the Gmail label, the search and /alertcheck."""
 
+import dataclasses
+
 from jobengine import gmail_reader
 from jobengine.settings import load_settings
 from jobengine.sweep import fakes, normalize
@@ -118,13 +120,15 @@ def test_single_country_board_gives_its_country():
                                         subject="New jobs for you", html=JUSTJOIN_CARD)
     [posting] = gmail_alerts.parse_alert(message, CFG)
     assert posting.location_area[-1] == "Poland"
-    job = normalize.normalize(posting, RULES, list(RULES.locations))
+    remote_ok = dataclasses.replace(RULES, remote_jobs=True)
+    job = normalize.normalize(posting, remote_ok, list(RULES.locations))
     assert (job.country, job.city) == ("Poland", "Remote")
+    # 23 Oct: office or hybrid only, so this remote job is left out.
+    assert isinstance(normalize.normalize(posting, RULES, list(RULES.locations)),
+                      normalize.Skipped)
 
 
 def test_alerts_in_spam_are_read_and_flagged():
-    import dataclasses
-
     calls = []
 
     class Api:
