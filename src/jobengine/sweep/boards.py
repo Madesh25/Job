@@ -4,7 +4,8 @@
 
 For each active company the link checked is the one proposed in config/board_candidates.yaml
 (found by web search), else its Careers URL. A link to a job board /fetch reads (Greenhouse,
-Lever, SmartRecruiters, Workday, Ashby, Avature, amazon.jobs) is read the way /fetch reads it
+Lever, SmartRecruiters, Workday, Ashby, Avature, amazon.jobs, and since 23 Oct Workable,
+Recruitee, Personio and Teamtailor) is read the way /fetch reads it
 and its jobs are counted, all jobs and those in Poland, the Netherlands or Ireland. Any other
 link is opened once: the answer (HTTP code), the platform the site runs on when it is a known
 one, and a job board it links to are noted, and the page is saved in out/boards so a reader can
@@ -50,9 +51,6 @@ PLATFORMS: tuple[tuple[str, re.Pattern[str]], ...] = (
     ("SuccessFactors", re.compile(r"/job/[^/?#\s\"']+/\d{5,}(?:-[a-z]{2}_[A-Z]{2})?/|"
                                   r"/go/[^/?#\s\"']+/\d{5,}/|"
                                   r"successfactors\.(?:com|eu)", re.I)),
-    ("Workable", re.compile(r"(?:apply\.)?workable\.com/", re.I)),
-    ("Recruitee", re.compile(r"\.recruitee\.com", re.I)),
-    ("Personio", re.compile(r"\.jobs\.personio\.(?:de|com)", re.I)),
     ("BrassRing", re.compile(r"brassring\.com|/reqid/\d+BR\b", re.I)),
     ("Taleo", re.compile(r"taleo\.net", re.I)),
     ("iCIMS", re.compile(r"icims\.com", re.I)),
@@ -183,6 +181,14 @@ def read_board(s: Settings, company: TargetCompany, board: ats.Board, get: Gette
         postings, _, _ = ats.phenom(company, board, page, _keep_all, terms)
     elif board.ats == "oracle":
         postings, _, _ = ats.oracle(company, board, get, _keep_all, terms)
+    elif board.ats == "workable":
+        postings, _, _ = ats.workable(company, board, get, _keep_all)
+    elif board.ats == "recruitee":
+        postings, _, _ = ats.recruitee(company, board, get, _keep_all)
+    elif board.ats == "personio":
+        postings, _, _ = ats.personio(company, board, feed or page, _keep_all)
+    elif board.ats == "teamtailor":
+        postings, _, _ = ats.teamtailor(company, board, feed or page, _keep_all)
     else:
         postings, _, _ = ats.amazon(company, get, _keep_all, terms)
     return postings
