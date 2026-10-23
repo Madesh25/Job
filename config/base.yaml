@@ -35,6 +35,9 @@ safety:
     # Dell's Oracle Cloud HCM career site on its own domain (5 Oct)
     - enterpriseplatform.dell.com
     - jooble.org
+    # Remote job boards (sweep/sources/remote_boards.py, 23 Oct)
+    - remotive.com
+    - weworkremotely.com
     - www.amazon.jobs
     - ind.nl
     # Irish employment permits issued to companies (ie_permits.py, flow feature 6)
@@ -690,6 +693,21 @@ sweep:
   # Netherlands only; titles outside the target roles are dropped by normalize.
   iamexpat:
     enabled: true
+  # Remote job boards (23 Oct, sweep/sources/remote_boards.py): remote jobs open in Europe.
+  # Remotive: its public API, one call per /fetch and none within min_hours of the last
+  # (its rule: at most 4 calls a day); the row links back to Remotive. We Work Remotely: the
+  # public RSS feed of one category. worldwide: true also keeps "Worldwide" / "Anywhere"
+  # jobs (open to everyone, so to Europe too); false drops them.
+  remote_boards:
+    enabled: true
+    worldwide: false
+    remotive:
+      enabled: true
+      category: devops
+      min_hours: 6
+    weworkremotely:
+      enabled: true
+      category: remote-devops-sysadmin-jobs
   # Full descriptions (sweep/fulltext.py): the job page is read for new jobs near the top of
   # today's list that only have a snippet or nothing. Plain GET, no login or cookies, public
   # https hosts only, never linkedin, at most 3 MB a page.
