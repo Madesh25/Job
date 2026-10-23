@@ -118,6 +118,8 @@ prod, mounted when the secret exists):
 - The first account is always used first. The second is used only when the first has no
   credits left this month, or when its search fails (a refused key or an exhausted plan).
   Never both for one job: they see the same people.
+- Only a second account (no first key, 23 Oct: Tomba): the second is used on its own and
+  needs its Config row `credits.<provider>_2` (`0 / <limit> per month`).
 - Add a Config row `credits.<provider>_2` (`0 / <limit> per month`) to keep the second
   account's count. Without it the second account gets the first one's monthly limit, counted
   for one run only.

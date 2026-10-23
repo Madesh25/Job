@@ -500,7 +500,8 @@ def find_contacts(deps: ContactDeps, job_id: str, paid: bool = True) -> Contacts
             if deps.s.app_env == "prod" and not paid_api_allowed(name, deps.s):
                 result.notes.append(f"{name}: paid calls are off (DRY_RUN), skipped")
                 continue
-            if book.counters.get(name) is None and name in OPTIONAL:
+            if name in OPTIONAL and all(book.counters.get(account) is None
+                                        for account, _s in accounts(name, deps.s)):
                 continue  # a free plan you have not set up (no Config credits.<name>)
             _provider_step(deps, book, name, provider, company, domain, country, result,
                            chosen, seen, by_email, open_slots, patterns, personal, unplaced)
@@ -533,10 +534,14 @@ SECOND_FIELDS = {
 
 
 def accounts(name: str, s: Settings) -> list[tuple[str, Settings]]:
-    """(account, settings with that account's keys): the first, then the second if set."""
+    """(account, settings with that account's keys): the first, then the second if set.
+    A first account without its keys is left out when the second has them (23 Oct: only
+    Tomba-2 had a key)."""
     found = [(name, s)]
     fields = SECOND_FIELDS.get(name)
     if fields and all(getattr(s, second) for second in fields.values()):
+        if not all(getattr(s, first) for first in fields):
+            found = []
         found.append((f"{name}_2", s.model_copy(
             update={first: getattr(s, second) for first, second in fields.items()})))
     return found
@@ -555,7 +560,7 @@ def _provider_step(deps: ContactDeps, book: CreditBook, name: str, provider: Any
     for index, (account, s) in enumerate(options):
         label = account_label(account)
         has_next = index + 1 < len(options)
-        if index:
+        if account != name:
             book.ensure(account, name)
         left = book.available(account)
         if left <= 0:
@@ -592,7 +597,7 @@ def _provider_step(deps: ContactDeps, book: CreditBook, name: str, provider: Any
                                                 left_out=left_out,
                                                 flexible=flexible_roles(deps.s)):
             picked = _chosen(candidate, kind, note, by_email, country)
-            if index and not picked.cached:
+            if account != name and not picked.cached:
                 picked.notes = "; ".join(p for p in (picked.notes, f"found with {label}") if p)
             chosen.append(picked)
         note = _left_out_note(left_out, country)
