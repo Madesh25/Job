@@ -69,6 +69,8 @@ REBUILD_KEY = "resume.rebuild_ask"  # bot_state: {"log": <Resume Log id>, "at": 
 REBUILD_ASK_MINUTES = 30
 FORCE_KEY = "resume.force_ask"  # bot_state: {"job": <page id>, "text": <refused instruction>}
 MAX_GAP_BUTTONS = 2
+PICK_KEY = "resume.gap_pick"  # bot_state: {"job": <page id>, "gaps": [...], "picked": [...]}
+MAX_PICK = 8  # gap names offered in the picker
 REBUILD_ASK = (
     "What should change? Send your instructions as your next message, for example:\n"
     "- put Terraform first in the skills\n"
@@ -100,6 +102,8 @@ class Reply:
     text: str
     buttons: list[tuple[str, str]] = field(default_factory=list)  # (label, callback data)
     document: tuple[str, bytes] | None = None  # (filename, PDF bytes); text is the caption
+    edit: bool = False  # after a button tap: replace that message instead of sending one
+    column: bool = False  # one button per row (a list to pick from)
 
 
 SCREEN_USAGE = ("/screen screens the jobs waiting to be screened. Other forms:\n"
@@ -511,7 +515,8 @@ class Desk:
                 return [self.country_menu()]
             self.choose_country(None if arg == "all" else arg)
             return self.pending(0)
-        if action in ("ra", "rb", "cl", "rq", "ia", "na", "nr", "fg", "fc") and arg:
+        if action in ("ra", "rb", "cl", "rq", "ia", "na", "nr", "fg", "fc", "gp", "gt", "gr",
+                      "gx") and arg:
             return self.resume_tap(action, arg)
         if action in ("rc", "lk", "rd") and arg:
             return self.track_tap(action, data)
@@ -649,7 +654,9 @@ class Desk:
         plan = outcome.plan
         forced = {f.casefold() for f in (plan.forced_skills if plan else [])}
         gaps = [g for g in (plan.gaps_reported if plan else []) if g.casefold() not in forced]
-        for gap in gaps[:MAX_GAP_BUTTONS]:
+        if len(gaps) > 1:  # FR-1 (P9-20): pick several, one rebuild
+            buttons.append(("Add skills", f"gp:{short_id(outcome.job_id)}"))
+        for gap in gaps[:MAX_GAP_BUTTONS if len(gaps) == 1 else 0]:
             data = f"fg:{short_id(outcome.job_id)}:{gap}"
             if len(data.encode()) <= 64:  # Telegram's limit for button data
                 buttons.append((f"Add {gap}", data))
@@ -659,6 +666,85 @@ class Desk:
             first, _, rest = text.partition("\n")
             text = f"{first}\n{line}\n{rest}" if rest else f"{first}\n{line}"
         return Reply(text, buttons, document=(name, outcome.pdf))
+
+    def _pick_gaps(self, values: dict[str, Any]) -> list[str]:
+        """The job's gaps that are skill names (not sentences) and not yours yet."""
+        ref = self.reference()
+        return [g for g in split_gaps(values.get("Gaps"))
+                if len(g.split()) <= MAX_SKILL_WORDS and ref.lookup(g) is None][:MAX_PICK]
+
+    def _picker(self, pick: dict[str, Any], edit: bool) -> Reply:
+        job = short_id(str(pick["job"]))
+        picked = set(pick.get("picked") or [])
+        buttons = [(f"{'☑' if i in picked else '☐'} {gap}", f"gt:{job}:{i}")
+                   for i, gap in enumerate(pick["gaps"])]
+        if picked:
+            buttons.append((f"Rebuild with {len(picked)} skill{'s' if len(picked) > 1 else ''}",
+                            f"gr:{job}"))
+        buttons.append(("Cancel", f"gx:{job}"))
+        names = [pick["gaps"][i] for i in sorted(picked)]
+        text = ("Tap the skills you really have (each tap ticks or unticks one), then Rebuild: "
+                "one new resume with all of them, and they are added to Skills Inventory as "
+                "Hands-on (your choice of 23 Oct)."
+                + (f"\nPicked: {', '.join(names)}" if names else ""))
+        return Reply(text, buttons, edit=edit, column=True)
+
+    def gap_pick_tap(self, action: str, arg: str) -> list[Reply]:
+        """FR-1 (Phase 9 P9-20): "Add skills" under a preview lists the job's gaps; you tick
+        several and one rebuild adds them all (and saves them as Hands-on skills)."""
+        from jobengine.resume.builder import notion_id
+
+        job_arg, _, index = arg.partition(":")
+        job_id = notion_id(job_arg)
+        if action == "gp":
+            values = (self.repo.get_values(job_id) if self.repo else None) or {}
+            gaps = self._pick_gaps(values)
+            if not gaps:
+                return [Reply("No missing skill to pick for this job (the gaps are sentences, "
+                              "or already your skills).")]
+            pick = {"job": job_id, "gaps": gaps, "picked": []}
+            self.state.set(PICK_KEY, pick)
+            return [self._picker(pick, edit=False)]
+        pick = self.state.get(PICK_KEY) or {}
+        if not pick.get("gaps") or not same_page(str(pick.get("job")), job_id):
+            return [Reply("That list is no longer open. Tap Add skills under the preview again.")]
+        if action == "gx":
+            self.state.delete(PICK_KEY)
+            return [Reply("Nothing added.", edit=True)]
+        if action == "gt":
+            picked = set(pick.get("picked") or [])
+            if index.isdigit() and int(index) < len(pick["gaps"]):
+                picked ^= {int(index)}
+            pick["picked"] = sorted(picked)
+            self.state.set(PICK_KEY, pick)
+            return [self._picker(pick, edit=True)]
+        terms = [pick["gaps"][i] for i in pick.get("picked") or [] if i < len(pick["gaps"])]
+        if not terms:
+            return [self._picker(pick, edit=True)]
+        self.state.delete(PICK_KEY)
+        saved, failed = [], []
+        if self.add_skill is not None:
+            ref = self.reference()
+            for term in terms:
+                if ref.lookup(term) is not None:
+                    continue
+                try:
+                    self.add_skill(term, "Hands-on",
+                                   f"Added from a resume preview on {self.today().isoformat()}.")
+                    saved.append(term)
+                except http.HttpError as exc:
+                    failed.append(f"{term} ({exc})")
+            self._reference = None
+        note = f"Rebuilding with {', '.join(terms)}."
+        if saved:
+            note += f" Added to Skills Inventory as Hands-on: {', '.join(saved)}."
+        if failed:
+            note += f" Not added to Skills Inventory: {'; '.join(failed)}."
+        values = (self.repo.get_values(job_id) if self.repo else None) or {}
+        rebuilt = self.on_job_approved(job_id, values,
+                                       correction=f"add {', '.join(terms)} to the skills",
+                                       force=True, force_terms=terms)
+        return [Reply(note, edit=True), *rebuilt]
 
     def resume_cover_line(self, outcome: BuildOutcome) -> str | None:
         """Feature 11: how many of the job's keywords you have the final resume shows."""
@@ -677,6 +763,8 @@ class Desk:
             self.state.delete(REBUILD_KEY)
             values = (self.repo.get_values(arg) if self.repo else None) or {}
             return self.on_job_approved(arg, values, force=True, claude=action == "cl")
+        if action in ("gp", "gt", "gr", "gx"):  # FR-1: pick several gaps, rebuild once
+            return self.gap_pick_tap(action, arg)
         if action == "fg":  # "Add <gap>" under a preview
             job_id, _, term = arg.partition(":")
             values = (self.repo.get_values(job_id) if self.repo else None) or {}
