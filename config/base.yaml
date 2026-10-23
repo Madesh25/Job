@@ -11,6 +11,9 @@ notion:
     resume_sections: "e4f4f4e9-bbfd-47a8-8e78-4c90de8409ec"
     # Certifications (5 Oct): only Status Passed AND Show on resume rows reach the resume.
     certifications: "933a3929-09e2-4750-a189-f14a6756d445"
+    # 🤝 LinkedIn Connections (23 Oct): one table for every env, written only when you send
+    # your LinkedIn export (safety.connections_write_target).
+    linkedin_connections: "d660c1d1-3ca9-41d9-b24a-88b2c0fb78c3"
   pages:
     resume_build_spec: "3e46edc2-b0d4-812b-82ea-d1766061390d"
     cold_mail_templates: "3e46edc2-b0d4-8130-bdee-c62ac751d774"

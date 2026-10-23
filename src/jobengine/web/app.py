@@ -101,6 +101,7 @@ def desk_tasks(s: Settings, desk: Desk, client: tb.TelegramClient,
         reminder = run_strategy_reminder(desk.strategy) if desk.strategy else None
         if reminder:
             send([Reply(reminder)])
+        send(desk.connections_reminder())  # the monthly LinkedIn export, when it is due
         return {"ok": report.ok, "sent": len(report.sent), "replies": len(report.replies),
                 "followups": len(report.followups), "reminder": bool(reminder)}
 

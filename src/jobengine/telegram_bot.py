@@ -44,6 +44,8 @@ from jobengine.sweep.runner import fake_deps, real_deps, run_sweep
 log = logging.getLogger("jobengine.telegram_bot")
 
 API_BASE = "https://api.telegram.org"
+FILE_METHOD = "_file"  # transport call for a file download (not a Bot API method)
+MAX_DOWNLOAD_BYTES = 20_000_000
 FAKE_CHAT_ID = "1"
 FAKE_FILES_DIR = ROOT_DIR / "out" / "fake"
 POLL_TIMEOUT = 30
@@ -95,6 +97,7 @@ HELP_TEXT = (
     "/gmailtoken - your Gmail tokens; /gmailtoken m02 or mm renews one in 2 minutes\n"
     "/digest - the weekly digest now\n"
     "/update - monthly strategy research for your review (opens /fetch); /update new again\n"
+    "/connections - your LinkedIn connections table; send the LinkedIn export zip to update it\n"
     "/rules - V16 non-negotiables, thresholds, adopted tips and the /fetch gate\n"
     "/end - stop the running /fetch, /screen or /autopilot at its next step\n"
     "/restart - restart the bot (reloads its code and Notion settings)\n"
@@ -179,6 +182,8 @@ def http_transport(token: str) -> Transport:
     """Return a transport that POSTs JSON to the Bot API for the given token."""
 
     def call(method: str, payload: dict[str, Any], timeout: float) -> dict[str, Any]:
+        if method == FILE_METHOD:
+            return _download(token, payload["file_path"], timeout)
         if "_document" in payload:
             data, content_type = multipart(payload)
         else:
@@ -212,6 +217,20 @@ def http_transport(token: str) -> Transport:
     return call
 
 
+def _download(token: str, file_path: str, timeout: float) -> dict[str, Any]:
+    """A file you sent the bot (after getFile). The token is in the address, so it never
+    reaches a log or an error message."""
+    try:
+        with urllib.request.urlopen(f"{API_BASE}/file/bot{token}/{file_path}",
+                                    timeout=timeout) as resp:
+            return {"ok": True, "result": resp.read(MAX_DOWNLOAD_BYTES + 1)}
+    except (urllib.error.URLError, TimeoutError, OSError) as exc:
+        reason = getattr(exc, "reason", exc)
+        raise TelegramNetworkError(
+            f"file download failed: {type(exc).__name__} {reason}".replace(token, "<token>")
+        ) from None
+
+
 def multipart(payload: dict[str, Any]) -> tuple[bytes, str]:
     """multipart/form-data body for sendDocument: the file plus the other fields."""
     boundary = uuid.uuid4().hex
@@ -235,9 +254,10 @@ def console_transport(
 ) -> Transport:
     """Dummy Telegram: stdin lines become messages from chat_id, replies go to stdout.
 
-    `tap <data>` presses a button and `reply <message number> <text>` replies to a message
-    (for resume corrections). Documents are saved to out/fake/. getUpdates raises EOFError
-    when the input ends, which stops the bot.
+    `tap <data>` presses a button, `reply <message number> <text>` replies to a message
+    (for resume corrections) and `file <path>` sends a file from your disk (the LinkedIn
+    export). Documents are saved to out/fake/. getUpdates raises EOFError when the input
+    ends, which stops the bot.
     """
     next_id = 0  # update ids
     message_id = 0  # bot message numbers, shown with documents for `reply <n> <text>`
@@ -273,6 +293,10 @@ def console_transport(
         if method == "editMessageText":
             print(f"bot (updated)> {payload['text']}", file=stdout, flush=True)
             return {"ok": True, "result": {}}
+        if method == "getFile":
+            return {"ok": True, "result": {"file_path": payload["file_id"]}}
+        if method == FILE_METHOD:
+            return {"ok": True, "result": Path(payload["file_path"]).read_bytes()}
         if method == "getUpdates":
             print("you> ", end="", file=stdout, flush=True)
             line = stdin.readline()
@@ -284,6 +308,11 @@ def console_transport(
                 print(line.rstrip("\n"), file=stdout, flush=True)
             next_id += 1
             text = line.rstrip("\n")
+            if text.startswith("file "):
+                path = text[5:].strip().strip('"')
+                document = {"file_id": path, "file_name": Path(path).name}
+                return {"ok": True, "result": [{"update_id": next_id, "message": {
+                    "chat": {"id": chat_id}, "document": document}}]}
             if text.startswith("tap "):
                 # A button press: "tap ap:<page id>".
                 query = {"id": str(next_id), "from": {"id": chat_id},
@@ -361,6 +390,16 @@ class TelegramClient:
             ]}
         result = self._call("sendDocument", payload, timeout=60)
         return (result or {}).get("message_id") if isinstance(result, dict) else None
+
+    def download(self, file_id: str) -> bytes:
+        """The bytes of a file sent to the bot (Telegram lets a bot download up to 20 MB)."""
+        info = self._call("getFile", {"file_id": file_id}) or {}
+        if not info.get("file_path"):
+            raise TelegramError("getFile failed: Telegram gave no file path (over 20 MB?)")
+        data = self._call(FILE_METHOD, {"file_path": info["file_path"]}, timeout=60)
+        if not isinstance(data, bytes):
+            raise TelegramError("file download failed: no file came back")
+        return data
 
     def answer_callback(self, callback_id: str, text: str | None = None) -> None:
         payload: dict[str, Any] = {"callback_query_id": callback_id}
@@ -639,6 +678,12 @@ def handle_one(
         if out is not None:
             client.send_message(*out)
         return
+    if message.get("document"):
+        with Typing(client, chat):
+            replies = _guarded("LinkedIn export", lambda: document_replies(
+                client, message["document"], desk))
+        send_replies(client, s, chat, replies)
+        return
     text = message.get("text") or ""
     if parse_command(text) == "gmailtoken" or gmail_renew.looks_like_answer(text):
         gmail_token_message(client, s, message, desk)
@@ -661,6 +706,26 @@ def handle_one(
         send_replies(client, s, chat, with_next_step(text, replies))
     elif out is not None:
         client.send_message(*out)
+
+
+EXPORT_TYPES = (".zip", ".csv")
+
+
+def document_replies(client: TelegramClient, document: dict[str, Any],
+                     desk: Desk | None) -> list[Reply]:
+    """A file sent to the bot: a LinkedIn export (zip or Connections.csv) updates the
+    🤝 LinkedIn Connections table; any other file is not read."""
+    name = str(document.get("file_name") or "file")
+    if not name.lower().endswith(EXPORT_TYPES):
+        return [Reply(f"{name}: the bot only reads your LinkedIn export (the zip or "
+                      "Connections.csv). Other files are not read.")]
+    if desk is None:
+        return [Reply("The LinkedIn export needs Notion (NOTION_TOKEN): not available here.")]
+    if int(document.get("file_size") or 0) > MAX_DOWNLOAD_BYTES:
+        return [Reply(f"{name} is over 20 MB (Telegram's limit for bots). Send only "
+                      "Connections.csv from the zip.")]
+    data = client.download(str(document.get("file_id") or ""))
+    return desk.connections_file(name, data)
 
 
 def gmail_token_message(client: TelegramClient, s: Settings, message: dict[str, Any],
@@ -755,6 +820,8 @@ def desk_replies(update: dict[str, Any], s: Settings, desk: Desk | None) -> list
         return _guarded("/gaps", desk.gaps_command)
     if command == "keywords":
         return _guarded("/keywords", desk.keywords_command)
+    if command == "connections":
+        return _guarded("/connections", desk.connections_command)
     if command == "contacts":
         return _guarded("/contacts", lambda: desk.contacts_command(args))
     if command == "credits":
@@ -964,6 +1031,7 @@ def autopilot_check(client: TelegramClient, s: Settings, desk: Desk | None,
     replies += _guarded("Reply check", desk.reply_ping_tick)
     replies += _guarded("Gmail token", lambda: [Reply(text) for text in gmail_renew.reminder(
         s, desk.state, desk.deps.config(), date.today())])
+    replies += _guarded("LinkedIn connections", desk.connections_reminder)
     if replies:
         send_replies(client, s, str(s.telegram_chat_id), replies)
 
