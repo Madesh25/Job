@@ -397,7 +397,35 @@ bot reminds you once a week (long polling: with the scheduled checks; Cloud Run:
 task). The date is kept in Bot State (`connections.imported`). In `--fake`, type
 `file <path to the zip>` to send the export.
 
-Next step (feature 1, step 2): use the table for referrals.
+### Referrals (feature 1, step 2, 23 Oct)
+
+Under every contacts answer (Find contacts, /contacts) the bot lists your connections at
+the job's company (`connections.same_company`: "Capgemini Polska" and "Capgemini (IE)" are
+Capgemini), read with a Notion filter on the company's first word, not the whole table:
+
+- the job's country first, then location unknown, then other countries; engineers, then
+  managers, HR and the rest; Removed and junior people are left out;
+- each line says the person's kind, country, whether there is an email and when they were
+  last asked (within 30 days);
+- with nobody in the job's country, a note: a referral from another office usually still
+  counts.
+
+**Layer 1 (free):** a person the contact finder found who is also your connection (same
+name) gives the connection its Country (Location source Contacts) and work email; only empty
+fields are filled, and a personal address (gmail.com ...) is never stored as a work email.
+
+**Referral asks** (button `rf:`): a LinkedIn message per connection, from the peer note
+(`linkedin.note_peer`), with their profile link; you send it yourself.
+
+**Mail them** (button `rm:`): connections with an email (work email first, else the export's
+email, personal allowed: your OK of 23 Oct), a tech, manager or HR position, not asked in 30
+days, are added as Peer engineer contacts of the job (Source Other, Notes "LinkedIn
+connection (<kind>); referral ask") and marked Referral Asked with today's Last asked. Write
+Gmail drafts then uses the referral ask template word for word.
+
+Next: the location and work email of the connections at a job's company from Prospeo (by
+the LinkedIn profile link, 1 credit when found), on demand and with the credits left on the
+day before each provider renews.
 
 ## Recruitment agencies (flow feature 7, /agencies)
 

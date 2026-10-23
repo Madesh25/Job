@@ -839,6 +839,12 @@ def _write(deps: ContactDeps, job_id: str, values: dict[str, Any], chosen: list[
     deps.jobs.update(job_id, update)
 
 
+def write_contacts(deps: ContactDeps, job_id: str, values: dict[str, Any],
+                   chosen: list[Chosen], today: date) -> None:
+    """Write chosen people as contacts of a job (the referral asks to your connections)."""
+    _write(deps, job_id, values, chosen, [], today)
+
+
 def on_contacts_ready(job_id: str, contacts: list[Chosen]) -> None:
     """Contacts are ready for a job. The bot's desk then writes the Gmail drafts (Module 06,
     jobengine.mail.drafter); this only logs."""
