@@ -17,7 +17,8 @@ def test_label_term():
 
 def test_query_reads_the_label_or_a_known_sender():
     query = gmail_alerts.alert_query(CFG)
-    assert query.startswith("newer_than:2d -in:spam -in:trash (label:job-alerts OR from:(")
+    # 23 Oct: Spam is searched too, but only for the label or a known sender.
+    assert query.startswith("newer_than:2d -in:trash (label:job-alerts OR from:(")
     assert "linkedin.com OR justjoin.it OR" in query and "pracuj.pl" in query
     assert gmail_alerts.alert_query({"query": "from:x.example"}) == "from:x.example"
     assert gmail_alerts.alert_query({"days": 1}) == "newer_than:1d -in:spam -in:trash"
@@ -119,3 +120,36 @@ def test_single_country_board_gives_its_country():
     assert posting.location_area[-1] == "Poland"
     job = normalize.normalize(posting, RULES, list(RULES.locations))
     assert (job.country, job.city) == ("Poland", "Remote")
+
+
+def test_alerts_in_spam_are_read_and_flagged():
+    import dataclasses
+
+    calls = []
+
+    class Api:
+        def list(self, **kw):
+            calls.append(kw)
+            return self
+
+        def execute(self):
+            return {"messages": []}
+
+    class Service:
+        def users(self):
+            return self
+
+        def messages(self):
+            return Api()
+
+    gmail_reader.fetch_messages(Service(), "q", include_spam=True)
+    assert calls[0]["includeSpamTrash"] is True
+    raw = {"id": "1", "labelIds": ["SPAM", "Label_7"], "payload": {
+        "mimeType": "text/html", "headers": [{"name": "From", "value": "a@linkedin.com"}],
+        "body": {"data": "PGI+aGk8L2I+"}}}
+    assert gmail_reader.to_message(raw).in_spam
+    first, *rest = fakes.gmail_messages()
+    messages = [dataclasses.replace(first, in_spam=True), *rest]
+    text = gmail_alerts.check(S, load_messages=lambda: messages)
+    assert "⚠️ 1 of these emails are in Spam (read anyway)." in text
+    assert "'Never send it to Spam' for:" in text

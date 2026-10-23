@@ -38,6 +38,7 @@ class GmailMessage:
     subject: str
     html: str
     received: date | None = None  # when Gmail received it (internalDate)
+    in_spam: bool = False  # Gmail put it in Spam (23 Oct: LinkedIn alerts went there)
 
 
 def build_service(token_json: str) -> Any:
@@ -89,6 +90,7 @@ def to_message(raw: dict[str, Any]) -> GmailMessage | None:
         subject=_header(payload, "Subject"),
         html=html,
         received=_received(raw.get("internalDate")),
+        in_spam="SPAM" in (raw.get("labelIds") or ()),
     )
 
 
@@ -100,15 +102,17 @@ def _received(value: Any) -> date | None:
         return None
 
 
-def fetch_messages(service: Any, query: str, max_messages: int = 100) -> list[GmailMessage]:
-    """List messages matching query (newest first) and read their HTML bodies."""
+def fetch_messages(service: Any, query: str, max_messages: int = 100,
+                   include_spam: bool = False) -> list[GmailMessage]:
+    """List messages matching query (newest first) and read their HTML bodies. Gmail leaves
+    Spam and Trash out of every search unless `include_spam` (then the query decides)."""
     messages_api = service.users().messages()
     ids: list[str] = []
     page_token = None
     while len(ids) < max_messages:
         listing = messages_api.list(
             userId="me", q=query, maxResults=min(100, max_messages - len(ids)),
-            pageToken=page_token,
+            pageToken=page_token, includeSpamTrash=include_spam,
         ).execute()
         ids.extend(item["id"] for item in listing.get("messages") or [])
         page_token = listing.get("nextPageToken")
