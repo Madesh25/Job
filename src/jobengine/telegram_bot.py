@@ -1307,8 +1307,10 @@ def make_fetcher(s: Settings, fake: bool, desk: Desk | None = None) -> Fetcher:
         text = summary.friendly_text()
         if summary.blocked or not summary.new:
             return text
+        from jobengine.screen import daily
+
         return (f"{text}\n\n\U0001F449 Next: /screen checks the new jobs against your profile "
-                "(uses the AI, at most 30 jobs a day).")
+                f"(uses the AI, at most {daily.daily_limit(s)} jobs a day).")
 
     return fetch
 
