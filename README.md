@@ -83,8 +83,8 @@ pass every check (To, Cc, subject, body, resume attachment), in the recipient's 
 (Tuesday to Thursday, 08:00 to 10:00 their time; `/mailqueue` shows the waiting ones); the
 default only writes drafts. See
 [docs/autopilot.md](docs/autopilot.md). With Notion Config `schedule.autopilot` set to `true`
-it also runs by itself every weekday at 07:00 Europe/Warsaw (`/autopilot when` shows the next
-run).
+it also runs by itself at 07:00 and 19:30 India time, every day (`/autopilot when` shows the
+next run).
 
 ## Apply pack
 

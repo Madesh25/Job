@@ -2,6 +2,7 @@
 
 from fastapi.testclient import TestClient
 from test_autopilot_schedule import Clock, Fetch, make_desk
+from test_telegram_bot import settings
 from test_web_app import Recorder, verify
 from test_web_app import settings as web_settings
 
@@ -32,7 +33,7 @@ def test_runs_once_at_each_time_then_screens(tmp_path):
     clock.now = clock.now.replace(hour=15, minute=10)
     replies = d.check_scheduled(fetch)
     assert fetch.calls == 1
-    assert replies[0].text.startswith("Afternoon check (15:00 Europe/Warsaw): new jobs since "
+    assert replies[0].text.startswith("Afternoon check (15:00 Asia/Kolkata): new jobs since "
                                       "this morning.\n\nJob search done: 3 new jobs.")
     assert replies[1].text.startswith("Screening done:")
     assert d.check_scheduled(fetch) is None and fetch.calls == 1  # once a day
@@ -50,8 +51,13 @@ def test_two_times_and_the_window(tmp_path):
     assert d.check_scheduled(fetch) and fetch.calls == 2
 
 
-def test_not_at_the_weekend_nor_while_another_run_goes(tmp_path):
-    assert check.due(check_desk(tmp_path, Clock(hour=15, minute=5, day=3))) is None  # Sat
+def test_only_on_the_autopilot_days_nor_while_another_run_goes(tmp_path):
+    base = settings()
+    weekdays = base.model_copy(update={"screening": {**base.screening, "autopilot_schedule": {
+        **base.screening["autopilot_schedule"], "days": ["Mon", "Tue", "Wed", "Thu", "Fri"]}}})
+    saturday = make_desk(tmp_path, on=False, s=weekdays, clock=Clock(hour=15, minute=5, day=3),
+                         **{check.SWITCH_KEY: "true"})
+    assert check.due(saturday) is None
     d = check_desk(tmp_path, Clock(hour=15, minute=5))
     with CONTROL.job("/fetch"):
         assert d.check_scheduled(Fetch()) is None
@@ -60,7 +66,7 @@ def test_not_at_the_weekend_nor_while_another_run_goes(tmp_path):
 
 def test_autopilot_when_shows_it_on(tmp_path):
     d = check_desk(tmp_path, Clock())
-    assert "Afternoon check: on, /fetch and /screen at 15:00 Europe/Warsaw" in \
+    assert "Afternoon check: on, /fetch and /screen at 15:00 Asia/Kolkata" in \
         d.autopilot_when()[0].text
 
 
@@ -79,4 +85,4 @@ def test_cloud_run_task(tmp_path):
     assert r.status_code == 202 and r.json() == {"task": "check", "queued": True}
     app.state.worker.join()
     assert fetch.calls == 1
-    assert telegram.sent[0].startswith("[LOCAL] Afternoon check (15:00 Europe/Warsaw)")
+    assert telegram.sent[0].startswith("[LOCAL] Afternoon check (15:00 Asia/Kolkata)")
