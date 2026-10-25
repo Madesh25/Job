@@ -396,7 +396,7 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     private = [t for t in tasks if t not in DEEPSEEK_STAGES]
     if is_deepseek(args.model) and private:
-        print(f"DeepSeek gets job texts only: use --tasks score (not {', '.join(private)}).")
+        print(f"DeepSeek has no web search: leave out {', '.join(private)}.")
         return 2
 
     logging.basicConfig(level=logging.WARNING, format="%(asctime)s %(message)s",

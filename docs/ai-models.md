@@ -7,23 +7,29 @@ Haiku, as before.
 No AI gets access to Gmail, Drive or Notion. The bot's own code reads and writes them and
 sends the AI only the text it needs (a job description, a reply, your resume text).
 
-## The jobs and their Config rows (your plan of 20 Oct)
+## The jobs and their Config rows (plan C, your decision of 25 Oct)
 
-| AI job | What it sends | Config row | Plan after go-live |
+DeepSeek for every AI job except the web searches, Gemini with Google Search for those two,
+Claude Haiku as the backup when a call fails. Screening 50 jobs a day, auto-apply at most 30
+a day. You accepted that your resume, your name and your contacts' names go to DeepSeek.
+The Config rows are changed with your OK at go-live (P10-53).
+
+| AI job | What it sends | Config row | Plan C after go-live |
 |---|---|---|---|
 | Screening (and the half-price batch) | the job text only | `model.score` | `deepseek-v4-flash` |
-| Mail detail pick (one detail per mail) | the job's details | `model.email` | `gemini-3.5-flash-lite` |
-| Reply sorting (/today) | the recruiter's reply | `model.reply` | `gemini-3.5-flash-lite` |
-| Cover letter | your resume and the job | `model.cover` | `gemini-3.5-flash-lite` |
-| /prep interview questions | your resume and the job | `model.prep` | `gemini-3.5-flash-lite` |
-| Resume build | your Golden Master and the job | `model.resume` | `gemini-3.5-flash-lite`, with a "Rebuild with Claude" button |
+| Mail detail pick (one detail per mail) | the job's details | `model.email` | `deepseek-v4-flash` |
+| Reply sorting (/today) | the recruiter's reply | `model.reply` | `deepseek-v4-flash` |
+| Cover letter | your resume and the job | `model.cover` | `deepseek-v4-flash` |
+| /prep interview questions | your resume and the job | `model.prep` | `deepseek-v4-flash` |
+| Resume build | your Golden Master and the job | `model.resume` | `deepseek-v4-flash`, with a "Rebuild with Claude" button |
+| Auto-apply form answers (H8) | the form's questions, your answers and facts | `model.apply` | `deepseek-v4-flash` |
 | /update strategy research | your target roles and countries, web search | `model.strategy` | `gemini-3.5-flash-lite` with Google Search |
 | Contact search (docs/contacts.md) | the company, its website and the country, web search | `model.people` | `gemini-3.5-flash-lite` with Google Search |
 
 Rules the code keeps whatever the Config says:
-- **DeepSeek only ever screens.** It gets the job text and nothing about you or your mail. A
-  DeepSeek model in any other row is replaced by Haiku. DeepSeek has no web search either.
-- **Rebuild with Claude:** when Gemini wrote a resume, its preview has one more button. It
+- **DeepSeek never runs a web search** (it has none): a DeepSeek model in `model.strategy`
+  or `model.people` is replaced by Haiku. Before 25 Oct DeepSeek only screened.
+- **Rebuild with Claude:** when DeepSeek or Gemini wrote a resume, its preview has one more button. It
   builds the next version with Claude (Config `model.resume_rebuild`, Haiku when not set).
 - **/update on Gemini:** Google gives every search result as a redirect link. The bot opens
   each link once to read where it points (only the redirect, never the page), so the source
@@ -86,10 +92,10 @@ after `git pull` and `docker build -t job-engine .`, in PowerShell:
 
 ```
 docker run --rm --env-file .env -e APP_ENV=local -v ${PWD}/out:/app/out job-engine python -m jobengine.llm_compare --model gemini-3.5-flash-lite
-docker run --rm --env-file .env -e APP_ENV=local -v ${PWD}/out:/app/out job-engine python -m jobengine.llm_compare --model deepseek-v4-flash --tasks score
+docker run --rm --env-file .env -e APP_ENV=local -v ${PWD}/out:/app/out job-engine python -m jobengine.llm_compare --model deepseek-v4-flash
 ```
 
-DeepSeek may only run the score task in the comparison too (it never gets your resume).
+DeepSeek may run every task of the comparison (plan C, 25 Oct).
 
 - It takes the 20 newest screened jobs with a full description (or `--job <id>`, repeatable;
   `--jobs N` for another number) and runs screening, cover letter, /prep and a resume build
