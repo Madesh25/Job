@@ -94,6 +94,7 @@ RESUME = re.compile(r"\b(resume|cv|curriculum)\b")
 STOP = {"the", "and", "you", "your", "are", "for", "with", "have", "what", "how", "many",
         "any", "this", "that", "our", "please", "did", "does", "will", "can"}
 SOURCES = {"profile": "your profile and Apply pack", "saved": "your saved answer",
+           "resume": "the approved resume for this job",
            "ai": "🤖 AI from your facts: check it"}
 
 
@@ -185,13 +186,19 @@ def choice(options: Sequence[str], value: str) -> int | None:
 
 
 def plan(fields: Sequence[Field], values: Mapping[str, str],
-         saved: Sequence[Mapping[str, str]]) -> list[Answer]:
-    """An answer for every field, or the reason it stays empty. Nothing is guessed."""
+         saved: Sequence[Mapping[str, str]], resume: str | None = None) -> list[Answer]:
+    """An answer for every field, or the reason it stays empty. Nothing is guessed.
+    `resume` is the file name of the job's approved resume (attached to a resume field)."""
     out = []
+    attached = False
     for f in fields:
         if f.kind == "file":
-            note = ("your resume: attached in the real run" if RESUME.search(norm(f.label))
-                    else "a file: you attach it")
+            if RESUME.search(norm(f.label)) and resume and not attached:
+                out.append(Answer(f, value=resume, source="resume"))
+                attached = True
+                continue
+            note = ("your resume: no approved resume for this job" if RESUME.search(
+                norm(f.label)) else "a file: you attach it")
             out.append(Answer(f, note=note))
             continue
         if f.kind == "checkbox" and CONSENT.search(norm(f.label)):
@@ -389,13 +396,18 @@ def _read(page: Any) -> tuple[list[Field], list[str], str]:
     return best, sorted(blockers), title
 
 
-def _fill(page: Any, answers: Sequence[Answer]) -> None:
-    """Type and choose; never a button, never Enter, never submit."""
+def _fill(page: Any, answers: Sequence[Answer], resume: Path | None = None) -> None:
+    """Type, choose and attach; never a button, never Enter, never submit."""
     for a in filled(answers):
         f = a.field
         frame = page.frames[f.frame]
         try:
-            if f.kind == "radio":
+            if f.kind == "file":
+                if resume is None:
+                    continue
+                frame.locator(f'[data-je-field="{f.ref}"]').set_input_files(str(resume),
+                                                                            timeout=3_000)
+            elif f.kind == "radio":
                 frame.locator(f'[data-je-field="{f.ref}-{a.option}"]').check(timeout=3_000)
             elif f.kind == "checkbox":
                 if a.option is None:  # your answer is no: it stays unticked
@@ -416,6 +428,7 @@ def dry_run(s: Settings, url: str, values: Mapping[str, str],
             folder: Path = OUT_DIR, prepare: Callable[[Any], None] | None = None,
             check: Callable[[Any], None] | None = None,
             ai: Callable[[list[Answer]], int] | None = None,
+            resume: tuple[str, bytes] | None = None,
             now: Callable[[], datetime] = datetime.now) -> Result:
     """Open the form, fill it, take a screenshot. `ai` answers the questions left open
     (apply/form_ai.py, step 2). `prepare` gets the browser context before the page opens and
@@ -432,6 +445,27 @@ def dry_run(s: Settings, url: str, values: Mapping[str, str],
         result.stopped = NO_PLAYWRIGHT
         return result
     prune(folder)
+    resume_path = None
+    if resume is not None:  # attached from a file with its own name; deleted after the run
+        upload = folder / "upload" / f"{now():%Y%m%d-%H%M%S}-{os.getpid()}-{id(result)}"
+        upload.mkdir(parents=True, exist_ok=True)
+        resume_path = upload / (Path(resume[0]).name or "resume.pdf")
+        resume_path.write_bytes(resume[1])
+    try:
+        return _run(s, url, values, saved, result, folder=folder, prepare=prepare, check=check,
+                    ai=ai, resume_path=resume_path, name=name, now=now,
+                    sync_playwright=sync_playwright)
+    finally:
+        if resume_path is not None:
+            resume_path.unlink(missing_ok=True)
+            resume_path.parent.rmdir()
+
+
+def _run(s: Settings, url: str, values: Mapping[str, str], saved: Sequence[Mapping[str, str]],
+         result: Result, *, folder: Path, prepare: Callable[[Any], None] | None,
+         check: Callable[[Any], None] | None, ai: Callable[[list[Answer]], int] | None,
+         resume_path: Path | None, name: str, now: Callable[[], datetime],
+         sync_playwright: Any) -> Result:
     with sync_playwright() as p:
         browser = _launch(p)
         try:
@@ -450,10 +484,11 @@ def dry_run(s: Settings, url: str, values: Mapping[str, str],
                 result.stopped = ("no form fields found on this page (the form may be behind an "
                                   "Apply button or on another page: send its own link).")
             else:
-                result.answers = plan(fields, values, saved)
+                result.answers = plan(fields, values, saved,
+                                      resume_path.name if resume_path else None)
                 if ai is not None:
                     ai(result.answers)
-                _fill(page, result.answers)
+                _fill(page, result.answers, resume_path)
                 if check is not None:
                     check(page)
             folder.mkdir(parents=True, exist_ok=True)

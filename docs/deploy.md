@@ -19,6 +19,7 @@ hand**; nothing in Part B is done from code. Work through it top to bottom.
 | `POST /tasks/autopilot` | Cloud Scheduler | scheduled /autopilot, only when Config `schedule.autopilot` is `true`; answered at once (202), the run reports in Telegram ([autopilot.md](autopilot.md)) |
 | `POST /tasks/mail` | Cloud Scheduler | sends one queued mail whose recipient's morning has come (mail mode send, [gmail.md](gmail.md)) |
 | `POST /tasks/replies` | Cloud Scheduler | pings new replies from contacts and employers at once ([tracking.md](tracking.md)) |
+| `POST /tasks/apply` | Cloud Scheduler | the auto-apply queue: asks "Is your laptop on?" or fills 3 dry runs ([apply-pack.md](apply-pack.md)) |
 | `POST /tasks/nudge` | Cloud Scheduler | the apply nudge from 22:00, at most 5 an evening ([autopilot.md](autopilot.md)) |
 | `POST /tasks/report` | Cloud Scheduler | the daily report, in Telegram and by email to you, once a day from Config `schedule.report_time` ([tracking.md](tracking.md)) |
 | `POST /tasks/sweep` | Cloud Scheduler | sweep and screening, only when Config `schedule.auto_fetch` is `true` (the strategy gate still applies) |
@@ -223,6 +224,8 @@ gcloud scheduler jobs create http je-replies-prod --project $PROJECT --location 
   --attempt-deadline 300s --max-retry-attempts 0
 # Daily report: 21:45 India time, every day (sent once a day; a later call does nothing).
 job je-report-prod "45 21 * * *" "$PROD_URL" /tasks/report
+# Auto-apply queue (H8): every 15 minutes, 07:00 to 23:45 India time (nothing when empty).
+job je-apply-prod "*/15 7-23 * * *" "$PROD_URL" /tasks/apply
 # Apply nudge (H7): every 30 minutes from 22:00 to 00:30 India time (it sends at most 5).
 job je-nudge-prod "*/30 22-23,0 * * *" "$PROD_URL" /tasks/nudge
 ```
@@ -241,6 +244,8 @@ job je-nudge-prod "*/30 22-23,0 * * *" "$PROD_URL" /tasks/nudge
       send and a queued mail is due. Change it with `mail.send_window` in the yaml.
 - [ ] `je-replies-prod`: `*/15 7-23 * * *` in Asia/Kolkata; reads Gmail only and pings new
       replies in Telegram (no Notion write).
+- [ ] `je-apply-prod`: `*/15 7-23 * * *` in Asia/Kolkata; nothing while the queue is empty
+      or the laptop takes it. Filling on Cloud Run needs the image built with `FORM_BOT=true`.
 - [ ] `je-nudge-prod`: `*/30 22-23,0 * * *` in Asia/Kolkata; nothing when no job is ready
       or Config `schedule.nudge` is `false`.
 - [ ] `je-report-prod`: `45 21 * * *` in Asia/Kolkata; the daily report in Telegram and by

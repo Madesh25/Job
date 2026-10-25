@@ -19,6 +19,7 @@ from __future__ import annotations
 import logging
 import re
 import secrets
+import threading
 from collections.abc import Sequence
 from datetime import date, datetime, timedelta
 from pathlib import Path
@@ -33,6 +34,7 @@ KEY = "dryrun.runs"  # bot_state: {"items": [run, ...]}
 MAX_RUNS = 30
 APPROVED_KEEP_DAYS = 3
 REF = "Ref DRY-"
+_lock = threading.Lock()  # 3 forms at a time record their runs together
 FORMS = (("greenhouse", "Greenhouse"), ("lever.co", "Lever"), ("ashbyhq", "Ashby"),
          ("workable", "Workable"), ("recruitee", "Recruitee"), ("personio", "Personio"),
          ("teamtailor", "Teamtailor"), ("myworkdayjobs", "Workday"))
@@ -58,10 +60,11 @@ def record(state: Any, *, job: str, job_id: str, url: str, shot: Path | None,
     """Keep a finished dry run for the buttons; returns its id."""
     run_id = secrets.token_hex(4)
     items = [{"q": a.field.label, "a": a.value, "source": a.source} for a in filled(answers)]
-    _save(state, [*_runs(state), {
-        "id": run_id, "at": now.isoformat(timespec="seconds"), "job": job, "job_id": job_id,
-        "url": url, "form": form_type(url), "shot": str(shot) if shot else "",
-        "answers": items, "status": "new"}])
+    with _lock:
+        _save(state, [*_runs(state), {
+            "id": run_id, "at": now.isoformat(timespec="seconds"), "job": job,
+            "job_id": job_id, "url": url, "form": form_type(url),
+            "shot": str(shot) if shot else "", "answers": items, "status": "new"}])
     return run_id
 
 
