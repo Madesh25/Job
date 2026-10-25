@@ -26,6 +26,7 @@ safety:
   # linkedin hosts are refused even if listed here.
   allowed_hosts:
     - api.notion.com
+    - hc-ping.com  # the heartbeat (heartbeat.py, Autopilot H4)
     - api.adzuna.com
     - boards-api.greenhouse.io
     - api.lever.co

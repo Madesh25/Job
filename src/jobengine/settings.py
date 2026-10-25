@@ -62,6 +62,9 @@ SECRET_VARS = {
     "TELEGRAM_WEBHOOK_SECRET": "telegram_webhook_secret",
     "SERVICE_URL": "service_url",
     "SCHEDULER_SA_EMAIL": "scheduler_sa_email",
+    # Autopilot H4 (25 Oct): the healthchecks.io ping URL (heartbeat.py). It works like a
+    # password (anyone with it can ping), so it lives in .env or Secret Manager only.
+    "HEALTHCHECK_URL": "healthcheck_url",
 }
 
 
@@ -128,6 +131,7 @@ class Settings(BaseModel):
     telegram_webhook_secret: str | None = None
     service_url: str | None = None
     scheduler_sa_email: str | None = None
+    healthcheck_url: str | None = None
     bot_mode: str = "polling"  # "webhook" on Cloud Run (BOT_MODE)
     # CONTACTS_LIVE=true (16 Oct): real contact lookups on your PC (APP_ENV local) while
     # DRY_RUN stays on; nothing else becomes real. safety.paid_api_allowed.

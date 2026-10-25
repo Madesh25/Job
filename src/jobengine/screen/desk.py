@@ -15,7 +15,7 @@ from datetime import date, datetime, timedelta, timezone
 from typing import Any
 from urllib.parse import urlsplit
 
-from jobengine import alerts, http
+from jobengine import alerts, heartbeat, http
 from jobengine.apply import answers, autofill, cover, interview
 from jobengine.apply import facts as apply_facts
 from jobengine.bot_state import BotState, FakeBotState
@@ -315,6 +315,8 @@ class Desk:
         # when sent, else why not.
         self.owner_mail: alerts.Mailer = lambda subject, text: alerts.owner_mail(
             self.s, subject, text)
+        # The outside heartbeat (heartbeat.py, H4): True pings the check, False its /fail.
+        self.heartbeat: Callable[[bool], bool] = lambda ok: heartbeat.ping(self.s, ok)
         # Set by the bot for each update: sends a reply at once (before a long build).
         self.notify: Callable[[Reply], None] | None = None
         self.today = today
@@ -1922,13 +1924,15 @@ class Desk:
         why = self.owner_mail(f"Job Engine daily report {now:%d %b}", text)
         if why:
             text += f"\n(The email copy was not sent: {why})"
+        self.heartbeat(True)  # no report for about 26 hours: healthchecks.io emails you
         return [Reply(text[:MAX_TEXT])]
 
     def alert_failure(self, what: str, error: object) -> None:
         """A scheduled run failed: mail you at once (at most once an hour per run, H3)."""
         try:
-            alerts.mail_failure(self.state, self.owner_mail, what, str(error),
-                                self.tracking_now())
+            if alerts.mail_failure(self.state, self.owner_mail, what, str(error),
+                                   self.tracking_now()):
+                self.heartbeat(False)
         except Exception:  # an alert must never stop the bot
             log.exception("could not mail the failure of %s", what)
 
@@ -2553,6 +2557,8 @@ def fake_desk(s: Settings, today: date, now: Callable[[], datetime] | None = Non
 
     desk.companies = FakeCompanyAdder()
     desk.mails = []  # type: ignore[attr-defined]  # (subject, text) of each mail to you
+    desk.pings = []  # type: ignore[attr-defined]  # heartbeat pings: True ok, False fail
+    desk.heartbeat = lambda ok: desk.pings.append(ok) or True  # type: ignore[attr-defined]
     desk.owner_mail = lambda subject, text: desk.mails.append(  # type: ignore[attr-defined]
         (subject, text))
     return desk

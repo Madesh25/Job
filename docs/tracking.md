@@ -213,6 +213,30 @@ Both mails go to your own address only (`safety.redirect_to`, `safety.owner_mail
 from the sender mailbox, also when `DRY_RUN` is true (`src/jobengine/alerts.py`). If the mail
 cannot be sent, the Telegram report says why.
 
+## Heartbeat (Autopilot H4)
+
+The daily report and the failure mails come from the bot itself, so when the PC, the
+container or Cloud Run is down, nothing comes. The heartbeat is the alarm from outside
+(`src/jobengine/heartbeat.py`): after each daily report the bot pings your free
+healthchecks.io check. When no ping comes for about 26 hours, healthchecks.io emails you.
+A failed scheduled run also pings `<url>/fail` (at most once an hour), so the check turns
+red at once.
+
+Set it up once (about 2 minutes):
+
+1. Sign up at healthchecks.io (free plan) with your own email.
+2. Add a check named `Job Engine`: Period **1 day**, Grace time **2 hours**, time zone
+   Asia/Kolkata. Its email integration is on by default.
+3. Copy the check's ping URL (`https://hc-ping.com/...`). It works like a password: never
+   paste it in a chat.
+4. Local: put it in `.env` as `HEALTHCHECK_URL=` and restart the container. Cloud Run: create
+   the secret `healthcheck-url` in Secret Manager (prod; the deploy mounts it when it
+   exists).
+5. The next daily report pings it; the check turns green.
+
+Without `HEALTHCHECK_URL` nothing is sent. A ping is one GET to `hc-ping.com` (on
+`safety.allowed_hosts`); a failed ping is only logged.
+
 ## Telegram
 
 ```

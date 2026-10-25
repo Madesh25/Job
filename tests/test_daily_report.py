@@ -147,6 +147,38 @@ def test_the_owner_mail_goes_to_you_only(monkeypatch):
     assert alerts.owner_mail(s, "x", "y") == "no sender token"
 
 
+def test_the_report_and_a_failure_ping_the_heartbeat():
+    d = fake_desk(settings(), FAKE_TODAY, now=Clock())
+    d._track_now = lambda: datetime(2026, 10, 1, 21, 50)
+    d.daily_report_tick()
+    assert d.pings == [True]
+
+    def broken():
+        raise RuntimeError("Notion is down")
+
+    tb._scheduled("Autopilot", broken, d)
+    tb._scheduled("Autopilot", broken, d)  # mailed once an hour: pinged once too
+    assert d.pings == [True, False]
+
+
+def test_heartbeat_ping_goes_to_hc_ping_only(monkeypatch):
+    from jobengine import heartbeat, http
+
+    got = []
+    monkeypatch.setattr(http, "get_text", lambda url, s=None: got.append(url) or "OK")
+    assert not heartbeat.ping(settings())  # no HEALTHCHECK_URL: nothing sent
+    s = settings(HEALTHCHECK_URL="https://hc-ping.com/abc-123")
+    assert heartbeat.ping(s) and heartbeat.ping(s, ok=False)
+    assert got == ["https://hc-ping.com/abc-123", "https://hc-ping.com/abc-123/fail"]
+    assert not heartbeat.ping(settings(HEALTHCHECK_URL="https://evil.example.com/x"))
+
+    def down(url, s=None):
+        raise http.HttpError("GET hc-ping.com failed")
+
+    monkeypatch.setattr(http, "get_text", down)
+    assert not heartbeat.ping(s)  # logged, never raised
+
+
 def _week(**entry):
     return [dict(entry) for _ in range(7)]
 
