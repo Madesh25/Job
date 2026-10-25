@@ -240,6 +240,23 @@ def _issued(data: Mapping[str, Any] | None) -> date | None:
         return None
 
 
+def days_left(s: Settings, config: Any, today: date,
+              folder: Path = GMAIL_TOKEN_DIR) -> list[str]:
+    """For the daily report: how many days each token renewed in Telegram still works."""
+    days = token_days(config)
+    if s.app_env != "local" or days <= 0:
+        return []
+    out = []
+    for account in ACCOUNTS:
+        issued = _issued(saved(account, folder))
+        if issued is None:
+            continue
+        left = (issued + timedelta(days=days) - today).days
+        when = "expired: /gmailtoken " + account if left < 0 else f"{left} day(s) left"
+        out.append(f"Gmail token {account}: {when}")
+    return out
+
+
 def token_days(config: Any) -> int:
     try:
         return int(str(config.get("gmail.token_days") or DEFAULT_TOKEN_DAYS).strip())

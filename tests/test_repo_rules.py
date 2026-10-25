@@ -159,7 +159,9 @@ GMAIL_CLIENT_FORBIDDEN = ["messages().send", "delete(", "trash(", "batchDelete",
                           "drafts().update", "labels().create"]
 DRAFT_SEND = "self._drafts()" + ".send("
 SEND_DRAFT_CALL = ".send" + "_draft("
-SEND_DRAFT_CALLERS = {"src/jobengine/gmail_client.py", "src/jobengine/mail/sender.py"}
+# alerts.py (25 Oct): the daily report and failure alerts, only ever to safety.redirect_to.
+SEND_DRAFT_CALLERS = {"src/jobengine/gmail_client.py", "src/jobengine/mail/sender.py",
+                      "src/jobengine/alerts.py"}
 # The token helper only reads the profile of the account it authorised.
 GMAIL_AUTH = "src/jobengine/gmail_auth.py"
 GMAIL_AUTH_FORBIDDEN = [*GMAIL_CLIENT_FORBIDDEN, "drafts(", "modify("]
@@ -324,3 +326,9 @@ def test_only_the_checked_sender_sends_drafts():
               and ".send(" in p.read_text(encoding="utf-8")
               and "gmail" in p.read_text(encoding="utf-8").casefold()]
     assert [p for p in others if p not in SEND_DRAFT_CALLERS] == []
+
+
+def test_owner_mails_only_go_to_you():
+    text = (ROOT / "src/jobengine/alerts.py").read_text(encoding="utf-8")
+    assert 'message["To"] = to' in text and "owner_mail_target(s)" in text
+    assert text.count('message["To"]') == 1 and 'message["Cc"]' not in text

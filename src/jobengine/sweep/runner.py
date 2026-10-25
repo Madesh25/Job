@@ -43,6 +43,7 @@ from jobengine.sweep.normalize import (
 )
 from jobengine.sweep.rank import Ranker
 from jobengine.sweep.sources import adzuna, ats, gmail_alerts, iamexpat, jooble, nofluffjobs
+from jobengine.track import day_ledger
 
 log = logging.getLogger("jobengine.sweep")
 
@@ -678,4 +679,5 @@ def run_sweep(
             state.set(LAST_REPORT, loss.to_state(today.isoformat()))
         except Exception:  # never fail a sweep over the loss report
             log.exception("could not store the loss report")
+    day_ledger.add_sweep(summary.sources, summary.new, summary.updated)
     return summary

@@ -45,6 +45,7 @@ from jobengine.screen.tiering import build_matrix, contract_type, tier
 from jobengine.settings import ROOT_DIR, Settings
 from jobengine.sweep.dedupe import parse_posting_ids
 from jobengine.sweep.normalize import experience, years_low, years_required
+from jobengine.track import day_ledger
 
 log = logging.getLogger("jobengine.screen")
 
@@ -333,6 +334,7 @@ class _Run:
                          if key in ("Screen verdict", "Status", "Skip reason")} | years_fix
                 repo.update(row.page_id, props)
                 repo.append_body(row.page_id, body_section(result, self.today))
+                day_ledger.count(f"screened.{result.verdict}")
             return result
         return Prepared(jd=jd, kind=kind, years_fix=years_fix, limit=limit)
 
@@ -376,6 +378,7 @@ class _Run:
         if self.deps.write:
             repo.update(row.page_id, plan_props(result, row, status_from) | prepared.years_fix)
             repo.append_body(row.page_id, body_section(result, self.today))
+            day_ledger.count(f"screened.{result.verdict}")
         return result
 
 

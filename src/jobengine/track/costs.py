@@ -43,6 +43,9 @@ def record(state: BotState, today: date, stage: str, dollars: float) -> None:
         stages[stage] = round(float(stages.get(stage) or 0.0) + dollars, 6)
         value["stages"] = stages
         state.set(KEY, value)
+    from jobengine.track import day_ledger
+
+    day_ledger.add_cost(state, today, dollars)  # the daily report's "AI today"
 
 
 def sink(state: BotState, today: Callable[[], date]) -> Callable[[str, float], None]:
