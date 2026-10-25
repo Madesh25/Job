@@ -196,17 +196,17 @@ job je-daily-dev   "30 7 * * *" "$DEV_URL"  /tasks/daily  && gcloud scheduler jo
 job je-daily-prod  "30 7 * * *" "$PROD_URL" /tasks/daily
 job je-digest-prod "0 20 * * 0" "$PROD_URL" /tasks/digest && gcloud scheduler jobs pause je-digest-prod --project $PROJECT --location $REGION
 job je-sweep-prod  "0 8 * * *"  "$PROD_URL" /tasks/sweep
-# Scheduled /autopilot: its own time zone (Europe/Warsaw), every 30 minutes 07:00 to 12:30,
-# Monday to Friday. The first call starts the day's run, later calls carry on with its batch.
+# Scheduled /autopilot (H6): 07:00 and 19:30 India time, every day; every 30 minutes for
+# 3 hours after each. The first call starts that run, later calls carry on with its batch.
 gcloud scheduler jobs create http je-autopilot-prod --project $PROJECT --location $REGION \
-  --schedule "*/30 7-12 * * 1-5" --time-zone "Europe/Warsaw" --uri "$PROD_URL/tasks/autopilot" \
+  --schedule "*/30 7-9,19-22 * * *" --time-zone "Asia/Kolkata" --uri "$PROD_URL/tasks/autopilot" \
   --http-method POST --oidc-service-account-email "$SCHED" --oidc-token-audience "$PROD_URL" \
   --attempt-deadline 60s --max-retry-attempts 1
-# Afternoon check (/fetch and /screen, screen/check.py): every 30 minutes 15:00 to 16:30 Warsaw
-# time, Monday to Friday. It does nothing unless Config schedule.check is true; it runs once
+# Afternoon check (/fetch and /screen, screen/check.py): every 30 minutes 15:00 to 16:30 India
+# time, every day (the autopilot days). It does nothing unless Config schedule.check is true; it runs once
 # per time in schedule.check_times.
 gcloud scheduler jobs create http je-check-prod --project $PROJECT --location $REGION \
-  --schedule "*/30 15-16 * * 1-5" --time-zone "Europe/Warsaw" --uri "$PROD_URL/tasks/check" \
+  --schedule "*/30 15-16 * * *" --time-zone "Asia/Kolkata" --uri "$PROD_URL/tasks/check" \
   --http-method POST --oidc-service-account-email "$SCHED" --oidc-token-audience "$PROD_URL" \
   --attempt-deadline 60s --max-retry-attempts 1
 # The mail queue (mail mode send): every 10 minutes 07:00 to 11:50 Warsaw time (08:00 to
@@ -228,11 +228,11 @@ job je-report-prod "45 21 * * *" "$PROD_URL" /tasks/report
 - [ ] `je-daily-prod`: `30 7 * * *`, enabled at go-live step 3.
 - [ ] `je-digest-prod`: `0 20 * * 0` (Sunday 20:00), paused until go-live step 4.
 - [ ] `je-sweep-prod`: `0 8 * * *`; it does nothing unless Config `schedule.auto_fetch` is `true`.
-- [ ] `je-autopilot-prod`: `*/30 7-12 * * 1-5` in Europe/Warsaw; it does nothing unless Config
+- [ ] `je-autopilot-prod`: `*/30 7-9,19-22 * * *` in Asia/Kolkata; it does nothing unless Config
       `schedule.autopilot` is `true`. Needs the prod `Bot State` (B3) so a run is not started
       twice after a restart. Config: add `schedule.autopilot` = `false` (turn it on after
       go-live step 4).
-- [ ] `je-check-prod`: `*/30 15-16 * * 1-5` in Europe/Warsaw; it does nothing unless Config
+- [ ] `je-check-prod`: `*/30 15-16 * * *` in Asia/Kolkata (the autopilot time zone since H6); it does nothing unless Config
       `schedule.check` is `true` (add it as `false`; times in `schedule.check_times`).
 - [ ] `je-mail-prod`: `*/10 7-11 * * 2-4` in Europe/Warsaw; sends nothing unless mail mode is
       send and a queued mail is due. Change it with `mail.send_window` in the yaml.

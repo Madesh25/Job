@@ -96,11 +96,14 @@ screening:
   # Scheduled /autopilot (off until Notion Config schedule.autopilot is true): once a day at
   # `time` in `timezone` on `days`. A bot that is off then starts it until `latest`, never
   # later. Notion Config schedule.autopilot_time ("HH:MM") wins over `time`.
+  # Your decision of 25 Oct (Autopilot H6): 07:00 and 19:30 India time, every day. Each start
+  # time runs once, up to window_hours after it. Config schedule.autopilot_time wins
+  # ("07:00, 19:30").
   autopilot_schedule:
-    time: "07:00"
-    latest: "10:00"
-    timezone: Europe/Warsaw
-    days: [Mon, Tue, Wed, Thu, Fri]
+    times: ["07:00", "19:30"]
+    window_hours: 3
+    timezone: Asia/Kolkata
+    days: [Mon, Tue, Wed, Thu, Fri, Sat, Sun]
   # /jd writes the pasted text in blocks of this size, at most this many blocks.
   block_chars: 2000
   max_blocks: 90

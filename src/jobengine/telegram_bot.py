@@ -58,7 +58,7 @@ HELP_TEXT = (
     "/fetch - search for new jobs, then screen them\n"
     "/autopilot - fetch, screen at half price, approve the best (10 a day), save resumes, "
     "find contacts and write Gmail drafts (never sent)\n"
-    "/autopilot when - the morning schedule (Config schedule.autopilot) and the next run\n"
+    "/autopilot when - the schedule (07:00 and 19:30, Config schedule.autopilot), next run\n"
     "/pending - review screened jobs one at a time, one country at a time (Approve, Skip, "
     "Next); /pending poland, netherlands, ireland, remote or all\n"
     "/add <job link> - a job on a company site (where LinkedIn or another app sends you): "

@@ -43,37 +43,38 @@ never stops the others.
   jobs wait for tomorrow's approvals (or for you in `/pending`).
 - After a bot restart, the waiting run (Bot State `autopilot.run`) is picked up again.
 
-## Every morning by itself (scheduled)
+## Twice a day by itself (scheduled)
 
-`/autopilot` can run once a day without a command. It is **off** until you set Notion Config
+`/autopilot` can run by itself, without a command. It is **off** until you set Notion Config
 `schedule.autopilot` to `true` (set it back to `false` to stop it). Send `/autopilot when` to
 see whether it is on and when it runs next.
 
-- **When**: Monday to Friday at 07:00 Europe/Warsaw (10:30 in India), the time European
-  recruiters start their day, so your applications and mails are among the first. The time
-  zone covers Poland and the Netherlands; Ireland is one hour behind.
-- **Change the time**: Notion Config `schedule.autopilot_time` (`HH:MM`, Europe/Warsaw). The
-  days, the time zone and the latest start time are in `config/base.yaml` under
+- **When** (your decision of 25 Oct, Autopilot H6): at **07:00 and 19:30 India time, every
+  day**, weekends too. Fetch, screening, resumes and contacts are then ready when you start
+  applying at 22:00, and the weekend can be a catch-up apply day. Mails you send still go out
+  at the recipient's working time (`/mailqueue`).
+- **Change the times**: Notion Config `schedule.autopilot_time` (`HH:MM`, or several:
+  `07:00, 19:30`). The days, the time zone and the window are in `config/base.yaml` under
   `screening.autopilot_schedule`.
-- **Once a day**: the first check at or after the start time runs it (Bot State
-  `autopilot.scheduled` keeps the date). A bot that was off in the morning starts it until
-  the latest start time (10:00), never later: send `/autopilot` yourself after that.
+- **Once per time**: the first check at or after a start time runs it (Bot State
+  `autopilot.scheduled` keeps the date and the times done). A bot that was off then starts it
+  up to `window_hours` (3) later, never after that: send `/autopilot` yourself then.
 - **Long polling** (the bot on your laptop): checked every
   `screening.autopilot_check_minutes` (5), together with a waiting batch.
 - **Cloud Run**: Cloud Scheduler job `je-autopilot-prod` calls `POST /tasks/autopilot` every
-  30 minutes in the morning ([deploy.md](deploy.md) B4). The first call starts the run; later
-  calls carry on with its half-price batch once it has answered. The call is answered at
-  once and the run reports in Telegram (a failure too).
+  30 minutes after each start time ([deploy.md](deploy.md) B4). The first call starts the
+  run; later calls carry on with its half-price batch once it has answered. The call is
+  answered at once and the run reports in Telegram (a failure too, also by email).
 - It is the same run as `/autopilot`: at most `screening.autopilot_approvals` (10) approvals
-  a day, and the mail mode (`/mailmode`) decides between drafts and sending. The summary
-  starts with "Scheduled autopilot (07:00 Europe/Warsaw)".
+  a day for both runs together, and the mail mode (`/mailmode`) decides between drafts and
+  sending. The summary starts with "Scheduled autopilot (07:00 Asia/Kolkata)".
 
 ## Afternoon check (apply early)
 
 Jobs posted after the morning run would wait until the next day, and the first applicants
 get the most replies. With Notion Config `schedule.check` = `true` the bot runs `/fetch` and
-then `/screen` by itself at each time in `schedule.check_times` (default `15:00`, Europe/Warsaw,
-the autopilot days) and sends the summary with an Apply high card for each new strong match.
+then `/screen` by itself at each time in `schedule.check_times` (default `15:00`, in the
+autopilot's time zone, India time since H6, on the autopilot days) and sends the summary with an Apply high card for each new strong match.
 Nothing is approved, built or mailed by itself. Each time runs once a day, up to 2 hours after
 it (a bot that was off then does not run it in the evening), and never while another
 `/fetch`, `/screen` or `/autopilot` runs. `/autopilot when` shows it. On Cloud Run the

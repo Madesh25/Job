@@ -2,8 +2,8 @@
 
 Jobs posted after the morning run wait until the next day, and the first applicants get the
 most replies. When Notion Config `schedule.check` is `true`, the bot runs /fetch and then
-/screen by itself at each time in `schedule.check_times` (default 15:00, Europe/Warsaw, the
-days of the autopilot schedule) and sends the summary with an Apply high card for each new
+/screen by itself at each time in `schedule.check_times` (default 15:00, in the autopilot
+time zone and days) and sends the summary with an Apply high card for each new
 strong match, so you can apply the same afternoon. Nothing is approved, built or mailed by
 itself. Off by default.
 

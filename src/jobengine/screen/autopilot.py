@@ -129,13 +129,14 @@ def scheduled(desk: Desk, fetch: Fetch | None, progress: Progress) -> list[Reply
         return None
     if desk.state.get(RUN_KEY):
         return tick(desk)
-    if not autopilot_schedule.due(desk):
+    at = autopilot_schedule.due(desk)
+    if at is None:
         return None
-    autopilot_schedule.mark_started(desk)
+    autopilot_schedule.mark_started(desk, at)
     replies = run(desk, fetch, progress)
     if replies:
         p = autopilot_schedule.plan(desk)
-        replies[0].text = (f"Scheduled autopilot ({p.start:%H:%M} {p.zone.key}):\n\n"
+        replies[0].text = (f"Scheduled autopilot ({at:%H:%M} {p.zone.key}):\n\n"
                            + replies[0].text)
     return replies
 
@@ -157,7 +158,7 @@ def _collect_then_finish(desk: Desk, lines: list[str], progress: Progress) -> li
 
 def _wait_text(desk: Desk) -> str:
     if desk.s.bot_mode == "webhook" and autopilot_schedule.plan(desk).on:
-        return ("The scheduled check (every 30 minutes in the morning) carries on by itself "
+        return ("The scheduled check (every 30 minutes after each start) carries on by itself "
                 "when the answers are in: it approves the best jobs, builds resumes, finds "
                 "contacts and writes Gmail drafts. You can also send /autopilot again later.")
     if desk.s.bot_mode == "webhook":
