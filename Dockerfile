@@ -20,6 +20,16 @@ RUN pip install --no-cache-dir . \
     && mkdir -p /app/out \
     && chown -R app:app /app/out
 
+# The auto-apply dry run (/dryrun) needs a browser: build with --build-arg FORM_BOT=true
+# (about 400 MB more). Without it /dryrun says Playwright is missing.
+ARG FORM_BOT=false
+ENV PLAYWRIGHT_BROWSERS_PATH=/opt/playwright
+RUN if [ "$FORM_BOT" = "true" ]; then \
+        pip install --no-cache-dir ".[formbot]" \
+        && python -m playwright install --with-deps chromium \
+        && rm -rf /var/lib/apt/lists/*; \
+    fi
+
 ENV PYTHONUNBUFFERED=1 BOT_MODE=webhook JOBENGINE_ROOT=/app
 USER app
 EXPOSE 8080
