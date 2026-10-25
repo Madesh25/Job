@@ -78,6 +78,7 @@ class Tasks:
     mail: Callable[[], dict[str, Any]] = field(default=lambda: {"ok": True})
     replies: Callable[[], dict[str, Any]] = field(default=lambda: {"ok": True})
     check: Callable[[], dict[str, Any]] = field(default=lambda: {"ok": True})
+    report: Callable[[], dict[str, Any]] = field(default=lambda: {"ok": True})
 
 
 def desk_tasks(s: Settings, desk: Desk, client: tb.TelegramClient,
@@ -130,6 +131,7 @@ def desk_tasks(s: Settings, desk: Desk, client: tb.TelegramClient,
         except Exception as exc:  # queued: nobody waits for the result, so report it here
             log.exception("scheduled autopilot failed")
             send([Reply(f"Scheduled autopilot failed: {exc}")])
+            desk.alert_failure("Scheduled autopilot", exc)
             return {"ok": False, "error": str(exc)}
         if replies:
             send(replies)
@@ -142,6 +144,7 @@ def desk_tasks(s: Settings, desk: Desk, client: tb.TelegramClient,
         except Exception as exc:  # queued: nobody waits for the result, so report it here
             log.exception("afternoon check failed")
             send([Reply(f"Afternoon check failed: {exc}")])
+            desk.alert_failure("Afternoon check", exc)
             return {"ok": False, "error": str(exc)}
         if replies:
             send(replies)
@@ -161,8 +164,15 @@ def desk_tasks(s: Settings, desk: Desk, client: tb.TelegramClient,
             send(pings)
         return {"ok": True, "pinged": len(pings)}
 
+    def report() -> dict[str, Any]:
+        """The evening report (track/daily_report.py): Telegram and email, once a day."""
+        sent = desk.daily_report_tick()
+        if sent:
+            send(sent)
+        return {"ok": True, "sent": bool(sent)}
+
     return Tasks(daily=daily, digest=digest, sweep=sweep, autopilot=autopilot, mail=mail,
-                 replies=replies, check=check)
+                 replies=replies, check=check, report=report)
 
 
 def create_app(
@@ -223,6 +233,8 @@ def create_app(
                     f"Scheduled task {name} failed: {exc}", s))
             except Exception:
                 log.exception("could not report the failed task %s", name)
+            if desk is not None:
+                desk.alert_failure(f"Scheduled task {name}", exc)  # by email too (H3)
             return JSONResponse({"ok": False, "task": name, "error": str(exc)},
                                 status_code=500)
         return JSONResponse({"task": name, "started": started, **summary})
@@ -260,6 +272,10 @@ def create_app(
     @app.post("/tasks/replies")
     def task_replies(request: Request) -> JSONResponse:
         return run_task("replies", tasks.replies, request.headers.get("Authorization"))
+
+    @app.post("/tasks/report")
+    def task_report(request: Request) -> JSONResponse:
+        return run_task("report", tasks.report, request.headers.get("Authorization"))
 
     @app.post("/tasks/sweep")
     def task_sweep(request: Request) -> JSONResponse:

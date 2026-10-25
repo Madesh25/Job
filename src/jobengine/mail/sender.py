@@ -114,6 +114,10 @@ def sent_today(state: BotState | None, today: date) -> int:
 
 
 def _record(state: BotState | None, today: date, count: int) -> None:
+    """After each mail sent: today's send count (and the daily report's)."""
+    from jobengine.track import day_ledger
+
+    day_ledger.count("mails_sent")
     if state is not None:
         state.set(SENT_KEY, {"date": today.isoformat(), "count": count})
         warmup.mark_first_send(state, today)

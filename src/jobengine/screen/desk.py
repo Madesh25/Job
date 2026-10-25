@@ -15,7 +15,7 @@ from datetime import date, datetime, timedelta, timezone
 from typing import Any
 from urllib.parse import urlsplit
 
-from jobengine import http
+from jobengine import alerts, http
 from jobengine.apply import answers, autofill, cover, interview
 from jobengine.apply import facts as apply_facts
 from jobengine.bot_state import BotState, FakeBotState
@@ -66,6 +66,7 @@ from jobengine.sweep.fulltext import blocked_hosts
 from jobengine.sweep.normalize import Rules, dedupe_key, place, remote_only, without_region
 from jobengine.sweep.rank import Ranker
 from jobengine.track import commands as track_commands
+from jobengine.track import day_ledger
 from jobengine.track import runner as track_runner
 from jobengine.track.digest import run_weekly_digest
 from jobengine.track.runner import DailyReport, TrackDeps
@@ -310,6 +311,10 @@ class Desk:
         self.connections: connections.ConnectionsStore | None = None
         # /add (23 Oct): adds a Target Companies row (notion_repo.CompanyAdder); None: not here.
         self.companies: Any = None
+        # The daily report and failure alerts by email (alerts.py): (subject, text) -> None
+        # when sent, else why not.
+        self.owner_mail: alerts.Mailer = lambda subject, text: alerts.owner_mail(
+            self.s, subject, text)
         # Set by the bot for each update: sends a reply at once (before a long build).
         self.notify: Callable[[Reply], None] | None = None
         self.today = today
@@ -774,7 +779,10 @@ class Desk:
         if not jd:
             return None
         terms = list(self.ranker().keywords(jd).have)
-        return cover.cover_line(terms, cover.pdf_text(outcome.pdf))
+        resume_text = cover.pdf_text(outcome.pdf)
+        if terms and resume_text:
+            day_ledger.add_match(len(cover.cover(terms, resume_text)[0]), len(terms))
+        return cover.cover_line(terms, resume_text)
 
     def resume_tap(self, action: str, arg: str) -> list[Reply]:
         if self.resume is None:
@@ -1828,10 +1836,62 @@ class Desk:
         except Exception as exc:
             log.warning("reply check failed: %s", exc)
             return self._token_alert(str(exc), now.date())
+        day_ledger.count("replies", len(texts))
         if any(ping.INTERVIEW_HINT in text for text in texts):
             extra = tips_mod.lines("Interview tips", self.tips(tips_mod.INTERVIEW, None))
             texts = [text + extra if ping.INTERVIEW_HINT in text else text for text in texts]
         return [Reply(text[:MAX_TEXT]) for text in texts]
+
+    # ------------------------------------------------------------ daily report (H1, H3)
+
+    def daily_report_text(self) -> str:
+        """/report and the evening report: what the bot did today (track/daily_report.py)."""
+        from jobengine import gmail_renew
+        from jobengine.contacts.credits import CreditBook
+        from jobengine.track import costs, daily_report
+
+        config = self.deps.config()
+        today = daily_report.local(self.tracking_now(), config).date()
+        waiting: list[str] = []
+        if self.repo is not None:
+            try:
+                waiting = [f"{len(pending_rows(self.repo))} job(s) in /pending",
+                           f"{len(waiting_for_jd(self.repo, self.state))} need a description "
+                           "(/jd)"]
+            except Exception as exc:  # the report still comes without these two counts
+                log.warning("daily report: could not count waiting jobs: %s", exc)
+        return daily_report.text(
+            day_ledger.day(self.state, today), today,
+            month_cost=costs.month_line(self.state, today),
+            credits=CreditBook(config, today).line(),
+            tokens=gmail_renew.days_left(self.s, config, today), waiting=waiting)
+
+    def report_command(self) -> list[Reply]:
+        return [Reply(self.daily_report_text()[:MAX_TEXT])]
+
+    def daily_report_tick(self) -> list[Reply]:
+        """Every few minutes (and POST /tasks/report): the evening report, once a day, on
+        Telegram and by email."""
+        from jobengine.track import daily_report
+
+        config = self.deps.config()
+        now = self.tracking_now()
+        if not daily_report.due(config, self.state, now):
+            return []
+        daily_report.mark_sent(self.state, daily_report.local(now, config).date())
+        text = self.daily_report_text()
+        why = self.owner_mail(f"Job Engine daily report {now:%d %b}", text)
+        if why:
+            text += f"\n(The email copy was not sent: {why})"
+        return [Reply(text[:MAX_TEXT])]
+
+    def alert_failure(self, what: str, error: object) -> None:
+        """A scheduled run failed: mail you at once (at most once an hour per run, H3)."""
+        try:
+            alerts.mail_failure(self.state, self.owner_mail, what, str(error),
+                                self.tracking_now())
+        except Exception:  # an alert must never stop the bot
+            log.exception("could not mail the failure of %s", what)
 
     def _token_alert(self, error: str, today: date) -> list[Reply]:
         """An expired Gmail token (invalid_grant) is told in Telegram once a day; before
@@ -2453,6 +2513,9 @@ def fake_desk(s: Settings, today: date, now: Callable[[], datetime] | None = Non
     from jobengine.notion_repo import FakeCompanyAdder
 
     desk.companies = FakeCompanyAdder()
+    desk.mails = []  # type: ignore[attr-defined]  # (subject, text) of each mail to you
+    desk.owner_mail = lambda subject, text: desk.mails.append(  # type: ignore[attr-defined]
+        (subject, text))
     return desk
 
 
@@ -2501,6 +2564,8 @@ def real_desk(s: Settings) -> Desk | None:
     set_cost_sink(costs.sink(state, date.today))  # the month's Claude cost (digest)
     desk = Desk(s, real_deps(s), state, resume=resume, contacts=contacts, mail=mail,
                 track=track, strategy=strategy)
+    # What the bot did today, by your clock (tracking.utc_offset), for the daily report.
+    day_ledger.bind(state, lambda: desk.tracking_now().date(), desk.tracking_now)
     from jobengine.notion_repo import skill_writer
 
     desk.add_skill = skill_writer(client, s)

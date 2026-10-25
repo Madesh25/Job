@@ -48,6 +48,7 @@ from jobengine.notion_repo import ContactsRepo, JobsRepo, ResumeLogRepo
 from jobengine.resume.builder import hex_id, notion_id, specific_details
 from jobengine.safety import gmail_write_allowed, route_recipients
 from jobengine.settings import ROOT_DIR, Settings
+from jobengine.track import day_ledger
 
 log = logging.getLogger("jobengine.mail")
 
@@ -265,6 +266,7 @@ def create_drafts(deps: MailDeps, job_id: str, contact_ids: list[str] | None = N
             draft = gmail.create_draft(mail.raw())
             line.draft_id, line.thread_id = draft.draft_id, draft.thread_id
             _write_contact(deps, page_id, contact, line, job, today)
+            day_ledger.count("drafts")
         result.drafted.append(line)
 
     if result.drafted and not dry and deps.jobs is not None:

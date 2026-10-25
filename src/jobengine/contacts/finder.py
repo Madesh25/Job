@@ -58,6 +58,7 @@ from jobengine.safety import contact_lookups, paid_api_allowed
 from jobengine.screen.runner import description
 from jobengine.settings import ROOT_DIR, Settings
 from jobengine.sweep.normalize import canon_company, without_region
+from jobengine.track import day_ledger
 
 log = logging.getLogger("jobengine.contacts")
 
@@ -832,6 +833,7 @@ def _write(deps: ContactDeps, job_id: str, values: dict[str, Any], chosen: list[
             "Status": "Verified" if contact.verified else "Unverified",
             "Date found": today, "Related jobs": [job_id], "Notes": contact.notes,
         })
+        day_ledger.count("contacts")
     linked = list(dict.fromkeys([*(values.get("Contacts") or []),
                                  *(c.page_id for c in [*chosen, *generic] if c.page_id)]))
     update: dict[str, Any] = {"Contacts": linked}

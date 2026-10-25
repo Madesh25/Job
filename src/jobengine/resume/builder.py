@@ -654,6 +654,9 @@ def build_resume(
     else:
         path = _save_local(deps, f"{name[:-4]}_r{revision}.pdf", pdf)
         log.info("--no-write: preview saved to %s", path)
+    from jobengine.track import day_ledger
+
+    day_ledger.count("resumes")
     return BuildOutcome(
         status="built", message="Resume built.", job_id=job_id, company=company, role=role,
         revision=revision, log_id=log_id, pdf=pdf, filename=name, plan=plan, fill=fill,

@@ -99,6 +99,7 @@ HELP_TEXT = (
     "/health - Notion, Gmail tokens, Anthropic key, last runs\n"
     "/gmailtoken - your Gmail tokens; /gmailtoken m02 or mm renews one in 2 minutes\n"
     "/digest - the weekly digest now\n"
+    "/report - today's daily report now (it also comes by itself every evening, and by email)\n"
     "/update - monthly strategy research for your review (opens /fetch); /update new again\n"
     "/connections - your LinkedIn connections table; send the LinkedIn export zip to update it\n"
     "/rules - V16 non-negotiables, thresholds, adopted tips and the /fetch gate\n"
@@ -162,7 +163,8 @@ TAP_TOASTS = {"ap": "Checking the job link, then building your resume...",
 # Every other button: a tap always gets a sign that the bot is working (5 Oct test notes).
 TAP_DEFAULT = "Working on it..."
 
-DESK_COMMANDS = ("next", "pending", "add", "jd", "done", "screen", "gaps", "contacts", "credits",
+DESK_COMMANDS = ("next", "pending", "add", "report", "jd", "done", "screen", "gaps", "contacts",
+                 "credits",
                  "outreach", "drafts", "answer", "answers", "autofill", "fetchcontacts",
                  "alertcheck", "fetchreport", "linkedin", "today", "followups", "stats",
                  "sources", "health", "digest", "update", "rules")
@@ -842,6 +844,16 @@ def _guarded(name: str, action: Callable[[], list[Reply]]) -> list[Reply]:
         return [Reply(f"{name} failed: {exc}")]
 
 
+def _scheduled(name: str, action: Callable[[], list[Reply]], desk: Desk) -> list[Reply]:
+    """A scheduled step: a failure is told in Telegram and mailed to you (H3, 25 Oct)."""
+    try:
+        return action()
+    except Exception as exc:  # report the failure instead of stopping the bot
+        log.exception("%s failed", name)
+        desk.alert_failure(name, exc)
+        return [Reply(f"{name} failed: {exc}")]
+
+
 def desk_replies(update: dict[str, Any], s: Settings, desk: Desk | None) -> list[Reply] | None:
     """Replies for /pending, /jd, /done, /screen and pasted text, or None when the message
     is not for the desk (other commands, other chats, or plain text without a /jd paste)."""
@@ -921,6 +933,8 @@ def desk_replies(update: dict[str, Any], s: Settings, desk: Desk | None) -> list
         return _guarded("/rules", desk.rules_command)
     if command == "add":
         return _guarded("/add", lambda: desk.add_command(args))
+    if command == "report":
+        return _guarded("/report", desk.report_command)
     if command == "jd":
         return _guarded("/jd", lambda: desk.jd(args))
     if command == "done":
@@ -1097,12 +1111,13 @@ def autopilot_check(client: TelegramClient, s: Settings, desk: Desk | None,
     if desk is None:
         return
     _bind_notify(client, s, desk)
-    replies = _guarded("Autopilot",
-                       lambda: desk.autopilot_scheduled(autopilot_fetch(fetch)) or [])
-    replies += _guarded("Afternoon check",
-                        lambda: desk.check_scheduled(autopilot_fetch(fetch)) or [])
-    replies += _guarded("Mail queue", desk.mail_queue_tick)
-    replies += _guarded("Reply check", desk.reply_ping_tick)
+    replies = _scheduled("Autopilot",
+                         lambda: desk.autopilot_scheduled(autopilot_fetch(fetch)) or [], desk)
+    replies += _scheduled("Afternoon check",
+                          lambda: desk.check_scheduled(autopilot_fetch(fetch)) or [], desk)
+    replies += _scheduled("Mail queue", desk.mail_queue_tick, desk)
+    replies += _scheduled("Reply check", desk.reply_ping_tick, desk)
+    replies += _scheduled("Daily report", desk.daily_report_tick, desk)
     replies += _guarded("Gmail token", lambda: [Reply(text) for text in gmail_renew.reminder(
         s, desk.state, desk.deps.config(), date.today())])
     replies += _guarded("LinkedIn connections", desk.connections_reminder)

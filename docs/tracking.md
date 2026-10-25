@@ -160,6 +160,45 @@ confidence is set to 0. Before any LLM call, auto-reply headers give `auto_reply
 the phrases in `tracking.opt_out_phrases` (`do not contact`, `remove me`, `unsubscribe`, ...)
 give `opt_out` with confidence 1.
 
+## Daily report and failure mails (Autopilot H1 and H3)
+
+Every evening at 21:45 India time the bot sends **📊 Daily report** in Telegram and the same
+text by email. It comes even when nothing ran, so a stopped bot shows the same day:
+
+```
+📊 Daily report, Thu 01 Oct
+🔎 Fetch: 2 run(s) (07:02, 19:31), 16 new job(s) saved. Found: Email alerts 38, Adzuna 9, Company sites 2.
+🧪 Screening: 16 screened (2 apply high, 5 apply normal, 9 skip).
+📄 Resumes: 3 built, keyword match on average 8 of 12 (lowest 6 of 12).
+👥 Contacts found: 4. ✉️ Gmail drafts: 3, mails sent: 1. 📩 Replies: 1.
+💰 AI today: about $0.12. AI in October so far: about $2.10 ...
+💳 Credits: Hunter 3/50 ...
+🔑 Gmail token m02: 5 day(s) left
+📌 Waiting for you: 4 job(s) in /pending, 2 need a description (/jd).
+```
+
+On a day with no fetch and no screening it starts with `Nothing ran today: 0 new jobs, 0
+screened.` `/report` shows today's report at any time.
+
+The numbers come from the day ledger (`src/jobengine/track/day_ledger.py`, Bot State
+`day.ledger`, the last 8 days): every /fetch, screened row, resume, Gmail draft, sent mail,
+contact found, reply and AI cost adds to today's entry while it runs. Bot State `report.sent`
+keeps the day of the last report, so it is sent once a day (also after a restart).
+
+Config (all optional): `schedule.report` (`false` turns it off), `schedule.report_time`
+(default `21:45`), `schedule.report_timezone` (default `Asia/Kolkata`). The report is sent at
+that time or up to 3 hours after it (long polling checks every few minutes; on Cloud Run the
+`je-report-prod` Scheduler job calls `POST /tasks/report`).
+
+**A failed scheduled run** (Autopilot, the afternoon check, the mail queue, the reply check,
+the daily report, any `POST /tasks/*`) is also mailed to you at once, with the error line and
+what to send Claude Code (the error and the last 40 lines of the bot log, never the .env or a
+token). The same failure is mailed at most once an hour (Bot State `alerts.mailed`).
+
+Both mails go to your own address only (`safety.redirect_to`, `safety.owner_mail_target`),
+from the sender mailbox, also when `DRY_RUN` is true (`src/jobengine/alerts.py`). If the mail
+cannot be sent, the Telegram report says why.
+
 ## Telegram
 
 ```
@@ -175,7 +214,7 @@ Tokens: alerts OK, sender OK
 ```
 
 Commands: `/today`, `/followups`, `/status` (now with job and contact counts), `/stats`,
-`/sources`, `/health`, `/digest`. The weekly digest (Module 09 sends it on Sunday 20:00
+`/sources`, `/health`, `/digest`, `/report`. The weekly digest (Module 09 sends it on Sunday 20:00
 Asia/Kolkata) compares the last 7 days with the week before and lists what waits for you.
 
 It ends with **What gets replies (last 30 days)** (`track/stats.replies_report`, free, no

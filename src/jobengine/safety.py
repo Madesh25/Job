@@ -50,6 +50,13 @@ def gmail_write_allowed(s: Settings) -> bool:
     return not s.dry_run
 
 
+def owner_mail_target(s: Settings) -> str:
+    """The only address the daily report and failure alerts are mailed to (alerts.py): your
+    own (safety.redirect_to). Your decision of 25 Oct: they come even with DRY_RUN on, as
+    they never reach anyone else."""
+    return s.redirect_to
+
+
 # The only Config keys the code may write.
 config_writable_keys = ["credits.apollo", "credits.hunter", "credits.snov",
                         "credits.prospeo", "credits.tomba", "credits.apollo_2",
