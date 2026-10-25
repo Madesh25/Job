@@ -678,7 +678,7 @@ class Desk:
             log = outcome.log_id.replace("-", "")
             buttons = [("Approve resume", f"ra:{log}"), ("Rebuild", f"rq:{log}")]
         if outcome.model and not outcome.model.startswith("claude-"):
-            # Gemini wrote it: one tap gets the same job written by Claude instead.
+            # DeepSeek or Gemini wrote it: one tap gets the same job written by Claude.
             buttons.append(("Rebuild with Claude", f"cl:{short_id(outcome.job_id)}"))
         plan = outcome.plan
         forced = {f.casefold() for f in (plan.forced_skills if plan else [])}

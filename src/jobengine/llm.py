@@ -7,9 +7,11 @@ the job description and profile data); only stage, model and token counts are.
 make_llm gives the bot its client: a `claude-...` model goes to Anthropic, a `gemini-...`
 model to Google (GEMINI_API_KEY), a `deepseek-...` model to DeepSeek (DEEPSEEK_API_KEY). A
 call that fails there is answered by Haiku, so an outage or a wrong key never stops the bot.
-DeepSeek only ever gets job texts (screening): a DeepSeek model in any other stage is
-replaced by Haiku. The half-price batch exists only on Claude. No AI gets access to Gmail,
-Drive or Notion: the bot's own code does that and sends the AI text only.
+DeepSeek may run every stage except the web searches (your plan C of 25 Oct: you accepted
+that your resume, your name and your contacts' names then go to DeepSeek); a DeepSeek model
+in a search stage is replaced by Haiku. The half-price batch exists only on Claude. No AI
+gets access to Gmail, Drive or Notion: the bot's own code does that and sends the AI text
+only.
 """
 
 from __future__ import annotations
@@ -29,7 +31,7 @@ from jobengine.settings import ROOT_DIR, Settings
 log = logging.getLogger("jobengine.llm")
 
 STAGES = ("fetch", "score", "tailor", "email", "strategy", "resume", "cover", "prep", "reply",
-          "people")
+          "people", "apply")
 # A stage without its own Config row uses its parent's model: before 20 Oct resumes, cover
 # letters and interview prep all used model.tailor.
 STAGE_PARENT = {"resume": "tailor", "cover": "tailor", "prep": "tailor"}
@@ -39,9 +41,11 @@ FIXTURE_DIR = {**STAGE_PARENT, "reply": "score"}
 DEFAULT_MODEL = "claude-haiku-4-5"
 GEMINI_PREFIX = "gemini-"
 DEEPSEEK_PREFIX = "deepseek-"
-# The only stages DeepSeek may run: they send the job text and nothing about you or your
-# mail (your choice, 20 Oct).
-DEEPSEEK_STAGES = ("score",)
+# The stages that may search the web (Claude's web search or Gemini with Google Search).
+SEARCH_STAGES = ("strategy", "people")
+# DeepSeek has no web search: it may run every other stage (plan C, 25 Oct; before that
+# only screening, 20 Oct).
+DEEPSEEK_STAGES = tuple(stage for stage in STAGES if stage not in SEARCH_STAGES)
 # Config row naming the model of the "Rebuild with Claude" button under a resume preview.
 REBUILD_MODEL_KEY = "model.resume_rebuild"
 FIXTURES = ROOT_DIR / "fixtures" / "llm"
@@ -198,7 +202,6 @@ class BatchLLM(LLMClient, Protocol):
 # Anthropic's server-side web search tool (basic version: works on every current model,
 # including the haiku that local and dev are forced to use).
 WEB_SEARCH_TOOL = "web_search_20250305"
-SEARCH_STAGES = ("strategy", "people")  # the stages that may search the web
 MAX_CONTINUATIONS = 4
 
 
@@ -736,7 +739,7 @@ def deepseek_usage(usage: Any) -> DeepSeekUsage:
 
 class DeepSeekLLM:
     """DeepSeek's chat API (OpenAI style, JSON mode) through jobengine.http. Only the stages
-    in DEEPSEEK_STAGES may call it."""
+    in DEEPSEEK_STAGES (all but the web searches) may call it."""
 
     def __init__(self, s: Settings, usage: Usage | None = None):
         if not s.deepseek_api_key:
@@ -791,7 +794,7 @@ class DeepSeekLLM:
 class ModelRouter:
     """The bot's LLM client: each stage goes to the provider of its Config model.
 
-    claude-... -> Anthropic; gemini-... -> Google; deepseek-... -> DeepSeek (screening only).
+    claude-... -> Anthropic; gemini-... -> Google; deepseek-... -> DeepSeek (no web search).
     A Gemini or DeepSeek call that fails (an error, a wrong or missing key, broken JSON
     twice) is sent again to Haiku. The half-price batch exists only on Claude."""
 
@@ -825,8 +828,8 @@ class ModelRouter:
         model = resolve_model(override, self.s) if override else model_for(
             stage, self.config, self.s)
         if is_deepseek(model) and stage not in DEEPSEEK_STAGES:
-            log.warning("model.%s is %s, but DeepSeek only gets job texts (%s): %s answers",
-                        stage, model, ", ".join(DEEPSEEK_STAGES), self._fallback())
+            log.warning("model.%s is %s, but DeepSeek has no web search: %s answers",
+                        stage, model, self._fallback())
             return self._fallback()
         return model
 

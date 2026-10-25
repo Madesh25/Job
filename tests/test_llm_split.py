@@ -1,5 +1,6 @@
-"""20 Oct: DeepSeek for screening only, Gemini with Google Search for /update, and the
-"Rebuild with Claude" button under a resume Gemini wrote."""
+"""20 Oct: DeepSeek for screening, Gemini with Google Search for /update, and the
+"Rebuild with Claude" button under a resume Gemini wrote. 25 Oct (plan C): DeepSeek may run
+every stage except the web searches."""
 
 import json
 
@@ -71,9 +72,9 @@ def test_deepseek_call_shape_and_cost(web):
     assert usage.line().endswith("with deepseek-v4-flash")
 
 
-def test_deepseek_never_gets_your_resume_or_mail():
-    for stage in ("resume", "cover", "prep", "reply", "email", "strategy"):
-        with pytest.raises(LLMError, match="DeepSeek is only used for score"):
+def test_deepseek_never_runs_a_web_search_stage():
+    for stage in ("strategy", "people"):
+        with pytest.raises(LLMError, match="DeepSeek is only used for "):
             DeepSeekLLM(settings()).complete_json(stage, "s", "u", model="deepseek-v4-flash")
 
 
@@ -100,14 +101,19 @@ def router(config, **clients):
     return llm, claude
 
 
-def test_deepseek_in_another_stage_is_replaced_by_haiku():
+def test_deepseek_runs_every_stage_but_search_plan_c():
     deepseek = Recorder()
     llm, claude = router({"model.score": "deepseek-v4-flash",
-                          "model.cover": "deepseek-v4-flash"}, deepseek=deepseek)
+                          "model.cover": "deepseek-v4-flash",
+                          "model.apply": "deepseek-v4-flash",
+                          "model.people": "deepseek-v4-flash"}, deepseek=deepseek)
     assert llm.complete_json("score", "s", "u") == {"from": "deepseek-v4-flash"}
-    assert llm.complete_json("cover", "s", "u") == {"from": DEFAULT_MODEL}
-    assert deepseek.calls == [("score", "deepseek-v4-flash")]
-    assert claude.calls == [("cover", DEFAULT_MODEL)]
+    assert llm.complete_json("cover", "s", "u") == {"from": "deepseek-v4-flash"}
+    assert llm.complete_json("apply", "s", "u") == {"from": "deepseek-v4-flash"}
+    assert llm.complete_json("people", "s", "u") == {"from": DEFAULT_MODEL}  # search stage
+    assert deepseek.calls == [("score", "deepseek-v4-flash"), ("cover", "deepseek-v4-flash"),
+                              ("apply", "deepseek-v4-flash")]
+    assert claude.calls == [("people", DEFAULT_MODEL)]
     assert not llm.batch_ok("score")
 
 
