@@ -213,6 +213,22 @@ Both mails go to your own address only (`safety.redirect_to`, `safety.owner_mail
 from the sender mailbox, also when `DRY_RUN` is true (`src/jobengine/alerts.py`). If the mail
 cannot be sent, the Telegram report says why.
 
+## Weekly spot check (Autopilot H5)
+
+With the autopilot building resumes and cover letters by itself you no longer check each
+one, so every Sunday at 20:00 India time (with the weekly digest) the bot sends **2 of the
+week's approved resumes**, picked at random (the newest revision of each job,
+`src/jobengine/track/spot_check.py`):
+
+- the resume PDF, its keyword match line and the cover letter saved on the job's page;
+- **👍 Looks fine** and **⚠️ Something is wrong**. Something is wrong asks what, in a reply
+  to that message ("says 5 years of Terraform, I have 3"); the note is kept in Bot State
+  `spotcheck.notes` (the last 30).
+
+`/spotcheck` sends a spot check at any time; `/spotcheck notes` lists your notes: send them to
+Claude Code when you have a few, so the cause gets fixed. Once a week (Bot State
+`spotcheck.sent`), long polling and the Cloud Run digest task (`POST /tasks/digest`) alike.
+
 ## Heartbeat (Autopilot H4)
 
 The daily report and the failure mails come from the bot itself, so when the PC, the
@@ -252,7 +268,7 @@ Tokens: alerts OK, sender OK
 ```
 
 Commands: `/today`, `/followups`, `/status` (now with job and contact counts), `/stats`,
-`/sources`, `/health`, `/digest`, `/report`. The weekly digest (Module 09 sends it on Sunday 20:00
+`/sources`, `/health`, `/digest`, `/report`, `/spotcheck`. The weekly digest (Module 09 sends it on Sunday 20:00
 Asia/Kolkata) compares the last 7 days with the week before and lists what waits for you.
 
 It ends with **What gets replies (last 30 days)** (`track/stats.replies_report`, free, no

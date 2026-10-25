@@ -88,8 +88,7 @@ HELP_TEXT = (
     "/answer <question> = <answer> - save a form answer; it is in every Apply pack after\n"
     "/answers - your saved form answers (/answer delete N removes one)\n"
     "/autofill - the browser bookmark that fills application forms from the Apply pack code\n"
-    "/dryrun <url or id> - the bot fills the job's application form in a browser and sends "
-    "a screenshot; it never submits\n"
+    "/dryrun <url or id> - fill the job's form in a browser, never submit (screenshot)\n"
     "/prep <url or id> - interview prep: likely questions, your gaps, questions to ask them\n"
     "/thanks <url or id> <name> - the thank-you mail to send after an interview\n"
     "/mailmode - draft (only write Gmail drafts) or send (check every mail, then send it)\n"
@@ -101,6 +100,7 @@ HELP_TEXT = (
     "/health - Notion, Gmail tokens, Anthropic key, last runs\n"
     "/gmailtoken - your Gmail tokens; /gmailtoken m02 or mm renews one in 2 minutes\n"
     "/digest - the weekly digest now\n"
+    "/spotcheck - 2 of the week's resumes to look at (notes: what you marked wrong)\n"
     "/report - today's daily report now (it also comes by itself every evening, and by email)\n"
     "/update - monthly strategy research for your review (opens /fetch); /update new again\n"
     "/connections - your LinkedIn connections table; send the LinkedIn export zip to update it\n"
@@ -169,7 +169,7 @@ DESK_COMMANDS = ("next", "pending", "add", "report", "jd", "done", "screen", "ga
                  "credits",
                  "outreach", "drafts", "answer", "answers", "autofill", "dryrun", "fetchcontacts",
                  "alertcheck", "fetchreport", "linkedin", "today", "followups", "stats",
-                 "sources", "health", "digest", "update", "rules")
+                 "sources", "health", "digest", "spotcheck", "update", "rules")
 
 # (method, payload, http_timeout) -> decoded JSON response
 Transport = Callable[[str, dict[str, Any], float], dict[str, Any]]
@@ -315,7 +315,8 @@ def console_transport(
                          else path).as_posix()
                 print(f"bot [message {message_id}, document {where}]> {text}", file=stdout,
                       flush=True)
-            elif "Ref JOB-" in text or "Ref ST-" in text:  # answer with `reply <n> <text>`
+            elif any(ref in text for ref in ("Ref JOB-", "Ref ST-", "Ref SPOT-")):
+                # answer with `reply <n> <text>`
                 print(f"bot [message {message_id}]> {text}", file=stdout, flush=True)
             else:
                 print(f"bot> {text}", file=stdout, flush=True)
@@ -880,6 +881,9 @@ def desk_replies(update: dict[str, Any], s: Settings, desk: Desk | None) -> list
         replies = _guarded("Note", lambda: desk.strategy_note(ref_text, text) or [])
         if replies:
             return replies
+        replies = _guarded("Spot check", lambda: desk.spot_note(ref_text, text) or [])
+        if replies:
+            return replies
     if command == "next":
         return _guarded("/next", desk.next_command)
     if command == "pending":
@@ -912,6 +916,8 @@ def desk_replies(update: dict[str, Any], s: Settings, desk: Desk | None) -> list
         return _guarded("/answers", desk.answers_command)
     if command == "autofill":
         return _guarded("/autofill", desk.autofill_command)
+    if command == "spotcheck":
+        return _guarded("/spotcheck", lambda: desk.spot_check_command(args))
     if command == "dryrun":
         return _guarded("/dryrun", lambda: desk.dryrun_command(args))
     if command == "applypack":
@@ -1122,6 +1128,7 @@ def autopilot_check(client: TelegramClient, s: Settings, desk: Desk | None,
     replies += _scheduled("Mail queue", desk.mail_queue_tick, desk)
     replies += _scheduled("Reply check", desk.reply_ping_tick, desk)
     replies += _scheduled("Daily report", desk.daily_report_tick, desk)
+    replies += _scheduled("Spot check", desk.spot_check_tick, desk)
     replies += _guarded("Gmail token", lambda: [Reply(text) for text in gmail_renew.reminder(
         s, desk.state, desk.deps.config(), date.today())])
     replies += _guarded("LinkedIn connections", desk.connections_reminder)

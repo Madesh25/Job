@@ -551,6 +551,8 @@ class Desk:
             return self.outreach_tap(arg)
         if action == "ln" and arg:  # "LinkedIn notes" under the contacts
             return self.linkedin_notes(arg)
+        if action in ("sf", "sw") and arg:  # the spot check's buttons (H5)
+            return self.spot_tap(action, arg)
         if action == "tu" and arg:  # "Undo" under a company /add put in Target Companies
             return self.add_undo(arg)
         if action == "rf" and arg:  # "Referral asks": your LinkedIn connections there
@@ -2002,6 +2004,76 @@ class Desk:
             return [Reply(f"Recorded: {agency.name} contacted on {self.today().isoformat()}. "
                           f"The digest reminds you after {ag.FOLLOW_UP_DAYS} days.")]
         return [Reply(ag.intro(self.s, config, agency)[:MAX_TEXT])]
+
+    # ------------------------------------------------------------ spot check (H5)
+
+    def spot_check(self) -> list[Reply]:
+        """2 of the week's approved resumes, with their match and cover letter (H5)."""
+        from jobengine.mail.drafter import resume_pdf
+        from jobengine.track import spot_check
+
+        if self.resume is None or self.resume.resume_log is None or self.repo is None:
+            return [Reply("The spot check needs the Resume Log; it is not available here.")]
+        today = self.tracking_now().date()
+        picks = spot_check.pick(self.resume.resume_log.all_rows(), today)
+        if not picks:
+            return [Reply("🔍 Spot check: no resume was approved in the last 7 days.")]
+        replies, cards = [], {}
+        for log_id, row in picks:
+            job_id = (row.get("Job") or [""])[0]
+            values = (self.repo.get_values(job_id) if job_id else None) or {}
+            job = f"{values.get('Company') or '?'}, {values.get('Role') or '?'}"
+            body = self.repo.read_body(job_id) if job_id else []
+            pdf = None
+            if self.mail is not None:
+                try:
+                    pdf = resume_pdf(self.mail, dict(row))
+                except Exception as exc:  # the card still comes without the PDF
+                    log.info("spot check: no PDF for %s: %s", job, exc)
+            jd, _kind = description(body)
+            terms = list(self.ranker().keywords(jd).have) if jd else []
+            match = cover.cover_line(terms, cover.pdf_text(pdf)) if pdf else None
+            ref = spot_check.ref(log_id)
+            cards[ref] = job
+            text = spot_check.card(job, match, spot_check.letter(body), log_id)
+            buttons = [("👍 Looks fine", f"sf:{ref}"), ("⚠️ Something is wrong", f"sw:{ref}")]
+            name = str(row.get("Resume name") or "resume").removesuffix(".pdf") + ".pdf"
+            replies.append(Reply(text[:1000] if pdf else text[:MAX_TEXT], buttons,
+                                 document=(name, pdf) if pdf else None))
+        spot_check.remember(self.state, cards)
+        return replies
+
+    def spot_check_tick(self) -> list[Reply]:
+        """Sunday 20:00 India time (with the digest): the spot check, once a week."""
+        from jobengine.track import spot_check
+
+        now = self.tracking_now()
+        if not spot_check.due(self.state, now):
+            return []
+        spot_check.mark_sent(self.state, now.date())
+        return self.spot_check()
+
+    def spot_check_command(self, args: str) -> list[Reply]:
+        """/spotcheck: a spot check now; /spotcheck notes: your notes for Claude Code."""
+        from jobengine.track import spot_check
+
+        if args.strip().lower() == "notes":
+            return [Reply(spot_check.notes_text(self.state)[:MAX_TEXT])]
+        return self.spot_check()
+
+    def spot_tap(self, action: str, ref: str) -> list[Reply]:
+        from jobengine.track import spot_check
+
+        job = spot_check.job_of(self.state, ref)
+        if action == "sf":
+            return [Reply(f"👍 Thanks: {job} looks fine.")]
+        return [Reply(spot_check.question(job, ref))]
+
+    def spot_note(self, replied_to: str, text: str) -> list[Reply] | None:
+        from jobengine.track import spot_check
+
+        saved = spot_check.add_note(self.state, replied_to, text, self.tracking_now().date())
+        return [Reply(saved)] if saved else None
 
     def digest_command(self) -> list[Reply]:
         if self.track is None:
