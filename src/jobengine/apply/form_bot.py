@@ -5,11 +5,13 @@ Your decisions of 25 Oct: a dry run first (fill, never submit), as many rounds a
 until you say the answers are good; natural answers in your voice from true facts only; no
 tricks to hide the bot (a plain browser, no captcha or login workaround).
 
-How it fills (no AI in this step):
+How it fills:
 - your profile and Apply pack answers (apply/autofill.fields): name, email, phone, links,
   permit, sponsorship, salary, notice, start, relocation, English, why this company;
 - your saved form answers (/answer, apply/answers.py), matched to the question's words;
-- a field with no answer stays empty and is listed, so you answer it once with /answer.
+- the questions left: one AI call in your voice from your facts, each answer checked by code
+  (apply/form_ai.py, step 2); what the facts do not answer stays empty;
+- an empty field is listed, so you answer it once with /answer.
 
 What it never does:
 - press a button, press Enter or submit the form (tests/test_repo_rules.py checks the code);
@@ -91,7 +93,8 @@ CONSENT = re.compile(r"\b(consent|privacy|gdpr|terms|agree|policy|data protectio
 RESUME = re.compile(r"\b(resume|cv|curriculum)\b")
 STOP = {"the", "and", "you", "your", "are", "for", "with", "have", "what", "how", "many",
         "any", "this", "that", "our", "please", "did", "does", "will", "can"}
-SOURCES = {"profile": "your profile and Apply pack", "saved": "your saved answer"}
+SOURCES = {"profile": "your profile and Apply pack", "saved": "your saved answer",
+           "ai": "🤖 AI from your facts: check it"}
 
 
 def norm(text: Any) -> str:
@@ -239,7 +242,7 @@ def report(result: Result, job: str = "") -> str:
         lines.append("")
         lines += [f"{'❗' if a.field.required else '❓'} {_short(a.field.label)}: {a.note}"
                   for a in left]
-    open_questions = [a for a in left if a.note == "no answer yet"]
+    open_questions = [a for a in left if a.note.startswith("no answer yet")]
     if open_questions:
         lines += ["", "Answer a question once and every later form gets it, in your words:",
                   f"/answer {_short(open_questions[0].field.label)} = <your answer>"]
@@ -412,9 +415,11 @@ def dry_run(s: Settings, url: str, values: Mapping[str, str],
             saved: Sequence[Mapping[str, str]], *, name: str = "form",
             folder: Path = OUT_DIR, prepare: Callable[[Any], None] | None = None,
             check: Callable[[Any], None] | None = None,
+            ai: Callable[[list[Answer]], int] | None = None,
             now: Callable[[], datetime] = datetime.now) -> Result:
-    """Open the form, fill it, take a screenshot. `prepare` gets the browser context before
-    the page opens and `check` the filled page (tests serve and read their own form)."""
+    """Open the form, fill it, take a screenshot. `ai` answers the questions left open
+    (apply/form_ai.py, step 2). `prepare` gets the browser context before the page opens and
+    `check` the filled page (tests serve and read their own form)."""
     result = Result(url=url)
     try:
         safety.assert_page_fetch_allowed(url, s)
@@ -446,6 +451,8 @@ def dry_run(s: Settings, url: str, values: Mapping[str, str],
                                   "Apply button or on another page: send its own link).")
             else:
                 result.answers = plan(fields, values, saved)
+                if ai is not None:
+                    ai(result.answers)
                 _fill(page, result.answers)
                 if check is not None:
                     check(page)

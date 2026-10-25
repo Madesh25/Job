@@ -73,8 +73,17 @@ a later step may submit.
 - **Answers:** your saved answers (`/answer`) first, matched to the question's words, then
   your profile and Apply pack answers (the same as the autofill code: name, email, phone,
   links, permit, sponsorship, salary, notice, start, relocation, English, why this company).
-  No AI in this step. A question with no answer stays empty and is listed with the
-  `/answer` line to save it once; that is how your own natural answers are collected.
+- **AI for the rest (step 2, `apply/form_ai.py`):** the questions still open go to the AI in
+  one call per form (Config `model.apply`; plan C: DeepSeek, Haiku when not set or when it
+  fails). It gets your Apply pack facts, your saved answers (your own voice), your Skills
+  Inventory, your resume text and the job, and must answer in your voice from those facts
+  only, or give nothing. Before an AI answer is typed, code checks it: a year count must be
+  in your experience answer ("N+ years" becomes "N years"), "immediately" becomes your notice
+  period, a skill the job asks for that is not in your resume or Skills Inventory drops the
+  answer, and a dropdown answer must be one of its options. AI answers are marked
+  "🤖 AI from your facts: check it" in the report; a dropped one says why.
+- A question nobody could answer stays empty and is listed with the `/answer` line to save
+  it once; that is how your own natural answers are collected.
 - **Dropdowns and radio buttons:** the option with the same text, else one starting with it,
   else Yes or No by the answer's first word. When no option matches it is left empty.
 - **Left to you:** consent and privacy boxes (never ticked), file fields (the resume is
@@ -93,9 +102,9 @@ Setup on the machine that runs it (once): `pip install -e ".[formbot]"` then
 `/dryrun` answers that Playwright is missing. `JOBENGINE_CHROMIUM` may point to a Chromium the
 machine already has.
 
-Next steps (not built yet): AI answers in your voice for the open questions with a fact check,
-the resume upload, the Answer bank and Auto-apply issues tables in Notion, Approve and Wrong
-buttons, the laptop queue with Cloud Run as fallback, 3 forms at a time.
+Next steps (not built yet): the resume upload, the Answer bank and Auto-apply issues tables in
+Notion, Approve and Wrong buttons, the laptop queue with Cloud Run as fallback, 3 forms at a
+time.
 
 ## Form autofill (flow feature 9)
 

@@ -966,9 +966,12 @@ class Desk:
         if "://" not in url:
             return [Reply(f"No Job Opportunities row found for {parts[0]}")]
         job = f"{values.get('Company') or ''}, {values.get('Role') or ''}".strip(", ")
-        result = form_bot.dry_run(
-            self.s, url, autofill.fields(self.s, self.deps.config(), values, why=why),
-            answers.items(self.state), name=job or "form")
+        config = self.deps.config()
+        profile = autofill.fields(self.s, config, values, why=why)
+        saved = answers.items(self.state)
+        body = self.repo.read_body(row.page_id) if row is not None and self.repo else []
+        result = form_bot.dry_run(self.s, url, profile, saved, name=job or "form",
+                                  ai=self._form_ai(values, body, profile, saved))
         replies = []
         if result.screenshot is not None:
             replies.append(Reply(f"Dry run screenshot{f': {job}' if job else ''} (not sent)",
@@ -976,6 +979,26 @@ class Desk:
                                            result.screenshot.read_bytes())))
         replies.append(Reply(form_bot.report(result, job)[:MAX_TEXT]))
         return replies
+
+    def _form_ai(self, values: dict[str, Any], body: list[str], profile: dict[str, str],
+                 saved: list[dict[str, str]]) -> Callable[[list[Any]], int]:
+        """The AI step of the dry run (apply/form_ai.py): your facts, voice and skills."""
+        from jobengine.apply import facts as facts_mod
+        from jobengine.apply import form_ai
+
+        config = self.deps.config()
+        try:
+            skills = form_ai.skills_lines(self.reference().skills)
+        except Exception as exc:  # the AI then has the resume only
+            log.info("dry run: no Skills Inventory: %s", exc)
+            skills = []
+        jd, _kind = description(body)
+        ctx = form_ai.Context(facts=facts_mod.facts(self.s, config), profile=profile,
+                              saved=saved, skills=skills, resume=self._master_text(),
+                              company=values.get("Company") or "",
+                              role=values.get("Role") or "", jd=jd or "")
+        gaps = split_gaps(values.get("Gaps"))
+        return lambda found: form_ai.fill(self.deps.llm(config), found, ctx, gaps)
 
     def answer_command(self, args: str) -> list[Reply]:
         """/answer <question> = <answer>: kept for every later Apply pack (feature 10)."""
