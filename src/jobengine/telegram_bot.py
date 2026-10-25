@@ -161,7 +161,8 @@ TAP_TOASTS = {"ap": "Checking the job link, then building your resume...",
               "na": "Not applying...", "nr": "Saving the reason...",
               "gs": "Adding it to your skills...", "sc": "Screening...",
               "gt": "Updated", "gr": "Adding them and rebuilding...", "gp": "Listing them...",
-              "tu": "Undoing..."}
+              "tu": "Undoing...", "en": "Getting your first job...",
+              "nj": "Getting the next job...", "sz": "Snoozing...", "dd": "Well done..."}
 # Every other button: a tap always gets a sign that the bot is working (5 Oct test notes).
 TAP_DEFAULT = "Working on it..."
 
@@ -1129,6 +1130,7 @@ def autopilot_check(client: TelegramClient, s: Settings, desk: Desk | None,
     replies += _scheduled("Reply check", desk.reply_ping_tick, desk)
     replies += _scheduled("Daily report", desk.daily_report_tick, desk)
     replies += _scheduled("Spot check", desk.spot_check_tick, desk)
+    replies += _scheduled("Apply nudge", desk.nudge_tick, desk)
     replies += _guarded("Gmail token", lambda: [Reply(text) for text in gmail_renew.reminder(
         s, desk.state, desk.deps.config(), date.today())])
     replies += _guarded("LinkedIn connections", desk.connections_reminder)

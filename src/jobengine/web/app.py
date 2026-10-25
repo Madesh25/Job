@@ -79,6 +79,7 @@ class Tasks:
     replies: Callable[[], dict[str, Any]] = field(default=lambda: {"ok": True})
     check: Callable[[], dict[str, Any]] = field(default=lambda: {"ok": True})
     report: Callable[[], dict[str, Any]] = field(default=lambda: {"ok": True})
+    nudge: Callable[[], dict[str, Any]] = field(default=lambda: {"ok": True})
 
 
 def desk_tasks(s: Settings, desk: Desk, client: tb.TelegramClient,
@@ -172,8 +173,15 @@ def desk_tasks(s: Settings, desk: Desk, client: tb.TelegramClient,
             send(sent)
         return {"ok": True, "sent": bool(sent)}
 
+    def nudge() -> dict[str, Any]:
+        """The apply nudge from 22:00 India time (track/nudge.py): at most 5 an evening."""
+        sent = desk.nudge_tick()
+        if sent:
+            send(sent)
+        return {"ok": True, "sent": bool(sent)}
+
     return Tasks(daily=daily, digest=digest, sweep=sweep, autopilot=autopilot, mail=mail,
-                 replies=replies, check=check, report=report)
+                 replies=replies, check=check, report=report, nudge=nudge)
 
 
 def create_app(
@@ -277,6 +285,10 @@ def create_app(
     @app.post("/tasks/report")
     def task_report(request: Request) -> JSONResponse:
         return run_task("report", tasks.report, request.headers.get("Authorization"))
+
+    @app.post("/tasks/nudge")
+    def task_nudge(request: Request) -> JSONResponse:
+        return run_task("nudge", tasks.nudge, request.headers.get("Authorization"))
 
     @app.post("/tasks/sweep")
     def task_sweep(request: Request) -> JSONResponse:
