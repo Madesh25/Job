@@ -89,6 +89,7 @@ HELP_TEXT = (
     "/answers - your saved form answers (/answer delete N removes one)\n"
     "/autofill - the browser bookmark that fills application forms from the Apply pack code\n"
     "/dryrun <url or id> - fill the job's form in a browser, never submit (screenshot)\n"
+    "/autoapply - dry runs for the jobs with a built resume, 3 at a time (30 a day)\n"
     "/prep <url or id> - interview prep: likely questions, your gaps, questions to ask them\n"
     "/thanks <url or id> <name> - the thank-you mail to send after an interview\n"
     "/mailmode - draft (only write Gmail drafts) or send (check every mail, then send it)\n"
@@ -163,13 +164,15 @@ TAP_TOASTS = {"ap": "Checking the job link, then building your resume...",
               "gt": "Updated", "gr": "Adding them and rebuilding...", "gp": "Listing them...",
               "tu": "Undoing...", "en": "Getting your first job...",
               "nj": "Getting the next job...", "sz": "Snoozing...", "dd": "Well done...",
-              "fo": "Saving your approval...", "fw": "Listing the answers..."}
+              "fo": "Saving your approval...", "fw": "Listing the answers...",
+              "lp": "Noted..."}
 # Every other button: a tap always gets a sign that the bot is working (5 Oct test notes).
 TAP_DEFAULT = "Working on it..."
 
 DESK_COMMANDS = ("next", "pending", "add", "report", "jd", "done", "screen", "gaps", "contacts",
                  "credits",
-                 "outreach", "drafts", "answer", "answers", "autofill", "dryrun", "fetchcontacts",
+                 "outreach", "drafts", "answer", "answers", "autofill", "dryrun", "autoapply",
+                 "fetchcontacts",
                  "alertcheck", "fetchreport", "linkedin", "today", "followups", "stats",
                  "sources", "health", "digest", "spotcheck", "update", "rules")
 
@@ -923,6 +926,8 @@ def desk_replies(update: dict[str, Any], s: Settings, desk: Desk | None) -> list
         return _guarded("/autofill", desk.autofill_command)
     if command == "spotcheck":
         return _guarded("/spotcheck", lambda: desk.spot_check_command(args))
+    if command == "autoapply":
+        return _guarded("/autoapply", lambda: desk.autoapply_command(args))
     if command == "dryrun":
         return _guarded("/dryrun", lambda: desk.dryrun_command(args))
     if command == "applypack":
@@ -1135,6 +1140,7 @@ def autopilot_check(client: TelegramClient, s: Settings, desk: Desk | None,
     replies += _scheduled("Daily report", desk.daily_report_tick, desk)
     replies += _scheduled("Spot check", desk.spot_check_tick, desk)
     replies += _scheduled("Apply nudge", desk.nudge_tick, desk)
+    replies += _scheduled("Auto-apply", desk.autoapply_tick, desk)
     replies += _guarded("Gmail token", lambda: [Reply(text) for text in gmail_renew.reminder(
         s, desk.state, desk.deps.config(), date.today())])
     replies += _guarded("LinkedIn connections", desk.connections_reminder)

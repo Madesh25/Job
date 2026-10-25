@@ -192,3 +192,20 @@ def test_dryrun_sends_the_screenshot_and_the_answers(tmp_path, monkeypatch):
     assert "✅ Notice period: 90 days" in text_reply.text
     assert d.dryrun_command("")[0].text.startswith("Send /dryrun")
     assert "dryrun" in {c["command"] for c in tb.bot_commands()}
+
+
+@browser
+def test_the_approved_resume_is_attached(tmp_path, monkeypatch):
+    monkeypatch.setattr(form_bot, "SETTLE_MS", 100)
+    seen = {}
+
+    def check(page):
+        seen["file"] = page.evaluate("() => cv.files.length ? cv.files[0].name : ''")
+
+    result = form_bot.dry_run(settings(), "https://jobs.example.com/apply", VALUES, SAVED,
+                              folder=tmp_path, prepare=_serve(FORM), check=check,
+                              resume=("Madeshwaran_DevOps.pdf", b"%PDF-1.4 x"))
+    assert seen["file"] == "Madeshwaran_DevOps.pdf"
+    [cv] = [a for a in result.answers if a.field.kind == "file"]
+    assert (cv.value, cv.source) == ("Madeshwaran_DevOps.pdf", "resume")
+    assert not (tmp_path / "upload").exists() or not any((tmp_path / "upload").iterdir())

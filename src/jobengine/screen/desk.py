@@ -557,6 +557,8 @@ class Desk:
             return self.linkedin_notes(arg)
         if action in ("en", "nj", "sz", "dd") and arg:  # the apply nudge's buttons (H7)
             return self.nudge_tap(action, arg)
+        if action == "lp" and arg in ("yes", "no"):  # "Is your laptop on?" (auto-apply queue)
+            return self.laptop_tap(arg)
         if action in ("fo", "fw") and arg:  # under a dry run: Answers OK, Something is wrong
             return self.dryrun_tap(action, arg)
         if action in ("sf", "sw") and arg:  # the spot check's buttons (H5)
@@ -953,24 +955,29 @@ class Desk:
 
     def dryrun_command(self, args: str) -> list[Reply]:
         """/dryrun <job> [form link]: fill the job's form in a browser, never submit (H8)."""
-        from jobengine.apply import form_bot, form_review, pack
-        from jobengine.resume.builder import specific_details
-
         parts = args.split()
         if not parts:
             return [Reply("Send /dryrun <job URL or page id>, or /dryrun <job> <form link> when "
                           "the form is on another page. It fills the form and never submits.")]
+        return self.dry_run_job(parts[0], parts[1] if len(parts) > 1 else None)
+
+    def dry_run_job(self, ref: str, form_url: str | None = None) -> list[Reply]:
+        """One dry run: the form filled from your answers, the AI and the approved resume,
+        a screenshot, the report with Answers OK / Something is wrong. Never submitted."""
+        from jobengine.apply import form_bot, form_review, pack
+        from jobengine.resume.builder import specific_details
+
         values: dict[str, Any] = {}
         why = None
-        row = find_row(self.repo, parts[0]) if self.repo is not None else None
+        row = find_row(self.repo, ref) if self.repo is not None else None
         if row is not None:
             values = self.repo.get_values(row.page_id) or {}
             why = pack.why_line(self.s, self.deps.config(),
                                 specific_details(self.repo.read_body(row.page_id)),
                                 split_gaps(values.get("Gaps")))
-        url = parts[1] if len(parts) > 1 else (values.get("URL") or parts[0])
+        url = form_url or values.get("URL") or ref
         if "://" not in url:
-            return [Reply(f"No Job Opportunities row found for {parts[0]}")]
+            return [Reply(f"No Job Opportunities row found for {ref}")]
         job = f"{values.get('Company') or ''}, {values.get('Role') or ''}".strip(", ")
         config = self.deps.config()
         profile = autofill.fields(self.s, config, values, why=why)
@@ -980,7 +987,8 @@ class Desk:
         now = self.tracking_now()
         form_review.prune_approved(self.state, now)
         result = form_bot.dry_run(self.s, url, profile, saved, name=job or "form",
-                                  ai=self._form_ai(values, body, profile, saved))
+                                  ai=self._form_ai(values, body, profile, saved),
+                                  resume=self._approved_resume(row.page_id) if row else None)
         replies = []
         if result.screenshot is not None:
             replies.append(Reply(f"Dry run screenshot{f': {job}' if job else ''} (not sent)",
@@ -994,6 +1002,96 @@ class Desk:
             buttons = form_review.buttons(run_id)
         replies.append(Reply(form_bot.report(result, job)[:MAX_TEXT], buttons))
         return replies
+
+    def _approved_resume(self, job_id: str) -> tuple[str, bytes] | None:
+        """The job's approved resume PDF (file name, bytes), or None."""
+        from jobengine.mail.drafter import resume_name, resume_pdf
+
+        log_repo = self.resume.resume_log if self.resume is not None else None
+        if log_repo is None or self.mail is None:
+            return None
+        rows = [row for _, row in log_repo.rows_for_job(job_id) if row.get("Approved")]
+        if not rows:
+            return None
+        row = max(rows, key=lambda r: r.get("Revision") or 0)
+        try:
+            return resume_name(dict(row)), resume_pdf(self.mail, dict(row))
+        except Exception as exc:  # the dry run still fills the rest
+            log.info("dry run: no resume PDF for %s: %s", job_id, exc)
+            return None
+
+    # ------------------------------------------------------------ auto-apply queue (H8)
+
+    def autoapply_command(self, args: str) -> list[Reply]:
+        """/autoapply: queue the jobs whose resume is built for a dry run (30 a day);
+        /autoapply status: the queue and the auto-submit gate."""
+        from jobengine.apply import queue
+
+        now = self.tracking_now()
+        config = self.deps.config()
+        if args.strip().lower() != "status":
+            added, left = queue.add(self.state, config, self._ready(), now)
+            head = (f"Queued {added} job(s) for a dry run (filled, never submitted); "
+                    f"{left} more allowed today.")
+        else:
+            head = "Auto-apply queue:"
+        waiting = len(queue.waiting(self.state, now))
+        where = ("the bot on this machine fills them, 3 at a time" if self.s.bot_mode != "webhook"
+                 else "your laptop if it is on, else Cloud Run, 3 at a time")
+        return [Reply(f"{head}\n{waiting} waiting: {where}. Each result comes with Answers OK "
+                      f"and Something is wrong.\n{self._submit_status()}")]
+
+    def _submit_status(self) -> str:
+        from jobengine.apply import form_review, queue
+
+        runs = (self.state.get(form_review.KEY) or {}).get("items") or []
+        wrong = sum(1 for r in runs[-10:] if r.get("status") == "wrong")
+        return queue.submit_status(self.deps.config(), form_review.approved_count(self.state),
+                                   wrong)
+
+    def autoapply_tick(self) -> list[Reply]:
+        """Every few minutes: fill up to 3 queued forms here, or ask where (Cloud Run)."""
+        from jobengine.apply import queue
+
+        now = self.tracking_now()
+        config = self.deps.config()
+        if (config.get("apply.auto") or "false").strip().lower() == "true":
+            queue.add(self.state, config, self._ready(), now)
+        if self.s.bot_mode != "webhook":  # the bot on your laptop is the laptop worker
+            queue.laptop_seen(self.state, now)
+            return self._fill_queued("laptop", now)
+        decision = queue.cloud_decision(self.state, now)
+        if decision == "ask":
+            queue.asked(self.state, now)
+            count = len(queue.waiting(self.state, now))
+            return [Reply(f"💻 Is your laptop on? {count} job(s) wait for a dry run. Yes: your "
+                          "laptop fills them (free). No, or no answer in 15 minutes: Cloud "
+                          "Run fills them.", [("Yes", "lp:yes"), ("No", "lp:no")])]
+        if decision == "cloud":
+            return self._fill_queued("cloud", now)
+        return []
+
+    def _fill_queued(self, by: str, now: datetime) -> list[Reply]:
+        from jobengine.apply import queue
+
+        jobs = queue.take(self.state, by, now)
+        replies: list[Reply] = []
+        for job, got in zip(jobs, queue.run_parallel(jobs, self.dry_run_job), strict=True):
+            queue.finish(self.state, job)
+            if isinstance(got, Exception):
+                replies.append(Reply(f"Dry run of {job} failed: {got}"))
+            else:
+                replies.extend(got)
+        return replies
+
+    def laptop_tap(self, arg: str) -> list[Reply]:
+        from jobengine.apply import queue
+
+        queue.answer(self.state, arg == "yes")
+        if arg == "yes":
+            return [Reply("OK: your laptop fills them. Keep the bot running there; if it has not "
+                          "started in 15 minutes, Cloud Run does it.")]
+        return [Reply("OK: Cloud Run fills them now (3 at a time).")]
 
     def dryrun_tap(self, action: str, run_id: str) -> list[Reply]:
         """Answers OK / Something is wrong under a dry run (H8 step 3)."""

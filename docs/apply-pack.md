@@ -86,8 +86,9 @@ a later step may submit.
   it once; that is how your own natural answers are collected.
 - **Dropdowns and radio buttons:** the option with the same text, else one starting with it,
   else Yes or No by the answer's first word. When no option matches it is left empty.
-- **Left to you:** consent and privacy boxes (never ticked), file fields (the resume is
-  attached in a later step).
+- **Left to you:** consent and privacy boxes (never ticked) and file fields other than the
+  resume. The job's **approved resume** (the newest approved Resume Log revision) is
+  attached to the resume field (step 4); without one, the field is listed for you.
 - **Nothing is sent:** every request the page makes that is not a plain GET (autosave,
   tracking, the form itself) is blocked and counted in the report. No button is pressed, no
   key is pressed (`tests/test_repo_rules.py` checks the code).
@@ -117,8 +118,25 @@ Setup on the machine that runs it (once): `pip install -e ".[formbot]"` then
 `/dryrun` answers that Playwright is missing. `JOBENGINE_CHROMIUM` may point to a Chromium the
 machine already has.
 
-Next steps (not built yet): the resume upload, the laptop queue with Cloud Run as fallback,
-3 forms at a time, and auto-submit once enough dry runs are approved.
+### The queue: laptop first, 3 forms at a time (step 4, `apply/queue.py`)
+
+- `/autoapply` queues the jobs whose resume is built (Status `Resume built`) for a dry run,
+  at most **30 a day** (Config `apply.daily_limit`). With Config `apply.auto` = `true` the
+  bot queues them by itself at every check. `/autoapply status` shows the queue.
+- **Where the browser runs** (your idea of 25 Oct): the bot on your laptop (long polling) is
+  the laptop worker: at every check it marks itself as seen and fills up to **3 forms at
+  once** (one browser each) for free. The bot on Cloud Run asks **"💻 Is your laptop on?"**
+  when jobs wait and the laptop was not seen in the last 10 minutes: **Yes** leaves them to
+  the laptop for 15 minutes; **No**, no answer, or a laptop that has not taken them in 15
+  minutes: Cloud Run fills them, also 3 at a time. A job taken by a worker that stopped is
+  free again after 20 minutes. Cloud Run: Scheduler job `je-apply-prod` calls
+  `POST /tasks/apply` ([deploy.md](deploy.md)); Cloud Run needs the image built with
+  `FORM_BOT=true` (until then it answers that Playwright is missing and only the laptop
+  fills).
+- Every result is a normal dry run report with Answers OK and Something is wrong.
+- **Auto-submit stays off.** `/autoapply status` shows the gate: at least 10 approved dry
+  runs (Config `apply.approvals_needed`) and none marked wrong in the last 10. Even then,
+  submitting is its own step that needs your OK; until then every form is a dry run.
 
 ## Form autofill (flow feature 9)
 

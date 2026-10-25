@@ -339,7 +339,7 @@ FORM_BOT = "src/jobengine/apply/form_bot.py"
 # What would press a button, press a key or send the form (Autopilot H8 dry run, 25 Oct).
 FORM_BOT_FORBIDDEN = re.compile(r"\.click\(|\.dblclick\(|\.tap\(|\.press\(|\.submit\(|"
                                 r"requestSubmit|dispatch_event|\.keyboard\b|\.mouse\b|"
-                                r"set_input_files|\.type\(", re.I)
+                                r"\.type\(", re.I)
 
 
 def test_only_the_form_bot_drives_a_browser():
