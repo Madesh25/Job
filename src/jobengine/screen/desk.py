@@ -315,6 +315,10 @@ class Desk:
         # when sent, else why not.
         self.owner_mail: alerts.Mailer = lambda subject, text: alerts.owner_mail(
             self.s, subject, text)
+        # Auto-apply (H8): the Notion "Answer bank" and "Auto-apply issues" tables
+        # (notion_repo.NotionTable); None where not writable (DRY RUN).
+        self.answer_bank: Any = None
+        self.autoapply_issues: Any = None
         # The outside heartbeat (heartbeat.py, H4): True pings the check, False its /fail.
         self.heartbeat: Callable[[bool], bool] = lambda ok: heartbeat.ping(self.s, ok)
         # Set by the bot for each update: sends a reply at once (before a long build).
@@ -553,6 +557,8 @@ class Desk:
             return self.linkedin_notes(arg)
         if action in ("en", "nj", "sz", "dd") and arg:  # the apply nudge's buttons (H7)
             return self.nudge_tap(action, arg)
+        if action in ("fo", "fw") and arg:  # under a dry run: Answers OK, Something is wrong
+            return self.dryrun_tap(action, arg)
         if action in ("sf", "sw") and arg:  # the spot check's buttons (H5)
             return self.spot_tap(action, arg)
         if action == "tu" and arg:  # "Undo" under a company /add put in Target Companies
@@ -947,7 +953,7 @@ class Desk:
 
     def dryrun_command(self, args: str) -> list[Reply]:
         """/dryrun <job> [form link]: fill the job's form in a browser, never submit (H8)."""
-        from jobengine.apply import form_bot, pack
+        from jobengine.apply import form_bot, form_review, pack
         from jobengine.resume.builder import specific_details
 
         parts = args.split()
@@ -968,8 +974,11 @@ class Desk:
         job = f"{values.get('Company') or ''}, {values.get('Role') or ''}".strip(", ")
         config = self.deps.config()
         profile = autofill.fields(self.s, config, values, why=why)
-        saved = answers.items(self.state)
+        # Your saved answers win over an Answer bank row of the same question (newer).
+        saved = [*form_review.bank_answers(self.answer_bank), *answers.items(self.state)]
         body = self.repo.read_body(row.page_id) if row is not None and self.repo else []
+        now = self.tracking_now()
+        form_review.prune_approved(self.state, now)
         result = form_bot.dry_run(self.s, url, profile, saved, name=job or "form",
                                   ai=self._form_ai(values, body, profile, saved))
         replies = []
@@ -977,8 +986,33 @@ class Desk:
             replies.append(Reply(f"Dry run screenshot{f': {job}' if job else ''} (not sent)",
                                  document=(result.screenshot.name,
                                            result.screenshot.read_bytes())))
-        replies.append(Reply(form_bot.report(result, job)[:MAX_TEXT]))
+        buttons: list[tuple[str, str]] = []
+        if not result.stopped:
+            run_id = form_review.record(self.state, job=job, job_id=row.page_id if row else "",
+                                        url=url, shot=result.screenshot,
+                                        answers=result.answers, now=now)
+            buttons = form_review.buttons(run_id)
+        replies.append(Reply(form_bot.report(result, job)[:MAX_TEXT], buttons))
         return replies
+
+    def dryrun_tap(self, action: str, run_id: str) -> list[Reply]:
+        """Answers OK / Something is wrong under a dry run (H8 step 3)."""
+        from jobengine.apply import form_review
+
+        if action == "fo":
+            return [Reply(form_review.approve(self.state, run_id, self.tracking_now(),
+                                              self.answer_bank))]
+        return [Reply(form_review.wrong_question(self.state, run_id)[:MAX_TEXT])]
+
+    def dryrun_note(self, replied_to: str, text: str) -> list[Reply] | None:
+        """A reply to "What is wrong in ...? Ref DRY-...": an issue row, the answer saved."""
+        from jobengine.apply import form_review
+
+        if form_review.REF not in replied_to:
+            return None
+        saved = form_review.correct(self.state, replied_to, text, self.tracking_now().date(),
+                                    self.answer_bank, self.autoapply_issues)
+        return [Reply(saved)] if saved else None
 
     def _form_ai(self, values: dict[str, Any], body: list[str], profile: dict[str, str],
                  saved: list[dict[str, str]]) -> Callable[[list[Any]], int]:
@@ -2769,6 +2803,9 @@ def fake_desk(s: Settings, today: date, now: Callable[[], datetime] | None = Non
 
     desk.companies = FakeCompanyAdder()
     desk.mails = []  # type: ignore[attr-defined]  # (subject, text) of each mail to you
+    from jobengine.notion_repo import FakeTable
+
+    desk.answer_bank, desk.autoapply_issues = FakeTable(), FakeTable()
     desk.pings = []  # type: ignore[attr-defined]  # heartbeat pings: True ok, False fail
     desk.heartbeat = lambda ok: desk.pings.append(ok) or True  # type: ignore[attr-defined]
     desk.owner_mail = lambda subject, text: desk.mails.append(  # type: ignore[attr-defined]
@@ -2830,4 +2867,7 @@ def real_desk(s: Settings) -> Desk | None:
     from jobengine.notion_repo import company_adder
 
     desk.companies = company_adder(s, client)
+    from jobengine.notion_repo import autoapply_tables
+
+    desk.answer_bank, desk.autoapply_issues = autoapply_tables(s, client)
     return desk

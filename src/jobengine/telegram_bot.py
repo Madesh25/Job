@@ -162,7 +162,8 @@ TAP_TOASTS = {"ap": "Checking the job link, then building your resume...",
               "gs": "Adding it to your skills...", "sc": "Screening...",
               "gt": "Updated", "gr": "Adding them and rebuilding...", "gp": "Listing them...",
               "tu": "Undoing...", "en": "Getting your first job...",
-              "nj": "Getting the next job...", "sz": "Snoozing...", "dd": "Well done..."}
+              "nj": "Getting the next job...", "sz": "Snoozing...", "dd": "Well done...",
+              "fo": "Saving your approval...", "fw": "Listing the answers..."}
 # Every other button: a tap always gets a sign that the bot is working (5 Oct test notes).
 TAP_DEFAULT = "Working on it..."
 
@@ -316,7 +317,7 @@ def console_transport(
                          else path).as_posix()
                 print(f"bot [message {message_id}, document {where}]> {text}", file=stdout,
                       flush=True)
-            elif any(ref in text for ref in ("Ref JOB-", "Ref ST-", "Ref SPOT-")):
+            elif any(ref in text for ref in ("Ref JOB-", "Ref ST-", "Ref SPOT-", "Ref DRY-")):
                 # answer with `reply <n> <text>`
                 print(f"bot [message {message_id}]> {text}", file=stdout, flush=True)
             else:
@@ -883,6 +884,9 @@ def desk_replies(update: dict[str, Any], s: Settings, desk: Desk | None) -> list
         if replies:
             return replies
         replies = _guarded("Spot check", lambda: desk.spot_note(ref_text, text) or [])
+        if replies:
+            return replies
+        replies = _guarded("Dry run", lambda: desk.dryrun_note(ref_text, text) or [])
         if replies:
             return replies
     if command == "next":

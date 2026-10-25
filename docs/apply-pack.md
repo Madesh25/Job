@@ -94,7 +94,22 @@ a later step may submit.
 - **Never opened:** LinkedIn, http, IP addresses and private hosts
   (`safety.assert_page_fetch_allowed`, checked for every request of the page too).
 - **Captcha or login:** the dry run stops and says so; the bot does not go past it.
-- **Screenshots:** `out/dryrun/`, deleted after 7 days, never saved in Notion.
+- **Screenshots:** `out/dryrun/`, deleted 3 days after you approve the run, 7 days when you
+  do not review it, never saved in Notion.
+- **Your review (step 3, `apply/form_review.py`):** under each report, **✅ Answers OK** and
+  **❌ Something is wrong**.
+  - Answers OK: each AI answer becomes one of your saved answers (the next form gets it
+    without AI) and a row of the Notion **Answer bank** (Source "AI approved"). The bot
+    counts the approved dry runs (the gate for auto-submit later).
+  - Something is wrong: the bot lists the answers with numbers; reply `3 = the right answer`
+    (saved as your answer and in the Answer bank, Source "Dry run correction") or one
+    sentence ("it missed the visa question", "the form was not read"). Every reply becomes
+    a row of the Notion **Auto-apply issues** table (Status "To fix") for the weekend fix.
+  - The Answer bank's approved rows are read by every dry run, together with your `/answer`
+    list (the `/answer` list wins on the same question). You can edit or add rows in
+    Notion.
+  - Tables: Answer bank (DEV) and Auto-apply issues (DEV) in the DEV Sandbox (Claude made
+    them on 25 Oct). Prod gets its own two tables with your OK at go-live.
 
 Setup on the machine that runs it (once): `pip install -e ".[formbot]"` then
 `python -m playwright install chromium`. In Docker, build with
@@ -102,9 +117,8 @@ Setup on the machine that runs it (once): `pip install -e ".[formbot]"` then
 `/dryrun` answers that Playwright is missing. `JOBENGINE_CHROMIUM` may point to a Chromium the
 machine already has.
 
-Next steps (not built yet): the resume upload, the Answer bank and Auto-apply issues tables in
-Notion, Approve and Wrong buttons, the laptop queue with Cloud Run as fallback, 3 forms at a
-time.
+Next steps (not built yet): the resume upload, the laptop queue with Cloud Run as fallback,
+3 forms at a time, and auto-submit once enough dry runs are approved.
 
 ## Form autofill (flow feature 9)
 

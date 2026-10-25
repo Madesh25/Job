@@ -1132,3 +1132,58 @@ def skill_writer(client: NotionClient, s: Settings) -> Callable[[str, str, str],
         client.request("POST", "/pages", body)
 
     return add
+
+
+# ---------------------------------------------------------------- auto-apply (H8)
+
+ANSWER_BANK_TYPES = {
+    "Question": "title", "Answer": "rich_text", "Short answer": "rich_text",
+    "Country": "select", "Source": "select", "Approved": "checkbox", "Last used": "date",
+    "Times used": "number",
+}
+ISSUE_TYPES = {
+    "Issue": "title", "Job": "rich_text", "Form URL": "url", "Form type": "select",
+    "Question": "rich_text", "Bot answer": "rich_text", "Correct answer": "rich_text",
+    "Issue type": "select", "Status": "select", "Date": "date",
+}
+
+
+class NotionTable:
+    """A small table the bot adds rows to and reads (Answer bank, Auto-apply issues).
+    Written only through the target from safety.notion_write_target."""
+
+    def __init__(self, client: NotionClient, data_source_id: str, types: dict[str, str]):
+        self.client, self.data_source_id, self.types = client, data_source_id, types
+
+    def create(self, props: dict[str, Any]) -> str:
+        body = {"parent": {"type": "data_source_id", "data_source_id": self.data_source_id},
+                "properties": {name: notion_value(self.types[name], value)
+                               for name, value in props.items() if value not in (None, "")}}
+        return self.client.request("POST", "/pages", body)["id"]
+
+    def rows(self) -> list[dict[str, Any]]:
+        return [page_values(page) for page in self.client.query(self.data_source_id)]
+
+
+class FakeTable:
+    def __init__(self) -> None:
+        self.created: list[dict[str, Any]] = []
+
+    def create(self, props: dict[str, Any]) -> str:
+        self.created.append(dict(props))
+        return f"fake-{len(self.created)}"
+
+    def rows(self) -> list[dict[str, Any]]:
+        return [dict(r) for r in self.created]
+
+
+def autoapply_tables(s: Settings, client: NotionClient) -> tuple[Any, Any]:
+    """(Answer bank, Auto-apply issues), each None when not writable in this env."""
+    out = []
+    for name, types in (("answer_bank", ANSWER_BANK_TYPES), ("autoapply_issues", ISSUE_TYPES)):
+        target = notion_write_target(name, s)
+        if target is None:
+            log.warning("DRY RUN: would write to %s", name)
+        out.append(NotionTable(client, target, types) if target else None)
+    return out[0], out[1]
+
