@@ -59,6 +59,18 @@ def command(state: Any, args: str) -> str:
             f"({len(rows)} saved). /answers lists them.")
 
 
+def save(state: Any, question: str, answer: str) -> bool:
+    """Keep one answer (a dry-run correction or an approved AI answer). True when new."""
+    question, answer = " ".join(question.split()), " ".join(answer.split())
+    if not question or not answer:
+        return False
+    rows = items(state)
+    new = not any(_key(r["q"]) == _key(question) for r in rows)
+    _save(state, [r for r in rows if _key(r["q"]) != _key(question)]
+          + [{"q": question, "a": answer}])
+    return new
+
+
 def listing(state: Any) -> str:
     rows = items(state)
     if not rows:
