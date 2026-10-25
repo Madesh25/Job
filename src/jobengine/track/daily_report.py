@@ -6,6 +6,11 @@ Notion Config `schedule.report` (default true) switches it off; `schedule.report
 once a day, at that time or within REPORT_WINDOW after it (long polling checks every few
 minutes; Cloud Scheduler calls POST /tasks/report). The numbers come from the day ledger
 (track/day_ledger.py).
+
+Warnings (Autopilot H2) come first, each with ⚠️, when today looks wrong next to the last 7
+days: a source that found nothing while it usually finds jobs, a skip rate far above normal,
+a resume keyword match far below normal, a Gmail token that stops within 2 days, a contact
+provider with no credit left, a scheduled run that did not happen.
 """
 
 from __future__ import annotations
@@ -73,10 +78,7 @@ def fetch_line(entry: Mapping[str, Any]) -> str:
     runs = list(entry.get("sweeps") or [])
     if not runs:
         return "🔎 Fetch: no /fetch ran today."
-    totals: dict[str, int] = {}
-    for run in runs:
-        for name, n in (run.get("sources") or {}).items():
-            totals[name] = totals.get(name, 0) + int(n or 0)
+    totals = _sources(entry)
     new = sum(int(run.get("new") or 0) for run in runs)
     at = ", ".join(str(run.get("at")) for run in runs)
     found = ", ".join(f"{SOURCE_NAMES.get(k, k)} {v}" for k, v in totals.items() if v)
@@ -113,10 +115,80 @@ def outreach_line(entry: Mapping[str, Any]) -> str:
             f"mails sent: {_n(entry, 'mails_sent')}. 📩 Replies: {_n(entry, 'replies')}.")
 
 
+HISTORY_DAYS = 7
+SOURCE_USUAL = 3  # a source finding at least this many a day on average is expected today
+MIN_SCREENED = 5  # skip rate compared only with this many screened today
+SKIP_JUMP = 0.25  # today's skip share this much above the week's: a warning
+MATCH_DROP = 0.15  # today's keyword match share this much below the week's: a warning
+TOKEN_WARN_DAYS = 2
+
+
+def _sources(entry: Mapping[str, Any]) -> dict[str, int]:
+    totals: dict[str, int] = {}
+    for run in entry.get("sweeps") or []:
+        for name, n in (run.get("sources") or {}).items():
+            totals[name] = totals.get(name, 0) + int(n or 0)
+    return totals
+
+
+def _skip_share(entries: Sequence[Mapping[str, Any]]) -> tuple[float, int]:
+    total = sum(_n(e, f"screened.{v}") for e in entries for v in VERDICTS)
+    skips = sum(_n(e, "screened.Skip") for e in entries)
+    return (skips / total if total else 0.0), total
+
+
+def _match_share(entries: Sequence[Mapping[str, Any]]) -> tuple[float, int]:
+    matches = [m for e in entries for m in (e.get("matches") or []) if m and m[1]]
+    if not matches:
+        return 0.0, 0
+    return sum(m[0] / m[1] for m in matches) / len(matches), len(matches)
+
+
+def warnings(entry: Mapping[str, Any], history: Sequence[Mapping[str, Any]], *,
+             tokens: Sequence[tuple[str, int]] = (), used_up: Sequence[str] = (),
+             missed: Sequence[str] = ()) -> list[str]:
+    """The ⚠️ lines: today against the last days (`history`, newest first)."""
+    out = [f"⚠️ The {at} autopilot did not run today: check /health and the bot log."
+           for at in missed]
+    swept = [e for e in history if e.get("sweeps")]
+    if entry.get("sweeps") and swept:
+        today = _sources(entry)
+        week: dict[str, int] = {}
+        for e in swept:
+            for name, n in _sources(e).items():
+                week[name] = week.get(name, 0) + n
+        for name, total in week.items():
+            if total / len(swept) >= SOURCE_USUAL and not today.get(name):
+                out.append(f"⚠️ {SOURCE_NAMES.get(name, name)} found 0 jobs today (usually "
+                           f"about {round(total / len(swept))} a day): check /sources.")
+    skip, screened = _skip_share([entry])
+    usual_skip, usual_screened = _skip_share(history)
+    if screened >= MIN_SCREENED and usual_screened >= 2 * MIN_SCREENED \
+            and skip - usual_skip >= SKIP_JUMP:
+        out.append(f"⚠️ Skip rate {skip:.0%} today (usually {usual_skip:.0%}): check the "
+                   "skipped jobs in Notion (a rule or a source may be off).")
+    match, built = _match_share([entry])
+    usual_match, usual_built = _match_share(history)
+    if built and usual_built >= 3 and usual_match - match >= MATCH_DROP:
+        out.append(f"⚠️ Resume keyword match {match:.0%} today (usually {usual_match:.0%}): "
+                   "look at one of today's resumes.")
+    for account, left in tokens:
+        if left < 0:
+            out.append(f"⚠️ Gmail token {account} has expired: send /gmailtoken {account}.")
+        elif left <= TOKEN_WARN_DAYS:
+            out.append(f"⚠️ Gmail token {account} stops in {left} day(s): send /gmailtoken "
+                       f"{account}.")
+    if used_up:
+        out.append(f"⚠️ No contact credits left this month: {', '.join(used_up)}.")
+    return out
+
+
 def text(entry: Mapping[str, Any], day: date, *, month_cost: str, credits: str,
-         tokens: Sequence[str] = (), waiting: Sequence[str] = ()) -> str:
-    """The report. `month_cost` is costs.month_line, `credits` the CreditBook line."""
-    lines = [f"📊 Daily report, {day:%a %d %b}"]
+         tokens: Sequence[str] = (), waiting: Sequence[str] = (),
+         warned: Sequence[str] = ()) -> str:
+    """The report. `month_cost` is costs.month_line, `credits` the CreditBook line,
+    `warned` the warnings() lines (shown first)."""
+    lines = [f"📊 Daily report, {day:%a %d %b}", *warned]
     if not entry.get("sweeps") and not any(_n(entry, f"screened.{v}") for v in VERDICTS):
         lines.append("Nothing ran today: 0 new jobs, 0 screened. If the schedule is on, "
                      "something stopped it: check /health and send Claude Code the bot log.")

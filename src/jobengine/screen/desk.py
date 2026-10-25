@@ -1880,6 +1880,7 @@ class Desk:
         """/report and the evening report: what the bot did today (track/daily_report.py)."""
         from jobengine import gmail_renew
         from jobengine.contacts.credits import CreditBook
+        from jobengine.screen import schedule
         from jobengine.track import costs, daily_report
 
         config = self.deps.config()
@@ -1892,11 +1893,17 @@ class Desk:
                            "(/jd)"]
             except Exception as exc:  # the report still comes without these two counts
                 log.warning("daily report: could not count waiting jobs: %s", exc)
+        entry = day_ledger.day(self.state, today)
+        history = [day_ledger.day(self.state, today - timedelta(days=k))
+                   for k in range(1, daily_report.HISTORY_DAYS + 1)]
+        book = CreditBook(config, today)
+        warned = daily_report.warnings(
+            entry, history, tokens=gmail_renew.token_left(self.s, config, today),
+            used_up=book.used_up(), missed=schedule.missed(self))
         return daily_report.text(
-            day_ledger.day(self.state, today), today,
-            month_cost=costs.month_line(self.state, today),
-            credits=CreditBook(config, today).line(),
-            tokens=gmail_renew.days_left(self.s, config, today), waiting=waiting)
+            entry, today, month_cost=costs.month_line(self.state, today), credits=book.line(),
+            tokens=gmail_renew.days_left(self.s, config, today), waiting=waiting,
+            warned=warned)
 
     def report_command(self) -> list[Reply]:
         return [Reply(self.daily_report_text()[:MAX_TEXT])]

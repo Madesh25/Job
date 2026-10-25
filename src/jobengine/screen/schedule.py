@@ -132,6 +132,19 @@ def due(desk: Desk) -> time | None:
     return None
 
 
+def missed(desk: Desk) -> list[str]:
+    """Today's start times whose window has passed without a run (schedule on)."""
+    p = plan(desk)
+    if not p.on:
+        return []
+    now = local_now(desk, p)
+    if now.weekday() not in p.days:
+        return []
+    return [f"{at:%H:%M}" for at in p.starts
+            if now > datetime.combine(now.date(), at, tzinfo=now.tzinfo) + p.window
+            and not started(desk, p, at)]
+
+
 def mark_started(desk: Desk, at: time | None = None) -> None:
     """Before the run: a failed run is not started again for that time (send /autopilot)."""
     p = plan(desk)
