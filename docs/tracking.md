@@ -180,6 +180,20 @@ text by email. It comes even when nothing ran, so a stopped bot shows the same d
 On a day with no fetch and no screening it starts with `Nothing ran today: 0 new jobs, 0
 screened.` `/report` shows today's report at any time.
 
+**Warnings** (Autopilot H2) come first, each starting with ⚠️, when today looks wrong next to
+the last 7 days of the day ledger:
+
+- a scheduled autopilot time (07:00, 19:30) passed its 3-hour window without a run;
+- a source that usually finds 3 or more jobs a day found 0 today (alert parser, Gmail or the
+  site broken);
+- the skip rate is 25 points or more above the week's (at least 5 screened today);
+- the resume keyword match is 15 points or more below the week's;
+- a Gmail token stops within 2 days, or has expired (local);
+- a contact provider has no credit left this month on any of its accounts.
+
+A new install has no week to compare with: the source, skip and match warnings start once
+the ledger has days.
+
 The numbers come from the day ledger (`src/jobengine/track/day_ledger.py`, Bot State
 `day.ledger`, the last 8 days): every /fetch, screened row, resume, Gmail draft, sent mail,
 contact found, reply and AI cost adds to today's entry while it runs. Bot State `report.sent`

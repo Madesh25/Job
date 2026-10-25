@@ -145,3 +145,52 @@ def test_the_owner_mail_goes_to_you_only(monkeypatch):
 
     monkeypatch.setattr(gmail_client.GmailClient, "from_settings", classmethod(refuse))
     assert alerts.owner_mail(s, "x", "y") == "no sender token"
+
+
+def _week(**entry):
+    return [dict(entry) for _ in range(7)]
+
+
+def test_warnings_compare_today_with_the_week():
+    usual = {"sweeps": [{"at": "07:00", "sources": {"gmail": 20, "adzuna": 6}, "new": 9}],
+             "screened.Skip": 4, "screened.Apply normal": 6, "matches": [[9, 12], [10, 12]]}
+    today = {"sweeps": [{"at": "07:00", "sources": {"gmail": 0, "adzuna": 7}, "new": 2}],
+             "screened.Skip": 9, "screened.Apply normal": 1, "matches": [[5, 12]]}
+    lines = daily_report.warnings(today, _week(**usual), tokens=[("m02", 1), ("m01", 20)],
+                                  used_up=["Hunter"], missed=["19:30"])
+    assert lines == [
+        "⚠️ The 19:30 autopilot did not run today: check /health and the bot log.",
+        "⚠️ Email alerts found 0 jobs today (usually about 20 a day): check /sources.",
+        "⚠️ Skip rate 90% today (usually 40%): check the skipped jobs in Notion (a rule or a "
+        "source may be off).",
+        "⚠️ Resume keyword match 42% today (usually 79%): look at one of today's resumes.",
+        "⚠️ Gmail token m02 stops in 1 day(s): send /gmailtoken m02.",
+        "⚠️ No contact credits left this month: Hunter."]
+    assert daily_report.warnings(usual, _week(**usual)) == []  # a normal day
+    assert daily_report.warnings(today, []) == []  # no week to compare with yet
+    text = daily_report.text(today, DAY, month_cost="", credits="Credits: -", warned=lines[:1])
+    assert text.splitlines()[1].startswith("⚠️ The 19:30 autopilot")
+
+
+def test_used_up_credits_count_the_second_account():
+    from jobengine.config_store import ConfigStore
+    from jobengine.contacts.credits import CreditBook
+
+    config = ConfigStore.from_values({"credits.hunter": "50 / 50 per month",
+                                      "credits.hunter_2": "3 / 50 per month",
+                                      "credits.snov": "50 / 50 per month"})
+    assert CreditBook(config, DAY).used_up() == ["Snov"]
+
+
+def test_a_missed_scheduled_run_is_named(tmp_path):
+    from test_autopilot_schedule import Clock as IstClock
+    from test_autopilot_schedule import make_desk
+
+    from jobengine.screen import schedule
+
+    d = make_desk(tmp_path, clock=IstClock(hour=21, minute=45))
+    schedule.mark_started(d, schedule.plan(d).start)
+    assert schedule.missed(d) == []  # 19:30 is still inside its 3 hours
+    d = make_desk(tmp_path, clock=IstClock(hour=23, minute=0))
+    assert schedule.missed(d) == ["07:00", "19:30"]
+    assert schedule.missed(make_desk(tmp_path, on=False, clock=IstClock(hour=23))) == []

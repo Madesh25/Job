@@ -107,6 +107,16 @@ class CreditBook:
         else:
             log.info("credits.%s is now %s (simulated, not written)", provider, counter.text())
 
+    def used_up(self) -> list[str]:
+        """Providers whose every tracked account has no credit left this month."""
+        out = []
+        for provider in PROVIDERS:
+            accounts = [c for c in (self.counters.get(provider),
+                                    self.counters.get(f"{provider}_2")) if c is not None]
+            if accounts and all(c.left == 0 for c in accounts):
+                out.append(account_label(provider))
+        return out
+
     def line(self) -> str:
         parts = []
         for provider in (*PROVIDERS, *SECOND):
