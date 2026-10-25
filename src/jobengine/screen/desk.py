@@ -551,6 +551,8 @@ class Desk:
             return self.outreach_tap(arg)
         if action == "ln" and arg:  # "LinkedIn notes" under the contacts
             return self.linkedin_notes(arg)
+        if action in ("en", "nj", "sz", "dd") and arg:  # the apply nudge's buttons (H7)
+            return self.nudge_tap(action, arg)
         if action in ("sf", "sw") and arg:  # the spot check's buttons (H5)
             return self.spot_tap(action, arg)
         if action == "tu" and arg:  # "Undo" under a company /add put in Target Companies
@@ -821,13 +823,19 @@ class Desk:
             return [Reply(REBUILD_ASK.format(ref=resume_builder.short_ref(arg)),
                           [("Rebuild as it is", f"rb:{short_id(job_id)}")])]
         if action == "ia":
-            return [Reply(resume_builder.mark_applied(self.resume, arg)), *self.next_job()]
+            done = resume_builder.mark_applied(self.resume, arg)
+            if self.nudge_on():
+                return [Reply(done), *self.nudge_applied()]
+            return [Reply(done), *self.next_job()]
         if action == "na":  # "Not applying": why?
             return [Reply(NOT_APPLYING_ASK, [(label, f"nr:{arg}:{code}")
                                              for code, (label, _) in NOT_APPLYING.items()])]
         if action == "nr":
             job_id, _, code = arg.partition(":")
-            return [Reply(self.not_applying(job_id, code)), *self.next_job()]
+            reason = self.not_applying(job_id, code)
+            if self.nudge_on():
+                return [Reply(reason), *self.nudge_card()]
+            return [Reply(reason), *self.next_job()]
         result = resume_builder.finalise(self.resume, arg)
         if result.status == "newer":
             latest = [self.preview(result.latest)] if result.latest else []
@@ -2004,6 +2012,115 @@ class Desk:
             return [Reply(f"Recorded: {agency.name} contacted on {self.today().isoformat()}. "
                           f"The digest reminds you after {ag.FOLLOW_UP_DAYS} days.")]
         return [Reply(ag.intro(self.s, config, agency)[:MAX_TEXT])]
+
+    # ------------------------------------------------------------ apply nudge (H7)
+
+    def _nudge_here(self) -> datetime:
+        from jobengine.track import daily_report
+
+        return daily_report.local(self.tracking_now(), self.deps.config())
+
+    def _ready(self) -> list[str]:
+        """Jobs whose resume is built and that wait for you to apply, oldest first."""
+        from jobengine.track import nudge
+
+        if self.repo is None:
+            return []
+        return nudge.ready_ids(self.repo.query_rows(select_filter("Status", "Resume built")))
+
+    def nudge_on(self) -> bool:
+        from jobengine.track import nudge
+
+        return nudge.active(self.state, self._nudge_here())
+
+    def nudge_tick(self) -> list[Reply]:
+        """From 22:00 India time: the first message, then a reminder every 30 minutes."""
+        from jobengine.track import nudge
+
+        config = self.deps.config()
+        here = self._nudge_here()
+        ready = self._ready()
+        if not nudge.due(config, self.state, here, len(ready)):
+            return []
+        evening = nudge.evening_of(here)
+        value = nudge.get(self.state, evening)
+        minutes = nudge.minutes_per_job(config)
+        if not value.get("sent"):
+            text = nudge.first_text(len(ready), minutes, evening.weekday() >= 5,
+                                    nudge.streak(self.state, evening))
+            reply = Reply(text, [*nudge.energy_buttons(), *nudge.later_buttons()], column=True)
+        else:
+            target = nudge.goal(value, len(ready))
+            text = nudge.reminder_text(len(ready), int(value.get("applied") or 0), target,
+                                       minutes)
+            reply = Reply(text, [("▶️ Next job", "nj:1"), *nudge.later_buttons()], column=True)
+        value.update(sent=int(value.get("sent") or 0) + 1, last=here.isoformat())
+        nudge.save(self.state, value)
+        return [reply]
+
+    def nudge_card(self) -> list[Reply]:
+        """The next ready job, with I applied, Not applying and Done for today."""
+        from jobengine.track import nudge
+
+        here = self._nudge_here()
+        evening = nudge.evening_of(here)
+        value = nudge.get(self.state, evening)
+        ready = self._ready()
+        target = nudge.goal(value, len(ready))
+        applied = int(value.get("applied") or 0)
+        if not ready or (target is not None and applied >= target):
+            return self.nudge_finish()
+        job_id = ready[0]
+        values = (self.repo.get_values(job_id) if self.repo else None) or {}
+        ref = short_id(job_id)
+        text = nudge.card_text(values, applied + 1, target, ref)
+        return [Reply(text, [("✅ I applied", f"ia:{ref}"), ("Not applying", f"na:{ref}"),
+                             ("Done for today", "dd:1")])]
+
+    def nudge_applied(self) -> list[Reply]:
+        """After I applied tonight: count it, then the next job or the well done."""
+        from jobengine.track import nudge
+
+        evening = nudge.evening_of(self._nudge_here())
+        value = nudge.get(self.state, evening)
+        value["applied"] = int(value.get("applied") or 0) + 1
+        nudge.save(self.state, value)
+        nudge.record_streak(self.state, evening)
+        return self.nudge_card()
+
+    def nudge_finish(self) -> list[Reply]:
+        from jobengine.track import nudge
+
+        evening = nudge.evening_of(self._nudge_here())
+        value = nudge.get(self.state, evening)
+        value["done"] = True
+        value["sent"] = max(int(value.get("sent") or 0), 1)
+        nudge.save(self.state, value)
+        applied = int(value.get("applied") or 0)
+        days = nudge.record_streak(self.state, evening) if applied else 0
+        return [Reply(nudge.finish_text(applied, days))]
+
+    def nudge_tap(self, action: str, arg: str) -> list[Reply]:
+        from jobengine.track import nudge
+
+        here = self._nudge_here()
+        value = nudge.get(self.state, nudge.evening_of(here))
+        if action == "dd":
+            return self.nudge_finish()
+        if action == "sz":
+            value["snooze"] = (here + nudge.SNOOZE).isoformat()
+            value["sent"] = max(int(value.get("sent") or 0), 1)
+            nudge.save(self.state, value)
+            return [Reply(f"😴 Snoozed: the next reminder comes after "
+                          f"{here + nudge.SNOOZE:%H:%M}.")]
+        if action == "en" and arg in (*nudge.GOALS, "high"):
+            value.update(goal=arg, done=False, sent=max(int(value.get("sent") or 0), 1))
+            nudge.save(self.state, value)
+            target = nudge.goal(value, len(self._ready()))
+            head = Reply(f"Tonight's goal: {target} job(s). One at a time; tap I applied when "
+                         "it is sent.")
+            return [head, *self.nudge_card()]
+        return self.nudge_card()
 
     # ------------------------------------------------------------ spot check (H5)
 

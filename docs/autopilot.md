@@ -79,3 +79,25 @@ Nothing is approved, built or mailed by itself. Each time runs once a day, up to
 it (a bot that was off then does not run it in the evening), and never while another
 `/fetch`, `/screen` or `/autopilot` runs. `/autopilot when` shows it. On Cloud Run the
 scheduler job `je-check-prod` calls `POST /tasks/check` ([deploy.md](deploy.md) B4).
+
+## Apply nudge from 22:00 (Autopilot H7)
+
+Your decision of 25 Oct: you start applying at 22:00 India time, and a gentle push helps.
+`src/jobengine/track/nudge.py`.
+
+- **22:00**: "🎯 N job(s) ready to apply, about M minutes" (ready = Status `Resume built`:
+  the resume is done and you have not applied yet) with **🪫 Low (1 easy one)**, **🙂 OK (3)**
+  and **⚡ High (all)**, plus **😴 Snooze 1 hour** and **✅ Done for today**.
+- After the energy button: one job at a time (link, `/applypack` for the resume, Apply pack
+  and autofill code, `/dryrun` to let the bot fill the form first). **I applied** brings the
+  next one; **Not applying** asks why, then the next one.
+- **Reminders** every 30 minutes until the goal is reached or you tap Done for today, at most
+  5 an evening (until about 00:30). Snooze skips the next hour.
+- **Streak**: evenings with at least one application in a row ("🔥 3-evening streak"). A
+  missed evening is never mentioned; the next one simply starts a new streak.
+- **Weekend**: the first message offers to catch up on everything left this week (High).
+- Notion Config (all optional): `schedule.nudge` (`false` turns it off),
+  `schedule.nudge_time` (default `22:00`), `apply.minutes_per_job` (default 10).
+- Long polling checks every few minutes. Cloud Run: Scheduler job `je-nudge-prod` calls
+  `POST /tasks/nudge` every 30 minutes from 22:00 to 00:30 ([deploy.md](deploy.md) B4).
+
