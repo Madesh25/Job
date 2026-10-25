@@ -332,3 +332,24 @@ def test_owner_mails_only_go_to_you():
     text = (ROOT / "src/jobengine/alerts.py").read_text(encoding="utf-8")
     assert 'message["To"] = to' in text and "owner_mail_target(s)" in text
     assert text.count('message["To"]') == 1 and 'message["Cc"]' not in text
+
+
+PLAYWRIGHT_IMPORT = re.compile(r"^\s*(?:import|from)\s+(playwright|selenium)\b", re.M)
+FORM_BOT = "src/jobengine/apply/form_bot.py"
+# What would press a button, press a key or send the form (Autopilot H8 dry run, 25 Oct).
+FORM_BOT_FORBIDDEN = re.compile(r"\.click\(|\.dblclick\(|\.tap\(|\.press\(|\.submit\(|"
+                                r"requestSubmit|dispatch_event|\.keyboard\b|\.mouse\b|"
+                                r"set_input_files|\.type\(", re.I)
+
+
+def test_only_the_form_bot_drives_a_browser():
+    offenders = [p.relative_to(ROOT).as_posix() for p in src_files()
+                 if PLAYWRIGHT_IMPORT.search(p.read_text(encoding="utf-8"))
+                 and p.relative_to(ROOT).as_posix() != FORM_BOT]
+    assert offenders == []
+
+
+def test_the_form_bot_never_presses_a_button_or_submits():
+    text = (ROOT / FORM_BOT).read_text(encoding="utf-8")
+    assert FORM_BOT_FORBIDDEN.findall(text) == []
+    assert 'context.route("**/*", _guard(' in text  # every request goes through the guard

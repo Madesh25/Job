@@ -62,9 +62,44 @@ letter is left out (with the reason) when it gives a year count that is not in y
 experience answer or names a gap, also one short term of a gap ("Lambda" in "Dynamo, Lambda,
 Bedrock") that your resume does not show (Phase 9, P9-23).
 
+## Auto-apply dry run (Autopilot H8, step 1)
+
+`apply/form_bot.py`, `/dryrun <job URL or page id>` (or `/dryrun <job> <form link>` when the
+form is on another page). The bot opens the job's application form in a browser, fills it
+and sends you a screenshot and the list of answers. **It never submits.** This is the dry run
+of your decision of 25 Oct: rounds of dry runs until you say the answers are good; only then
+a later step may submit.
+
+- **Answers:** your saved answers (`/answer`) first, matched to the question's words, then
+  your profile and Apply pack answers (the same as the autofill code: name, email, phone,
+  links, permit, sponsorship, salary, notice, start, relocation, English, why this company).
+  No AI in this step. A question with no answer stays empty and is listed with the
+  `/answer` line to save it once; that is how your own natural answers are collected.
+- **Dropdowns and radio buttons:** the option with the same text, else one starting with it,
+  else Yes or No by the answer's first word. When no option matches it is left empty.
+- **Left to you:** consent and privacy boxes (never ticked), file fields (the resume is
+  attached in a later step).
+- **Nothing is sent:** every request the page makes that is not a plain GET (autosave,
+  tracking, the form itself) is blocked and counted in the report. No button is pressed, no
+  key is pressed (`tests/test_repo_rules.py` checks the code).
+- **Never opened:** LinkedIn, http, IP addresses and private hosts
+  (`safety.assert_page_fetch_allowed`, checked for every request of the page too).
+- **Captcha or login:** the dry run stops and says so; the bot does not go past it.
+- **Screenshots:** `out/dryrun/`, deleted after 7 days, never saved in Notion.
+
+Setup on the machine that runs it (once): `pip install -e ".[formbot]"` then
+`python -m playwright install chromium`. In Docker, build with
+`docker build --build-arg FORM_BOT=true -t jobengine .` (about 400 MB more). Without it
+`/dryrun` answers that Playwright is missing. `JOBENGINE_CHROMIUM` may point to a Chromium the
+machine already has.
+
+Next steps (not built yet): AI answers in your voice for the open questions with a fact check,
+the resume upload, the Answer bank and Auto-apply issues tables in Notion, Approve and Wrong
+buttons, the laptop queue with Cloud Run as fallback, 3 forms at a time.
+
 ## Form autofill (flow feature 9)
 
-`apply/autofill.py`. The bot never opens a company form and never submits anything.
+`apply/autofill.py`. The bookmark never submits anything; only `/dryrun` (above) opens a form.
 
 - After each Apply pack comes one more message: the **autofill code** for that job, a line
   that starts with `JE1:`. It holds your answers for the job: name (from Config `profile.name`;

@@ -31,6 +31,11 @@ dev = [
     "pytest",
     "ruff",
 ]
+# Only where the auto-apply dry run runs (/dryrun, apply/form_bot.py); then once:
+# python -m playwright install chromium
+formbot = [
+    "playwright",
+]
 # Only for python -m jobengine.gmail_auth on your machine (not a runtime dependency).
 auth = [
     "google-auth-oauthlib",

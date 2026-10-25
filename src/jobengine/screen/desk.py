@@ -933,6 +933,38 @@ class Desk:
         """/autofill: how to add the form autofill bookmark, then the bookmark (feature 9)."""
         return [Reply(text) for text in autofill.setup_text()]
 
+    def dryrun_command(self, args: str) -> list[Reply]:
+        """/dryrun <job> [form link]: fill the job's form in a browser, never submit (H8)."""
+        from jobengine.apply import form_bot, pack
+        from jobengine.resume.builder import specific_details
+
+        parts = args.split()
+        if not parts:
+            return [Reply("Send /dryrun <job URL or page id>, or /dryrun <job> <form link> when "
+                          "the form is on another page. It fills the form and never submits.")]
+        values: dict[str, Any] = {}
+        why = None
+        row = find_row(self.repo, parts[0]) if self.repo is not None else None
+        if row is not None:
+            values = self.repo.get_values(row.page_id) or {}
+            why = pack.why_line(self.s, self.deps.config(),
+                                specific_details(self.repo.read_body(row.page_id)),
+                                split_gaps(values.get("Gaps")))
+        url = parts[1] if len(parts) > 1 else (values.get("URL") or parts[0])
+        if "://" not in url:
+            return [Reply(f"No Job Opportunities row found for {parts[0]}")]
+        job = f"{values.get('Company') or ''}, {values.get('Role') or ''}".strip(", ")
+        result = form_bot.dry_run(
+            self.s, url, autofill.fields(self.s, self.deps.config(), values, why=why),
+            answers.items(self.state), name=job or "form")
+        replies = []
+        if result.screenshot is not None:
+            replies.append(Reply(f"Dry run screenshot{f': {job}' if job else ''} (not sent)",
+                                 document=(result.screenshot.name,
+                                           result.screenshot.read_bytes())))
+        replies.append(Reply(form_bot.report(result, job)[:MAX_TEXT]))
+        return replies
+
     def answer_command(self, args: str) -> list[Reply]:
         """/answer <question> = <answer>: kept for every later Apply pack (feature 10)."""
         return [Reply(answers.command(self.state, args))]

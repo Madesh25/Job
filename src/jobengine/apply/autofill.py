@@ -10,7 +10,8 @@ attach the resume and press Submit yourself. /autofill sends the bookmark and ho
 
 The bookmark is plain JavaScript (AUTOFILL_JS below) that runs only in your own browser on
 the page you are on: no AI, no network call, no click on any button. Nothing reaches the
-site until you press Submit.
+site until you press Submit. (The /dryrun form bot, apply/form_bot.py, opens a form in a
+browser for a dry run: it fills it and still never submits.)
 """
 
 from __future__ import annotations
