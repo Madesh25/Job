@@ -1,5 +1,4 @@
 import json
-import logging
 from datetime import date
 
 import httpx
@@ -82,11 +81,12 @@ def test_notion_bot_state_round_trip(notion):
     assert state.get("jd_capture") is None
 
 
-def test_prod_has_no_bot_state_yet(caplog):
-    s = load_settings("prod", {})
-    with caplog.at_level(logging.WARNING):
-        assert bot_state_for(s, NotionClient("t", s)) is None
-    assert "DRY RUN: would write to bot_state" in caplog.text
+def test_prod_has_its_own_bot_state_and_dev_never_gets_it():
+    # 26 Oct: the prod Bot State exists (config/prod.yaml); a test bot still never writes it.
+    prod = load_settings("prod", {})
+    assert bot_state_for(prod, NotionClient("t", prod)) is not None
+    dev = load_settings("dev", {})
+    assert dev.notion_write["bot_state"] != prod.notion_write["bot_state"]
 
 
 def test_fake_bot_state_copies_values():

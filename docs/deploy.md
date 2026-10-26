@@ -171,9 +171,10 @@ These exist on the DEV copies since Modules 02 to 08 and are now applied to prod
 - [ ] Job Opportunities: `Posting IDs` (text); Status options `Approved`, `Declined`.
 - [ ] Resume Log: `Approved` (checkbox), `Revision` (number).
 - [ ] Contacts: `Follow-up draft ID` (text); Status option `Ghosted`.
-- [ ] Create `Bot State` (Key title, Value text, Updated date) under the Job Engine page; put
-      its data source ID into `config/prod.yaml` under `notion.write.bot_state` (a one-line PR).
-      Until then prod keeps bot state (update dedupe, /jd pastes, strategy runs) in memory only.
+- [x] `Bot State` (Key title, Value text, Updated date) under the Job Engine page, in
+      `config/prod.yaml` as `notion.write.bot_state` (26 Oct). Also `Answer bank` and
+      `Auto-apply issues` (Autopilot H8) as `answer_bank` and `autoapply_issues`. Connect the
+      prod integration to the three tables if Notion asks (… > Connections).
 - [ ] Share the Job Engine page with the prod Notion integration.
 - [ ] Job Opportunities: add the Skip reason option `No sponsorship` (jobs that offer no
       visa sponsorship are skipped with it; without the option Notion would add it itself).

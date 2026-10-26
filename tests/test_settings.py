@@ -9,6 +9,9 @@ PROD_WRITE = {
     "target_companies": "064bf98d-ab49-498d-9b94-2ecc41640230",
     "config": "84f44e56-ff55-4806-9859-50b3744fc325",
     "strategy": "4097af1c-faaf-455f-9616-728301043408",
+    "bot_state": "8c14b838-9421-4b43-bd6c-0d127f25bdb1",
+    "answer_bank": "c6472f12-102b-41ec-9ff3-f97095f8cde0",
+    "autoapply_issues": "3e7b684b-45c4-4c64-9074-aabfe728831d",
 }
 
 
