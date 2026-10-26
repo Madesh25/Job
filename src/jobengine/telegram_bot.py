@@ -1151,13 +1151,14 @@ def autopilot_check(client: TelegramClient, s: Settings, desk: Desk | None,
     if desk is None:
         return
     _bind_notify(client, s, desk)
-    replies = _scheduled("Autopilot",
+    # The morning check first: it is meant to come before the morning run (Autopilot C).
+    replies = _scheduled("Morning check", desk.health_report_tick, desk)
+    replies += _scheduled("Autopilot",
                          lambda: desk.autopilot_scheduled(autopilot_fetch(fetch)) or [], desk)
     replies += _scheduled("Afternoon check",
                           lambda: desk.check_scheduled(autopilot_fetch(fetch)) or [], desk)
     replies += _scheduled("Mail queue", desk.mail_queue_tick, desk)
     replies += _scheduled("Reply check", desk.reply_ping_tick, desk)
-    replies += _scheduled("Morning check", desk.health_report_tick, desk)
     replies += _scheduled("Daily report", desk.daily_report_tick, desk)
     replies += _scheduled("Spot check", desk.spot_check_tick, desk)
     replies += _scheduled("Apply nudge", desk.nudge_tick, desk)
