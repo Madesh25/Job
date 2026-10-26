@@ -1226,7 +1226,7 @@ class Desk:
 
     def prep_command(self, args: str) -> list[Reply]:
         """/prep <job>: the interview prep pack (feature 15)."""
-        from jobengine.apply.pack import _names_gap
+        from jobengine.apply.pack import names_gap
         from jobengine.resume import header
         from jobengine.resume.builder import specific_details
 
@@ -1251,13 +1251,13 @@ class Desk:
         text = interview.prep_text(
             company=company, role=role, where=header.place(values) or "unknown place",
             url=values.get("URL") or "", have=have, gaps=gaps,
-            details=[d for d in specific_details(body) if not _names_gap(d, gaps)],
+            details=[d for d in specific_details(body) if not names_gap(d, gaps)],
             qs=qs, ask=ask, tips=self.tips(tips_mod.INTERVIEW, values.get("Country")))
         return [Reply(text[:MAX_TEXT])]
 
     def thanks_command(self, args: str) -> list[Reply]:
         """/thanks <job> [first name]: the thank-you mail after an interview (feature 15)."""
-        from jobengine.apply.pack import _names_gap
+        from jobengine.apply.pack import names_gap
         from jobengine.resume.builder import specific_details
 
         ref, _, who = args.strip().partition(" ")
@@ -1269,7 +1269,7 @@ class Desk:
         body = self.repo.read_body(job_id) if self.repo else []
         gaps = split_gaps(values.get("Gaps"))
         detail = next((d.strip() for d in specific_details(body)
-                       if d.strip() and not _names_gap(d, gaps)), None)
+                       if d.strip() and not names_gap(d, gaps)), None)
         config = self.deps.config()
         template = str(config.get("interview.thanks") or self.s.interview.get("thanks") or "")
         if not template:

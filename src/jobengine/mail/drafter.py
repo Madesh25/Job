@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
 
+from jobengine.apply.pack import without_gaps
 from jobengine.config_store import ConfigStore
 from jobengine.contacts.classify import title_allowed
 from jobengine.contacts.jd_emails import GENERIC_MAILBOXES
@@ -47,6 +48,7 @@ from jobengine.mail.templates import KIND, Template, TemplateError
 from jobengine.notion_repo import ContactsRepo, JobsRepo, ResumeLogRepo
 from jobengine.resume.builder import LOCAL_PREFIX, hex_id, notion_id, specific_details
 from jobengine.safety import gmail_write_allowed, route_recipients
+from jobengine.screen.models import split_gaps
 from jobengine.settings import ROOT_DIR, Settings
 from jobengine.track import day_ledger
 
@@ -209,7 +211,11 @@ def create_drafts(deps: MailDeps, job_id: str, contact_ids: list[str] | None = N
     values = deps.jobs.get_values(job_id) if deps.jobs else None
     if not values:
         return failed(f"No Job Opportunities row {job_id}.")
-    job = job_from_values(job_id, values, specific_details(deps.jobs.read_body(job_id)))
+    # The mail says the detail "is very close to my day-to-day work": never one of the job's
+    # gaps (26 Oct, Oracle: "building high-performance API services" was a gap).
+    details = without_gaps(specific_details(deps.jobs.read_body(job_id)),
+                           split_gaps(values.get("Gaps")))
+    job = job_from_values(job_id, values, details)
     result.company, result.role = job.company, clean_role(job.role)
     config = deps.config()
     row = approved_resume(deps, job_id)

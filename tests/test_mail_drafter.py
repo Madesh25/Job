@@ -215,3 +215,15 @@ def test_no_draft_for_a_saved_contact_that_breaks_the_title_rules():
     assert reason("Junior DevOps Engineer", "Peer engineer") is not None
     assert reason("HR Teamleader", "Recruiter/TA") is None
     assert reason("Senior DevOps Engineer", "Peer engineer") is None
+
+
+def test_a_detail_that_is_a_gap_is_never_in_the_mail(tmp_path):
+    """26 Oct: the mail says the detail "is very close to my day-to-day work"."""
+    gmail = FakeGmail()
+    deps = deps_for(settings("dev"), tmp_path, gmail=gmail)
+    deps.jobs.rows["fixture-clean-pl"]["Gaps"] = "Istio; move workloads to EKS"
+    assert drafter.create_drafts(deps, "fixture-clean-pl").ok
+    bodies = [parsed(gmail, i).get_body(("plain",)).get_content()
+              for i in range(len(gmail.drafts))]
+    assert all("moving workloads to EKS" not in b for b in bodies)
+    assert any("running GitOps with Argo CD" in b for b in bodies)

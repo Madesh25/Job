@@ -92,3 +92,15 @@ def test_why_line_skips_a_detail_with_a_gap():
     line = pack.why_line(S, config, details, ["Dynamo", "Lambda", "Bedrock"])
     assert "Kubernetes on AWS" in line and "Dynamo" not in line
     assert pack.why_line(S, config, details[:1], ["Lambda"]) is None
+
+
+def test_a_gap_counts_with_other_word_endings():
+    """26 Oct, Oracle: the gap "build high-performance API services" and the detail
+    "building high-performance API services" (the Apply pack called it close to your work)."""
+    details = ["building high-performance API services", "running Kubernetes on OCI"]
+    gaps = ["build high-performance API services"]
+    assert pack.names_gap(details[0], gaps) and not pack.names_gap(details[1], gaps)
+    line = pack.why_line(S, ConfigStore.fake(), details, gaps)
+    assert "running Kubernetes on OCI" in line and "API services" not in line
+    assert pack.names_gap("improve our GitLab CI pipelines", ["improving GitLab CI pipeline"])
+    assert not pack.names_gap("building cloud infrastructure", ["Infrastructure as Code"])
