@@ -69,6 +69,23 @@ see whether it is on and when it runs next.
   a day for both runs together, and the mail mode (`/mailmode`) decides between drafts and
   sending. The summary starts with "Scheduled autopilot (07:00 Asia/Kolkata)".
 
+## Morning check before the run (Autopilot C)
+
+At 06:30 India time (Notion Config `schedule.health_time`; `schedule.health` = `false` turns it
+off) one message comes before the 07:00 run (`track/health_report.py`):
+
+- ⛔ **Blocks the run, fix first:** a Notion table the bot cannot read (HTTP 404: share it with
+  the integration), a Gmail token that does not work (`/gmailtoken`), an Anthropic key that is
+  missing or refused, the `/fetch` gate closed (`/update`).
+- ⚠️ **Needs you soon:** a Gmail token that stops within 2 days, `/update` due within 5 days, a
+  contact provider with no credit left, the LinkedIn export older than 30 days, the autopilot
+  schedule switched off.
+- ✅ The rest: the Notion tables reachable, the `/fetch` gate days, credits, AI cost this
+  month, the last `/fetch`.
+
+Long polling checks it every few minutes; Cloud Run gets `POST /tasks/health`
+([deploy.md](deploy.md)).
+
 ## Afternoon check (apply early)
 
 Jobs posted after the morning run would wait until the next day, and the first applicants
