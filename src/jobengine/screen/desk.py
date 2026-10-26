@@ -2111,6 +2111,89 @@ class Desk:
     def report_command(self) -> list[Reply]:
         return [Reply(self.daily_report_text()[:MAX_TEXT])]
 
+    def table_query(self, source: str) -> Any:
+        """Read one row of a Notion table (the morning check); raises when it cannot."""
+        if not self.s.notion_token:
+            raise RuntimeError("NOTION_TOKEN is not set")
+        from jobengine.notion_repo import NotionClient
+
+        client = NotionClient(self.s.notion_token, self.s)
+        return client.request("POST", f"/data_sources/{source}/query", {"page_size": 1})
+
+    def health_report_text(self) -> str:
+        """The morning check (Autopilot C, track/health_report.py): what would stop the run
+        first, with the fix."""
+        from jobengine import gmail_renew
+        from jobengine.contacts import connections as connections_mod
+        from jobengine.contacts.credits import CreditBook
+        from jobengine.screen import schedule
+        from jobengine.track import costs, daily_report, health_report
+
+        config = self.deps.config()
+        today = daily_report.local(self.tracking_now(), config).date()
+        blockers, soon, fine = [], [], []
+        found = health_report.tables(self.s.notion_read, self.s.notion_write)
+        problems = health_report.table_problems(found, self.table_query)
+        blockers += problems
+        if not problems:
+            fine.append(f"Notion: {len(found)} tables reachable")
+        if self.track is not None:
+            for name in ("alerts", "sender"):
+                reason = self.track.token_check(name)
+                if reason is not None:
+                    blockers.append(f"Gmail {name} token: {reason}. Fix: /gmailtoken")
+            if self.s.anthropic_api_key:
+                try:
+                    problem = self.track.key_check()
+                except Exception as exc:  # report, never raise
+                    problem = f"not checked ({type(exc).__name__})"
+                if problem is not None:
+                    blockers.append(f"Anthropic key: {problem}")
+            else:
+                blockers.append("Anthropic key: missing in .env")
+        for account, left in gmail_renew.token_left(self.s, config, today):
+            if left <= health_report.TOKEN_SOON_DAYS:
+                soon.append(f"Gmail token {account}: {max(left, 0)} day(s) left. Fix: "
+                            f"/gmailtoken {account}")
+        gate = health_report.gate_days(config, today)
+        if gate is None or gate < 0:
+            blockers.append("The /fetch gate is closed: run /update (the monthly strategy "
+                            "check).")
+        elif gate <= health_report.GATE_SOON_DAYS:
+            soon.append(f"/update is due in {gate} day(s), then /fetch stops until you run "
+                        "it.")
+        else:
+            fine.append(f"/fetch gate open for {gate} more days")
+        book = CreditBook(config, today)
+        if book.used_up():
+            soon.append(f"No contact credit left this month: {', '.join(book.used_up())}")
+        fine.append(book.line())
+        when, _count = connections_mod.last_import(self.state)
+        if when is not None and (today - when).days >= connections_mod.REFRESH_DAYS:
+            soon.append(f"LinkedIn connections export is {(today - when).days} days old: "
+                        "send a new one (/connections).")
+        plan = schedule.plan(self)
+        if not plan.on:
+            soon.append("The autopilot schedule is off (Notion Config schedule.autopilot).")
+        fine.append(costs.month_line(self.state, today))
+        from jobengine.sweep.runner import LAST_SUMMARY
+
+        last = (self.state.get(LAST_SUMMARY) or {}).get("at")
+        fine.append(f"Last /fetch: {last or 'never'}")
+        starts = plan.times_text() if plan.on else ""
+        return health_report.text(today, blockers, soon, fine, starts)
+
+    def health_report_tick(self) -> list[Reply]:
+        """Every few minutes (and POST /tasks/health): the morning check, once a day."""
+        from jobengine.track import daily_report, health_report
+
+        config = self.deps.config()
+        now = self.tracking_now()
+        if not health_report.due(config, self.state, now):
+            return []
+        health_report.mark_sent(self.state, daily_report.local(now, config).date())
+        return [Reply(self.health_report_text()[:MAX_TEXT])]
+
     def daily_report_tick(self) -> list[Reply]:
         """Every few minutes (and POST /tasks/report): the evening report, once a day, on
         Telegram and by email."""
@@ -3026,6 +3109,7 @@ def fake_desk(s: Settings, today: date, now: Callable[[], datetime] | None = Non
 
     desk.get_file = no_file
     desk.out_dir = ROOT_DIR / "out" / "fake"  # never your real out/ie_permits file
+    desk.table_query = lambda source: {"results": []}  # no Notion in --fake
     desk.skills_added = []  # type: ignore[attr-defined]
     desk.add_skill = lambda name, level, note: desk.skills_added.append(  # type: ignore[attr-defined]
         (name, level, note))
