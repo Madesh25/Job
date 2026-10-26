@@ -102,7 +102,10 @@ def desk_tasks(s: Settings, desk: Desk, client: tb.TelegramClient,
             raise RuntimeError("tracking is not available (see the startup log)")
         report = run_daily(desk.track, desk.tracking_now())
         send(desk.report_replies(report))
-        reminder = run_strategy_reminder(desk.strategy) if desk.strategy else None
+        auto = desk.auto_update_tick()  # the monthly /update by itself, 5 days before (I5)
+        send(auto)
+        reminder = (run_strategy_reminder(desk.strategy)
+                    if desk.strategy and not auto else None)
         if reminder:
             send([Reply(reminder)])
         send(desk.connections_reminder())  # the monthly LinkedIn export, when it is due

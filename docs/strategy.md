@@ -91,7 +91,24 @@ highlighted, because it demotes that company's jobs in screening.
 ## Monthly reminder
 
 `run_strategy_reminder` (sent daily by Module 09) says `Strategy review due in N days. Run
-/update.` when 3 or fewer days are left, and nothing on other days.
+/update.` when 3 or fewer days are left, and nothing on other days. The daily task does not
+send it on the day the bot ran the research by itself (below).
+
+## Monthly /update by itself (Autopilot I5)
+
+From 5 days before the /fetch gate closes (or once it is closed), the bot runs the same
+research as /update by itself, once, from 07:00 India time (after the morning check). It sends
+`🤖 Monthly strategy research, run by itself (/fetch closes in N days)` and then the usual
+summary and tip cards with Adopt / Reject. Nothing is adopted for you: the gate opens only
+when every tip is decided, as with /update.
+
+- It runs once per gate period (bot_state `strategy.auto` keeps the date it ran for).
+- It does not run while a review is open (an earlier /update with undecided tips); /update
+  shows those tips again.
+- When the research cannot run (no API key, a failed call) it says so and tries again the
+  next day. Paid AI calls follow the usual rules (prod with DRY_RUN false).
+- Notion Config `strategy.auto_update` = `false` switches it off (default on).
+- Long polling checks it every few minutes; on Cloud Run the daily task runs it.
 
 ## Learning plan and LinkedIn keywords (flow features 14 and 8)
 
