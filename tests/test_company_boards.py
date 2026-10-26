@@ -693,3 +693,21 @@ def test_phenom_reads_up_to_five_full_pages_a_word():
     postings, _, _ = ats.phenom(MOLLIE, board, page, keep_all, ("devops",))
     assert len(asked) == ats.PHENOM_MAX_PAGES == 5 and len(postings) == 50
     assert asked[-1].endswith("from=40")
+
+
+def test_check_tries_the_eightfold_board_of_an_own_site_company(tmp_path):
+    """C4 (26 Oct): Ericsson's Eightfold site is read by --check-boards before /fetch."""
+    company = TargetCompany("Ericsson (IE)", "https://www.ericsson.com/en/careers", "Unknown",
+                            True)
+    asked = []
+
+    def get(url, params):
+        asked.append(url)
+        return {"positions": [{"id": 5, "name": "DevOps Engineer",
+                               "locations": ["Athlone, Ireland"]}]}
+
+    rows = boards.run(S, [company], {}, get, lambda u, b: {}, lambda u: ("", ""), TODAY,
+                      tmp_path)
+    assert rows[0].link == "https://jobs.ericsson.com/careers?domain=ericsson.com"
+    assert (rows[0].result, rows[0].platform, rows[0].jobs) == ("OK", "eightfold", 1)
+    assert asked[0] == "https://jobs.ericsson.com/api/apply/v2/jobs"

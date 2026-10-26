@@ -158,6 +158,7 @@ def board_link(board: Board) -> str:
         "recruitee": f"https://{board.token}.recruitee.com/",
         "personio": f"https://{board.token}.jobs.personio.{board.site or 'de'}/",
         "teamtailor": f"https://{board.token}.teamtailor.com/jobs",
+        "eightfold": f"https://{board.host}/careers?domain={board.token}",
     }
     return links.get(board.ats, "")
 

@@ -168,6 +168,12 @@ A source whose secret is missing is skipped with a line in the summary; the run 
 - These four read the field names their docs show and the other names seen, so a different
   account shape gives fewer fields rather than an error. Their boards are found from the
   careers page links like the others; Workable and Recruitee are also tried by company name.
+- Eightfold (C4, 26 Oct; Microsoft and Ericsson): `<host>/api/apply/v2/jobs` (or
+  `/api/pcsx/search` when the first answers 404) with `domain`, each search word and each of
+  Poland, the Netherlands and Ireland. Not tried from Claude Code's machine (the hosts are
+  refused there), so both answer shapes are read. The boards are set in `sweep.ats_boards`;
+  `--check-boards` always tries them, `/fetch` only when `sweep.ats.eightfold_in_fetch` is
+  true (until then they count as own job sites, covered by your alerts).
 - amazon.jobs: `www.amazon.jobs/en/search.json` once per search term, Ireland, Poland and the
   Netherlands only, 100 newest results. Every result has the full description and
   qualifications. Searched once per sweep even when Amazon and AWS are both Target Companies.
