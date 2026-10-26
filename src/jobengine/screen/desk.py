@@ -100,7 +100,6 @@ ADD_USAGE = ("Send /add <job link>: the job's page on the company site (the page
              "company to Target Companies and builds your resume.")
 ADD_PASTE = "Paste the description instead: send /jd {url}, paste the text, then /done."
 ADD_TIMEOUT = 30.0  # seconds for the /add page (a /fetch page gets http.PAGE_TIMEOUT_SECONDS)
-AUTO_PREP_KEY = "autoprep.done"  # bot_state: {"jobs": {page id: iso date}} (D)
 ADD_PLACE_CHARS = 3000  # the start of the job text where /add looks for the place
 ADD_LONGER_CHARS = 200  # a /add description this much longer replaces a full one
 ADD_BLOCKED = ("The bot never opens {host} pages. Open the job there, tap Apply, and send /add "
@@ -277,6 +276,7 @@ NOT_APPLYING = {"c": ("the job is closed or expired", "Expired"),
 
 TOKEN_ERRORS = ("invalid_grant", "expired or revoked")
 TOKEN_ALERT_KEY = "gmail_token_alert"
+AUTO_PREP_KEY = "autoprep.done"  # bot_state: {"jobs": {page id: iso date}} (D)
 TOKEN_ALERT = ("\u26a0\ufe0f A Gmail token has expired (invalid_grant): replies and sent mails "
                "are not checked. /gmailtoken shows which one; /gmailtoken m02 or /gmailtoken "
                "mm renews it in 2 minutes (a sign-in link, then you paste the address you land "
