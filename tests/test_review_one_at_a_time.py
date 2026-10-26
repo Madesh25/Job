@@ -123,3 +123,13 @@ def test_a_card_without_a_full_description_says_so_instead_of_gaps_none():
     assert d.match_lines(row, snippet, empty) == [NO_FULL_JD]
     found = {"Strong": 2, "Transferable": 0, "Gap": 1}
     assert d.match_lines(row, snippet, found)[0] == "Match: 2 strong, 0 transferable, 1 gaps"
+
+
+def test_a_second_approve_resume_tap_sends_nothing_again():
+    # Phase 13 B-03 (26 Oct): two taps sent the Apply pack and the link twice.
+    d = make_desk()
+    approve_resume(d)
+    log_id = d.resume.resume_log.all_rows()[0][0]
+    [again] = d.tap("ra:" + log_id.replace("-", ""))
+    assert again.text == "Already approved: the Apply pack and the link are above."
+    assert [label for label, _ in again.buttons] == ["I applied", "Not applying"]

@@ -133,6 +133,7 @@ class FinaliseOutcome:
     file: str | None = None
     latest: BuildOutcome | None = None
     pdf: bytes | None = None  # the approved PDF (the cover letter is written from its text)
+    already: bool = False  # approved before (a second tap): nothing is sent again
 
 
 def short_ref(log_id: str) -> str:
@@ -787,7 +788,7 @@ def finalise(deps: ResumeDeps, log_id: str) -> FinaliseOutcome:
     url = values.get("URL") or "(no URL on the job)"
     if row.get("Approved"):
         return FinaliseOutcome(status="approved", job_id=job_id, job_url=url, file=row.get("File"),
-                               message=APPLY_TEXT.format(url=url))
+                               message=APPLY_TEXT.format(url=url), already=True)
     # Each step is logged with its time: Approve resume once hung with nothing in the log.
     started = time.monotonic()
     try:

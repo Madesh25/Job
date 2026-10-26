@@ -319,8 +319,10 @@ When LinkedIn or another app sends you to the company's own job page, send that 
    from the job's country; Active ticked; a Notes line with the link. An **Undo** button
    unticks Active. Only these fields are written (`safety.target_companies_add_fields`), and
    Target Companies is shared by every env (your decision of 23 Oct, like Skills Inventory);
-4. marks the job Approved and builds the resume (you apply to it, whatever the screening
-   says; a remote job is saved too, with a note).
+4. marks the job Approved and builds the resume (a remote job is saved too, with a note).
+   When screening says Skip (Phase 13 B-03: "Minimum 5 years" and your limit of 4), it says
+   why and builds nothing yet: **Build the resume anyway** (the verdict becomes Needs review,
+   the Skip reason stays) or **Not applying**.
 
 A page that shows no description (it loads it with scripts) or no role answers with the /jd
 way: `/jd <link>`, paste the text, `/done`.
@@ -330,6 +332,13 @@ Phase 13 B-03 (26 Oct): a page that does not name the company (no schema.org dat
 `Comarch`, `sii.pl` gives `Sii`), and the bot says so: fix the Company field in Notion if it
 is wrong. The page gets 30 seconds (`ADD_TIMEOUT`, a /fetch page gets 12) and one more try
 after a time-out, because you wait for that one page.
+
+Also from the B-03 retests: a job already saved from an alert (only a snippet) gets the
+company page's full text as its newest description, so its stated years count in screening
+(Sii: "Minimum 5 years"); the place is read from the job text when the page data has none
+(Comarch); the company name loses its legal form ("PwC Advisory spółka z ograniczoną
+odpowiedzialnością sp.k." becomes "PwC Advisory"); a second tap on Approve resume answers
+"Already approved" instead of sending the Apply pack again.
 
 ## Checking it on your laptop
 

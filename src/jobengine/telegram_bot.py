@@ -164,7 +164,7 @@ TAP_TOASTS = {"ap": "Checking the job link, then building your resume...",
               "tu": "Undoing...", "en": "Getting your first job...",
               "nj": "Getting the next job...", "sz": "Snoozing...", "dd": "Well done...",
               "fo": "Saving your approval...", "fw": "Listing the answers...",
-              "lp": "Noted..."}
+              "lp": "Noted...", "aa": "Building your resume..."}
 # Every other button: a tap always gets a sign that the bot is working (5 Oct test notes).
 TAP_DEFAULT = "Working on it..."
 

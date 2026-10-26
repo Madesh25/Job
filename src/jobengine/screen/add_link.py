@@ -9,6 +9,7 @@ Pure parts here; the desk (screen/desk.py) does the reads and writes.
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from datetime import date
@@ -102,6 +103,7 @@ def read_page(url: str, page: str) -> PageJob:
     if not job.company:
         job.company = company_from_host(url)
         job.company_from_link = bool(job.company)
+    job.company = short_company(job.company)
     return job
 
 
@@ -124,6 +126,24 @@ def company_from_host(url: str) -> str:
     if not name or name in HOST_WORDS or name.isdigit():
         return ""
     return name[:1].upper() + name[1:]
+
+
+# Legal forms the page's company name may carry (PwC: "PwC Advisory spółka z ograniczoną
+# odpowiedzialnością sp.k."); the Company cell keeps the name people use.
+LEGAL_FORMS = re.compile(
+    r"[\s,]+(?:sp\.?\s*z\s*o\.?\s*o\.?|spółka z ograniczoną odpowiedzialnością|"
+    r"spółka komandytowa|spółka akcyjna|sp\.?\s*k\.?|sp\.?\s*j\.?|s\.\s*a\.?|"
+    r"b\.\s*v\.?|n\.\s*v\.?|ltd\.?|limited|gmbh|inc\.?|plc|llc|dac|uc)\s*$", re.I)
+
+
+def short_company(name: str) -> str:
+    """The company without its legal form(s), as people say it."""
+    value = " ".join(name.split())
+    while True:
+        shorter = LEGAL_FORMS.sub("", value).strip(" ,")
+        if shorter == value or not shorter:
+            return value
+        value = shorter
 
 
 def board_link(board: Board) -> str:
