@@ -77,6 +77,7 @@ class SourceResult:
     blocked: list[str] = field(default_factory=list)
     no_board: list[str] = field(default_factory=list)
     own_site: list[str] = field(default_factory=list)  # ATS only: sweep.ats.own_site_companies
+    read: list[str] = field(default_factory=list)  # ATS only: companies whose board was read
     notes: list[str] = field(default_factory=list)
     emails: int | None = None  # gmail only: alert emails read
 
@@ -237,6 +238,8 @@ class SweepSummary:
     linkedin_filled: list[str] = field(default_factory=list)  # sweep/crossmatch.py
     backfilled: list[str] = field(default_factory=list)  # sweep/backfill.py
     alert_emails: int | None = None  # email alerts read (None: the source did not run)
+    site_missed: list[str] = field(default_factory=list)  # sweep/discover.py
+    new_companies: int = 0  # new suggestions for /newcompanies (sweep/discover.py)
 
     def _skipped_detail(self) -> str:
         if not self.skipped_by:
@@ -341,6 +344,15 @@ class SweepSummary:
         if self.own_site_count:
             lines += ["", f"\U0001F3E0 Own job sites, covered by your alerts (not read here): "
                           f"{self.own_site_count} companies"]
+        if self.site_missed:
+            lines += ["", f"\U0001F573 Jobs another source found that the company's own job "
+                          f"board did not list: {len(self.site_missed)}"]
+            lines.extend(f"- {job}" for job in self.site_missed[:10])
+            lines.append("Check their Careers URL in Target Companies (it may point to the "
+                         "wrong board).")
+        if self.new_companies:
+            lines += ["", f"\U0001F50E New companies hiring for your roles, not in Target "
+                          f"Companies: {self.new_companies}. /newcompanies to add them"]
         if self.not_written:
             lines += ["", f"\u26A0\uFE0F Could not be saved to Notion (the rest were saved; "
                           f"details in the log): {len(self.not_written)}"]

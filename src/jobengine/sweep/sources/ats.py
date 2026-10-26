@@ -1409,6 +1409,7 @@ def fetch(
             continue
         postings, dropped = outcome
         result.postings.extend(postings)
+        result.read.append(company.name)
         dropped_total += dropped
     detector.save()
     if detector.found:

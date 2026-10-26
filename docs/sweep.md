@@ -401,6 +401,27 @@ JustJoin or Pracuj.pl alert often finds its twin on NoFluffJobs or the company's
   waiting for `/jd`.
 - `sweep.crossmatch.enabled: false` turns it off.
 
+## New companies and jobs a company site missed (C1, 26 Oct)
+
+After each sweep, `sweep/discover.py` looks at the jobs that passed the scope filters:
+
+- **New companies.** A company with jobs from the alerts, Adzuna, Jooble, NoFluffJobs or
+  IamExpat that is not in Target Companies (not even unticked), not an agency and not one you
+  turned down becomes a suggestion (Bot State `discover.companies`, kept 30 days after it was
+  last seen). The /fetch summary counts the new ones; `/newcompanies` shows them one at a
+  time, a readable job board (Greenhouse, Lever, ...) first, with **Add to Target Companies**
+  (the same row as /add, with Undo; Notes say "Added by /newcompanies") and **Not interested**
+  (Bot State `discover.skip`, never suggested again). A job board or aggregator link
+  (LinkedIn, Adzuna, Jooble, Pracuj.pl, ...) never becomes the Careers URL: without the
+  company's own link the row has no Careers URL and /fetch looks for the board by the name.
+  Nothing is added without your tap (Target Companies is shared with prod).
+- **Missed by the company site.** A job another source found at a Target Company whose job
+  board was read in the same sweep, but that board did not list (same company, title and
+  country, as in the cross-match above). The /fetch summary lists up to 10: check the Careers
+  URL, or the reader may stop too early (Workday reads one page per search word).
+
+`sweep.discover.enabled: false` turns both off.
+
 ## Where the postings went (loss report)
 
 Every posting a `/fetch` reads lands in exactly one bucket, per source, so the buckets add up

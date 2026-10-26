@@ -59,9 +59,10 @@ HELP_TEXT = (
     "/autopilot - fetch, screen at half price, approve the best (10 a day), save resumes, "
     "find contacts and write Gmail drafts (never sent)\n"
     "/autopilot when - the schedule (07:00 and 19:30, Config schedule.autopilot), next run\n"
-    "/pending - review screened jobs one at a time, one country at a time (Approve, Skip, "
+    "/pending - review screened jobs one at a time (Approve, Skip, "
     "Next); /pending poland, netherlands, ireland, remote or all\n"
     "/add <job link> - save a job from a company's own site, resume and Target Companies\n"
+    "/newcompanies - companies hiring for your roles, not in Target Companies\n"
     "/jd <url> - paste a job description (LinkedIn, Pracuj.pl and other blocked sites), "
     "then /done\n"
     "/jd - list jobs waiting for a description\n"
@@ -164,12 +165,13 @@ TAP_TOASTS = {"ap": "Checking the job link, then building your resume...",
               "tu": "Undoing...", "en": "Getting your first job...",
               "nj": "Getting the next job...", "sz": "Snoozing...", "dd": "Well done...",
               "fo": "Saving your approval...", "fw": "Listing the answers...",
-              "lp": "Noted...", "aa": "Building your resume..."}
+              "lp": "Noted...", "aa": "Building your resume...",
+              "dc": "Adding it to Target Companies...", "dn": "Noted..."}
 # Every other button: a tap always gets a sign that the bot is working (5 Oct test notes).
 TAP_DEFAULT = "Working on it..."
 
-DESK_COMMANDS = ("next", "pending", "add", "report", "jd", "done", "screen", "gaps", "contacts",
-                 "credits",
+DESK_COMMANDS = ("next", "pending", "add", "newcompanies", "report", "jd", "done", "screen",
+                 "gaps", "contacts", "credits",
                  "outreach", "drafts", "answer", "answers", "autofill", "dryrun", "autoapply",
                  "fetchcontacts",
                  "alertcheck", "fetchreport", "linkedin", "today", "followups", "stats",
@@ -969,6 +971,8 @@ def desk_replies(update: dict[str, Any], s: Settings, desk: Desk | None) -> list
         return _guarded("/rules", desk.rules_command)
     if command == "add":
         return _guarded("/add", lambda: desk.add_command(args))
+    if command == "newcompanies":
+        return _guarded("/newcompanies", lambda: desk.newcompanies_command(args))
     if command == "report":
         return _guarded("/report", desk.report_command)
     if command == "jd":
