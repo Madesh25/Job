@@ -189,6 +189,8 @@ def read_board(s: Settings, company: TargetCompany, board: ats.Board, get: Gette
         postings, _, _ = ats.personio(company, board, feed or page, _keep_all)
     elif board.ats == "teamtailor":
         postings, _, _ = ats.teamtailor(company, board, feed or page, _keep_all)
+    elif board.ats == "eightfold":
+        postings, _, _ = ats.eightfold(company, board, get, _keep_all, terms)
     else:
         postings, _, _ = ats.amazon(company, get, _keep_all, terms)
     return postings
@@ -266,12 +268,16 @@ def run(s: Settings, companies: list[TargetCompany], candidates: Mapping[str, st
     rows = []
     own_sites = {ats.canon_name(n)
                  for n in (s.sweep.get("ats") or {}).get("own_site_companies") or []}
+    overrides = s.sweep.get("ats_boards") or {}
     known = {ats.canon_name(c.name) for c in companies}
     extra = [c for c in new or [] if ats.canon_name(c.name) not in known]
     for company in [*companies, *extra]:
         if not company.active:
             continue
         link = candidates.get(company.name) or company.careers_url or ""
+        override = overrides.get(company.name)
+        if override and str(override.get("ats")).lower() == "eightfold":
+            link = ats.eightfold_link(ats.Board.from_dict(override))  # C4: tried here first
         origin = ("new" if company in extra else
                   "proposed" if company.name in candidates else "Notion")
         if ats.canon_name(company.name) in own_sites and ats.board_from_url(link) is None:

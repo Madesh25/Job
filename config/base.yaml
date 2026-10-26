@@ -37,6 +37,9 @@ safety:
     - apply.workable.com
     # Dell's Oracle Cloud HCM career site on its own domain (5 Oct)
     - enterpriseplatform.dell.com
+    # Eightfold career sites of Microsoft and Ericsson (C4, 26 Oct; sweep.ats_boards)
+    - apply.careers.microsoft.com
+    - jobs.ericsson.com
     - jooble.org
     - www.amazon.jobs
     - ind.nl
@@ -692,9 +695,18 @@ sweep:
                          Asseco Poland, Samsung R&D, bunq, Uber, Version 1, Brainly, KPMG,
                          UBS, Revolut, Rabobank, Goldman Sachs, ABN AMRO, SAP, HSBC,
                          Deloitte, HubSpot]
+    # C4 (26 Oct): Microsoft and Ericsson use Eightfold career sites (ats_boards below).
+    # --check-boards always tries them; /fetch reads them only when this is true (set it
+    # after --check-boards shows jobs for them).
+    eightfold_in_fetch: false
   # Company name -> {ats, token} for companies whose careers URL is their own domain and whose
-  # board is not found automatically. Workday also needs host and site.
-  ats_boards: {}
+  # board is not found automatically. Workday also needs host and site; Eightfold needs host
+  # (the career site) and token (the company's domain in its links).
+  ats_boards:
+    Microsoft: {ats: eightfold, token: microsoft.com, host: apply.careers.microsoft.com}
+    Microsoft (IE): {ats: eightfold, token: microsoft.com, host: apply.careers.microsoft.com}
+    Microsoft (NL): {ats: eightfold, token: microsoft.com, host: apply.careers.microsoft.com}
+    Ericsson (IE): {ats: eightfold, token: ericsson.com, host: jobs.ericsson.com}
   # Jooble job search (needs JOOBLE_API_KEY, free): many job boards, Ireland included.
   # One call per country and term, results_per_page each.
   jooble:

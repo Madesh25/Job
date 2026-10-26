@@ -139,3 +139,70 @@ def test_teamtailor_feed():
 def test_a_board_found_by_name_needs_jobs():
     assert ats._has_jobs({"offers": [{"id": 1}]}) and not ats._has_jobs({"offers": []})
     assert ats._has_jobs({"name": "x", "jobs": [{"title": "y"}]})
+
+
+# ---------------------------------------------------------------- Eightfold (C4, 26 Oct)
+
+
+def test_eightfold_links_are_recognised():
+    assert ats.board_from_url("https://jobs.ericsson.com/careers?domain=ericsson.com") == \
+        ats.Board("eightfold", "ericsson.com", host="jobs.ericsson.com")
+    assert ats.board_from_url(
+        "https://jobs.ericsson.com/careers/job/563121?domain=ericsson.com&hl=en") == \
+        ats.Board("eightfold", "ericsson.com", host="jobs.ericsson.com")
+    assert ats.board_from_url("https://apply.careers.microsoft.com/careers/job/1") == \
+        ats.Board("eightfold", "microsoft.com", host="apply.careers.microsoft.com")
+    board = ats.Board("eightfold", "ericsson.com", host="jobs.ericsson.com")
+    assert ats.board_from_url(ats.eightfold_link(board)) == board
+    assert "eightfold" in ats.SUPPORTED
+
+
+def test_eightfold_search_reads_either_answer_shape():
+    from jobengine import http
+
+    asked = []
+
+    def get(url, params):
+        asked.append((url, params["query"], params["location"]))
+        if url.endswith("/api/apply/v2/jobs"):
+            raise http.HttpError("GET jobs.example failed: HTTP 404", status=404)
+        if params["location"] != "Ireland":
+            return {"data": {"positions": []}}
+        return {"data": {"positions": [
+            {"id": 77, "name": "Site Reliability Engineer", "locations": ["Dublin, Ireland"],
+             "postedTs": 1761400000, "positionUrl": "/careers/job/77"},
+            {"id": 78, "name": "Sales Manager", "locations": ["Dublin, Ireland"]}]}}
+
+    def keep(title, location):
+        return "Engineer" in title
+
+    board = ats.Board("eightfold", "acme.com", host="jobs.acme.example")
+    postings, dropped, _ = ats.eightfold(ACME, board, get, keep, ("sre", "devops"))
+    [job] = postings
+    assert (job.title, job.location_text) == ("Site Reliability Engineer", "Dublin, Ireland")
+    assert job.url == "https://jobs.acme.example/careers/job/77"
+    assert job.posting_id == "eightfold-acme.com-77"
+    assert job.posted_date == date(2025, 10, 25)
+    assert dropped == 2  # the sales job, once per search word
+    assert asked[0] == ("https://jobs.acme.example/api/apply/v2/jobs", "sre", "Poland")
+    assert asked[1] == ("https://jobs.acme.example/api/pcsx/search", "sre", "Poland")
+    assert all(url.endswith("/api/pcsx/search") for url, _, _ in asked[2:])
+    assert len(asked) == 1 + 2 * 3  # one probe, then 2 words x 3 countries
+
+
+def test_eightfold_boards_wait_for_the_check_before_fetch_reads_them():
+    from jobengine.settings import load_settings
+
+    s = load_settings("local", {})
+    boards = s.sweep["ats_boards"]
+    assert boards["Microsoft (IE)"]["ats"] == "eightfold"
+    assert boards["Ericsson (IE)"]["host"] == "jobs.ericsson.com"
+    assert (s.sweep.get("ats") or {}).get("eightfold_in_fetch") is False
+    company = TargetCompany("Ericsson (IE)", "https://www.ericsson.com/en/careers", "Unknown",
+                            True)
+
+    def no_call(url, params):
+        raise AssertionError("an Eightfold board was read by /fetch")
+
+    result = ats.fetch(s, [company], keep_all, get=no_call)
+    assert result.own_site == ["Ericsson (IE)"] and result.postings == []

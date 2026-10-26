@@ -45,6 +45,7 @@ SF_ROWS = 200
 # asked again for fewer.
 SF_ROWS_SMALL = 50
 SUPPORTED = ("greenhouse", "lever", "smartrecruiters", "workday", "amazon", "avature", "ashby",
+             "eightfold",
              "successfactors", "phenom", "oracle", "workable", "recruitee", "personio",
              "teamtailor")
 # Searches for boards that are too big to read whole (Workday, Amazon).
@@ -85,6 +86,11 @@ WORKABLE_HOST = re.compile(r"//([\w-]+)\.workable\.com", re.I)  # older <account
 RECRUITEE_URL = re.compile(r"//([\w-]+)\.recruitee\.com", re.I)
 PERSONIO_URL = re.compile(r"//([\w-]+)\.jobs\.personio\.(de|com)", re.I)
 TEAMTAILOR_URL = re.compile(r"//([\w-]+)\.teamtailor\.com", re.I)
+# Eightfold career sites (Microsoft, Ericsson): <host>/careers?domain=<company domain>, or a job
+# at <host>/careers/job/<id>?domain=...; Microsoft's own host needs no domain in the link.
+EIGHTFOLD_URL = re.compile(
+    r"^https://([^/\s?#]+)/careers(?:/job/\d+)?/?\?(?:[^#\s]*&)?domain=([\w.-]+)", re.I)
+MICROSOFT_EIGHTFOLD = re.compile(r"^https://apply\.careers\.microsoft\.com\b", re.I)
 AVATURE_URL = re.compile(r"^https://[^/\s]+/[a-z]{2}_[A-Z]{2}/[\w-]+/SearchJobs\b", re.I)
 PAGE_URL = re.compile(r"(?:https?:)?//[^\s\"'<>\\]+", re.I)
 # Path parts that are never a board token.
@@ -166,6 +172,10 @@ def board_from_url(url: str) -> Board | None:
     if match := TEAMTAILOR_URL.search(url):
         token = match.group(1)
         return None if token.lower() in NOT_ACCOUNTS else Board("teamtailor", token)
+    if match := EIGHTFOLD_URL.search(url):
+        return Board("eightfold", match.group(2).lower(), host=match.group(1).lower())
+    if MICROSOFT_EIGHTFOLD.search(url):
+        return Board("eightfold", "microsoft.com", host="apply.careers.microsoft.com")
     if AMAZON_URL.search(url):
         return Board("amazon", "amazon")
     if AVATURE_URL.search(url):
@@ -767,6 +777,98 @@ def teamtailor(company: TargetCompany, board: Board, page: PageGetter, keep: Pre
 
 # ---------------------------------------------------------------- SuccessFactors
 
+# ---------------------------------------------------------------- Eightfold (C4, 26 Oct)
+# The career sites of Microsoft and Ericsson. Their search API is read the way the site's own
+# page reads it; it could not be tried from Claude Code's machine, so the answer is read
+# defensively (two known shapes) and `python -m jobengine.sweep --check-boards` shows whether
+# it works. /fetch reads these boards only with sweep.ats.eightfold_in_fetch: true.
+
+EIGHTFOLD_APIS = ("/api/apply/v2/jobs", "/api/pcsx/search")
+EIGHTFOLD_PAGE = 50
+EIGHTFOLD_COUNTRIES = ("Poland", "Netherlands", "Ireland")
+
+
+def eightfold_link(board: Board) -> str:
+    return f"https://{board.host}/careers?domain={board.token}"
+
+
+def _eightfold_positions(data: Any) -> list[Mapping[str, Any]]:
+    if not isinstance(data, Mapping):
+        return []
+    found = data.get("positions")
+    if found is None and isinstance(data.get("data"), Mapping):
+        found = data["data"].get("positions")
+    return [p for p in found or [] if isinstance(p, Mapping)]
+
+
+def _eightfold_date(value: Any) -> date | None:
+    try:
+        stamp = float(value)
+    except (TypeError, ValueError):
+        return _iso_date(value if isinstance(value, str) else None)
+    if stamp > 10_000_000_000:  # milliseconds
+        stamp /= 1000
+    try:
+        return datetime.fromtimestamp(stamp, tz=UTC).date()
+    except (OverflowError, OSError, ValueError):
+        return None
+
+
+def _eightfold_location(job: Mapping[str, Any]) -> str:
+    places = [p for p in job.get("locations") or [] if isinstance(p, str)]
+    if not places and job.get("location"):
+        places = [str(job["location"])]
+    return " / ".join(dict.fromkeys(places))
+
+
+def eightfold(company: TargetCompany, board: Board, get: Getter, keep: Prefilter,
+              terms: tuple[str, ...]):
+    """An Eightfold career site: each search word, filtered to your three countries."""
+    origin = f"https://{board.host}"
+    api = None
+    postings: dict[str, RawPosting] = {}
+    dropped = 0
+    for term in terms:
+        for country in EIGHTFOLD_COUNTRIES:
+            params = {"domain": board.token, "query": term, "location": country,
+                      "start": 0, "num": EIGHTFOLD_PAGE, "sort_by": "relevance"}
+            if api is None:  # the first answer tells which API this site has
+                for path in EIGHTFOLD_APIS:
+                    try:
+                        data = get(origin + path, params)
+                    except http.HttpError as exc:
+                        if exc.status not in (400, 404, 405):
+                            raise
+                        continue
+                    if _eightfold_positions(data) or isinstance(data, Mapping):
+                        api = path
+                        break
+                if api is None:
+                    raise http.HttpError(f"GET {origin}{EIGHTFOLD_APIS[0]} failed: no job API "
+                                         "found", status=404)
+            else:
+                data = get(origin + api, params)
+            for job in _eightfold_positions(data):
+                title = str(job.get("name") or job.get("title") or job.get("posting_name") or "")
+                location = _eightfold_location(job)
+                job_id = str(job.get("id") or job.get("display_job_id") or "")
+                if not title or not job_id or f"eightfold-{job_id}" in postings:
+                    continue
+                if not keep(title, location):
+                    dropped += 1
+                    continue
+                link = str(job.get("canonicalPositionUrl") or job.get("positionUrl") or "")
+                url = urljoin(origin, link) if link else \
+                    f"{origin}/careers/job/{job_id}?domain={board.token}"
+                postings[f"eightfold-{job_id}"] = RawPosting(
+                    source=SOURCE, board=BOARD, title=title, company=company.name,
+                    location_text=location, url=url,
+                    posting_id=f"eightfold-{board.token}-{job_id}",
+                    posted_date=_eightfold_date(job.get("t_create") or job.get("postedTs")),
+                    description=html_to_text(job.get("job_description")))
+    return list(postings.values()), dropped, 0
+
+
 SF_LOCATION = re.compile(r"\(([^()]*)\)\s*$")
 SF_COUNTRY_CODES = {"PL": "Poland", "NL": "Netherlands", "IE": "Ireland"}
 
@@ -1349,6 +1451,9 @@ def fetch(
         if company.name in skip:
             continue
         board = known[company.name] or found.get(company.name)
+        if board is not None and board.ats == "eightfold" and not cfg.get("eightfold_in_fetch"):
+            result.own_site.append(company.name)  # until --check-boards shows the reader works
+            continue
         if board is None or board.ats not in SUPPORTED:
             result.not_supported.append(company.name)
             continue
@@ -1391,6 +1496,8 @@ def fetch(
                 postings, dropped, _ = personio(company, board, feed, keep)
             elif board.ats == "teamtailor":
                 postings, dropped, _ = teamtailor(company, board, feed, keep)
+            elif board.ats == "eightfold":
+                postings, dropped, _ = eightfold(company, board, get, keep, terms)
             else:
                 postings, dropped, _ = smartrecruiters(company, board, get, keep, sr_budget)
         except http.HttpError as exc:
