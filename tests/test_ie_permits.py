@@ -85,3 +85,26 @@ def test_a_failed_download_changes_nothing():
     row = next(r for r in d.all_ranked() if r.page_id == "pl-clean")
     assert d.irish_permits(row) is None
     assert "Irish permits" not in d.card(row, 0, 1).text
+
+
+def test_gov_ie_refuses_so_the_file_you_saved_is_read(tmp_path):
+    """P9-20 (26 Oct): gov.ie answers the bot with HTTP 403; the card line was missing."""
+    from jobengine import http
+
+    d = make_desk()
+    d.out_dir = tmp_path
+
+    def refused(url):
+        raise http.HttpError("GET www.gov.ie/en/x failed: HTTP 403", status=403)
+
+    d.get_file = refused
+    d.repo.rows["pl-clean"].update({"Country": "Ireland", "Company": "Tulip Data"})
+    row = next(r for r in d.all_ranked() if r.page_id == "pl-clean")
+    assert d.irish_permits(row) is None
+    assert d.permits_note.startswith("NOT read (gov.ie: GET www.gov.ie/en/x failed: HTTP 403;")
+    assert "save it as out/ie_permits.xlsx" in d.permits_note
+    (tmp_path / "ie_permits.xlsx").write_bytes(workbook())
+    d._permits = None  # the next day, or after a restart
+    assert d.irish_permits(row) == ("Tulip Data Ireland Ltd", 7)
+    assert d.permits_note.startswith("read from out/ie_permits.xlsx (2 companies; gov.ie:")
+    assert "Irish permits list: read from out/ie_permits.xlsx" in d.health_command()[0].text
