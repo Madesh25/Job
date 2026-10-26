@@ -161,3 +161,39 @@ def test_polling_loop_checks_a_waiting_batch(tmp_path):
 def test_check_interval(tmp_path, minutes, seconds):
     desk = make_desk(tmp_path, autopilot_check_minutes=minutes)
     assert autopilot.check_seconds(desk) == seconds
+
+
+def test_your_linkedin_connections_get_the_referral_ask(tmp_path):
+    """Autopilot B (26 Oct): a connection with an email is in the drafts; the others get a
+    LinkedIn message to send yourself. Made-up people at the fixture company Vistula Cloud."""
+    from test_referrals import EWA, OLA, PIOTR
+
+    from jobengine.contacts.connections import FakeConnections
+
+    desk = make_desk(tmp_path)
+    desk.connections = FakeConnections([PIOTR, OLA, EWA])
+    replies = desk.autopilot(Fetch())
+    summary = replies[0].text
+    assert ("2. Vistula Cloud, DevOps Engineer (Apply high): resume saved, 4 contacts, "
+            "1 connection in the drafts (referral ask), 2 LinkedIn messages to send yourself "
+            "(below), DRY RUN: 5 drafts not created") in summary
+    asks = [r.text for r in replies if r.text.startswith("Referral asks for DevOps Engineer "
+                                                         "at Vistula Cloud")]
+    assert len(asks) == 1
+    assert "Piotr Example" in asks[0] and "Ewa Kowalska" in asks[0]
+    assert "Ola Nowak" not in asks[0]  # she is in the drafts
+    asked = [row for row in desk.connections.rows() if row.info.get("Last asked")]
+    assert [row.person.name for row in asked] == ["Ola Nowak"]
+
+
+def test_in_mail_mode_send_connections_are_never_mailed_by_themselves(tmp_path):
+    from test_referrals import OLA
+
+    from jobengine.contacts.connections import FakeConnections
+
+    desk = make_desk(tmp_path)
+    desk.connections = FakeConnections([OLA])
+    desk.sending = lambda: True
+    replies = desk.autopilot(Fetch())
+    assert "1 LinkedIn message to send yourself (below)" in replies[0].text
+    assert not any(row.info.get("Last asked") for row in desk.connections.rows())
