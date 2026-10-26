@@ -38,3 +38,44 @@ def candidates(messages: list[Message], company: str, domains: list[str]) -> Lin
     found = list(by_thread.values())
     return LinkResult(thread_id=found[0].thread_id if len(found) == 1 else None,
                       candidates=found)
+
+
+# ---------------------------------------------------------------- confirmation mails (A)
+# Autopilot A (26 Oct): a "Thank you for applying" mail from a career site marks the job
+# Applied, also when you applied outside the bot and never tapped "I applied".
+
+ACK_PHRASES = (
+    "thank you for applying", "thanks for applying", "thank you for your application",
+    "thanks for your application", "thank you for your interest in", "we have received your "
+    "application", "we've received your application", "your application has been received",
+    "your application was received", "application received", "dziękujemy za aplikację",
+    "dziękujemy za przesłanie aplikacji", "dziękujemy za złożenie aplikacji",
+    "bedankt voor je sollicitatie", "bedankt voor uw sollicitatie")
+# "Thank you for your interest" also opens many rejections: never an acknowledgement then.
+NOT_ACK = ("unfortunately", "not to move forward", "not moving forward", "other candidates",
+           "will not be progressing", "not been successful", "niestety", "helaas")
+
+
+def phrase_query(window: str, phrases: tuple[str, ...]) -> str:
+    return f"{window} ({' OR '.join(f'\"{p}\"' for p in phrases)})"
+
+
+def says(message: Message, phrases: tuple[str, ...]) -> bool:
+    text = f"{message.subject} {message.snippet} {message.text}".casefold()
+    return any(p in text for p in phrases)
+
+
+def is_ack(message: Message) -> bool:
+    return says(message, ACK_PHRASES) and not says(message, NOT_ACK)
+
+
+def matching_jobs(message: Message, jobs: dict[str, dict[str, object]]) -> list[str]:
+    """The jobs whose company the mail names; with several at one company, the ones whose
+    role it names too."""
+    found = [pid for pid, job in jobs.items() if mentions(message, str(job.get("Company") or ""))]
+    if len(found) <= 1:
+        return found
+    text = f" {canon(f'{message.subject} {message.snippet} {message.text}')} "
+    named = [pid for pid in found
+             if (role := canon(str(jobs[pid].get("Role") or ""))) and f" {role} " in text]
+    return named or found

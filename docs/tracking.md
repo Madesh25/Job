@@ -43,6 +43,15 @@ Telegram report. It never sends mail.
    table below, and the thread gets `labels.replies`.
 4. Job-level threads (`Gmail thread ID` on the job): new inbound messages are classified and
    applied; label `labels.applications`, plus `labels.interviews` for an interview.
+4b. Confirmation mails (Autopilot A, 26 Oct): a mail in the window that says "Thank you for
+   applying", "We have received your application" (and the Polish and Dutch ways to say it;
+   not when it also says "unfortunately" or "not moving forward") and names the company of a
+   job you approved (`Approved` or `Resume built`) marks that job `Applied` (Applied date = the
+   mail's date, its thread linked, `labels.applications`), also when you applied outside the
+   bot and never tapped `I applied`. With several jobs at that company the mail must name the
+   role; when it still fits more than one, the report asks you to tap `I applied` yourself.
+   The report gets a card with a `Contacts: <company>` button per job, so contacts and mails
+   follow.
 5. Linking: for `Applied` jobs without a thread, messages since the Applied date from the
    company domain (Target Companies `Domain`, or a domain you gave in Telegram) or a known ATS
    (`tracking.ats_sender_domains`) whose subject or snippet names the company. One thread is
