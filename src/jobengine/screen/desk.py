@@ -1405,7 +1405,6 @@ class Desk:
         """A LinkedIn message per connection at the company (the peer note: they are already
         connected, so it is a message, not an invitation), and "Mail them" when some have an
         email."""
-        from jobengine.contacts import linkedin_notes
         from jobengine.resume.builder import notion_id
 
         if self.repo is None:
@@ -1416,6 +1415,21 @@ class Desk:
         if not matches:
             return [Reply(f"No LinkedIn connection at {values.get('Company') or 'this company'} "
                           "in the 🤝 LinkedIn Connections table.")]
+        today = self.today()
+        reply = Reply(self.referral_messages(values, matches)[:MAX_TEXT])
+        can_mail = connections.mailable(matches, today)
+        if can_mail and self.mail is not None:
+            reply.buttons = [(f"Mail them ({len(can_mail)})", f"rm:{short_id(job_id)}")]
+            reply.text += (f"\n\n{len(can_mail)} of them have an email: Mail them adds them as "
+                           "contacts of this job, then Write Gmail drafts uses the referral "
+                           "template word for word.")
+        return [reply]
+
+    def referral_messages(self, values: dict[str, Any],
+                          matches: list[connections.Match]) -> str:
+        """A LinkedIn message per connection (the peer note), to send yourself."""
+        from jobengine.contacts import linkedin_notes
+
         config = self.deps.config()
         base = self.s.apply_pack.get("linkedin_notes") or {}
         template = (config.get("linkedin.note_peer") or base.get("peer")
@@ -1436,14 +1450,7 @@ class Desk:
                 head += f": asked on {asked:%d %b}, wait before asking again"
             where = p.url or f'search "{p.name} {company}" on LinkedIn'
             blocks.append(f"{head}\n{where}\n{note}")
-        reply = Reply("\n\n".join(blocks)[:MAX_TEXT])
-        can_mail = connections.mailable(matches, today)
-        if can_mail and self.mail is not None:
-            reply.buttons = [(f"Mail them ({len(can_mail)})", f"rm:{short_id(job_id)}")]
-            reply.text += (f"\n\n{len(can_mail)} of them have an email: Mail them adds them as "
-                           "contacts of this job, then Write Gmail drafts uses the referral "
-                           "template word for word.")
-        return [reply]
+        return "\n\n".join(blocks)
 
     def connection_lookup_tap(self, job_id: str) -> list[Reply]:
         """Prospeo by the LinkedIn profile link for at most MAX_ON_DEMAND connections at the
@@ -1529,7 +1536,6 @@ class Desk:
     def referral_mail_tap(self, job_id: str) -> list[Reply]:
         """Adds the connections with an email as Peer contacts of the job (Source Other, a
         Notes line saying LinkedIn connection) and marks them Asked in the table."""
-        from jobengine.contacts.models import PEER, Chosen
         from jobengine.resume.builder import notion_id
 
         if self.repo is None or self.contacts is None or self.contacts.contacts is None:
@@ -1541,6 +1547,20 @@ class Desk:
         if not matches:
             return [Reply("No connection to mail: none has an email, or all were asked in "
                           f"the last {connections.ASKED_DAYS} days.")]
+        chosen = self.add_referral_contacts(job_id, values, matches)
+        names = ", ".join(m.row.person.name for m in matches)
+        return self._then_drafts(Reply(f"Added as contacts of this job: {names}. They are "
+                                       "marked Asked in 🤝 LinkedIn Connections."),
+                                 job_id, chosen)
+
+    def add_referral_contacts(self, job_id: str, values: dict[str, Any],
+                              matches: list[connections.Match]) -> list[Any]:
+        """Connections with an email become Peer contacts of the job (Source Other, a Notes
+        line saying LinkedIn connection) and are marked Asked in the table."""
+        from jobengine.contacts.models import PEER, Chosen
+
+        assert self.contacts is not None and self.contacts.contacts is not None
+        today = self.today()
         by_email = {(v.get("Email") or "").strip().lower(): pid
                     for pid, v in self.contacts.contacts.all_rows() if v.get("Email")}
         chosen = []
@@ -1554,10 +1574,7 @@ class Desk:
         contact_finder.write_contacts(self.contacts, job_id, values, chosen, today)
         if self.connections is not None:
             connections.mark_asked(self.connections, matches, today)
-        names = ", ".join(m.row.person.name for m in matches)
-        return self._then_drafts(Reply(f"Added as contacts of this job: {names}. They are "
-                                       "marked Asked in 🤝 LinkedIn Connections."),
-                                 job_id, chosen)
+        return chosen
 
     def _then_drafts(self, first: Reply, job_id: str, contacts: list[Any]) -> list[Reply]:
         """The contacts summary with a "Write Gmail drafts" button: drafts are only written
