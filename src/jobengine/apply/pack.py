@@ -49,8 +49,48 @@ def _clean(value: Any) -> str:
     return " ".join(str(value or "").split())
 
 
-def _names_gap(detail: str, gaps: list[str]) -> bool:
-    return any(re.search(rf"(?<!\w){re.escape(g)}(?!\w)", detail, re.I) for g in gaps if g)
+STOP = {"a", "an", "the", "and", "or", "of", "to", "with", "in", "on", "for", "at", "by",
+        "using", "use", "experience", "knowledge", "strong", "solid", "good", "skills"}
+
+
+def _stems(text: str) -> set[str]:
+    """The words of a text without endings: "building" and "build" are the same word."""
+    out = set()
+    for word in re.findall(r"[a-z0-9][a-z0-9+#.-]*", text.casefold()):
+        word = word.strip(".-")
+        for end in ("ing", "ed", "es", "s"):
+            if len(word) > len(end) + 2 and word.endswith(end):
+                word = word[: -len(end)]
+                break
+        if len(word) > 3 and word.endswith("e"):
+            word = word[:-1]  # "improve" and "improving"
+        if len(word) > 3 and word[-1] == word[-2] and word[-1] not in "aeiou":
+            word = word[:-1]  # "running" and "run"
+        if word and word not in STOP:
+            out.add(word)
+    return out
+
+
+def names_gap(detail: str, gaps: list[str]) -> bool:
+    """The detail names one of the job's gaps, as written or with other word endings
+    (26 Oct: the gap "build high-performance API services" and the detail "building
+    high-performance API services")."""
+    words = _stems(detail)
+    for gap in gaps:
+        if not gap:
+            continue
+        if re.search(rf"(?<!\w){re.escape(gap)}(?!\w)", detail, re.I):
+            return True
+        need = _stems(gap)
+        if need and need <= words:
+            return True
+    return False
+
+
+def without_gaps(details: list[str], gaps: list[str]) -> list[str]:
+    """The details that name none of the gaps: the texts say each one is close to your
+    day-to-day work."""
+    return [d for d in details if d.strip() and not names_gap(d, gaps)]
 
 
 def why_line(s: Settings, config: ConfigStore, details: list[str],
@@ -59,8 +99,7 @@ def why_line(s: Settings, config: ConfigStore, details: list[str],
     the template says the detail is close to your day-to-day work, so it must not name a
     skill you do not have (9 Oct: "Dynamo, Lambda, Bedrock" were gaps of that job)."""
     template = config.get("apply.why_template") or s.apply_pack.get("why_template")
-    detail = next((d.strip() for d in details
-                   if d.strip() and not _names_gap(d, gaps or [])), None)
+    detail = next((d.strip() for d in without_gaps(details, gaps or [])), None)
     if not template or not detail:
         return None
     return _clean(str(template).replace("{detail}", detail))
