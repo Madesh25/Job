@@ -306,3 +306,43 @@ def test_weekly_digest_compares_weeks():
     assert "This week: applied 3 (+1)" in text
     assert "Unsent drafts: 3 cold mails, 2 follow-ups" in text
     assert "Strategy gate:" in text
+
+
+def ack_deps(*messages, status="Resume built"):
+    from jobengine.track.models import Message
+
+    d = deps()
+    d.jobs.rows["job-tulip"] = {"Company": "Tulip Data", "Role": "DevOps Engineer",
+                                "Status": status, "Country": "Netherlands"}
+    gmail = d.gmail()
+    for i, (sender, subject, text) in enumerate(messages):
+        gmail.threads[f"t-ack-{i}"] = [Message(
+            id=f"m-ack-{i}", thread_id=f"t-ack-{i}", when=datetime.fromisoformat(
+                "2026-10-14T19:00:00+05:30"), sender=sender, subject=subject, text=text)]
+    return d
+
+
+def test_a_thank_you_mail_marks_the_job_applied_without_a_tap():
+    """Autopilot A (26 Oct): you applied on the company site and never tapped I applied."""
+    d = ack_deps(("no-reply@greenhouse.io", "Thank you for applying to Tulip Data",
+                  "We have received your application for DevOps Engineer."),
+                 ("no-reply@greenhouse.io", "Thank you for your interest in Tulip Data",
+                  "Unfortunately we decided not to move forward."))
+    report = run(d)
+    tulip = job(d, "job-tulip")
+    assert (tulip["Status"], tulip["Applied date"], tulip["Gmail thread ID"]) == \
+        ("Applied", date(2026, 10, 14), "t-ack-0")
+    assert "Tulip Data -> Applied (confirmation mail)" in report.applications
+    [card] = [c for c in report.cards if c.text.startswith("📬 Marked Applied")]
+    assert "- Tulip Data, DevOps Engineer" in card.text
+    assert card.buttons == [("Contacts: Tulip Data", "ct:jobtulip")]
+
+
+def test_a_thank_you_mail_never_moves_a_job_it_does_not_name():
+    d = ack_deps(("jobs@example.com", "Thank you for applying", "Your application to Acme."))
+    run(d)
+    assert job(d, "job-tulip")["Status"] == "Resume built"
+    d = ack_deps(("no-reply@greenhouse.io", "Thank you for applying to Tulip Data", ""),
+                 status="Screened")  # not approved by you: left alone
+    run(d)
+    assert job(d, "job-tulip")["Status"] == "Screened"

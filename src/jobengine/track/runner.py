@@ -524,6 +524,44 @@ def link_applications(run: Run, report: DailyReport) -> None:
                              ("Not this", f"lk:{hex_id(job_id)}:-")]))
 
 
+ACK_STATUSES = ("Approved", "Resume built")  # a job you may have applied to without a tap
+
+
+def applications_from_mail(run: Run, window: str, report: DailyReport) -> None:
+    """Autopilot A: a confirmation mail ("Thank you for applying") marks its job Applied,
+    with the thread linked, so tracking, contacts and follow-ups go on as after "I applied"."""
+    open_jobs = {pid: job for pid, job in run.jobs.items() if job.get("Status") in ACK_STATUSES}
+    if not open_jobs:
+        return
+    marked = []
+    for message in run.gmail.search(linking.phrase_query(window, linking.ACK_PHRASES)):
+        if message.sender in run.mine or message.sent or not linking.is_ack(message):
+            continue
+        found = linking.matching_jobs(message, open_jobs)
+        if len(found) != 1:
+            if found and run.ask(f"ack:{message.id}"):
+                names = "; ".join(f"{open_jobs[p].get('Company')}, {open_jobs[p].get('Role')}"
+                                  for p in found)
+                report.notes.append(f"A confirmation mail (\"{message.subject}\") fits "
+                                    f"{len(found)} jobs: {names}. Tap I applied on the right "
+                                    "one.")
+            continue
+        job_id = found[0]
+        job = open_jobs.pop(job_id)
+        run.set_job(job_id, {"Status": "Applied", "Applied date": message.when.date(),
+                             "Last activity date": run.today, "Gmail thread ID": message.thread_id})
+        run.label(message.thread_id, "applications", report)
+        report.applications.append(f"{job.get('Company')} -> Applied (confirmation mail)")
+        marked.append((job_id, job))
+    if marked:
+        lines = [f"- {job.get('Company')}, {job.get('Role')}" for _, job in marked]
+        report.cards.append(Card(
+            text=("📬 Marked Applied from the confirmation mails (no I applied tap needed):\n"
+                  + "\n".join(lines) + "\nFind their contacts and write the mails?"),
+            buttons=[(f"Contacts: {job.get('Company')}"[:40], f"ct:{hex_id(job_id)}")
+                     for job_id, job in marked[:3]]))
+
+
 def find_bounces(run: Run, window: str, report: DailyReport) -> None:
     """Step 6."""
     by_email = {(c.get("Email") or "").casefold(): pid for pid, c in run.contacts.items()}
@@ -656,6 +694,7 @@ def run_daily(deps: TrackDeps, now: datetime) -> DailyReport:
             ("sent detection", lambda: detect_sent(run, report)),
             ("replies", lambda: cold_replies(run, report)),
             ("job threads", lambda: job_threads(run, since, report)),
+            ("application mails", lambda: applications_from_mail(run, window, report)),
             ("application linking", lambda: link_applications(run, report)),
             ("bounces", lambda: find_bounces(run, window, report)),
             ("follow-ups", lambda: draft_followups(run, report)),

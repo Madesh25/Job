@@ -1,5 +1,6 @@
 from datetime import date
 
+from jobengine.track import linking
 from jobengine.track.fakes import load_threads
 from jobengine.track.linking import candidates, query
 
@@ -29,3 +30,25 @@ def test_company_name_must_match_and_sender_must_be_known():
     assert candidates(ALL, "Unknown Example", ATS).candidates == []
     assert candidates(ALL, "Canal Payments", ATS).candidates == []  # not an ATS or its domain
     assert candidates(ALL, "Canal Payments", ["canal.example.com"]).thread_id == "t-canal-job"
+
+
+def test_confirmation_mails_are_told_apart_from_rejections():
+    from datetime import UTC, datetime
+
+    from jobengine.track.models import Message
+
+    def mail(subject, text=""):
+        return Message(id="m", thread_id="t", when=datetime(2026, 10, 14, tzinfo=UTC),
+                       sender="no-reply@lever.co", subject=subject, text=text)
+
+    assert linking.is_ack(mail("Thank you for applying to Acme"))
+    assert linking.is_ack(mail("Dziękujemy za aplikację", "Acme"))
+    assert not linking.is_ack(mail("Thank you for your interest in Acme",
+                                   "Unfortunately we will not be progressing"))
+    jobs = {"a": {"Company": "Acme Cloud", "Role": "DevOps Engineer"},
+            "b": {"Company": "Acme Cloud", "Role": "Platform Engineer"},
+            "c": {"Company": "Beta", "Role": "SRE"}}
+    assert linking.matching_jobs(mail("Your application to Acme Cloud: Platform Engineer"),
+                                 jobs) == ["b"]
+    assert linking.matching_jobs(mail("Your application to Acme Cloud"), jobs) == ["a", "b"]
+    assert linking.phrase_query("after:1", ("a b", "c")) == 'after:1 ("a b" OR "c")'
