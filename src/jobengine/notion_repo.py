@@ -179,6 +179,31 @@ class JobsRepo(Protocol):
     def read_body(self, page_id: str) -> list[str]: ...
 
 
+# ---------------------------------------------------------------- short page refs
+
+REF_CHARS = 8
+
+
+def page_ref(page_id: str) -> str:
+    """The 8 characters that name a page in a "Ref XX-..." line or a button: the END of its
+    id. Notion's ids now start the same for pages made close in time (26 Oct: two resumes
+    both showed "Ref RL-4056edc2"); the end is random."""
+    return re.sub(r"[^0-9a-z]", "", page_id.lower())[-REF_CHARS:]
+
+
+def find_by_ref(page_ids: Iterator[str] | list[str], ref: str) -> str | None:
+    """The page with this ref. A message sent before 26 Oct has the START of the id: it
+    counts only when one page has it."""
+    ref = ref.lower()
+    ids = list(page_ids)
+    clean = {pid: re.sub(r"[^0-9a-z]", "", pid.lower()) for pid in ids}
+    found = next((pid for pid in ids if clean[pid].endswith(ref)), None)
+    if found is not None:
+        return found
+    old = [pid for pid in ids if clean[pid].startswith(ref)]
+    return old[0] if len(old) == 1 else None
+
+
 # ---------------------------------------------------------------- value conversion
 
 

@@ -181,7 +181,7 @@ def test_unknown_domain_asks_and_resumes_on_reply():
     result = find_contacts(d, NO_DOMAIN)
     assert result.status == "waiting_domain" and d.calls == []
     assert result.message == domain_question("Mystery Example Labs", NO_DOMAIN)
-    assert "Ref JOB-fixturen" in result.message
+    assert "Ref JOB-nodomain" in result.message
     assert "Contacts" not in d.jobs.rows[NO_DOMAIN]  # the lookup waits
     bad = answer_domain(d, result.message, "mysteryexamplelabs.teamtailor.com")
     assert isinstance(bad, str) and "not look like" in bad

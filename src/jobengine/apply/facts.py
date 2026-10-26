@@ -33,6 +33,8 @@ RULES = """- Years of experience: use only the numbers in EXPERIENCE, in its wor
 
 YEARS = re.compile(r"\b(\d{1,2})\s*\+?\s*(?=(?:years?|yrs?)\b)", re.I)
 PLUS = re.compile(r"\b(\d{1,2})\s*\+\s*(?=(?:years?|yrs?)\b)", re.I)
+# "4 years overall, 3+ in DevOps" (/prep, 26 Oct): the years are named earlier in the sentence.
+PLUS_IN = re.compile(r"\b(\d{1,2})\s*\+(?=\s+(?:in|of|on|with|as)\b)", re.I)
 NOW = re.compile(r"\b(immediate(ly)?|right away|straight away|at once|without delay)\b", re.I)
 SENTENCE = re.compile(r"[^.!?\n]*[.!?]?")
 FILLER = re.compile(r"^(?:and|or|with|strong|solid|proven|deep|hands-on|good|excellent|"
@@ -67,7 +69,7 @@ def _keep_space(old: str, new: str) -> str:
 
 def fix(text: str, values: dict[str, str]) -> tuple[str, str | None]:
     """(text with "+" years and "immediately" fixed, the problem left or None)."""
-    text = PLUS.sub(r"\1 ", text)
+    text = PLUS_IN.sub(r"\1", PLUS.sub(r"\1 ", text))
     notice = values.get("notice_period") or ""
     if notice and not NOW.search(notice):
         line = f"My notice period is {notice.rstrip('.')}."

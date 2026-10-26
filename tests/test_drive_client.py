@@ -100,3 +100,13 @@ def test_fake_drive():
     drive = FakeDrive()
     assert drive.upload_pdf("a.pdf", b"1") == "https://drive.example.com/1/a.pdf"
     assert drive.upload_pdf("a.pdf", b"2") == "https://drive.example.com/2/a (2).pdf"
+
+
+def test_other_google_refusals_keep_their_status():
+    from types import SimpleNamespace
+
+    from jobengine.drive_client import google_problem
+
+    exc = Exception("quota exceeded")
+    exc.resp = SimpleNamespace(status=429)
+    assert google_problem(exc) == "Google Drive refused it (HTTP 429: quota exceeded)."

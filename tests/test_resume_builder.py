@@ -367,3 +367,43 @@ def test_refusal_without_a_correction_is_ignored(tmp_path):
     out = build_resume(deps, JOB)
     assert out.status == "built"
     assert "Correction not applied" not in out.message
+
+
+def test_a_drive_refusal_keeps_the_approval_with_a_copy_here(tmp_path):
+    """26 Oct: the Drive API was off; Approve resume stopped and nothing was sent."""
+    from jobengine.drive_client import DriveError, google_problem
+    from jobengine.mail.drafter import resume_pdf
+
+    class Refuses:
+        def upload_pdf(self, name, data):
+            raise DriveError(google_problem(Exception(
+                "<HttpError 403 when requesting https://www.googleapis.com/drive/v3/files "
+                "returned \"Google Drive API has not been used in project 552320739844 before "
+                "or it is disabled.\". Details: accessNotConfigured>")))
+
+    deps, _ = make(tmp_path, DRY_RUN="false")
+    deps.drive = Refuses
+    out = build_resume(deps, JOB)
+    result = finalise(deps, out.log_id)
+    assert result.status == "approved" and result.pdf
+    assert result.message.startswith("Not saved to Google Drive: the Google Drive API is "
+                                     "turned off")
+    assert "apis/library/drive.googleapis.com?project=552320739844" in result.message
+    assert result.message.endswith(APPLY_TEXT.format(url=result.job_url))
+    row = deps.resume_log.get(out.log_id)
+    assert row["Approved"] is True and row["File"].startswith(builder.LOCAL_PREFIX)
+    mail = SimpleNamespace(root=ROOT_DIR, drive=None)
+    assert resume_pdf(mail, row) == result.pdf  # the mails attach the copy
+
+
+def test_refs_use_the_end_of_the_page_id():
+    """26 Oct: Notion ids made the same day start alike; both resumes showed RL-4056edc2."""
+    from jobengine.notion_repo import find_by_ref, page_ref
+
+    first = "4056edc2-b0d4-8136-9d96-f2b5854d90cd"
+    second = "4056edc2-b0d4-810e-87f2-eb36abc90e35"
+    assert builder.short_ref(first) != builder.short_ref(second)
+    assert builder.short_ref(second) == "RL-abc90e35"
+    assert find_by_ref([first, second], page_ref(second)) == second
+    assert find_by_ref([first, second], "4056edc2") is None  # an old ref names both
+    assert find_by_ref([first, "3e66edc2-b0d4-8156-949b-e71e660d93db"], "4056edc2") == first

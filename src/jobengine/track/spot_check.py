@@ -15,6 +15,8 @@ from collections.abc import Mapping, Sequence
 from datetime import date, datetime, time, timedelta
 from typing import Any
 
+from jobengine.notion_repo import page_ref
+
 SENT_KEY = "spotcheck.sent"  # bot_state: {"week": "2026-W43"}
 NOTES_KEY = "spotcheck.notes"  # bot_state: {"items": [{"date", "job", "note"}]}
 WEEKDAY = 6  # Sunday
@@ -109,7 +111,7 @@ def letter(body: Sequence[str]) -> str | None:
 
 
 def ref(log_id: str) -> str:
-    return log_id.replace("-", "")[:8]
+    return page_ref(log_id)
 
 
 def card(job: str, match: str | None, cover_letter: str | None, log_id: str) -> str:

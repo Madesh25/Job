@@ -1071,6 +1071,8 @@ class Desk:
         config = self.deps.config()
         if (config.get("apply.auto") or "false").strip().lower() == "true":
             queue.add(self.state, config, self._ready(), now)
+        elif not queue.waiting(self.state, now):
+            return []  # auto-apply off and nothing queued by /autoapply: no Bot State writes
         if self.s.bot_mode != "webhook":  # the bot on your laptop is the laptop worker
             queue.laptop_seen(self.state, now)
             return self._fill_queued("laptop", now)

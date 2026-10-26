@@ -28,6 +28,26 @@ class DriveError(Exception):
     """The upload cannot happen. The message is shown to you."""
 
 
+API_OFF = re.compile(r"accessNotConfigured|has not been used in project (\d+)|is disabled", re.I)
+PROJECT = re.compile(r"project[= ](\d+)")
+
+
+def google_problem(exc: Exception) -> str:
+    """Google's refusal in plain words. 26 Oct: "HttpError 403 ... Google Drive API has not
+    been used in project 552320739844 before or it is disabled" stopped Approve resume."""
+    text = " ".join(str(exc).split())
+    if API_OFF.search(text):
+        project = PROJECT.search(text)
+        where = (f"https://console.cloud.google.com/apis/library/drive.googleapis.com"
+                 f"?project={project.group(1)}" if project else
+                 "https://console.cloud.google.com/apis/library/drive.googleapis.com")
+        return ("the Google Drive API is turned off in the Google Cloud project of your Gmail "
+                f"sender token. Turn it on at {where} (Enable), wait 5 minutes, then approve "
+                "the next resume as usual.")
+    status = getattr(getattr(exc, "resp", None), "status", None)
+    return f"Google Drive refused it ({f'HTTP {status}: ' if status else ''}{text[:200]})."
+
+
 class Drive(Protocol):
     def upload_pdf(self, name: str, data: bytes) -> str:
         """Upload into the resume folder and return the web view link."""
@@ -112,6 +132,14 @@ class GoogleDrive:
         return self._folder_id
 
     def upload_pdf(self, name: str, data: bytes) -> str:
+        try:
+            return self._upload(name, data)
+        except DriveError:
+            raise
+        except Exception as exc:  # googleapiclient HttpError, network errors
+            raise DriveError(google_problem(exc)) from exc
+
+    def _upload(self, name: str, data: bytes) -> str:
         from googleapiclient.http import MediaInMemoryUpload
 
         folder = self.folder_id()

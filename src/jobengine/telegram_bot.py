@@ -851,14 +851,31 @@ def _guarded(name: str, action: Callable[[], list[Reply]]) -> list[Reply]:
         return [Reply(f"{name} failed: {exc}")]
 
 
+# A short outage of Notion or the network (26 Oct: "HTTP 500 Unexpected error occurred" on
+# a Bot State read) is tried again at the next tick; it is told only when it repeats.
+PASSING_ERROR = re.compile(r"HTTP (?:429|5\d\d)\b|Timeout|Connection(?:Error| reset)|"
+                           r"RemoteProtocolError", re.I)
+PASSING_TRIES = 3
+_passing: dict[str, int] = {}
+
+
 def _scheduled(name: str, action: Callable[[], list[Reply]], desk: Desk) -> list[Reply]:
     """A scheduled step: a failure is told in Telegram and mailed to you (H3, 25 Oct)."""
     try:
-        return action()
+        replies = action()
     except Exception as exc:  # report the failure instead of stopping the bot
+        if PASSING_ERROR.search(str(exc)):
+            _passing[name] = _passing.get(name, 0) + 1
+            if _passing[name] < PASSING_TRIES:
+                log.warning("%s failed (try %d, again at the next tick): %s", name,
+                            _passing[name], exc)
+                return []
+            _passing[name] = 0  # told now; the next one waits for PASSING_TRIES again
         log.exception("%s failed", name)
         desk.alert_failure(name, exc)
         return [Reply(f"{name} failed: {exc}")]
+    _passing.pop(name, None)
+    return replies
 
 
 def desk_replies(update: dict[str, Any], s: Settings, desk: Desk | None) -> list[Reply] | None:
