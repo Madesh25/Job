@@ -12,6 +12,10 @@ the free skill matcher, and shows the TOP most named ones:
 The bot never opens LinkedIn: your profile text is what you paste into Notion Config
 `profile.linkedin_headline` and `profile.linkedin_skills` (and `profile.linkedin_about`).
 No AI, nothing written.
+
+Practices are listed apart (Phase 9 P9-13, 26 Oct): "incident management", "automation" or
+"CI/CD pipelines" are ways of working, not tools; recruiters search them too, so they come
+after the tools as words for your About text.
 """
 
 from __future__ import annotations
@@ -24,6 +28,26 @@ BEST = ("Approved", "Applied", "Screening", "Interview", "Offer")
 MAX_JOBS = 40
 TOP = 15
 PROFILE_KEYS = ("profile.linkedin_headline", "profile.linkedin_skills", "profile.linkedin_about")
+TOP_PRACTICES = 8
+# A word that makes a term a way of working, not a tool you install or use.
+PRACTICE_WORDS = re.compile(
+    r"\b(management|analysis|automation|automating|response|incident|incidents|on-?call|"
+    r"monitoring|observability|troubleshooting|pipelines?|practices?|delivery|deployments?|"
+    r"design|architecture|agile|scrum|kanban|culture|collaboration|communication|mentoring|"
+    r"as code|reliability|security|networking|scalability|performance|testing|governance|"
+    r"compliance|optimi[sz]ation|cost|disaster recovery|backup|high availability|devops|"
+    r"gitops|sre|root cause|postmortems?|continuous|scanning)\b", re.I)
+# Names that hold such a word but are tools: kept with the tools.
+TOOL_NAMES = re.compile(r"\b(aws|azure|gcp|google|amazon|gitlab|github|jenkins|argo|grafana|"
+                        r"prometheus|datadog|splunk|dynatrace|new relic|elastic|opsgenie|"
+                        r"pagerduty|codepipeline|codedeploy|cloudwatch|sentry|sonarqube|"
+                        r"snyk|vault|kyverno|trivy)\b", re.I)
+
+
+def is_practice(term: str) -> bool:
+    """"incident management", "CI/CD pipelines", "Infrastructure as Code": a way of working.
+    "Azure DevOps Pipelines", "GCP Monitoring", "GitLab CI": tools."""
+    return bool(PRACTICE_WORDS.search(term)) and not TOOL_NAMES.search(term)
 
 
 def _norm(text: str) -> str:
@@ -70,9 +94,11 @@ def report(jobs: list[tuple[list[str], list[str]]], profile: str,
             have[term] = have.get(term, 0) + 1
         for term in dict.fromkeys(missing):
             lack[term] = lack.get(term, 0) + 1
-    ranked = sorted([(n, t, True) for t, n in have.items()] +
-                    [(n, t, False) for t, n in lack.items()],
-                    key=lambda item: (-item[0], item[1]))[:TOP]
+    every = sorted([(n, t, True) for t, n in have.items()] +
+                   [(n, t, False) for t, n in lack.items()],
+                   key=lambda item: (-item[0], item[1]))
+    ranked = [item for item in every if not is_practice(item[1])][:TOP]
+    practices = [item for item in every if is_practice(item[1])][:TOP_PRACTICES]
     lines = [f"LinkedIn keywords: the {len(ranked)} tools your {len(jobs)} best jobs name most "
              "(recruiters search by these words):"]
     add = []
@@ -87,6 +113,12 @@ def report(jobs: list[tuple[list[str], list[str]]], profile: str,
             note = "you have it, NOT on your profile: add it"
             add.append(term)
         lines.append(f"{i}. {term}: {count} job{'s' if count != 1 else ''} ({note})")
+    if practices:
+        lines += ["", "Ways of working they also name (not tools: good words for your LinkedIn "
+                      "About text):"]
+        lines.append("; ".join(
+            f"{term} {count} ({'you have it' if yours else 'not yours yet'})"
+            for count, term, yours in practices))
     lines.append("")
     if not profile.strip():
         lines.append("Paste your LinkedIn headline and skills into Notion Config "
