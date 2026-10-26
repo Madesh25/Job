@@ -71,7 +71,26 @@ def test_names_of_one_term_map_row_count_as_one_entry():
                     "rca": "Incident management / root cause analysis / RCA"}
     jobs = [(["rca", "root cause analysis", "kubernetes"], []), (["RCA"], [])]
     text = keywords_report.report(jobs, "Kubernetes and RCA", same)
-    assert "1. Incident management / root cause analysis / RCA: 2 jobs (on your profile)" in text
+    # One entry, and since 26 Oct with the ways of working, after the tools.
+    assert "Incident management / root cause analysis / RCA 2 (you have it)" in text
     entries = [line for line in text.splitlines() if line[:1].isdigit()]
-    assert [e.split(":")[0] for e in entries] == [
-        "1. Incident management / root cause analysis / RCA", "2. kubernetes"]
+    assert [e.split(":")[0] for e in entries] == ["1. kubernetes"]
+
+
+def test_ways_of_working_are_listed_after_the_tools():
+    """Phase 9 P9-13 (26 Oct): "incident management" is not a tool."""
+    jobs = [(["Kubernetes", "incident management", "CI/CD pipelines", "GitLab CI"],
+             ["root cause analysis"]),
+            (["Kubernetes", "incident management", "Azure DevOps Pipelines"], [])]
+    lines = keywords_report.report(jobs, "Kubernetes").splitlines()
+    assert lines[0].startswith("LinkedIn keywords: the 3 tools your 2 best jobs name most")
+    assert lines[1:4] == ["1. Kubernetes: 2 jobs (on your profile)",
+                          "2. Azure DevOps Pipelines: 1 job (you have it, NOT on your profile: "
+                          "add it)",
+                          "3. GitLab CI: 1 job (you have it, NOT on your profile: add it)"]
+    assert lines[5] == ("Ways of working they also name (not tools: good words for your "
+                        "LinkedIn About text):")
+    assert lines[6] == ("incident management 2 (you have it); CI/CD pipelines 1 (you have it); "
+                        "root cause analysis 1 (not yours yet)")
+    assert keywords_report.is_practice("Infrastructure as Code")
+    assert not keywords_report.is_practice("GCP Monitoring")
