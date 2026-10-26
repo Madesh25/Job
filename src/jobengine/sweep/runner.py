@@ -16,7 +16,7 @@ from jobengine.reference import Reference
 from jobengine.safety import notion_write_target
 from jobengine.screen.visa import AGENCY, AGENCY_IE, agency_by_name, agency_flag
 from jobengine.settings import Settings
-from jobengine.sweep import backfill, best, crossmatch, fakes, fit, fulltext
+from jobengine.sweep import backfill, best, crossmatch, discover, fakes, fit, fulltext
 from jobengine.sweep.dedupe import IndexRow, create_plan, description_blocks, update_plan
 from jobengine.sweep.gate import strategy_gate
 from jobengine.sweep.models import (
@@ -635,6 +635,17 @@ def run_sweep(
             best.record(state, today, saved_scores)
         except Exception:  # never fail a sweep over the counter
             log.exception("could not store the daily new-job count or today's best jobs")
+
+    # Company discovery and the "company site missed it" check (C1, 26 Oct).
+    if (s.sweep.get("discover") or {}).get("enabled", True):
+        try:
+            read = [n for r in results for n in r.read]
+            found = discover.find(seen, companies or deps.companies(), read, config,
+                                  discover.skipped(state), today)
+            summary.site_missed = found.missed[:discover.MAX_MISSED]
+            summary.new_companies = discover.record(state, found, today)
+        except Exception:  # never fail a sweep over the suggestions
+            log.exception("company discovery failed")
 
     # Pass 3: alert rows (LinkedIn, blocked boards) without a description, from the same
     # job on another site.

@@ -572,6 +572,8 @@ class Desk:
             return self.dryrun_tap(action, arg)
         if action in ("sf", "sw") and arg:  # the spot check's buttons (H5)
             return self.spot_tap(action, arg)
+        if action in ("dc", "dn") and arg:  # /newcompanies: Add, Not interested
+            return self.newcompany_tap(action, arg)
         if action == "tu" and arg:  # "Undo" under a company /add put in Target Companies
             return self.add_undo(arg)
         if action == "rf" and arg:  # "Referral asks": your LinkedIn connections there
@@ -2857,7 +2859,8 @@ class Desk:
             plan["City"] = city
         return self.repo.create(plan, [])
 
-    def _add_company(self, company: str, url: str, country: str | None) -> list[Reply]:
+    def _add_company(self, company: str, url: str, country: str | None,
+                     note: str | None = None) -> list[Reply]:
         """The job's company into Target Companies, unless it is there or an agency."""
         known = add_link.known_company(company, [c.name for c in self.reference().companies])
         if known:
@@ -2868,15 +2871,67 @@ class Desk:
         if self.companies is None:
             return [Reply(f"{company} is not in Target Companies; it cannot be added from "
                           "here (no Notion access).")]
-        props = add_link.company_props(company, url, country, self.today())
+        props = add_link.company_props(company, url, country, self.today(), note)
         page_id = self.companies.add(props)
         self._reference = None  # read Target Companies again next time
         board = props["ATS platform"]
-        how = f"its {board} job board" if board not in ("Custom", "Unknown") else \
-            "its site (the job board is found on the next /fetch)"
-        return [Reply(f"Added {company} to Target Companies with {how}: "
-                      f"{props['Careers URL']}\nEvery /fetch checks it from now on.",
-                      [("Undo", f"tu:{short_id(page_id)}")])]
+        if not props.get("Careers URL"):
+            how = "no link yet (the next /fetch looks for its job board by the name)"
+        elif board not in ("Custom", "Unknown"):
+            how = f"its {board} job board: {props['Careers URL']}"
+        else:
+            how = f"its site (the job board is found on the next /fetch): {props['Careers URL']}"
+        return [Reply(f"Added {company} to Target Companies with {how}\nEvery /fetch checks "
+                      "it from now on.", [("Undo", f"tu:{short_id(page_id)}")])]
+
+    # ------------------------------------------------------------ /newcompanies (C1)
+
+    def newcompanies_command(self, args: str = "") -> list[Reply]:
+        """New companies hiring for your roles (sweep/discover.py), one at a time."""
+        from jobengine.sweep import discover
+
+        items = discover.suggestions(self.state, self.reference().companies)
+        if not items:
+            return [Reply("No new companies to suggest. After each /fetch, companies with jobs "
+                          "for your roles that are not in Target Companies show up here.")]
+        key, item = items[0]
+        url, platform = discover.site_of(item.get("urls") or [])
+        roles = item.get("roles") or []
+        shown = "; ".join(roles[:discover.MAX_ROLES])
+        more = f" and {len(roles) - discover.MAX_ROLES} more" if len(roles) > discover.MAX_ROLES \
+            else ""
+        if url and platform not in ("Unknown", "Custom"):
+            site = f"Job board: {platform}, {url} (every /fetch can read it)"
+        elif url:
+            site = f"Site: {url} (the next /fetch looks for its job board there)"
+        else:
+            site = "Site: not known yet (the next /fetch looks for its job board by the name)"
+        ref = discover.ref(key)
+        return [Reply(
+            f"\U0001F50E New company 1 of {len(items)}: {item.get('name')}\n"
+            f"Jobs seen ({', '.join(item.get('countries') or [])}): {shown}{more}\n"
+            f"Found through: {', '.join(item.get('boards') or [])}\n{site}\n"
+            "Add it to Target Companies, so every /fetch reads its own job board?",
+            [("Add to Target Companies", f"dc:{ref}"), ("Not interested", f"dn:{ref}")])]
+
+    def newcompany_tap(self, action: str, short: str) -> list[Reply]:
+        from jobengine.sweep import discover
+
+        found = discover.find_ref(self.state, short)
+        if found is None:
+            return [Reply("That suggestion is no longer open."), *self.newcompanies_command()]
+        key, item = found
+        if action == "dn":
+            discover.drop(self.state, key, never_again=True)
+            return [Reply(f"OK: {item.get('name')} is not suggested again."),
+                    *self.newcompanies_command()]
+        url, _platform = discover.site_of(item.get("urls") or [])
+        country = next((c for c in item.get("countries") or [] if c in add_link.COUNTRIES), None)
+        note = (f"Added by /newcompanies on {self.today().isoformat()}: jobs seen through "
+                f"{', '.join(item.get('boards') or [])}")
+        replies = self._add_company(item.get("name") or "", url, country, note)
+        discover.drop(self.state, key)
+        return [*replies, *self.newcompanies_command()]
 
     def add_undo(self, arg: str) -> list[Reply]:
         from jobengine.resume.builder import notion_id

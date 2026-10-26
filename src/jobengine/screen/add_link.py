@@ -181,17 +181,21 @@ def known_company(name: str, companies: Iterable[str]) -> str | None:
     return None
 
 
-def company_props(company: str, job_url: str, country: str | None, today: date) -> dict[str, Any]:
-    """A new Target Companies row: never more than these fields (safety allowlist)."""
-    url, platform = careers_url(job_url)
+def company_props(company: str, job_url: str, country: str | None, today: date,
+                  note: str | None = None) -> dict[str, Any]:
+    """A new Target Companies row: never more than these fields (safety allowlist). Without a
+    job link (/newcompanies, only job boards seen) the Careers URL stays empty and /fetch
+    looks for the job board by the company's name."""
+    url, platform = careers_url(job_url) if job_url else ("", "Unknown")
     props: dict[str, Any] = {
         "Company": company,
-        "Careers URL": url,
         "ATS platform": platform,
         "Active": True,
         "Last checked": today,
-        "Notes": f"Added by /add on {today.isoformat()} from {job_url}",
+        "Notes": note or f"Added by /add on {today.isoformat()} from {job_url}",
     }
+    if url:
+        props["Careers URL"] = url
     if country in COUNTRIES:
         props["Region"] = country
     return props
