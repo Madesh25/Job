@@ -100,6 +100,7 @@ ADD_USAGE = ("Send /add <job link>: the job's page on the company site (the page
              "company to Target Companies and builds your resume.")
 ADD_PASTE = "Paste the description instead: send /jd {url}, paste the text, then /done."
 ADD_TIMEOUT = 30.0  # seconds for the /add page (a /fetch page gets http.PAGE_TIMEOUT_SECONDS)
+ADD_COMPANIES_KEY = "apply.add_companies"  # Autopilot A2: "true" turns it on
 ADD_PLACE_CHARS = 3000  # the start of the job text where /add looks for the place
 ADD_LONGER_CHARS = 200  # a /add description this much longer replaces a full one
 ADD_BLOCKED = ("The bot never opens {host} pages. Open the job there, tap Apply, and send /add "
@@ -861,9 +862,11 @@ class Desk:
                           [("Rebuild as it is", f"rb:{short_id(job_id)}")])]
         if action == "ia":
             done = resume_builder.mark_applied(self.resume, arg)
+            added = self.add_applied_companies([arg]) if done.startswith("Marked as applied") \
+                else []
             if self.nudge_on():
-                return [Reply(done), *self.nudge_applied()]
-            return [Reply(done), *self.next_job()]
+                return [Reply(done), *added, *self.nudge_applied()]
+            return [Reply(done), *added, *self.next_job()]
         if action == "na":  # "Not applying": why?
             return [Reply(NOT_APPLYING_ASK, [(label, f"nr:{arg}:{code}")
                                              for code, (label, _) in NOT_APPLYING.items()])]
@@ -2045,6 +2048,7 @@ class Desk:
     def report_replies(self, report: DailyReport) -> list[Reply]:
         replies = [Reply(report.text()[:MAX_TEXT])]
         replies += [Reply(card.text[:MAX_TEXT], card.buttons) for card in report.cards]
+        replies += self.add_applied_companies(report.applied_jobs)
         if report.retention is not None:
             replies.append(Reply(report.retention.text, report.retention.buttons))
         return replies
@@ -2907,6 +2911,34 @@ class Desk:
             how = f"its site (the job board is found on the next /fetch): {props['Careers URL']}"
         return [Reply(f"Added {company} to Target Companies with {how}\nEvery /fetch checks "
                       "it from now on.", [("Undo", f"tu:{short_id(page_id)}")])]
+
+    def add_applied_companies(self, job_ids: list[str]) -> list[Reply]:
+        """Autopilot A2: the company of a job you applied to goes into Target Companies (with
+        Undo), so /fetch reads its job board from then on. Only with Notion Config
+        apply.add_companies = true (Target Companies is shared with prod); a company already
+        there or an agency is skipped without a message."""
+        from jobengine.resume.builder import notion_id
+        from jobengine.sweep import discover
+
+        config = self.deps.config()
+        if (config.get(ADD_COMPANIES_KEY) or "false").strip().lower() != "true":
+            return []
+        if self.repo is None or self.companies is None:
+            return []
+        out: list[Reply] = []
+        for job_id in job_ids:
+            values = self.repo.get_values(notion_id(job_id)) or {}
+            company = without_region(values.get("Company") or "").strip()
+            if not company or agency_by_name(company, config):
+                continue
+            if add_link.known_company(company, [c.name for c in self.reference().companies]):
+                continue
+            url, _platform = discover.site_of([values.get("URL") or ""])
+            country = values.get("Country") if values.get("Country") in add_link.COUNTRIES \
+                else None
+            note = f"Added from your application on {self.today().isoformat()}"
+            out += self._add_company(company, url, country, note)
+        return out
 
     # ------------------------------------------------------------ /newcompanies (C1)
 

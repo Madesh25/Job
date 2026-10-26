@@ -101,6 +101,7 @@ class DailyReport:
     notes: list[str] = field(default_factory=list)
     cards: list[Card] = field(default_factory=list)
     retention: Card | None = None
+    applied_jobs: list[str] = field(default_factory=list)  # marked Applied from a mail (A)
     errors: list[str] = field(default_factory=list)
     dry_run: bool = False
 
@@ -552,6 +553,7 @@ def applications_from_mail(run: Run, window: str, report: DailyReport) -> None:
                              "Last activity date": run.today, "Gmail thread ID": message.thread_id})
         run.label(message.thread_id, "applications", report)
         report.applications.append(f"{job.get('Company')} -> Applied (confirmation mail)")
+        report.applied_jobs.append(job_id)
         marked.append((job_id, job))
     if marked:
         lines = [f"- {job.get('Company')}, {job.get('Role')}" for _, job in marked]
