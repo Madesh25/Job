@@ -52,6 +52,11 @@ Telegram report. It never sends mail.
    role; when it still fits more than one, the report asks you to tap `I applied` yourself.
    The report gets a card with a `Contacts: <company>` button per job, so contacts and mails
    follow.
+4c. Rejection mails (Autopilot I4, 26 Oct): a mail in the window that says "Unfortunately",
+   "not moving forward", "other candidates" and the like (also Polish "niestety" and Dutch
+   "helaas") and names the company of a job you applied to (`Applied` up to `Interview`) sets it
+   `Rejected`, also when it came outside the linked thread. Several fits are listed for you.
+   Contacts of a job that is `Rejected` (or otherwise closed) get no follow-up any more.
 5. Linking: for `Applied` jobs without a thread, messages since the Applied date from the
    company domain (Target Companies `Domain`, or a domain you gave in Telegram) or a known ATS
    (`tracking.ats_sender_domains`) whose subject or snippet names the company. One thread is

@@ -562,6 +562,38 @@ def applications_from_mail(run: Run, window: str, report: DailyReport) -> None:
                      for job_id, job in marked[:3]]))
 
 
+REJECTABLE = ("Applied", "Followed up", "Replied", "Screening", "Interview")
+
+
+def rejections_from_mail(run: Run, window: str, report: DailyReport) -> None:
+    """Autopilot I4: a rejection mail ("Unfortunately ... not moving forward") that names the
+    company of a job you applied to sets it Rejected, also when it came outside the thread
+    tracking linked. Its contacts get no follow-up any more (draft_followups)."""
+    open_jobs = {pid: job for pid, job in run.jobs.items() if job.get("Status") in REJECTABLE}
+    if not open_jobs:
+        return
+    for message in run.gmail.search(linking.phrase_query(window, linking.REJECT_PHRASES)):
+        if message.sender in run.mine or message.sent or not linking.is_rejection(message):
+            continue
+        found = linking.matching_jobs(message, open_jobs)
+        if len(found) != 1:
+            if found and run.ask(f"rej:{message.id}"):
+                names = "; ".join(f"{open_jobs[p].get('Company')}, {open_jobs[p].get('Role')}"
+                                  for p in found)
+                report.notes.append(f"A rejection mail (\"{message.subject}\") fits "
+                                    f"{len(found)} jobs: {names}. Set the right one to Rejected "
+                                    "in Notion.")
+            continue
+        job_id = found[0]
+        job = open_jobs.pop(job_id)
+        props: dict[str, Any] = {"Status": "Rejected", "Last activity date": run.today}
+        if not job.get("Gmail thread ID"):
+            props["Gmail thread ID"] = message.thread_id
+        run.set_job(job_id, props)
+        run.label(message.thread_id, "applications", report)
+        report.applications.append(f"{job.get('Company')} -> Rejected (rejection mail)")
+
+
 def find_bounces(run: Run, window: str, report: DailyReport) -> None:
     """Step 6."""
     by_email = {(c.get("Email") or "").casefold(): pid for pid, c in run.contacts.items()}
@@ -602,6 +634,8 @@ def draft_followups(run: Run, report: DailyReport) -> None:
         if not jobs:
             report.followup_problems.append(f"{name} (no related job)")
             continue
+        if all(run.jobs.get(j, {}).get("Status") in JOB_TERMINAL for j in jobs):
+            continue  # I4: the job was rejected (or closed): no follow-up to its contacts
         if run.dry or not run.deps.write:
             log.warning("DRY RUN: would draft a follow-up for %s", c.get("Email"))
             report.followups_dry.append(name)
@@ -696,6 +730,7 @@ def run_daily(deps: TrackDeps, now: datetime) -> DailyReport:
             ("job threads", lambda: job_threads(run, since, report)),
             ("application mails", lambda: applications_from_mail(run, window, report)),
             ("application linking", lambda: link_applications(run, report)),
+            ("rejection mails", lambda: rejections_from_mail(run, window, report)),
             ("bounces", lambda: find_bounces(run, window, report)),
             ("follow-ups", lambda: draft_followups(run, report)),
             ("ghosted", lambda: mark_ghosted(run, report)),

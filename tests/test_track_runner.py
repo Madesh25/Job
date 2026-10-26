@@ -326,7 +326,7 @@ def test_a_thank_you_mail_marks_the_job_applied_without_a_tap():
     """Autopilot A (26 Oct): you applied on the company site and never tapped I applied."""
     d = ack_deps(("no-reply@greenhouse.io", "Thank you for applying to Tulip Data",
                   "We have received your application for DevOps Engineer."),
-                 ("no-reply@greenhouse.io", "Thank you for your interest in Tulip Data",
+                 ("no-reply@greenhouse.io", "Thank you for your interest in Acme Cloud",
                   "Unfortunately we decided not to move forward."))
     report = run(d)
     tulip = job(d, "job-tulip")
@@ -346,3 +346,24 @@ def test_a_thank_you_mail_never_moves_a_job_it_does_not_name():
                  status="Screened")  # not approved by you: left alone
     run(d)
     assert job(d, "job-tulip")["Status"] == "Screened"
+
+
+def test_a_rejection_mail_closes_the_job_and_stops_follow_ups():
+    """Autopilot I4 (26 Oct): the rejection came in a new mail, not the linked thread."""
+    d = ack_deps(("no-reply@greenhouse.io", "Your application to Tulip Data",
+                  "Unfortunately we decided to move forward with other candidates."),
+                 status="Applied")
+    report = run(d)
+    tulip = job(d, "job-tulip")
+    assert (tulip["Status"], tulip["Gmail thread ID"]) == ("Rejected", "t-ack-0")
+    assert "Tulip Data -> Rejected (rejection mail)" in report.applications
+
+
+def test_no_follow_up_to_the_contacts_of_a_rejected_job():
+    d = deps()
+    baseline = run(deps(), now=datetime.fromisoformat("2026-10-22T08:00:00+05:30"))
+    assert baseline.followups  # the fixture has a follow-up due on this day
+    for pid in d.jobs.rows:
+        d.jobs.rows[pid]["Status"] = "Rejected"
+    report = run(d, now=datetime.fromisoformat("2026-10-22T08:00:00+05:30"))
+    assert report.followups == []
