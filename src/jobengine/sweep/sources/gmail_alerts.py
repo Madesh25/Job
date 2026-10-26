@@ -305,6 +305,11 @@ def fetch(
     result.notes.extend(f"gmail mailbox {failure}" for failure in failures)
     result.emails = len(messages)
     result.postings = collect([message for _, message in messages], gmail_cfg)
+    boards = gmail_cfg.get("sender_boards") or {}
+    for name, message in messages:  # for the inbox tidy: only mails a job was found in
+        if message.id and parse_alert(message, gmail_cfg):
+            result.alert_mails.setdefault(name, []).append(
+                (message.id, board_for_sender(message.sender, boards), message.in_spam))
     return result
 
 

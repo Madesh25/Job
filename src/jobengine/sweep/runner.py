@@ -16,7 +16,16 @@ from jobengine.reference import Reference
 from jobengine.safety import notion_write_target
 from jobengine.screen.visa import AGENCY, AGENCY_IE, agency_by_name, agency_flag
 from jobengine.settings import Settings
-from jobengine.sweep import backfill, best, crossmatch, discover, fakes, fit, fulltext
+from jobengine.sweep import (
+    backfill,
+    best,
+    crossmatch,
+    discover,
+    fakes,
+    fit,
+    fulltext,
+    inbox_tidy,
+)
 from jobengine.sweep.dedupe import IndexRow, create_plan, description_blocks, update_plan
 from jobengine.sweep.gate import strategy_gate
 from jobengine.sweep.models import (
@@ -635,6 +644,17 @@ def run_sweep(
             best.record(state, today, saved_scores)
         except Exception:  # never fail a sweep over the counter
             log.exception("could not store the daily new-job count or today's best jobs")
+
+    # Clean inbox (C2, 26 Oct): alert mails with a job are archived and marked read, after
+    # their jobs were saved. Off unless Config alerts.tidy is "true".
+    found_mails = {name: mails for r in results for name, mails in r.alert_mails.items()}
+    if found_mails and inbox_tidy.enabled(config):
+        try:
+            summary.tidy = inbox_tidy.tidy(
+                dict(gmail_alerts.mailboxes(s)), found_mails,
+                str((s.sweep.get("gmail") or {}).get("label") or "Job Alerts"))
+        except Exception:  # never fail a sweep over the inbox
+            log.exception("inbox tidy failed")
 
     # Company discovery and the "company site missed it" check (C1, 26 Oct).
     if (s.sweep.get("discover") or {}).get("enabled", True):
