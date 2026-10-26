@@ -45,7 +45,7 @@ from jobengine.mail.fill import (
 )
 from jobengine.mail.templates import KIND, Template, TemplateError
 from jobengine.notion_repo import ContactsRepo, JobsRepo, ResumeLogRepo
-from jobengine.resume.builder import hex_id, notion_id, specific_details
+from jobengine.resume.builder import LOCAL_PREFIX, hex_id, notion_id, specific_details
 from jobengine.safety import gmail_write_allowed, route_recipients
 from jobengine.settings import ROOT_DIR, Settings
 from jobengine.track import day_ledger
@@ -166,12 +166,14 @@ def resume_name(row: dict[str, Any]) -> str:
 
 
 def resume_pdf(deps: MailDeps, row: dict[str, Any]) -> bytes:
-    """The approved PDF: from out/ when it was saved in DRY_RUN, else from Drive."""
+    """The approved PDF: from out/ when it was saved there (DRY_RUN, or Drive refused it),
+    else from Drive."""
     file_value = (row.get("File") or "").strip()
     if not file_value:
         raise DriveError("The approved resume has no File. Approve it again.")
-    if file_value.startswith(DRY_PREFIX):
-        path = deps.root / file_value.removeprefix(DRY_PREFIX).strip()
+    prefix = next((p for p in (DRY_PREFIX, LOCAL_PREFIX) if file_value.startswith(p)), None)
+    if prefix:
+        path = deps.root / file_value.removeprefix(prefix).strip()
         if not path.is_file():
             raise DriveError(f"The approved resume is not in out/ any more ({path.name}). "
                              "Tap Rebuild and approve it again.")

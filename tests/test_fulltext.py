@@ -478,3 +478,21 @@ def test_wrong_job_board_link_is_listed_to_fix():
     result = ats.fetch(S, [wrong], keep, get=fakes.FixtureHttp(S), post=post,
                        page=fakes.FixtureHttp(S).page, today=TODAY)
     assert result.blocked == ["Acme (job board HTTP 404)"]
+
+
+def test_a_short_json_ld_intro_gives_way_to_the_page_text():
+    """26 Oct, Sii: the JobPosting held only a 400-character intro; the requirements with
+    "Minimum 5 years" were in the page under it."""
+    intro = ("We are looking for a Cloud DevOps Engineer to join a team responsible for "
+             "building and maintaining resilient cloud infrastructure on Google Cloud. ") * 2
+    posting = {"@context": "https://schema.org", "@type": "JobPosting", "description": intro}
+    page = (f'<script type="application/ld+json">{json.dumps(posting)}</script>'
+            f"<body><nav>{'Menu ' * 80}</nav><div class='job-description'><p>{intro}</p>"
+            "<h3>Requirements</h3><p>Minimum 5 years of experience building cloud "
+            f"infrastructure on GCP.</p><p>{LONG}</p></div><footer>Cookies</footer></body>")
+    text = fulltext.extract(page)
+    assert text.startswith("We are looking for") and "Minimum 5 years" in text
+    assert "Menu" not in text and "Cookies" not in text
+    other = f"<body><div class='job-description'><p>{LONG}</p></div></body>"  # no intro in it
+    page = f'<script type="application/ld+json">{json.dumps(posting)}</script>{other}'
+    assert fulltext.extract(page) == intro.strip()

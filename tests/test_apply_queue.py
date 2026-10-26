@@ -112,3 +112,13 @@ def test_cloud_run_asks_about_the_laptop():
     assert d.autoapply_tick() == []  # waiting for the answer
     assert d.tap("lp:no")[0].text.startswith("OK: Cloud Run fills them now")
     assert len(d.autoapply_tick()) == 3
+
+
+def test_nothing_queued_and_auto_off_touches_nothing():
+    """26 Oct: the tick wrote Bot State every few minutes and a Notion 500 became an alert."""
+    d = make_desk()
+    calls = []
+    d.state.get = lambda key: calls.append(("get", key)) or None
+    d.state.set = lambda key, value: calls.append(("set", key))
+    assert d.autoapply_tick() == []
+    assert calls == [("get", queue.KEY)]

@@ -18,7 +18,7 @@ from typing import Any
 from jobengine.bot_state import BotState
 from jobengine.config_store import ConfigStore
 from jobengine.llm import LLMError, SearchLLM
-from jobengine.notion_repo import StrategyRepo
+from jobengine.notion_repo import StrategyRepo, find_by_ref, page_ref
 from jobengine.settings import Settings
 from jobengine.strategy import validate
 from jobengine.strategy.models import Tip
@@ -119,7 +119,7 @@ def user_prompt(deps: StrategyDeps, config: ConfigStore, today: date, max_tips: 
 
 
 def ref(page_id: str) -> str:
-    return f"Ref ST-{hex_id(page_id)[:8]}"
+    return f"Ref ST-{page_ref(page_id)}"
 
 
 def tip_card(i: int, n: int, item: dict[str, Any]) -> Card:
@@ -348,8 +348,8 @@ def add_note(deps: StrategyDeps, replied_to: str, text: str) -> str | None:
     if not match:
         return None
     run = deps.state.get(RUN_KEY) or {}
-    item = next((i for i in run.get("tips") or [] if hex_id(i["id"]).startswith(match.group(1))),
-                None)
+    tips = {i["id"]: i for i in run.get("tips") or []}
+    item = tips.get(find_by_ref(list(tips), match.group(1)) or "")
     if item is None or deps.repo is None:
         return "That tip is no longer in the current review."
     row = deps.repo.get(item["id"]) or {}

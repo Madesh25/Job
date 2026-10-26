@@ -43,6 +43,10 @@ DEFAULT_SOURCES = ("adzuna", "ats", "jooble", "nofluffjobs", "iamexpat", "gmail"
 MIN_JSON_LD = 150
 MIN_BLOCK = 250
 MIN_PAGE = 600
+# A JobPosting shorter than this may hold only the intro: 26 Oct, Sii's had 400 characters
+# and the page showed the requirements ("Minimum 5 years ...") under it.
+SHORT_JSON_LD = 1000
+INTRO_CHARS = 60  # the start of the JobPosting text that the visible text must contain
 MAX_CHARS = 60_000
 DROP_TAGS = ("script", "style", "noscript", "svg", "nav", "header", "footer", "form",
              "aside", "iframe", "button", "template")
@@ -209,11 +213,31 @@ def _blocks(soup: BeautifulSoup) -> Iterator[Tag]:
             yield tag
 
 
+def _flat(text: str) -> str:
+    return " ".join(text.split()).casefold()
+
+
+def _visible_around(page: str, intro: str) -> str | None:
+    """The page's visible text when it holds the short JobPosting text and much more (the
+    requirements under the intro); None otherwise."""
+    soup = BeautifulSoup(page, "html.parser")
+    for tag in soup.find_all(DROP_TAGS):
+        tag.decompose()
+    start = _flat(intro)[:INTRO_CHARS]
+    texts = [_clean(tag.get_text("\n")) for tag in _blocks(soup)]
+    if soup.body is not None:
+        texts.append(_clean(soup.body.get_text("\n")))
+    found = [t for t in texts if len(t) >= 2 * len(intro) and start in _flat(t)]
+    return min(found, key=len) if found else None
+
+
 def extract(page: str) -> str | None:
     """The full job description in a page, or None when there is not enough text."""
     soup = BeautifulSoup(page, "html.parser")
     text = from_json_ld(soup)
     if text and len(text) >= MIN_JSON_LD:
+        if len(text) < SHORT_JSON_LD:
+            return _visible_around(page, text) or text
         return text
     data_text = from_next_data(soup)
     if data_text:

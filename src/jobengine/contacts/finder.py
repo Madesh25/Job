@@ -52,6 +52,7 @@ from jobengine.notion_repo import (
     config_writer_for,
     contacts_repo_for,
     jobs_repo_for,
+    page_ref,
 )
 from jobengine.reference import Reference
 from jobengine.safety import contact_lookups, paid_api_allowed
@@ -268,7 +269,7 @@ def discover_domain(deps: ContactDeps, config: ConfigStore, company: str, countr
 
 
 def job_ref(job_id: str) -> str:
-    return "JOB-" + re.sub(r"[^0-9a-z]", "", job_id.lower())[:8]
+    return "JOB-" + page_ref(job_id)
 
 
 def domain_question(company: str, job_id: str, options: list[str] | None = None) -> str:

@@ -74,3 +74,10 @@ def test_hints_follow_gap_terms_and_your_years():
     assert interview.checked_hint("6 years AWS.", gaps, terms, FACTS) == (
         "(give your real experience, 4 years overall, 3 years in DevOps, and one project "
         "from your resume)")
+
+
+def test_n_plus_before_in_is_your_number():
+    """26 Oct, /prep: "4 years professional experience, 3+ in DevOps"."""
+    text, problem = f.fix("4 years professional experience, 3+ in DevOps, on C++ 24+7.", FACTS)
+    assert (text, problem) == ("4 years professional experience, 3 in DevOps, on C++ 24+7.",
+                               None)

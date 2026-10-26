@@ -121,6 +121,14 @@ it.
 - `DRY_RUN=false`: uploaded to the Drive folder Config `drive.resume_folder` (with ` (DEV)`
   outside prod) using the sender token with the `drive.file` scope only. Existing files are
   never overwritten (a ` (2)` suffix is added); nothing is deleted or shared.
+- When Google refuses the upload (26 Oct: the Drive API was turned off in the Google Cloud
+  project of the sender token), the approval still goes on: the PDF is saved in `out/`,
+  Resume Log `File` is `ON THIS COMPUTER: out/<file>` and the mails attach it from there. The
+  bot says why and, for a turned-off API, gives the link to turn it on.
+- The "Ref RL-xxxxxxxx" under a preview is the END of the Resume Log page id: Notion's ids
+  start alike for pages made the same day (26 Oct: two resumes both showed RL-4056edc2). The
+  JOB-, SPOT- and ST- refs work the same way. An older message with the start of the id still
+  works when only one page has it.
 
 ## Running it
 

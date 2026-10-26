@@ -226,3 +226,22 @@ def test_a_missed_scheduled_run_is_named(tmp_path):
     d = make_desk(tmp_path, clock=IstClock(hour=23, minute=0))
     assert schedule.missed(d) == ["07:00", "19:30"]
     assert schedule.missed(make_desk(tmp_path, on=False, clock=IstClock(hour=23))) == []
+
+
+def test_a_short_outage_is_tried_again_before_it_is_told():
+    """26 Oct: one "HTTP 500 Unexpected error occurred" from Notion became an alert."""
+    tb._passing.clear()
+    d = fake_desk(settings(), FAKE_TODAY, now=Clock())
+    d._track_now = lambda: datetime(2026, 10, 1, 7, 5)
+
+    def broken():
+        raise RuntimeError("POST https://api.notion.com/v1/data_sources/x/query failed: "
+                           "HTTP 500 Unexpected error occurred")
+
+    assert tb._scheduled("Auto-apply", broken, d) == []
+    assert tb._scheduled("Auto-apply", broken, d) == []
+    assert d.mails == []
+    [told] = tb._scheduled("Auto-apply", broken, d)
+    assert told.text.startswith("Auto-apply failed: POST") and len(d.mails) == 1
+    assert tb._scheduled("Auto-apply", broken, d) == []  # counted again from zero
+    assert tb._scheduled("Auto-apply", lambda: [], d) == [] and "Auto-apply" not in tb._passing

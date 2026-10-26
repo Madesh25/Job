@@ -28,7 +28,9 @@ from jobengine.notion_repo import (
     JobsRepo,
     NotionClient,
     ResumeLogRepo,
+    find_by_ref,
     jobs_repo_for,
+    page_ref,
     resume_log_for,
 )
 from jobengine.reference import Reference
@@ -79,6 +81,11 @@ RULES_FAILED = (
     "Try again or reply with a correction."
 )
 APPLY_TEXT = "Resume approved and saved. Apply here: {url}"
+# Resume Log `File` of an approved PDF that Google Drive refused, saved in out/ instead (the
+# mails attach it from there, mail/drafter.resume_pdf).
+LOCAL_PREFIX = "ON THIS COMPUTER: "
+DRIVE_FAILED = ("Not saved to Google Drive: {error}\nSaved on this computer instead ({path}); "
+                "the mails attach it from there.")
 NEWER_TEXT = "A newer revision exists"
 
 
@@ -137,7 +144,7 @@ class FinaliseOutcome:
 
 
 def short_ref(log_id: str) -> str:
-    return "RL-" + log_id.replace("-", "")[:8]
+    return "RL-" + page_ref(log_id)
 
 
 def hex_id(page_id: str) -> str:
@@ -807,11 +814,21 @@ def finalise(deps: ResumeDeps, log_id: str) -> FinaliseOutcome:
     except (MasterError, SectionError, PlanError, RenderError) as exc:
         return FinaliseOutcome(status="failed", message=str(exc), job_id=job_id)
     name = (row.get("Resume name") or "resume.pdf").rsplit(" r", 1)[0]
+    note = ""
     if drive_write_allowed(deps.s):
         try:
             file_value = deps.drive().upload_pdf(name, pdf)
         except DriveError as exc:
-            return FinaliseOutcome(status="failed", message=str(exc), job_id=job_id)
+            # 26 Oct: the Drive API was off and Approve resume stopped with nothing sent. The
+            # approval goes on with a copy in out/.
+            log.warning("approve resume %s: Drive refused the PDF: %s", log_id, exc)
+            path, why = save_local_bounded(deps, name, pdf)
+            if path is None:
+                return FinaliseOutcome(status="failed", message=f"{exc}\nAlso {why}.",
+                                       job_id=job_id)
+            rel = Path(path.relative_to(ROOT_DIR) if path.is_relative_to(ROOT_DIR) else path)
+            file_value = LOCAL_PREFIX + rel.as_posix()
+            note = DRIVE_FAILED.format(error=exc, path=rel.as_posix()) + "\n"
     else:
         log.info("approve resume %s: saving the PDF to the out folder", log_id)
         path, why = save_local_bounded(deps, name, pdf)
@@ -827,7 +844,7 @@ def finalise(deps: ResumeDeps, log_id: str) -> FinaliseOutcome:
              time.monotonic() - started)
     on_resume_approved(job_id, log_id)
     return FinaliseOutcome(status="approved", job_id=job_id, job_url=url, file=file_value,
-                           message=APPLY_TEXT.format(url=url), pdf=pdf)
+                           message=note + APPLY_TEXT.format(url=url), pdf=pdf)
 
 
 def mark_applied(deps: ResumeDeps, job_id: str) -> str:
@@ -848,12 +865,11 @@ def mark_applied(deps: ResumeDeps, job_id: str) -> str:
 
 
 def find_log_by_ref(deps: ResumeDeps, ref: str) -> str | None:
-    """The Resume Log page for "RL-xxxxxxxx" (first 8 hex of its ID)."""
+    """The Resume Log page for "RL-xxxxxxxx" (notion_repo.page_ref)."""
     match = re.search(r"RL-([0-9a-f]{8})", ref)
     if not match or deps.resume_log is None:
         return None
-    return next((pid for pid, _ in deps.resume_log.all_rows()
-                 if hex_id(pid).startswith(match.group(1))), None)
+    return find_by_ref([pid for pid, _ in deps.resume_log.all_rows()], match.group(1))
 
 
 def job_for_log(deps: ResumeDeps, log_id: str) -> str | None:
