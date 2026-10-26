@@ -593,6 +593,8 @@ class Desk:
             return self.spot_tap(action, arg)
         if action in ("dc", "dn") and arg:  # /newcompanies: Add, Not interested
             return self.newcompany_tap(action, arg)
+        if action == "ai" and arg == "on":  # "Allow AI" under the month's cap message (I6)
+            return self.ai_allow()
         if action == "tu" and arg:  # "Undo" under a company /add put in Target Companies
             return self.add_undo(arg)
         if action == "rf" and arg:  # "Referral asks": your LinkedIn connections there
@@ -2150,7 +2152,7 @@ class Desk:
         from jobengine.contacts import connections as connections_mod
         from jobengine.contacts.credits import CreditBook
         from jobengine.screen import schedule
-        from jobengine.track import costs, daily_report, health_report
+        from jobengine.track import cost_guard, costs, daily_report, health_report
 
         config = self.deps.config()
         today = daily_report.local(self.tracking_now(), config).date()
@@ -2187,6 +2189,9 @@ class Desk:
                         "it.")
         else:
             fine.append(f"/fetch gate open for {gate} more days")
+        cap = cost_guard.health_line(config, self.state, today)
+        if cap is not None:
+            (blockers if cap[0] == "blocker" else soon).append(cap[1])
         book = CreditBook(config, today)
         if book.used_up():
             soon.append(f"No contact credit left this month: {', '.join(book.used_up())}")
@@ -2216,6 +2221,27 @@ class Desk:
             return []
         health_report.mark_sent(self.state, daily_report.local(now, config).date())
         return [Reply(self.health_report_text()[:MAX_TEXT])]
+
+    def ai_cap_tick(self) -> list[Reply]:
+        """Every few minutes (and the daily task): the AI cap message at 80% and at 100% of
+        Config ai.monthly_cap, once a month each (Autopilot I6)."""
+        from jobengine.track import cost_guard
+
+        today = self.tracking_now().date()
+        found = cost_guard.alert(self.deps.config(), self.state, today)
+        if found is None:
+            return []
+        text, button = found
+        return [Reply(text, [(f"Allow AI for the rest of {today:%B}", "ai:on")]
+                      if button else [])]
+
+    def ai_allow(self) -> list[Reply]:
+        from jobengine.track import cost_guard
+
+        today = self.tracking_now().date()
+        cost_guard.allow(self.state, today)
+        return [Reply(f"✅ AI allowed for the rest of {today:%B}. The cap counts again from the "
+                      "1st.")]
 
     def daily_report_tick(self) -> list[Reply]:
         """Every few minutes (and POST /tasks/report): the evening report, once a day, on
@@ -3190,10 +3216,11 @@ def real_desk(s: Settings) -> Desk | None:
     except Exception as exc:  # the bot still works without /update
         log.warning("strategy update not available: %s", exc)
         strategy = None
-    from jobengine.llm import set_cost_sink
-    from jobengine.track import costs
+    from jobengine.llm import set_cost_guard, set_cost_sink
+    from jobengine.track import cost_guard, costs
 
     set_cost_sink(costs.sink(state, date.today))  # the month's Claude cost (digest)
+    set_cost_guard(cost_guard.guard(state, date.today))  # Config ai.monthly_cap (I6)
     desk = Desk(s, real_deps(s), state, resume=resume, contacts=contacts, mail=mail,
                 track=track, strategy=strategy)
     # What the bot did today, by your clock (tracking.utc_offset), for the daily report.

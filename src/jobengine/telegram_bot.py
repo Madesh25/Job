@@ -166,7 +166,8 @@ TAP_TOASTS = {"ap": "Checking the job link, then building your resume...",
               "nj": "Getting the next job...", "sz": "Snoozing...", "dd": "Well done...",
               "fo": "Saving your approval...", "fw": "Listing the answers...",
               "lp": "Noted...", "aa": "Building your resume...",
-              "dc": "Adding it to Target Companies...", "dn": "Noted..."}
+              "dc": "Adding it to Target Companies...", "dn": "Noted...",
+              "ai": "Allowing AI..."}
 # Every other button: a tap always gets a sign that the bot is working (5 Oct test notes).
 TAP_DEFAULT = "Working on it..."
 
@@ -1153,6 +1154,7 @@ def autopilot_check(client: TelegramClient, s: Settings, desk: Desk | None,
     _bind_notify(client, s, desk)
     # The morning check first: it is meant to come before the morning run (Autopilot C).
     replies = _scheduled("Morning check", desk.health_report_tick, desk)
+    replies += _scheduled("AI cap", desk.ai_cap_tick, desk)
     replies += _scheduled("Autopilot",
                          lambda: desk.autopilot_scheduled(autopilot_fetch(fetch)) or [], desk)
     replies += _scheduled("Afternoon check",

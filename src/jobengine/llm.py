@@ -156,8 +156,36 @@ def record_cost(stage: str, dollars: float) -> None:
         log.exception("could not record the LLM cost")
 
 
+# The monthly cap (track/cost_guard.py): (stage, config) -> why the call may not run, or
+# None. Set once by the bot; None in tests and scripts.
+CostGuard = Callable[[str, Any], "str | None"]
+_cost_guard: CostGuard | None = None
+
+
+def set_cost_guard(guard: CostGuard | None) -> None:
+    global _cost_guard
+    _cost_guard = guard
+
+
 class LLMError(Exception):
     """An LLM call could not produce a usable JSON object."""
+
+
+class LLMPausedError(LLMError):
+    """The month's AI cap is reached (Config ai.monthly_cap): the call did not run."""
+
+
+def check_cost(stage: str, config: Any) -> None:
+    """Raise LLMPausedError when the monthly cap pauses this stage."""
+    if _cost_guard is None:
+        return
+    try:
+        why = _cost_guard(stage, config)
+    except Exception:  # the cap is a safety net: never fail a call because it broke
+        log.exception("could not check the AI cap")
+        return
+    if why:
+        raise LLMPausedError(why)
 
 
 class LLMAuthError(LLMError):
@@ -861,6 +889,7 @@ class ModelRouter:
         self, stage: str, system: str, user: str, *, max_tokens: int = 2000,
         key: str | None = None,
     ) -> dict[str, Any]:
+        check_cost(stage, self.config)
         model = self.model(stage)
         if is_gemini(model) or is_deepseek(model):
             client: Any = None
@@ -880,6 +909,7 @@ class ModelRouter:
     ) -> tuple[dict[str, Any], list[str]]:
         """Gemini searches with Google (it cannot be told a maximum number of searches);
         DeepSeek has no web search, so a DeepSeek model here becomes haiku."""
+        check_cost(stage, self.config)
         model = self.model(stage)
         if is_gemini(model):
             try:
@@ -903,6 +933,7 @@ class ModelRouter:
     def submit_batch(
         self, stage: str, system: str, items: list[tuple[str, str]], *, max_tokens: int = 2000,
     ) -> str:
+        check_cost(stage, self.config)
         if not self.batch_ok(stage):
             raise LLMError("the half-price batch needs a Claude model")
         return self.claude.submit_batch(stage, system, items, max_tokens=max_tokens)

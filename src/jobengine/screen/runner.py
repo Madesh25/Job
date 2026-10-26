@@ -14,7 +14,7 @@ from jobengine import http
 from jobengine.bot_state import BotState, FakeBotState, bot_state_for
 from jobengine.config_store import ConfigStore
 from jobengine.ind_register import IndRegister, load_register
-from jobengine.llm import FakeLLM, LLMAuthError, LLMClient, LLMError, make_llm
+from jobengine.llm import FakeLLM, LLMAuthError, LLMClient, LLMError, LLMPausedError, make_llm
 from jobengine.notion_repo import (
     FakeJobsRepo,
     JobsRepo,
@@ -479,7 +479,8 @@ def screen_pending(
                 done += 1
                 if progress and done % 10 == 0:
                     progress(f"Screening: {done} of {min(len(rows), room)} jobs checked")
-                if isinstance(exc, LLMAuthError):  # every other job would fail the same way
+                # Every other job would fail the same way (a refused key, the month's cap).
+                if isinstance(exc, (LLMAuthError, LLMPausedError)):
                     if not stopped:
                         summary.errors.append(f"Screening stopped: {exc}")
                     stopped = True
