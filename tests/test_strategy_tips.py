@@ -89,8 +89,9 @@ def test_interview_replies_get_the_interview_tips(monkeypatch):
     d = ready_desk()
     d.strategy.existing = lambda: [row("Prepare a STAR story on incidents", "Interview")]
     monkeypatch.setattr(ping, "due", lambda track, now: True)
-    monkeypatch.setattr(ping, "check", lambda track, now: [
-        f"New reply from Ana\n{ping.INTERVIEW_HINT}", "New reply from Bo\nThanks"])
+    monkeypatch.setattr(ping, "check_pings", lambda track, now: [
+        ping.Ping(f"New reply from Ana\n{ping.INTERVIEW_HINT}"),
+        ping.Ping("New reply from Bo\nThanks")])
     out = [r.text for r in d.reply_ping_tick()]
     assert "- Prepare a STAR story on incidents" in out[0]
     assert "Interview tips" not in out[1]

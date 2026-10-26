@@ -132,6 +132,8 @@ Gmail reply (`src/jobengine/track/reply_draft.py`):
 - An answer that is not set is left out (that question stays for you); a mail that asks none
   of these gets no draft. No AI, nothing sent: edit it and send it yourself.
 
+
+Autopilot D (26 Oct): when the reply may be about an interview or a call, the ping is followed by the `/prep` pack for that job (likely questions with hints from your resume, your gaps, questions to ask them): "🎯 Prepare for it now:". Once a day per job (Bot State `autoprep.done`); one AI call; a failure only loses the pack, never the ping.
 ## Status rules
 
 Job order: `New < Screened < Approved < Resume built < Applied < Followed up < Replied <
