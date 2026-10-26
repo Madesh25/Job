@@ -2150,6 +2150,7 @@ class Desk:
         from jobengine.contacts import connections as connections_mod
         from jobengine.contacts.credits import CreditBook
         from jobengine.screen import schedule
+        from jobengine.strategy import auto_update
         from jobengine.track import costs, daily_report, health_report
 
         config = self.deps.config()
@@ -2184,7 +2185,9 @@ class Desk:
                             "check).")
         elif gate <= health_report.GATE_SOON_DAYS:
             soon.append(f"/update is due in {gate} day(s), then /fetch stops until you run "
-                        "it.")
+                        "it." + (" The bot runs the research by itself (once, from 07:00); "
+                                 "you adopt or reject the tips." if auto_update.is_on(config)
+                                 else ""))
         else:
             fine.append(f"/fetch gate open for {gate} more days")
         book = CreditBook(config, today)
@@ -2514,6 +2517,31 @@ class Desk:
             self.say(Reply(strategy_runner.STARTED))
         result = strategy_runner.run_update(self.strategy, force=force)
         return [*(Reply(m[:MAX_TEXT]) for m in result.messages),
+                *(Reply(c.text, c.buttons) for c in result.cards)]
+
+    def auto_update_tick(self) -> list[Reply]:
+        """Every few minutes (and the daily task): the monthly /update by itself, once, when
+        the /fetch gate closes within 5 days (Autopilot I5)."""
+        from jobengine.strategy import auto_update
+        from jobengine.sweep.gate import last_update
+        from jobengine.track import daily_report
+
+        if self.strategy is None:
+            return []
+        config = self.deps.config()
+        now = daily_report.local(self.tracking_now(), config)
+        updated = last_update(config, self.strategy.state, self.strategy.s)
+        if updated is None or not auto_update.due(
+                config, self.strategy.state, updated, now,
+                strategy_runner.open_review(self.strategy)):
+            return []
+        left = auto_update.days_left(updated, config.get_int("strategy_refresh_days"),
+                                     now.date())
+        result = strategy_runner.run_update(self.strategy)
+        ok = strategy_runner.open_review(self.strategy)
+        auto_update.mark(self.strategy.state, updated, now.date(), ok=ok)
+        first = auto_update.intro(left or 0) if ok else auto_update.FAILED
+        return [Reply(first), *(Reply(m[:MAX_TEXT]) for m in result.messages),
                 *(Reply(c.text, c.buttons) for c in result.cards)]
 
     def strategy_tap(self, action: str, arg: str) -> list[Reply]:
