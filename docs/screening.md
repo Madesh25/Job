@@ -213,6 +213,13 @@ risk High -5, Medium -2; posted in the last 7 days +1.
   75 or more) stops a short name matching a longer one only because its words are a subset
   ("Tulip" is not "Tulip Data"). If the page cannot be downloaded or parsed there is no flag
   and the summary says "IND register unavailable".
+- Ireland: companies that received Irish employment permits last year (the DETE "Permits
+  issued to companies" list, `ie_permits.py`, Config `ie_permits.url`) rank higher in
+  /pending and their card says "Irish permits: N issued to <name> (DETE list)". gov.ie
+  answers the bot with HTTP 403 (Phase 9 P9-20, seen 26 Oct), so the copy you save yourself
+  is read instead: download the yearly file in your browser and save it as
+  `out/ie_permits.xlsx` (or `.xls`, `.pdf`, `.csv`). `/health` says where the list came from,
+  or what to do when it could not be read.
 - Agency posts (all countries since 30 Sep): the text says it is posted for a client, the
   company starts with a known agency name (`screen/visa.py` KNOWN_AGENCIES, plus Config
   `agency_names` and `ireland.agency_names`, comma-separated), or its name says recruitment,

@@ -332,8 +332,11 @@ class Desk:
         self.captures = Captures(state, window)
         self._reference: tuple[float, Reference] | None = None
         self._ranker: Ranker | None = None
-        # The Irish permits list (ie_permits.py): read once a day, None when it failed.
+        # The Irish permits list (ie_permits.py): read once a day, None when it failed; the
+        # note says where it came from (for /health).
         self._permits: tuple[date, Any] | None = None
+        self.permits_note = ""
+        self.out_dir = ROOT_DIR / "out"
         self.get_file: Callable[[str], tuple[str, str, bytes]] = \
             lambda url: http.get_file(url, s=self.s)
         # Reads one public page (the employer's link behind an Adzuna job).
@@ -364,14 +367,29 @@ class Desk:
         if self._permits is None or self._permits[0] != today:
             url = (self.deps.config().get(ie_permits.URL_KEY)
                    or self.s.screening.get("ie_permits_url"))
-            found = None
+            found, problem = None, "no gov.ie link in Config ie_permits.url"
             if url:
                 try:
                     found = ie_permits.load(str(url), self.get_file)
+                    self.permits_note = f"read from gov.ie ({len(found.counts)} companies)"
                 except (http.HttpError, ValueError, OSError) as exc:
                     log.warning("Irish permits list not read: %s", exc)
-                except Exception:  # a broken file never stops /pending
+                    problem = f"gov.ie: {str(exc)[:120]}"
+                except Exception as exc:  # a broken file never stops /pending
                     log.exception("Irish permits list not read")
+                    problem = f"gov.ie: {type(exc).__name__}"
+            if found is None:  # P9-20: gov.ie refuses the bot; the copy you saved instead
+                saved = ie_permits.local_file(self.out_dir)
+                try:
+                    if saved is None:
+                        raise FileNotFoundError("out/ie_permits.xlsx missing")
+                    found = ie_permits.load_file(saved)
+                    self.permits_note = (f"read from out/{saved.name} ({len(found.counts)} "
+                                         f"companies; {problem})")
+                except Exception as exc:  # a broken file never stops /pending
+                    log.warning("Irish permits file not read: %s", exc)
+                    self.permits_note = (f"NOT read ({problem}; {exc}). To fix: "
+                                         f"{ie_permits.DOWNLOAD_HINT}")
             self._permits = (today, found)
         return self._permits[1]
 
@@ -2161,7 +2179,13 @@ class Desk:
     def health_command(self) -> list[Reply]:
         if self.track is None:
             return self._no_track() or []
-        return [Reply(track_commands.health_text(self.track))]
+        text = track_commands.health_text(self.track)
+        try:
+            self.permits()
+            text += f"\nIrish permits list: {self.permits_note}"
+        except Exception as exc:  # /health never fails over the permits list
+            text += f"\nIrish permits list: not checked ({type(exc).__name__})"
+        return [Reply(text)]
 
     def agencies_command(self, args: str) -> list[Reply]:
         """/agencies: recruitment agencies by country; /agencies <name> the intro mail;
@@ -3001,6 +3025,7 @@ def fake_desk(s: Settings, today: date, now: Callable[[], datetime] | None = Non
         raise http.HttpError(f"GET {url} failed: no network in --fake")
 
     desk.get_file = no_file
+    desk.out_dir = ROOT_DIR / "out" / "fake"  # never your real out/ie_permits file
     desk.skills_added = []  # type: ignore[attr-defined]
     desk.add_skill = lambda name, level, note: desk.skills_added.append(  # type: ignore[attr-defined]
         (name, level, note))

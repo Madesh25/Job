@@ -10,7 +10,13 @@ Config `ie_permits.url` is the gov.ie publication page (the bot follows its "com
 download) or the file itself. The file may be an Excel sheet, a PDF or a web page: the
 company column is the one with the most letters, the count the number next to it. Names
 match like the IND register (legal forms and "(NL)/(IE)" stripped, register name plus
-generic words, aliases). The list is read once per bot start and cached in memory.
+generic words, aliases). The list is read once a day and cached in memory.
+
+gov.ie answers the bot with HTTP 403 (Phase 14 log, 26 Oct; P9-20: the line was missing on
+every Irish card). Then the file you downloaded in your browser is read instead: save the
+yearly "Permits issued to companies" file as out/ie_permits.xlsx (or .xls, .pdf, .csv). The
+page needs no login; the bot reads only the copy you saved. /health says where the list came
+from, or what to do when neither works.
 """
 
 from __future__ import annotations
@@ -20,6 +26,7 @@ import logging
 import re
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from pathlib import Path
 from urllib.parse import urljoin
 
 from bs4 import BeautifulSoup
@@ -32,6 +39,11 @@ URL_KEY = "ie_permits.url"
 FILE_HINT = re.compile(r"compan", re.I)
 FILE_TYPES = (".xlsx", ".xls", ".pdf", ".csv")
 LINE = re.compile(r"^(?P<name>.*?[A-Za-z].*?)\s+(?P<count>\d[\d,]*)\s*$")
+
+LOCAL_NAME = "ie_permits"  # out/ie_permits.xlsx (or one of FILE_TYPES)
+DOWNLOAD_HINT = ("download the \"Permits issued to companies\" file from the gov.ie "
+                 "employment permit statistics page in your browser and save it as "
+                 "out/ie_permits.xlsx (or .pdf)")
 
 # url -> (final url, content type, body bytes)
 Getter = Callable[[str], tuple[str, str, bytes]]
@@ -152,4 +164,20 @@ def load(url: str, get: Getter) -> PermitList:
         raise ValueError(f"no companies found in the Irish permits list ({final})")
     log.info("Irish permits list: %d companies, for example %s", len(counts),
              list(counts)[:3])
+    return PermitList(counts)
+
+
+def local_file(folder: Path) -> Path | None:
+    """The newest out/ie_permits.<xlsx|xls|pdf|csv> you saved, or None."""
+    found = [folder / f"{LOCAL_NAME}{ext}" for ext in FILE_TYPES]
+    found = [p for p in found if p.is_file()]
+    return max(found, key=lambda p: p.stat().st_mtime) if found else None
+
+
+def load_file(path: Path) -> PermitList:
+    """Read a saved copy of the list. Raises ValueError (nothing found) or OSError."""
+    counts = parse(path.name, "", path.read_bytes())
+    if not counts:
+        raise ValueError(f"no companies found in {path.name}")
+    log.info("Irish permits list from %s: %d companies", path.name, len(counts))
     return PermitList(counts)
