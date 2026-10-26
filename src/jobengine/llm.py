@@ -737,6 +737,25 @@ def deepseek_usage(usage: Any) -> DeepSeekUsage:
                          output_tokens=count("completion_tokens"), cache_read_input_tokens=hit)
 
 
+def anthropic_key_problem(s: Settings, client: Any = None) -> str | None:
+    """/health (26 Oct, Phase 13 B-03): None when Anthropic accepts the key, else why not.
+    One free call (the model list); "set" alone did not show a key Anthropic refuses."""
+    if not s.anthropic_api_key:
+        return "missing"
+    try:
+        import anthropic
+
+        client = client or anthropic.Anthropic(api_key=s.anthropic_api_key, max_retries=0,
+                                               timeout=15)
+        client.models.list(limit=1)
+    except Exception as exc:
+        if type(exc).__name__ == "AuthenticationError":
+            return ("refused by Anthropic (401): make a new key at console.anthropic.com and "
+                    "put it in .env as ANTHROPIC_API_KEY")
+        return f"not checked ({type(exc).__name__})"
+    return None
+
+
 class DeepSeekLLM:
     """DeepSeek's chat API (OpenAI style, JSON mode) through jobengine.http. Only the stages
     in DEEPSEEK_STAGES (all but the web searches) may call it."""

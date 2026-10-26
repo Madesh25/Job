@@ -322,8 +322,14 @@ When LinkedIn or another app sends you to the company's own job page, send that 
 4. marks the job Approved and builds the resume (you apply to it, whatever the screening
    says; a remote job is saved too, with a note).
 
-A page that shows no description (it loads it with scripts) or no company or role answers
-with the /jd way: `/jd <link>`, paste the text, `/done`.
+A page that shows no description (it loads it with scripts) or no role answers with the /jd
+way: `/jd <link>`, paste the text, `/done`.
+
+Phase 13 B-03 (26 Oct): a page that does not name the company (no schema.org data, no
+`og:site_name`, like kariera.comarch.pl) gets it from the link (`kariera.comarch.pl` gives
+`Comarch`, `sii.pl` gives `Sii`), and the bot says so: fix the Company field in Notion if it
+is wrong. The page gets 30 seconds (`ADD_TIMEOUT`, a /fetch page gets 12) and one more try
+after a time-out, because you wait for that one page.
 
 ## Checking it on your laptop
 
