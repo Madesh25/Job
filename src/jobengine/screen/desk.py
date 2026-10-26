@@ -100,6 +100,7 @@ ADD_USAGE = ("Send /add <job link>: the job's page on the company site (the page
              "company to Target Companies and builds your resume.")
 ADD_PASTE = "Paste the description instead: send /jd {url}, paste the text, then /done."
 ADD_TIMEOUT = 30.0  # seconds for the /add page (a /fetch page gets http.PAGE_TIMEOUT_SECONDS)
+AUTO_PREP_KEY = "autoprep.done"  # bot_state: {"jobs": {page id: iso date}} (D)
 ADD_PLACE_CHARS = 3000  # the start of the job text where /add looks for the place
 ADD_LONGER_CHARS = 200  # a /add description this much longer replaces a full one
 ADD_BLOCKED = ("The bot never opens {host} pages. Open the job there, tap Apply, and send /add "
@@ -2067,15 +2068,37 @@ class Desk:
         if not ping.due(self.track, now):
             return []
         try:
-            texts = ping.check(self.track, now)
+            pings = ping.check_pings(self.track, now)
         except Exception as exc:
             log.warning("reply check failed: %s", exc)
             return self._token_alert(str(exc), now.date())
+        texts = [p.text for p in pings]
         day_ledger.count("replies", len(texts))
         if any(ping.INTERVIEW_HINT in text for text in texts):
             extra = tips_mod.lines("Interview tips", self.tips(tips_mod.INTERVIEW, None))
             texts = [text + extra if ping.INTERVIEW_HINT in text else text for text in texts]
-        return [Reply(text[:MAX_TEXT]) for text in texts]
+        out: list[Reply] = []
+        for p, text in zip(pings, texts, strict=True):
+            out.append(Reply(text[:MAX_TEXT]))
+            if p.interview and p.job_id:
+                out += self.auto_prep(p.job_id, now.date())
+        return out
+
+    def auto_prep(self, job_id: str, today: date) -> list[Reply]:
+        """Autopilot D: a reply about an interview or a call comes with the /prep pack for
+        that job, once a day per job (one AI call; a failure only loses the pack)."""
+        done = dict(((self.state.get(AUTO_PREP_KEY) or {}).get("jobs")) or {})
+        if done.get(job_id) == today.isoformat():
+            return []
+        try:
+            replies = self.prep_command(job_id)
+        except Exception as exc:  # the ping still comes
+            log.warning("auto /prep failed for %s: %s", job_id, exc)
+            return []
+        done[job_id] = today.isoformat()
+        recent = sorted(done.items(), key=lambda kv: kv[1])[-50:]
+        self.state.set(AUTO_PREP_KEY, {"jobs": dict(recent)})
+        return [Reply("\U0001F3AF Prepare for it now:"), *replies]
 
     # ------------------------------------------------------------ daily report (H1, H3)
 

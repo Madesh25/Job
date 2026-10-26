@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import logging
 import re
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any
 
@@ -79,8 +80,20 @@ def _draft(run: Run, message: Message, first: str | None,
         return None
 
 
+@dataclass(frozen=True)
+class Ping:
+    text: str
+    job_id: str | None = None  # the job it is about, when known
+    interview: bool = False  # it may be about an interview or a call (Autopilot D)
+
+
 def check(deps: TrackDeps, now: datetime) -> list[str]:
     """New replies since the last check, one text each. Updates Bot State."""
+    return [p.text for p in check_pings(deps, now)]
+
+
+def check_pings(deps: TrackDeps, now: datetime) -> list[Ping]:
+    """check() with the job each reply is about (Autopilot D: /prep comes with it)."""
     state = deps.state.get(PINGED_KEY) or {}
     seen: list[str] = list(state.get("ids") or [])
     since = now - FIRST_LOOK
@@ -93,18 +106,18 @@ def check(deps: TrackDeps, now: datetime) -> list[str]:
     contact_threads: dict[str, dict[str, Any]] = {
         c["Gmail thread ID"]: c for c in run.contacts.values()
         if c.get("Gmail thread ID") and c.get("Status") in REPLY_CONTACTS}
-    job_threads: dict[str, dict[str, Any]] = {}
-    job_domains: dict[str, dict[str, Any]] = {}
-    for job in run.jobs.values():
+    job_threads: dict[str, str] = {}
+    job_domains: dict[str, str] = {}
+    for pid, job in run.jobs.items():
         if job.get("Status") in JOB_TERMINAL:
             continue
         if job.get("Gmail thread ID"):
-            job_threads[job["Gmail thread ID"]] = job
+            job_threads[job["Gmail thread ID"]] = pid
         if job.get("Status") in APPLIED_JOBS:
             domain = company_domain(run, job.get("Company") or "")
             if domain:
-                job_domains[domain.casefold()] = job
-    texts: list[str] = []
+                job_domains[domain.casefold()] = pid
+    texts: list[Ping] = []
     query = f"after:{int(since.timestamp())} -in:chats -in:sent"
     for message in run.gmail.search(query, limit=50):
         if message.id in seen or message.sent or message.sender in run.mine:
@@ -112,17 +125,20 @@ def check(deps: TrackDeps, now: datetime) -> list[str]:
         if is_auto_reply(message) or bounces.is_bounce(message):
             continue
         contact = contact_threads.get(message.thread_id)
-        job = job_threads.get(message.thread_id) or job_domains.get(message.sender_domain)
+        job_id = job_threads.get(message.thread_id) or job_domains.get(message.sender_domain)
+        job = run.jobs.get(job_id) if job_id else None
+        talk = bool(INTERVIEW_RE.search(f"{message.subject} {message.text or message.snippet}"))
         if contact is not None:
             who = contact.get("Name") or message.sender
             related = run.related_jobs(contact)
             first = (contact.get("Name") or "").split()[0] if contact.get("Name") else None
             draft = _draft(run, message, first, run.jobs[related[0]] if related else None)
-            texts.append(_ping(message, who, run.company_of(contact) or "a contact", draft))
+            texts.append(Ping(_ping(message, who, run.company_of(contact) or "a contact", draft),
+                              related[0] if related else None, talk))
         elif job is not None:
-            texts.append(_ping(message, job.get("Company") or message.sender,
-                               f"your application for {job.get('Role') or 'the job'}",
-                               _draft(run, message, None, job)))
+            texts.append(Ping(_ping(message, job.get("Company") or message.sender,
+                                    f"your application for {job.get('Role') or 'the job'}",
+                                    _draft(run, message, None, job)), job_id, talk))
         else:
             continue
         seen.append(message.id)
