@@ -2466,6 +2466,24 @@ class Desk:
         spot_check.remember(self.state, cards)
         return replies
 
+    def expired_check_tick(self) -> list[Reply]:
+        """Every few minutes (and the digest task): the weekly link check, which marks open
+        jobs whose posting closed Expired (Autopilot I1)."""
+        from jobengine.track import daily_report, expired_check
+
+        if self.repo is None:
+            return []
+        config = self.deps.config()
+        now = daily_report.local(self.tracking_now(), config)
+        if not expired_check.due(config, self.state, now):
+            return []
+        expired_check.mark_done(self.state, now.date())
+        rows = [job_row(pid, values) for pid, values in self.repo.query_rows(
+            select_filter("Status", *expired_check.OPEN_STATUSES))]
+        result = expired_check.check(rows, self.get_page, now.date())
+        expired_check.expire(result, self.repo.update)
+        return [Reply(result.text()[:MAX_TEXT])]
+
     def spot_check_tick(self) -> list[Reply]:
         """Sunday 20:00 India time (with the digest): the spot check, once a week."""
         from jobengine.track import spot_check
