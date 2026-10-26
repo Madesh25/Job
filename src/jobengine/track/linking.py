@@ -79,3 +79,18 @@ def matching_jobs(message: Message, jobs: dict[str, dict[str, object]]) -> list[
     named = [pid for pid in found
              if (role := canon(str(jobs[pid].get("Role") or ""))) and f" {role} " in text]
     return named or found
+
+
+# ---------------------------------------------------------------- rejection mails (I4)
+# Autopilot I4 (26 Oct): a rejection from a career site often comes in a new mail, not in
+# the thread tracking linked; the job stayed Applied and its contacts got follow-ups.
+
+REJECT_PHRASES = (
+    "unfortunately", "not to move forward", "not moving forward", "will not be moving "
+    "forward", "decided to proceed with other candidates", "decided to move forward with "
+    "other candidates", "will not be progressing", "not been successful", "position has been "
+    "filled", "we regret to inform", "niestety", "helaas")
+
+
+def is_rejection(message: Message) -> bool:
+    return says(message, REJECT_PHRASES)
