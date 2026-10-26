@@ -216,3 +216,31 @@ def test_a_refused_call_shows_anthropics_reason_not_only_the_code(caplog):
     assert str(raised.value) == ("LLM call failed: HTTP 400 (invalid_request_error: prompt is "
                                  "too long)")
     assert "prompt is too long" in caplog.text and "job text" not in caplog.text
+
+
+def test_health_checks_the_anthropic_key_for_real():
+    # Phase 13 B-03 (26 Oct): /health said "set" while Anthropic answered 401.
+    from jobengine.llm import anthropic_key_problem
+    from jobengine.settings import load_settings
+
+    class AuthenticationError(Exception):
+        pass
+
+    class Models:
+        def __init__(self, error=None):
+            self.error = error
+
+        def list(self, limit):
+            if self.error:
+                raise self.error
+
+    class Client:
+        def __init__(self, error=None):
+            self.models = Models(error)
+
+    s = load_settings("local", {"ANTHROPIC_API_KEY": "sk-test"})
+    assert anthropic_key_problem(s, Client()) is None
+    assert anthropic_key_problem(s, Client(AuthenticationError("401"))).startswith(
+        "refused by Anthropic (401)")
+    assert anthropic_key_problem(s, Client(TimeoutError())) == "not checked (TimeoutError)"
+    assert anthropic_key_problem(load_settings("local", {})) == "missing"

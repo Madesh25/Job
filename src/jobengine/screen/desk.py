@@ -99,6 +99,7 @@ ADD_USAGE = ("Send /add <job link>: the job's page on the company site (the page
              "another app sends you to). The bot reads it, saves and screens the job, adds the "
              "company to Target Companies and builds your resume.")
 ADD_PASTE = "Paste the description instead: send /jd {url}, paste the text, then /done."
+ADD_TIMEOUT = 30.0  # seconds for the /add page (a /fetch page gets http.PAGE_TIMEOUT_SECONDS)
 ADD_BLOCKED = ("The bot never opens {host} pages. Open the job there, tap Apply, and send /add "
                "with the company site's link it takes you to.\nOr " + ADD_PASTE[0].lower() +
                ADD_PASTE[1:])
@@ -336,6 +337,10 @@ class Desk:
         # Reads one public page (the employer's link behind an Adzuna job).
         self.get_page: Callable[[str], tuple[str, str]] = \
             lambda url: http.get_page(url, s=self.s, blocked=blocked_hosts(self.s))
+        # /add (B-03, 26 Oct): you wait for that one page, so a slow company site gets longer.
+        self.get_slow_page: Callable[[str], tuple[str, str]] = \
+            lambda url: http.get_page(url, s=self.s, blocked=blocked_hosts(self.s),
+                                      timeout=ADD_TIMEOUT)
 
     @property
     def repo(self) -> JobsRepo | None:
@@ -2740,6 +2745,16 @@ class Desk:
 
     # ------------------------------------------------------------ /add <job link> (23 Oct)
 
+    def _read_add_page(self, url: str) -> tuple[str, str]:
+        """The /add page, waiting up to ADD_TIMEOUT, with one more try after a time-out."""
+        try:
+            return self.get_slow_page(url)
+        except http.HttpError as exc:
+            if "Timeout" not in str(exc):
+                raise
+            log.info("/add: %s timed out, trying once more", http.safe_url(url))
+            return self.get_slow_page(url)
+
     def add_command(self, args: str) -> list[Reply]:
         """/add <job link>: the company's own job page (LinkedIn and other apps usually send
         you there). Reads it, saves and screens the job, adds the company to Target
@@ -2754,7 +2769,7 @@ class Desk:
             return [Reply(ADD_BLOCKED.format(host=host, url=url))]
         self.say(Reply("Reading the job page..."))
         try:
-            final, page = self.get_page(url)
+            final, page = self._read_add_page(url)
         except http.HttpError as exc:
             return [Reply(f"Could not open the job page ({exc}).\n{ADD_PASTE.format(url=url)}")]
         job = add_link.read_page(final, page)
@@ -2778,6 +2793,10 @@ class Desk:
         where = ", ".join(p for p in (city, country) if p) or job.location or "place not given"
         replies = [Reply(f"{'Found' if row else 'Saved'}: {job.company}, {job.title} ({where})."
                          " Screening it now...")]
+        if job.company_from_link:
+            replies.append(Reply(f"(The page does not name the company: \"{job.company}\" is "
+                                 "taken from the link. Fix the Company field in Notion if it "
+                                 "is wrong.)"))
         if not rules.remote_jobs and remote_only(job.location, job.title, city):
             replies.append(Reply("Note: this job looks remote (you want office or hybrid). "
                                  "It is saved because you chose it."))

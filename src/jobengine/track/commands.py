@@ -150,7 +150,14 @@ def health_text(deps: TrackDeps) -> str:
     for name in ("alerts", "sender"):
         reason = deps.token_check(name)
         lines.append(f"Gmail {name} token: {'OK' if reason is None else f'FAILED ({reason})'}")
-    lines.append(f"Anthropic key: {'set' if s.anthropic_api_key else 'missing'}")
+    if not s.anthropic_api_key:
+        lines.append("Anthropic key: missing")
+    else:
+        try:
+            problem = deps.key_check()
+        except Exception as exc:  # report, never raise
+            problem = f"not checked ({type(exc).__name__})"
+        lines.append(f"Anthropic key: {'OK' if problem is None else problem}")
     lines.append(f"Last daily check: {(deps.state.get(MARKER) or {}).get('at') or 'never'}")
     lines.append(f"Last sweep: {(deps.state.get(SWEEP_SUMMARY) or {}).get('at') or 'never'}")
     lines.append(f"Environment: {s.app_env}, DRY_RUN {'on' if s.dry_run else 'off'}")

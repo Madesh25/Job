@@ -27,7 +27,7 @@ URL = "https://apply.workable.com/wisla-data/j/AB12CD/"
 
 def desk_with(page=PAGE):
     d = fake_desk(settings(), FAKE_TODAY, now=Clock())
-    d.get_page = lambda url: (url, page)
+    d.get_slow_page = lambda url: (url, page)
     return d
 
 
@@ -80,7 +80,7 @@ def test_a_known_company_or_an_agency_is_not_added_again():
 def test_linkedin_and_blocked_sites_are_never_opened():
     d = desk_with()
     opened = []
-    d.get_page = lambda url: opened.append(url)
+    d.get_slow_page = lambda url: opened.append(url)
     for link in ("https://www.linkedin.com/jobs/view/4099", "https://www.pracuj.pl/praca/x"):
         text = d.add_command(link)[0].text
         assert text.startswith("The bot never opens") and "/jd" in text
@@ -96,6 +96,51 @@ def test_a_page_without_a_description_asks_for_the_text():
     def refuse(url):
         raise http.HttpError("GET failed: HTTP 403", 403)
 
-    d.get_page = refuse
+    d.get_slow_page = refuse
     assert d.add_command("https://careers.example.com/jobs/1")[0].text.startswith(
         "Could not open the job page")
+
+
+# Phase 13 B-03 (26 Oct): a company page without schema.org data (kariera.comarch.pl) and a
+# slow one (sii.pl). Made-up text on the real hosts.
+PLAIN = ('<html><head><title>DevOps Engineer (AI-native stack) - Kariera</title></head><body>'
+         '<main><h1>DevOps Engineer</h1><p>'
+         + "You build CI/CD in GitLab and run Kubernetes on AWS for our products. " * 8
+         + '</p><p>Location: Krakow, Poland. Hybrid.</p></main></body></html>')
+
+
+def test_the_company_comes_from_the_link_when_the_page_does_not_name_it():
+    assert add_link.company_from_host("https://kariera.comarch.pl/praca/devops/") == "Comarch"
+    assert add_link.company_from_host("https://sii.pl/en/job-ads/id/38180/") == "Sii"
+    assert add_link.company_from_host("https://careers.acme.com.pl/jobs/1") == "Acme"
+    assert add_link.company_from_host("https://jobs.co.uk/1") == ""
+    job = add_link.read_page("https://kariera.comarch.pl/praca/devops/", PLAIN)
+    assert (job.company, job.company_from_link) == ("Comarch", True)
+    assert job.title == "DevOps Engineer (AI-native stack)"
+    d = desk_with(PLAIN)
+    replies = d.add_command("https://kariera.comarch.pl/praca/devops/")
+    assert replies[0].text.startswith("Saved: Comarch, DevOps Engineer (AI-native stack)")
+    assert replies[1].text.startswith("(The page does not name the company: \"Comarch\"")
+
+
+def test_a_slow_page_gets_one_more_try():
+    d = desk_with()
+    calls = []
+
+    def slow_then_ok(url):
+        calls.append(url)
+        if len(calls) == 1:
+            raise http.HttpError("GET https://sii.pl/en/job-ads/id/38180/ failed: ReadTimeout")
+        return url, PAGE
+
+    d.get_slow_page = slow_then_ok
+    replies = d.add_command("https://sii.pl/en/job-ads/id/38180/")
+    assert len(calls) == 2 and replies[0].text.startswith("Saved: Wisla Data")
+
+    def always_slow(url):
+        raise http.HttpError("GET https://sii.pl/x failed: ReadTimeout")
+
+    d.get_slow_page = always_slow
+    [reply] = d.add_command("https://sii.pl/en/job-ads/id/38181/")
+    assert reply.text.startswith("Could not open the job page (GET https://sii.pl/x failed: "
+                                 "ReadTimeout).")

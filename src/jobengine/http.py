@@ -277,7 +277,7 @@ def patch_json(
 def get_page(
     url: str, s: Settings | None = None, max_bytes: int = PAGE_MAX_BYTES, *,
     accept_json: bool = False, json_body: Any = None, accept_feed: bool = False,
-    blocked: Collection[str] = (),
+    blocked: Collection[str] = (), timeout: float = PAGE_TIMEOUT_SECONDS,
 ) -> tuple[str, str]:
     """Read one public job page: (final URL, text). Plain GET, no cookies, no login.
 
@@ -289,6 +289,7 @@ def get_page(
     `accept_feed`: an RSS or XML answer is read too (a career site's job feed).
     `blocked`: sites that refuse the bot (sweep.fulltext.blocked_hosts); a link or redirect to
     one is not followed, so a tracking link in an alert stops before the blocked site.
+    `timeout`: seconds per request (/add waits longer: you are waiting for that one page).
     """
     s = s or get_settings()
     types = (*PAGE_TYPES, "application/json") if accept_json else PAGE_TYPES
@@ -300,7 +301,7 @@ def get_page(
         accept = "application/rss+xml,application/xml;q=0.9,text/xml;q=0.9,*/*;q=0.8"
     headers = {"User-Agent": PAGE_USER_AGENT, "Accept": accept}
     method = "GET" if json_body is None else "POST"
-    with httpx.Client(transport=_transport, timeout=PAGE_TIMEOUT_SECONDS,
+    with httpx.Client(transport=_transport, timeout=timeout,
                       follow_redirects=False) as client:
         for _ in range(PAGE_MAX_REDIRECTS + 1):
             try:

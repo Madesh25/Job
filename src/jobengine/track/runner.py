@@ -73,6 +73,8 @@ class TrackDeps:
     # "alerts" | "sender" -> None when the token refreshes, else the reason.
     token_check: Callable[[str], str | None]
     write: bool = True  # False: --no-write, report only
+    # /health: None when Anthropic accepts the API key, else why not (llm.anthropic_key_problem).
+    key_check: Callable[[], str | None] = lambda: None
 
 
 @dataclass
@@ -770,7 +772,7 @@ def fake_deps(s: Settings, write: bool = True, jobs: JobsRepo | None = None,
 
 def real_deps(s: Settings, state: BotState, write: bool = True) -> TrackDeps:
     from jobengine.gmail_client import GmailClient, refresh_error
-    from jobengine.llm import make_llm
+    from jobengine.llm import anthropic_key_problem, make_llm
     from jobengine.mail.templates import load_templates
     from jobengine.notion_repo import NotionClient, contacts_repo_for, jobs_repo_for
     from jobengine.safety import llm_allowed
@@ -799,4 +801,5 @@ def real_deps(s: Settings, state: BotState, write: bool = True) -> TrackDeps:
         templates=lambda: load_templates(client, page),
         llm=lambda config: make_llm(s, config) if llm_allowed(s) else None,
         token_check=token_check, write=write,
+        key_check=lambda: anthropic_key_problem(s),
     )

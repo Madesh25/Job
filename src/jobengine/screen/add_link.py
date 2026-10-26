@@ -39,6 +39,7 @@ class PageJob:
     location: str = ""
     description: str | None = None
     valid_through: str = ""
+    company_from_link: bool = False  # the page did not name it: taken from the address
 
 
 def _text(value: Any) -> str:
@@ -98,7 +99,31 @@ def read_page(url: str, page: str) -> PageJob:
         job.title = title.split("|")[0].split(" - ")[0].strip()
     if not job.company:
         job.company = _meta(soup, "og:site_name")
+    if not job.company:
+        job.company = company_from_host(url)
+        job.company_from_link = bool(job.company)
     return job
+
+
+# Parts of a careers host that are not the company ("kariera.comarch.pl" -> "comarch").
+HOST_WORDS = {"www", "careers", "career", "kariera", "jobs", "job", "praca", "werken",
+              "vacatures", "apply", "join", "work", "en", "pl", "nl"}
+SECOND_LEVEL = {"co", "com", "org", "net", "gov", "ac"}  # "company.com.pl", "firm.co.uk"
+
+
+def company_from_host(url: str) -> str:
+    """The company's name read from its own site's address, "" when unclear:
+    https://kariera.comarch.pl/praca/... -> "Comarch", https://sii.pl/en/job-ads/... -> "Sii"."""
+    labels = [p for p in (urlsplit(url).hostname or "").lower().split(".") if p]
+    if len(labels) < 2:
+        return ""
+    labels = labels[:-1]  # the country or .com
+    if len(labels) > 1 and labels[-1] in SECOND_LEVEL:
+        labels = labels[:-1]
+    name = labels[-1] if labels else ""
+    if not name or name in HOST_WORDS or name.isdigit():
+        return ""
+    return name[:1].upper() + name[1:]
 
 
 def board_link(board: Board) -> str:
