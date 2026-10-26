@@ -245,6 +245,23 @@ week's approved resumes**, picked at random (the newest revision of each job,
 Claude Code when you have a few, so the cause gets fixed. Once a week (Bot State
 `spotcheck.sent`), long polling and the Cloud Run digest task (`POST /tasks/digest`) alike.
 
+## Weekly link check (Autopilot I1)
+
+Once a week, from Sunday 09:00 India time (or the first day after, when the bot was off), the
+bot opens the job link of every open job (Status Screened, Approved or Resume built) with the
+same check as the Approve button (`apply/link.py` `closed_reason`): HTTP 404 or 410, a closed
+posting text in English, Dutch or Polish, a schema.org `validThrough` in the past, or
+Greenhouse's `?error=true`. A job whose Expires date has passed counts as closed without
+opening the link. Closed jobs get Status Expired, so /pending only shows live jobs.
+
+- LinkedIn and blocked sites are never opened. Anything unclear (a refused page, a time-out)
+  counts as open.
+- At most 80 links a week (one plain GET each); the rest wait for next week.
+- One message lists what was marked: `🧹 Weekly link check: N of M open jobs are closed and now
+  Expired:` with the reason for each. Wrong? Set the Status back in Notion.
+- Notion Config `schedule.expired_check` = `false` switches it off (default on). Bot State
+  `expired.check` keeps the date of the last check. On Cloud Run the Sunday digest task runs it.
+
 ## Heartbeat (Autopilot H4)
 
 The daily report and the failure mails come from the bot itself, so when the PC, the

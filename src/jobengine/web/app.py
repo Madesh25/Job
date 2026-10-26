@@ -115,6 +115,7 @@ def desk_tasks(s: Settings, desk: Desk, client: tb.TelegramClient,
             raise RuntimeError("tracking is not available (see the startup log)")
         send([Reply(run_weekly_digest(desk.track, desk.tracking_now()))])
         send(desk.spot_check_tick())  # Sunday 20:00 India time: 2 resumes to look at (H5)
+        send(desk.expired_check_tick())  # the weekly link check: closed jobs Expired (I1)
         return {"ok": True}
 
     def sweep() -> dict[str, Any]:

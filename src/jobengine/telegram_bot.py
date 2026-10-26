@@ -1161,6 +1161,7 @@ def autopilot_check(client: TelegramClient, s: Settings, desk: Desk | None,
     replies += _scheduled("Reply check", desk.reply_ping_tick, desk)
     replies += _scheduled("Daily report", desk.daily_report_tick, desk)
     replies += _scheduled("Spot check", desk.spot_check_tick, desk)
+    replies += _scheduled("Link check", desk.expired_check_tick, desk)
     replies += _scheduled("Apply nudge", desk.nudge_tick, desk)
     replies += _scheduled("Auto-apply", desk.autoapply_tick, desk)
     replies += _guarded("Gmail token", lambda: [Reply(text) for text in gmail_renew.reminder(
