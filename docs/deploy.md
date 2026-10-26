@@ -21,6 +21,7 @@ hand**; nothing in Part B is done from code. Work through it top to bottom.
 | `POST /tasks/replies` | Cloud Scheduler | pings new replies from contacts and employers at once ([tracking.md](tracking.md)) |
 | `POST /tasks/apply` | Cloud Scheduler | the auto-apply queue: asks "Is your laptop on?" or fills 3 dry runs ([apply-pack.md](apply-pack.md)) |
 | `POST /tasks/nudge` | Cloud Scheduler | the apply nudge from 22:00, at most 5 an evening ([autopilot.md](autopilot.md)) |
+| `POST /tasks/health` | Cloud Scheduler | the morning check before the morning run, once a day from Config `schedule.health_time` (default 06:30): what would stop the run first ([autopilot.md](autopilot.md)) |
 | `POST /tasks/report` | Cloud Scheduler | the daily report, in Telegram and by email to you, once a day from Config `schedule.report_time` ([tracking.md](tracking.md)) |
 | `POST /tasks/sweep` | Cloud Scheduler | sweep and screening, only when Config `schedule.auto_fetch` is `true` (the strategy gate still applies) |
 
@@ -223,6 +224,8 @@ gcloud scheduler jobs create http je-replies-prod --project $PROJECT --location 
   --schedule "*/15 7-23 * * *" --time-zone "Asia/Kolkata" --uri "$PROD_URL/tasks/replies" \
   --http-method POST --oidc-service-account-email "$SCHED" --oidc-token-audience "$PROD_URL" \
   --attempt-deadline 300s --max-retry-attempts 0
+# Morning check (Autopilot C): 06:30 India time, every day (once a day; later calls do nothing).
+job je-health-prod "30 6 * * *" "$PROD_URL" /tasks/health
 # Daily report: 21:45 India time, every day (sent once a day; a later call does nothing).
 job je-report-prod "45 21 * * *" "$PROD_URL" /tasks/report
 # Auto-apply queue (H8): every 15 minutes, 07:00 to 23:45 India time (nothing when empty).

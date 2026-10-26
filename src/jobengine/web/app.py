@@ -81,6 +81,7 @@ class Tasks:
     report: Callable[[], dict[str, Any]] = field(default=lambda: {"ok": True})
     nudge: Callable[[], dict[str, Any]] = field(default=lambda: {"ok": True})
     apply: Callable[[], dict[str, Any]] = field(default=lambda: {"ok": True})
+    health: Callable[[], dict[str, Any]] = field(default=lambda: {"ok": True})
 
 
 def desk_tasks(s: Settings, desk: Desk, client: tb.TelegramClient,
@@ -174,6 +175,13 @@ def desk_tasks(s: Settings, desk: Desk, client: tb.TelegramClient,
             send(sent)
         return {"ok": True, "sent": bool(sent)}
 
+    def health() -> dict[str, Any]:
+        """The morning check (track/health_report.py): once a day before the morning run."""
+        sent = desk.health_report_tick()
+        if sent:
+            send(sent)
+        return {"ok": True, "sent": bool(sent)}
+
     def nudge() -> dict[str, Any]:
         """The apply nudge from 22:00 India time (track/nudge.py): at most 5 an evening."""
         sent = desk.nudge_tick()
@@ -189,7 +197,8 @@ def desk_tasks(s: Settings, desk: Desk, client: tb.TelegramClient,
         return {"ok": True, "sent": len(sent)}
 
     return Tasks(daily=daily, digest=digest, sweep=sweep, autopilot=autopilot, mail=mail,
-                 replies=replies, check=check, report=report, nudge=nudge, apply=apply)
+                 replies=replies, check=check, report=report, nudge=nudge, apply=apply,
+                 health=health)
 
 
 def create_app(
@@ -297,6 +306,10 @@ def create_app(
     @app.post("/tasks/apply")
     def task_apply(request: Request) -> JSONResponse:
         return run_task("apply", tasks.apply, request.headers.get("Authorization"))
+
+    @app.post("/tasks/health")
+    def task_health(request: Request) -> JSONResponse:
+        return run_task("health", tasks.health, request.headers.get("Authorization"))
 
     @app.post("/tasks/nudge")
     def task_nudge(request: Request) -> JSONResponse:

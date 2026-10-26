@@ -1151,7 +1151,9 @@ def autopilot_check(client: TelegramClient, s: Settings, desk: Desk | None,
     if desk is None:
         return
     _bind_notify(client, s, desk)
-    replies = _scheduled("Autopilot",
+    # The morning check first: it is meant to come before the morning run (Autopilot C).
+    replies = _scheduled("Morning check", desk.health_report_tick, desk)
+    replies += _scheduled("Autopilot",
                          lambda: desk.autopilot_scheduled(autopilot_fetch(fetch)) or [], desk)
     replies += _scheduled("Afternoon check",
                           lambda: desk.check_scheduled(autopilot_fetch(fetch)) or [], desk)
