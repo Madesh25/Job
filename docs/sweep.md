@@ -502,6 +502,19 @@ Adzuna and Jooble): the job's URL becomes that page and its full description is 
 links are never read; those jobs get a description from the same job on another site, or wait
 for `/jd`.
 
+### Clean inbox (C2, 26 Oct)
+
+With Notion Config `alerts.tidy` = `true` (off by default), each /fetch archives the alert
+mails it found at least one job in and marks them read, in their own mailbox (m02, mm), after
+their jobs were saved (`sweep/inbox_tidy.py`). They keep the `Job Alerts` label, so the next
+/fetch still finds them. A label `Job Alerts/<Board>` (for example `Job Alerts/LinkedIn`) is
+added when it exists in that mailbox: make it in Gmail, the bot never creates labels. A mail in
+Spam is moved out of it. A mail without a job (a LinkedIn message from a recruiter, a "your
+profile was viewed" note, a newsletter) is never touched; nothing is deleted, trashed or sent.
+It does not wait for DRY_RUN to be off: it only archives your own alert mails. The alert
+tokens need gmail.modify (a token renewed with /gmailtoken has it); a token without it is named
+in the /fetch summary.
+
 ## Scope and normalising
 
 - Titles must contain a `sweep.title_include` term and no `sweep.title_exclude` term, matched as

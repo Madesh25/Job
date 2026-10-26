@@ -78,6 +78,8 @@ class SourceResult:
     no_board: list[str] = field(default_factory=list)
     own_site: list[str] = field(default_factory=list)  # ATS only: sweep.ats.own_site_companies
     read: list[str] = field(default_factory=list)  # ATS only: companies whose board was read
+    # gmail only: per mailbox, the alert mails a job was found in (id, Board, in Spam)
+    alert_mails: dict[str, list[tuple[str, str, bool]]] = field(default_factory=dict)
     notes: list[str] = field(default_factory=list)
     emails: int | None = None  # gmail only: alert emails read
 
@@ -240,6 +242,7 @@ class SweepSummary:
     alert_emails: int | None = None  # email alerts read (None: the source did not run)
     site_missed: list[str] = field(default_factory=list)  # sweep/discover.py
     new_companies: int = 0  # new suggestions for /newcompanies (sweep/discover.py)
+    tidy: list[str] = field(default_factory=list)  # sweep/inbox_tidy.py
 
     def _skipped_detail(self) -> str:
         if not self.skipped_by:
@@ -279,6 +282,7 @@ class SweepSummary:
             lines.append(f"\U0001F4E7 Email alerts: {self.alert_emails} email(s) read, "
                          f"{self.sources.get('gmail', 0)} job(s) found in them (/alertcheck "
                          "shows each email)")
+        lines.extend(f"\U0001F9F9 {line}" for line in self.tidy)
         lines += [
             "",
             f"\U0001F4C9 Weaker matches not saved (daily limit): {self.not_kept}",
