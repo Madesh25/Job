@@ -144,3 +144,45 @@ def test_a_slow_page_gets_one_more_try():
     [reply] = d.add_command("https://sii.pl/en/job-ads/id/38181/")
     assert reply.text.startswith("Could not open the job page (GET https://sii.pl/x failed: "
                                  "ReadTimeout).")
+
+
+def test_legal_forms_leave_the_company_name():
+    assert add_link.short_company(
+        "PwC Advisory spółka z ograniczoną odpowiedzialnością sp.k.") == "PwC Advisory"
+    assert add_link.short_company("Sii Sp. z o.o.") == "Sii"
+    assert add_link.short_company("ING Bank Śląski S.A.") == "ING Bank Śląski"
+    assert add_link.short_company("Acme B.V.") == "Acme"
+    assert add_link.short_company("Stripe") == "Stripe"
+
+
+def test_the_place_is_read_from_the_text_when_the_page_data_has_none():
+    d = desk_with(PLAIN)
+    replies = d.add_command("https://kariera.comarch.pl/praca/devops/")
+    assert "(Kraków, Poland)" in replies[0].text
+
+
+FIVE_YEARS = dict(POSTING, description="<p>" + "Build and run GCP platforms with Terraform. " * 12
+                  + "</p><p>Minimum 5 years of experience building and configuring cloud "
+                    "infrastructure on GCP.</p>")
+FIVE_PAGE = ('<html><head><script type="application/ld+json">'
+             f'{json.dumps(FIVE_YEARS)}</script></head><body></body></html>')
+
+
+def test_a_known_job_gets_the_full_text_so_its_years_count_and_skip_shows_why():
+    # Phase 13 B-03 (Sii): the row came from an alert with a snippet; /add found it and kept
+    # the snippet, so "Minimum 5 years" never reached screening.
+    d = desk_with(FIVE_PAGE)
+    page_id = next(iter(d.repo.rows))
+    row = d.repo.rows[page_id]
+    row.update({"URL": URL, "Status": "New", "Screen verdict": "Unscreened"})
+    row["body"] = ["Description source: alert (snippet)", "DevOps role on GCP."]
+    replies = d.add_command(URL)
+    assert replies[0].text.startswith("Found: Wisla Data, DevOps Engineer")
+    skip = replies[-1]
+    assert skip.text.startswith("Screening says Skip: Seniority.")
+    assert [data.split(":")[0] for _, data in skip.buttons] == ["aa", "na"]
+    assert d.repo.rows[page_id]["Status"] != "Approved"
+    built = d.tap(skip.buttons[0][1])
+    assert d.repo.rows[page_id]["Screen verdict"] == "Needs review"
+    assert d.repo.rows[page_id]["Skip reason"] == "Seniority"
+    assert built and d.repo.rows[page_id]["Status"] in ("Approved", "Resume built")

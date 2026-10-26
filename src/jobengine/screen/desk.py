@@ -100,6 +100,8 @@ ADD_USAGE = ("Send /add <job link>: the job's page on the company site (the page
              "company to Target Companies and builds your resume.")
 ADD_PASTE = "Paste the description instead: send /jd {url}, paste the text, then /done."
 ADD_TIMEOUT = 30.0  # seconds for the /add page (a /fetch page gets http.PAGE_TIMEOUT_SECONDS)
+ADD_PLACE_CHARS = 3000  # the start of the job text where /add looks for the place
+ADD_LONGER_CHARS = 200  # a /add description this much longer replaces a full one
 ADD_BLOCKED = ("The bot never opens {host} pages. Open the job there, tap Apply, and send /add "
                "with the company site's link it takes you to.\nOr " + ADD_PASTE[0].lower() +
                ADD_PASTE[1:])
@@ -562,6 +564,8 @@ class Desk:
             return self.linkedin_notes(arg)
         if action in ("en", "nj", "sz", "dd") and arg:  # the apply nudge's buttons (H7)
             return self.nudge_tap(action, arg)
+        if action == "aa" and arg:  # /add of a job screening skipped: "Build the resume anyway"
+            return self.add_anyway(arg)
         if action == "lp" and arg in ("yes", "no"):  # "Is your laptop on?" (auto-apply queue)
             return self.laptop_tap(arg)
         if action in ("fo", "fw") and arg:  # under a dry run: Answers OK, Something is wrong
@@ -853,6 +857,11 @@ class Desk:
         if result.status == "newer":
             latest = [self.preview(result.latest)] if result.latest else []
             return [Reply(result.message), *latest]
+        if result.status == "approved" and result.job_id and result.already:
+            # A second tap (Phase 13 B-03): the Apply pack and drafts are not made again.
+            job = short_id(result.job_id)
+            return [Reply("Already approved: the Apply pack and the link are above.",
+                          [("I applied", f"ia:{job}"), ("Not applying", f"na:{job}")])]
         if result.status == "approved" and result.job_id:
             # Nothing runs by itself: the next steps are buttons.
             job = short_id(result.job_id)
@@ -2745,6 +2754,15 @@ class Desk:
 
     # ------------------------------------------------------------ /add <job link> (23 Oct)
 
+    def add_anyway(self, job_ref: str) -> list[Reply]:
+        """/add, then "Build the resume anyway": your choice wins over the Skip verdict; the
+        Skip reason stays on the row and the verdict becomes Needs review."""
+        row = find_row(self.repo, job_ref) if self.repo is not None else None
+        if row is None:
+            return [Reply("That job is no longer in Job Opportunities.")]
+        self.repo.update(row.page_id, {"Screen verdict": "Needs review", "Status": "Approved"})
+        return self.on_job_approved(row.page_id, self.repo.get_values(row.page_id) or {})
+
     def _read_add_page(self, url: str) -> tuple[str, str]:
         """The /add page, waiting up to ADD_TIMEOUT, with one more try after a time-out."""
         try:
@@ -2779,6 +2797,9 @@ class Desk:
                           f"read.\n{ADD_PASTE.format(url=url)}")]
         rules = Rules.from_config(self.s.sweep)
         country, city = place(job.location, rules)
+        if country is None and job.description:
+            # Phase 13 B-03: no place in the page's data (Comarch): read it from the text.
+            country, city = place(job.description[:ADD_PLACE_CHARS], rules)
         if country not in add_link.COUNTRIES:
             country, city = None, None
         row = self._find(final) or self._find(url)
@@ -2786,7 +2807,11 @@ class Desk:
         size = int(self.s.screening.get("block_chars", 2000))
         limit = int(self.s.screening.get("max_blocks", 90))
         text = job.description
-        if row is None or not "".join(self.repo.read_body(page_id)).strip():
+        # A row from an alert has only a snippet: the company page's text is newer and wins
+        # (description() reads the newest), so its "minimum 5 years" counts (Phase 13 B-03).
+        old, kind = description(self.repo.read_body(page_id)) if row else ("", "none")
+        if text.strip() != old.strip() and (
+                kind != "full" or len(text) > len(old) + ADD_LONGER_CHARS):
             self.repo.append_body(page_id, ["Description source: /add (full)",
                                             *[text[i:i + size] for i in range(0, len(text),
                                                                                size)][:limit]])
@@ -2803,6 +2828,13 @@ class Desk:
         replies.append(Reply(self.screen(page_id)))
         replies.extend(self._add_company(job.company, final, country))
         values = self.repo.get_values(page_id) or {}
+        if values.get("Screen verdict") == "Skip":
+            ref = short_id(page_id)
+            replies.append(Reply(
+                f"Screening says Skip: {values.get('Skip reason') or 'no reason given'}. No "
+                "resume yet. You chose this job: build it anyway, or leave it.",
+                [("Build the resume anyway", f"aa:{ref}"), ("Not applying", f"na:{ref}")]))
+            return replies
         self.repo.update(page_id, {"Status": "Approved"})
         replies.extend(self.on_job_approved(page_id, values))
         return replies
