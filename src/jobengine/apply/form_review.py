@@ -182,8 +182,10 @@ def bank_answers(bank: Any) -> list[dict[str, str]]:
     except Exception as exc:  # the saved answers in Bot State still work
         log.info("answer bank not read: %s", exc)
         return []
-    return [{"q": str(r.get("Question")), "a": str(r.get("Answer"))} for r in rows
-            if r.get("Approved") and r.get("Question") and r.get("Answer")]
+    return [{"q": str(r.get("Question")), "a": str(r.get("Answer")),
+             **({"country": str(r["Country"])} if r.get("Country") not in (None, "", "Any")
+                else {})}
+            for r in rows if r.get("Approved") and r.get("Question") and r.get("Answer")]
 
 
 def prune_approved(state: Any, now: datetime) -> int:

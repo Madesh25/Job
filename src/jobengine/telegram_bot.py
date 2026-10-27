@@ -71,9 +71,9 @@ HELP_TEXT = (
     "/pending - review screened jobs one at a time (Approve, Skip, "
     "Next); /pending poland, netherlands, ireland, remote or all\n"
     "/applypack <url or id> - ready answers for a job's form (visa, notice, salary)\n"
-    "/autofill - the browser bookmark that fills forms from the Apply pack code\n"
-    "/answer <question> = <answer> - save a form answer; it is in every Apply pack after\n"
-    "/answers - your saved form answers (/answer delete N)\n"
+    "/autofill - the bookmark that fills forms from the Apply pack code\n"
+    "/answer <question> = <answer> - save a form answer for every form\n"
+    "/answers - saved answers (/answer delete N); /answers start: the common ones\n"
     "/dryrun <url or id> - fill the job's form in a browser, never submit\n"
     "/autoapply - fill forms of jobs with a resume; submit when it is on (50 a day)\n"
     "/gaps - skills jobs ask for that you lack, and which certificate covers most\n"
@@ -955,7 +955,7 @@ def desk_replies(update: dict[str, Any], s: Settings, desk: Desk | None) -> list
     if command == "answer":
         return _guarded("/answer", lambda: desk.answer_command(args))
     if command == "answers":
-        return _guarded("/answers", desk.answers_command)
+        return _guarded("/answers", lambda: desk.answers_command(args))
     if command == "autofill":
         return _guarded("/autofill", desk.autofill_command)
     if command == "spotcheck":

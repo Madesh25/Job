@@ -33,6 +33,22 @@ The visa minimums change every year (IND in January, DETE in March): update
 `apply_pack.countries` then. The Irish Critical Skills Employment Permit needs EUR 68,911
 without an ICT degree, so the pack uses the General Employment Permit line.
 
+## The answer starter pack (28 Oct)
+
+`/answers start` asks the questions forms ask most, once, one at a time in Telegram
+(`apply/starter.py`): expected salary for the Netherlands, Ireland and Poland; total years of
+experience; years with AWS, Azure, GCP, Kubernetes, Docker, Terraform, Ansible, Linux,
+Python, Jenkins and GitLab; highest education; current title and employer; nationality; visa
+status; languages; how you heard about a job; office or hybrid; travel; driving licence;
+security clearance; interview availability. Reply with the answer, "skip" or "stop"; a
+question waits one hour. Only open questions are asked, so `/answers start` again continues.
+
+Each answer is saved like `/answer` (Bot State `apply.answers`) and as a Notion Answer bank
+row (Source "You"), so the dry runs and auto-submit fill those fields from your own words.
+The salaries are saved per country: a form for a Dutch job gets the Dutch salary, the Apply
+pack and the autofill code list only that country's, and a job elsewhere keeps the profile
+answer. Answer only what is true: a tool you never used is "0" or "skip".
+
 ## The resume header per job
 
 `resume/header.py`, applied before the resume is rendered (the skills and bullets and their
