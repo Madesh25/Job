@@ -95,7 +95,7 @@ screening:
   # /autopilot approves at most this many Apply high and Apply normal jobs a day (best first);
   # the rest stay in /pending. While its half-price batch works, the bot (long polling) checks
   # it every autopilot_check_minutes and carries on by itself when the answers are in.
-  autopilot_approvals: 10
+  autopilot_approvals: 50  # 27 Oct, your decision: about 50 applications a day (was 10)
   autopilot_check_minutes: 5
   # Scheduled /autopilot (off until Notion Config schedule.autopilot is true): once a day at
   # `time` in `timezone` on `days`. A bot that is off then starts it until `latest`, never

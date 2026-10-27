@@ -21,6 +21,11 @@ What it never does:
 - open LinkedIn, an IP address or a private host (safety.assert_page_fetch_allowed);
 - go past a captcha or a login: it stops and says so.
 
+Auto-submit (step 5, 27 Oct, your OK) lives in apply/form_submit.py, never here: this module
+fills and reads only. A run may get a `finish` step (form_submit.finisher) that runs after
+the form is filled; only that step may open `Sending` (the guard then lets the page send to
+public https hosts) and press the form's Submit button.
+
 Screenshots go to out/dryrun/ and are deleted after KEEP_DAYS days (never saved in Notion).
 Needs Playwright on the machine that runs it: pip install -e ".[formbot]" and
 python -m playwright install chromium (docs/apply-pack.md).
@@ -132,6 +137,17 @@ class Result:
     blocked: list[str] = field(default_factory=list)  # requests the page tried to send
     screenshot: Path | None = None
     title: str = ""
+    # Auto-submit only (apply/form_submit.py): "" not tried, "confirmed", "unclear", or
+    # "not submitted: <why>".
+    submitted: str = ""
+
+
+@dataclass
+class Sending:
+    """Closed in every dry run. Only apply/form_submit.py opens it, right before it presses
+    Submit on a form that passed every check."""
+
+    on: bool = False
 
 
 def _words(text: str) -> list[str]:
@@ -350,8 +366,10 @@ def _launch(playwright: Any) -> Any:
     return playwright.chromium.launch(headless=True, executable_path=path)
 
 
-def _guard(s: Settings, blocked: list[str]) -> Callable[[Any], None]:
-    """Every request of the page: a plain GET to a public https host, else blocked."""
+def _guard(s: Settings, blocked: list[str],
+           sending: Sending | None = None) -> Callable[[Any], None]:
+    """Every request of the page: a plain GET to a public https host, else blocked. While
+    `sending` is open (auto-submit only) the page may also send to public https hosts."""
 
     def handle(route: Any) -> None:
         request = route.request
@@ -359,7 +377,7 @@ def _guard(s: Settings, blocked: list[str]) -> Callable[[Any], None]:
         if url.startswith(("data:", "blob:", "about:")):
             route.continue_()
             return
-        if request.method.upper() not in SAFE_METHODS:
+        if request.method.upper() not in SAFE_METHODS and not (sending and sending.on):
             blocked.append(f"{request.method} {url}")
             route.abort()
             return
@@ -429,6 +447,7 @@ def dry_run(s: Settings, url: str, values: Mapping[str, str],
             check: Callable[[Any], None] | None = None,
             ai: Callable[[list[Answer]], int] | None = None,
             resume: tuple[str, bytes] | None = None,
+            finish: Callable[[Any, Result, Sending], None] | None = None,
             now: Callable[[], datetime] = datetime.now) -> Result:
     """Open the form, fill it, take a screenshot. `ai` answers the questions left open
     (apply/form_ai.py, step 2). `prepare` gets the browser context before the page opens and
@@ -454,7 +473,7 @@ def dry_run(s: Settings, url: str, values: Mapping[str, str],
     try:
         return _run(s, url, values, saved, result, folder=folder, prepare=prepare, check=check,
                     ai=ai, resume_path=resume_path, name=name, now=now,
-                    sync_playwright=sync_playwright)
+                    sync_playwright=sync_playwright, finish=finish)
     finally:
         if resume_path is not None:
             resume_path.unlink(missing_ok=True)
@@ -465,12 +484,14 @@ def _run(s: Settings, url: str, values: Mapping[str, str], saved: Sequence[Mappi
          result: Result, *, folder: Path, prepare: Callable[[Any], None] | None,
          check: Callable[[Any], None] | None, ai: Callable[[list[Answer]], int] | None,
          resume_path: Path | None, name: str, now: Callable[[], datetime],
-         sync_playwright: Any) -> Result:
+         sync_playwright: Any,
+         finish: Callable[[Any, Result, Sending], None] | None = None) -> Result:
+    sending = Sending()
     with sync_playwright() as p:
         browser = _launch(p)
         try:
             context = browser.new_context(viewport={"width": 1280, "height": 900})
-            context.route("**/*", _guard(s, result.blocked))
+            context.route("**/*", _guard(s, result.blocked, sending))
             if prepare is not None:
                 prepare(context)
             page = context.new_page()
@@ -491,6 +512,8 @@ def _run(s: Settings, url: str, values: Mapping[str, str], saved: Sequence[Mappi
                 _fill(page, result.answers, resume_path)
                 if check is not None:
                     check(page)
+                if finish is not None:  # auto-submit (apply/form_submit.py); never a dry run
+                    finish(page, result, sending)
             folder.mkdir(parents=True, exist_ok=True)
             safe = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")[:60] or "form"
             path = folder / f"{now():%Y%m%d-%H%M%S}-{safe}.png"

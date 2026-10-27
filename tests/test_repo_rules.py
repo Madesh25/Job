@@ -353,3 +353,26 @@ def test_the_form_bot_never_presses_a_button_or_submits():
     text = (ROOT / FORM_BOT).read_text(encoding="utf-8")
     assert FORM_BOT_FORBIDDEN.findall(text) == []
     assert 'context.route("**/*", _guard(' in text  # every request goes through the guard
+    assert ".on = True" not in text  # only form_submit opens Sending
+
+
+FORM_SUBMIT = "src/jobengine/apply/form_submit.py"
+
+
+def test_only_form_submit_presses_one_button_after_its_checks():
+    """Auto-submit (27 Oct, your OK): one press, the form's Submit, after `blockers` and the
+    single-button check, with Sending opened right before it. No key presses or JS submit."""
+    for path in src_files():
+        rel = path.relative_to(ROOT).as_posix()
+        # autofill.py: the bookmark's JavaScript, which you run in your own browser.
+        if rel in (FORM_BOT, FORM_SUBMIT, "src/jobengine/apply/autofill.py"):
+            continue
+        text = path.read_text(encoding="utf-8")
+        assert not re.search(r"\.click\(|requestSubmit|Sending\(\)", text), rel
+    text = (ROOT / FORM_SUBMIT).read_text(encoding="utf-8")
+    presses = FORM_BOT_FORBIDDEN.findall(text)
+    assert presses == [".click("], presses
+    assert text.count("sending.on = True") == 1
+    body = text[text.index("def finish("):]
+    assert body.index("blockers(") < body.index("_submit_button(") < body.index(
+        "sending.on = True") < body.index(".click(")

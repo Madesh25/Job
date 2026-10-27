@@ -1,5 +1,5 @@
-"""Auto-apply step 4 (Autopilot H8, 25 Oct): the queue, 30 a day, 3 forms at a time, the
-laptop first ("Is your laptop on?") and Cloud Run after 15 minutes. Still dry runs only."""
+"""Auto-apply step 4 (Autopilot H8, 25 Oct): the queue, 50 a day since 27 Oct, 3 forms at a
+time, the laptop first ("Is your laptop on?") and Cloud Run after 15 minutes."""
 
 import threading
 import time
@@ -18,11 +18,11 @@ NOW = datetime(2026, 10, 1, 22, 0, tzinfo=IST)
 CONFIG = ConfigStore.from_values({})
 
 
-def test_thirty_a_day_and_no_job_twice():
-    state = FakeBotState()
-    assert queue.add(state, CONFIG, [f"j{n}" for n in range(40)], NOW) == (30, 0)
-    assert queue.add(state, CONFIG, ["j99"], NOW) == (0, 0)  # today's 30 are used
-    assert queue.add(state, CONFIG, ["j0", "new"], NOW + timedelta(days=1)) == (1, 29)
+def test_fifty_a_day_and_no_job_twice():
+    state = FakeBotState()  # 50 since 27 Oct (was 30)
+    assert queue.add(state, CONFIG, [f"j{n}" for n in range(60)], NOW) == (50, 0)
+    assert queue.add(state, CONFIG, ["j99"], NOW) == (0, 0)  # today's 50 are used
+    assert queue.add(state, CONFIG, ["j0", "new"], NOW + timedelta(days=1)) == (1, 49)
     small = ConfigStore.from_values({"apply.daily_limit": "2"})
     assert queue.add(FakeBotState(), small, ["a", "b", "c"], NOW) == (2, 0)
 
@@ -77,7 +77,9 @@ def test_auto_submit_stays_off_until_enough_approved_runs():
     assert queue.submit_status(CONFIG, 3, 0) == ("Auto-submit: off (dry runs only): 3 of 10 dry "
                                                  "runs approved.")
     assert "1 marked wrong" in queue.submit_status(CONFIG, 12, 1)
-    assert queue.submit_status(CONFIG, 10, 0).startswith("Auto-submit: ready to discuss")
+    assert queue.submit_status(CONFIG, 10, 0).startswith(
+        "Auto-submit: ready (10 dry runs approved, none wrong lately). Set Notion Config "
+        "apply.submit = true")
 
 
 def make_desk(webhook=False):
@@ -88,15 +90,15 @@ def make_desk(webhook=False):
     d._track_now = lambda: NOW
     for page_id in list(d.repo.rows)[:4]:
         d.repo.rows[page_id]["Status"] = "Resume built"
-    d.dry_run_job = lambda ref, form_url=None: [Reply(f"dry run {ref}")]
+    d.dry_run_job = lambda ref, form_url=None, submit=False: [Reply(f"dry run {ref}")]
     return d
 
 
 def test_the_laptop_bot_fills_three_per_tick():
     d = make_desk()
     [head] = d.autoapply_command("")
-    assert head.text.startswith("Queued 4 job(s) for a dry run (filled, never submitted); 26 "
-                                "more allowed today.")
+    assert head.text.startswith("Queued 4 job(s) to fill (submitted only when auto-submit is "
+                                "on, else a dry run); 46 more allowed today.")
     assert "Auto-submit: off (dry runs only): 0 of 10" in head.text
     assert len(d.autoapply_tick()) == 3
     assert len(d.autoapply_tick()) == 1

@@ -2,18 +2,19 @@
 browser runs, and how many forms at once.
 
 - `/autoapply` (or the autopilot with Config `apply.auto` = true) puts the jobs whose resume
-  is built (Status "Resume built") in the queue, at most DAILY_LIMIT (30) a day (your
-  decision of 25 Oct, Config `apply.daily_limit`).
+  is built (Status "Resume built") in the queue, at most DAILY_LIMIT (50 since 27 Oct, was
+  30) a day (Config `apply.daily_limit`).
 - Where the browser runs (your idea of 25 Oct, to keep Cloud Run cheap): a laptop worker
   (the bot on your laptop with APPLY_WORKER=laptop) marks itself as seen at every tick and
   takes the queue for free. The bot on Cloud Run asks "Is your laptop on?" when jobs wait
   and the laptop was not seen lately: Yes leaves them to the laptop for LAPTOP_WAIT (15
   minutes); No, no answer, or the laptop not taking them in time: Cloud Run fills them.
 - One worker fills PARALLEL (3) forms at a time (one browser each), never more.
-- Each job is still a dry run: filled, never submitted. Auto-submit stays off until you have
-  approved enough dry runs (`submit_status`; Config `apply.submit` and
-  `apply.approvals_needed`, default 10 with no Wrong in the last 10) and then needs its own
-  step and your OK.
+- Each job is a dry run: filled, never submitted, until the auto-submit gate opens
+  (`submit_block`, step 5, 27 Oct: prod with DRY_RUN false, Config `apply.submit` = true,
+  `apply.approvals_needed` (10) approved dry runs and none wrong in the last 10, today's
+  submits under the daily limit). Then a complete form is submitted (apply/form_submit.py)
+  and the rest come to you as Apply by hand.
 
 Bot State `apply.queue` holds the jobs: {"items": [{"job", "added", "state", "by", "at"}],
 "day": {"date", "count"}, "laptop": "<last seen>", "asked": "<when>", "answer": "yes|no"}.
@@ -30,7 +31,7 @@ from typing import Any
 log = logging.getLogger("jobengine.apply")
 
 KEY = "apply.queue"
-DAILY_LIMIT = 30
+DAILY_LIMIT = 50  # 27 Oct, your decision (was 30): Config apply.daily_limit wins
 PARALLEL = 3
 LAPTOP_SEEN = timedelta(minutes=10)  # a laptop worker seen this recently takes the queue
 LAPTOP_WAIT = timedelta(minutes=15)  # after "Yes", Cloud Run waits this long
@@ -173,20 +174,60 @@ def run_parallel(jobs: Sequence[str], fill: Callable[[str], Any],
         return list(pool.map(safe, jobs))
 
 
-def submit_status(config: Any, approved: int, recent_wrong: int) -> str:
-    """Whether auto-submit could be turned on: it stays a dry run until then."""
+SUBMITTED_KEY = "apply.submitted"  # bot_state: {"date": <iso>, "count": <forms submitted>}
+
+
+def _needed(config: Any) -> int:
     try:
-        needed = int(str(config.get("apply.approvals_needed") or APPROVALS_NEEDED).strip())
+        return int(str(config.get("apply.approvals_needed") or APPROVALS_NEEDED).strip())
     except ValueError:
-        needed = APPROVALS_NEEDED
-    on = (config.get("apply.submit") or "false").strip().lower() == "true"
+        return APPROVALS_NEEDED
+
+
+def submitted_today(state: Any, today: str) -> int:
+    value = (state.get(SUBMITTED_KEY) if state is not None else None) or {}
+    return int(value.get("count") or 0) if value.get("date") == today else 0
+
+
+def count_submitted(state: Any, today: str) -> None:
+    if state is not None:
+        state.set(SUBMITTED_KEY, {"date": today, "count": submitted_today(state, today) + 1})
+
+
+def submit_block(s: Any, config: Any, approved: int, recent_wrong: int,
+                 done_today: int) -> str | None:
+    """Why auto-submit is closed now (None: open). Step 5, 27 Oct, your OK: prod with
+    DRY_RUN false, Config apply.submit = true, enough approved dry runs and none wrong in the
+    last 10, and today's submits under apply.daily_limit."""
+    if getattr(s, "app_env", "") != "prod" or getattr(s, "dry_run", True):
+        return "only the prod bot with DRY_RUN false submits"
+    if (config.get("apply.submit") or "false").strip().lower() != "true":
+        return "Config apply.submit is not true"
+    needed = _needed(config)
+    if approved < needed or recent_wrong:
+        why = f"{approved} of {needed} dry runs approved"
+        if recent_wrong:
+            why += f", {recent_wrong} marked wrong in the last 10"
+        return why
+    if done_today >= _limit(config):
+        return f"today's {_limit(config)} forms are submitted"
+    return None
+
+
+def submit_status(config: Any, approved: int, recent_wrong: int, s: Any = None,
+                  done_today: int = 0) -> str:
+    """The /autoapply status line of the auto-submit gate."""
+    needed = _needed(config)
     if approved < needed or recent_wrong:
         why = f"{approved} of {needed} dry runs approved"
         if recent_wrong:
             why += f", {recent_wrong} marked wrong in the last 10"
         return f"Auto-submit: off (dry runs only): {why}."
-    if not on:
-        return (f"Auto-submit: ready to discuss ({approved} dry runs approved, none wrong "
-                "lately). It needs its own step and your OK; until then every form is a dry "
-                "run.")
-    return "Auto-submit: Config apply.submit is true, but submitting is not built yet: dry runs."
+    if (config.get("apply.submit") or "false").strip().lower() != "true":
+        return (f"Auto-submit: ready ({approved} dry runs approved, none wrong lately). Set "
+                "Notion Config apply.submit = true to turn it on.")
+    why = submit_block(s, config, approved, recent_wrong, done_today) if s is not None else None
+    if why:
+        return f"Auto-submit: on in Config, but not here: {why}."
+    return (f"Auto-submit: on. {done_today} of {_limit(config)} forms submitted today; a form "
+            "that is not complete comes to you as Apply by hand.")

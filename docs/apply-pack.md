@@ -121,7 +121,7 @@ machine already has.
 ### The queue: laptop first, 3 forms at a time (step 4, `apply/queue.py`)
 
 - `/autoapply` queues the jobs whose resume is built (Status `Resume built`) for a dry run,
-  at most **30 a day** (Config `apply.daily_limit`). With Config `apply.auto` = `true` the
+  at most **50 a day** (Config `apply.daily_limit`; 30 until 27 Oct). With Config `apply.auto` = `true` the
   bot queues them by itself at every check. `/autoapply status` shows the queue.
 - **Where the browser runs** (your idea of 25 Oct): the bot on your laptop (long polling) is
   the laptop worker: at every check it marks itself as seen and fills up to **3 forms at
@@ -134,9 +134,49 @@ machine already has.
   `FORM_BOT=true` (until then it answers that Playwright is missing and only the laptop
   fills).
 - Every result is a normal dry run report with Answers OK and Something is wrong.
-- **Auto-submit stays off.** `/autoapply status` shows the gate: at least 10 approved dry
-  runs (Config `apply.approvals_needed`) and none marked wrong in the last 10. Even then,
-  submitting is its own step that needs your OK; until then every form is a dry run.
+- **Auto-submit** (step 5 below) is closed until its gate opens; `/autoapply status` shows
+  where it stands. Until then every form is a dry run.
+
+### Auto-submit (step 5, 27 Oct, your OK; `apply/form_submit.py`)
+
+The autopilot applies by itself on the forms it can fill completely; the rest come to you as
+**📝 Apply by hand** with the reason, the link and the filled dry run (Answers OK / Something
+is wrong, so the next form learns).
+
+**The gate** (all of them, checked before every form): the prod bot with `DRY_RUN=false`;
+Notion Config `apply.submit` = `true` (you set it); at least `apply.approvals_needed` (10) dry
+runs approved and none marked wrong in the last 10; today's submits under
+`apply.daily_limit` (**50** a day since 27 Oct, was 30). `/dryrun` never submits; only the
+queue (`/autoapply`, or the autopilot with `apply.auto` = `true`) may.
+
+**Each form is submitted only when every check passes:**
+- every required question has an answer from your saved answers, the Answer bank or your
+  profile;
+- no AI answer you have not approved yet (a form that needed a new AI answer comes to you;
+  once you tap Answers OK, that answer is yours and the next form with it can go);
+- the resume field has the job's approved resume;
+- a required consent box only when it is a privacy or data-protection one and Notion Config
+  `apply.tick_privacy` = `true` (off unless you set it: your decision of 25 Oct was never to
+  tick them); marketing, newsletter, talent-pool and "future roles" boxes are never ticked;
+- exactly one visible Submit button (Submit, Apply, Send, Wyślij, Aplikuj, Solliciteer,
+  Verstuur ...);
+- no captcha and no login (the dry run already stops there; the bot never goes past one).
+
+**After the press** the page is watched for up to 15 seconds for a confirmation ("thank you
+for applying", "application received", "dziękujemy za aplikację", "bedankt voor je
+sollicitatie" ...):
+- **✅ Applied by the bot**: confirmed. The job is marked Applied with today's date, the
+  screenshot of the confirmation comes to Telegram, and Autopilot A2 adds the company when
+  Config allows it. Contacts and mails follow as for any applied job.
+- **⚠️ No confirmation**: Submit was pressed but the page said nothing clear. The job is not
+  marked Applied; the "thank you for applying" mail marks it (Autopilot A), or you check the
+  form yourself.
+
+Only while Submit is pressed does the page get to send (the guard opens `Sending` for that
+form only); every dry run still blocks every request that is not a plain GET.
+`tests/test_repo_rules.py` checks that `form_bot.py` presses nothing and that
+`form_submit.py` presses exactly one button, after its checks. Bot State `apply.submitted`
+counts today's submits.
 
 ## Form autofill (flow feature 9)
 

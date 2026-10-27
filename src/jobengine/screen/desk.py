@@ -1003,10 +1003,13 @@ class Desk:
                           "the form is on another page. It fills the form and never submits.")]
         return self.dry_run_job(parts[0], parts[1] if len(parts) > 1 else None)
 
-    def dry_run_job(self, ref: str, form_url: str | None = None) -> list[Reply]:
+    def dry_run_job(self, ref: str, form_url: str | None = None,
+                    submit: bool = False) -> list[Reply]:
         """One dry run: the form filled from your answers, the AI and the approved resume,
-        a screenshot, the report with Answers OK / Something is wrong. Never submitted."""
-        from jobengine.apply import form_bot, form_review, pack
+        a screenshot, the report with Answers OK / Something is wrong. Never submitted,
+        except with `submit` (the auto-apply queue) when the auto-submit gate is open and the
+        form passes every check (apply/form_submit.py, step 5)."""
+        from jobengine.apply import form_bot, form_review, form_submit, pack, queue
         from jobengine.resume.builder import specific_details
 
         values: dict[str, Any] = {}
@@ -1028,21 +1031,54 @@ class Desk:
         body = self.repo.read_body(row.page_id) if row is not None and self.repo else []
         now = self.tracking_now()
         form_review.prune_approved(self.state, now)
+        finish = None
+        if submit and row is not None:
+            runs = (self.state.get(form_review.KEY) or {}).get("items") or []
+            closed = queue.submit_block(
+                self.s, config, form_review.approved_count(self.state),
+                sum(1 for r in runs[-10:] if r.get("status") == "wrong"),
+                queue.submitted_today(self.state, now.date().isoformat()))
+            if closed is None:
+                finish = form_submit.finisher(form_submit.tick_privacy(config))
         result = form_bot.dry_run(self.s, url, profile, saved, name=job or "form",
                                   ai=self._form_ai(values, body, profile, saved),
-                                  resume=self._approved_resume(row.page_id) if row else None)
+                                  resume=self._approved_resume(row.page_id) if row else None,
+                                  finish=finish)
+        if result.submitted == form_submit.CONFIRMED_STATE and row is not None:
+            return self._submitted(row.page_id, job, result, now)
         replies = []
+        if result.submitted:  # pressed but not confirmed, or not ready: yours to check
+            replies.append(Reply(form_submit.report(result, job or url)))
         if result.screenshot is not None:
-            replies.append(Reply(f"Dry run screenshot{f': {job}' if job else ''} (not sent)",
+            sent = " (Submit pressed)" if result.submitted == form_submit.UNCLEAR else \
+                " (not sent)"
+            replies.append(Reply(f"Dry run screenshot{f': {job}' if job else ''}{sent}",
                                  document=(result.screenshot.name,
                                            result.screenshot.read_bytes())))
         buttons: list[tuple[str, str]] = []
-        if not result.stopped:
+        if not result.stopped and result.submitted != form_submit.UNCLEAR:
             run_id = form_review.record(self.state, job=job, job_id=row.page_id if row else "",
                                         url=url, shot=result.screenshot,
                                         answers=result.answers, now=now)
             buttons = form_review.buttons(run_id)
         replies.append(Reply(form_bot.report(result, job)[:MAX_TEXT], buttons))
+        return replies
+
+    def _submitted(self, job_id: str, job: str, result: Any, now: datetime) -> list[Reply]:
+        """A form the bot submitted and the company confirmed: the job is Applied today."""
+        from jobengine.apply import form_submit, queue
+
+        queue.count_submitted(self.state, now.date().isoformat())
+        if self.repo is not None:
+            self.repo.update(job_id, {"Status": "Applied", "Applied date": now.date()})
+        replies = [Reply(form_submit.report(result, job))]
+        if result.screenshot is not None:
+            replies.append(Reply(f"Submitted: {job}", document=(
+                result.screenshot.name, result.screenshot.read_bytes())))
+        try:
+            replies += self.add_applied_companies([job_id])  # A2, when Config allows it
+        except Exception as exc:  # the application is in; the company list can wait
+            log.warning("applied company not added for %s: %s", job_id, exc)
         return replies
 
     def _approved_resume(self, job_id: str) -> tuple[str, bytes] | None:
@@ -1065,7 +1101,7 @@ class Desk:
     # ------------------------------------------------------------ auto-apply queue (H8)
 
     def autoapply_command(self, args: str) -> list[Reply]:
-        """/autoapply: queue the jobs whose resume is built for a dry run (30 a day);
+        """/autoapply: queue the jobs whose resume is built (50 a day since 27 Oct);
         /autoapply status: the queue and the auto-submit gate."""
         from jobengine.apply import queue
 
@@ -1073,8 +1109,8 @@ class Desk:
         config = self.deps.config()
         if args.strip().lower() != "status":
             added, left = queue.add(self.state, config, self._ready(), now)
-            head = (f"Queued {added} job(s) for a dry run (filled, never submitted); "
-                    f"{left} more allowed today.")
+            head = (f"Queued {added} job(s) to fill (submitted only when auto-submit is on, "
+                    f"else a dry run); {left} more allowed today.")
         else:
             head = "Auto-apply queue:"
         waiting = len(queue.waiting(self.state, now))
@@ -1088,8 +1124,9 @@ class Desk:
 
         runs = (self.state.get(form_review.KEY) or {}).get("items") or []
         wrong = sum(1 for r in runs[-10:] if r.get("status") == "wrong")
-        return queue.submit_status(self.deps.config(), form_review.approved_count(self.state),
-                                   wrong)
+        return queue.submit_status(
+            self.deps.config(), form_review.approved_count(self.state), wrong, self.s,
+            queue.submitted_today(self.state, self.tracking_now().date().isoformat()))
 
     def autoapply_tick(self) -> list[Reply]:
         """Every few minutes: fill up to 3 queued forms here, or ask where (Cloud Run)."""
@@ -1122,7 +1159,8 @@ class Desk:
 
         jobs = queue.take(self.state, by, now)
         replies: list[Reply] = []
-        for job, got in zip(jobs, queue.run_parallel(jobs, self.dry_run_job), strict=True):
+        fill = lambda job: self.dry_run_job(job, submit=True)  # noqa: E731
+        for job, got in zip(jobs, queue.run_parallel(jobs, fill), strict=True):
             queue.finish(self.state, job)
             if isinstance(got, Exception):
                 replies.append(Reply(f"Dry run of {job} failed: {got}"))
