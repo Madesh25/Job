@@ -158,7 +158,8 @@ servers. The daily cap therefore grows week by week (`src/jobengine/mail/warmup.
 ### The recipient's morning (send window)
 
 In send mode a mail that passed every check goes out at once only inside the recipient's
-morning: **Tuesday to Thursday, 08:00 to 10:00 in the job's country** (Poland
+morning: **Monday to Friday, 08:00 to 10:00 in the job's country** (your decision of
+27 Oct, was Tuesday to Thursday; Poland
 Europe/Warsaw, Netherlands Europe/Amsterdam, Ireland Europe/Dublin). Mails read at the
 start of the working day get more replies than ones that arrive at night or on a Friday
 evening.

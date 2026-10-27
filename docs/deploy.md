@@ -214,9 +214,9 @@ gcloud scheduler jobs create http je-check-prod --project $PROJECT --location $R
   --http-method POST --oidc-service-account-email "$SCHED" --oidc-token-audience "$PROD_URL" \
   --attempt-deadline 60s --max-retry-attempts 1
 # The mail queue (mail mode send): every 10 minutes 07:00 to 11:50 Warsaw time (08:00 to
-# 10:00 in Warsaw, Amsterdam and Dublin), Tuesday to Thursday. One mail per call.
+# 10:00 in Warsaw, Amsterdam and Dublin), Monday to Friday. One mail per call.
 gcloud scheduler jobs create http je-mail-prod --project $PROJECT --location $REGION \
-  --schedule "*/10 7-11 * * 2-4" --time-zone "Europe/Warsaw" --uri "$PROD_URL/tasks/mail" \
+  --schedule "*/10 7-11 * * 1-5" --time-zone "Europe/Warsaw" --uri "$PROD_URL/tasks/mail" \
   --http-method POST --oidc-service-account-email "$SCHED" --oidc-token-audience "$PROD_URL" \
   --attempt-deadline 300s --max-retry-attempts 1
 # Instant reply ping: every 15 minutes from 07:00 to 23:45 India time, every day.

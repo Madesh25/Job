@@ -86,7 +86,7 @@ HELP_TEXT = (
     "/credits - contact credits left, asked from each provider\n"
     "/outreach - this week's budget: which approved jobs get contacts and cold mails\n"
     "/mailmode - draft (only write Gmail drafts) or send (check every mail, then send it)\n"
-    "/mailqueue - mails waiting for the recipient's morning (Tue to Thu, 8 to 10)\n"
+    "/mailqueue - mails waiting for the recipient's morning (Mon to Fri, 8 to 10)\n"
     "/agencies - recruitment agencies by country; /agencies <name> gives the intro mail\n"
     "\n🔴 Replies and interviews\n"
     "/today - run the daily check now (sent mails, replies, bounces, follow-ups)\n"
