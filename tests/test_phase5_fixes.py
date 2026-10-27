@@ -97,11 +97,11 @@ def test_an_expired_gmail_token_is_told_once_a_day(monkeypatch):
     def expired(track, now):
         raise RuntimeError("('invalid_grant: Token has been expired or revoked.')")
 
-    monkeypatch.setattr(ping, "check", expired)
+    monkeypatch.setattr(ping, "check_pings", expired)
     monkeypatch.setattr(ping, "due", lambda track, now: True)
     first = [r.text for r in d.reply_ping_tick()]
     assert first == [desk_module.TOKEN_ALERT]
     assert d.reply_ping_tick() == []  # same day: once
-    monkeypatch.setattr(ping, "check", lambda track, now: (_ for _ in ()).throw(
+    monkeypatch.setattr(ping, "check_pings", lambda track, now: (_ for _ in ()).throw(
         RuntimeError("timeout")))
     assert d.reply_ping_tick() == []  # other errors stay in the log

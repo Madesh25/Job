@@ -112,3 +112,31 @@ def test_polling_loop_and_cloud_run_task():
     r = http.post("/tasks/replies", headers={"Authorization": "Bearer good"})
     assert r.status_code == 200 and r.json()["pinged"] >= 2
     assert telegram.sent[0].startswith("[LOCAL] \U0001F4E9 New reply from")
+
+
+def test_an_interview_reply_comes_with_the_prep_pack_once_a_day(monkeypatch):
+    """Autopilot D (26 Oct): no need to send /prep yourself."""
+    from jobengine.screen.desk import Reply
+
+    d = make_desk()
+    monkeypatch.setattr(ping, "check_pings", lambda track, now: [
+        ping.Ping(f"New reply from Ana\n{ping.INTERVIEW_HINT}", "pl-clean", True),
+        ping.Ping("New reply from Bo\nThanks", "pl-clean", False)])
+    asked = []
+    d.prep_command = lambda args: asked.append(args) or [Reply("Interview prep: Vistula")]
+    out = texts(d)
+    assert out[1:3] == ["\U0001F3AF Prepare for it now:", "Interview prep: Vistula"]
+    assert out[3] == "New reply from Bo\nThanks" and asked == ["pl-clean"]
+    d.track.state.set(ping.PINGED_KEY, {"ids": [], "at": OCT_1.isoformat()})
+    assert len(texts(d)) == 2  # the same job the same day: the pack is not sent again
+
+
+def test_check_pings_names_the_job_and_the_interview():
+    d = make_desk()
+    job_id = next(pid for pid, v in d.track.jobs.query_rows() if v.get("Gmail thread ID"))
+    thread = d.track.jobs.get_values(job_id)["Gmail thread ID"]
+    gmail(d).threads[thread].append(Message(
+        id="m-int", thread_id=thread, when=FAKE_NOW - timedelta(hours=1),
+        sender="recruiter@example.com", subject="Interview", text="Can we schedule a call?"))
+    found = [p for p in ping.check_pings(d.track, FAKE_NOW) if "schedule a call" in p.text]
+    assert found and found[0].job_id == job_id and found[0].interview

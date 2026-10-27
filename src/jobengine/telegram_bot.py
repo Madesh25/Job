@@ -1153,6 +1153,7 @@ def autopilot_check(client: TelegramClient, s: Settings, desk: Desk | None,
     _bind_notify(client, s, desk)
     # The morning check first: it is meant to come before the morning run (Autopilot C).
     replies = _scheduled("Morning check", desk.health_report_tick, desk)
+    replies += _scheduled("Monthly update", desk.auto_update_tick, desk)
     replies += _scheduled("Autopilot",
                          lambda: desk.autopilot_scheduled(autopilot_fetch(fetch)) or [], desk)
     replies += _scheduled("Afternoon check",
@@ -1161,6 +1162,7 @@ def autopilot_check(client: TelegramClient, s: Settings, desk: Desk | None,
     replies += _scheduled("Reply check", desk.reply_ping_tick, desk)
     replies += _scheduled("Daily report", desk.daily_report_tick, desk)
     replies += _scheduled("Spot check", desk.spot_check_tick, desk)
+    replies += _scheduled("Link check", desk.expired_check_tick, desk)
     replies += _scheduled("Apply nudge", desk.nudge_tick, desk)
     replies += _scheduled("Auto-apply", desk.autoapply_tick, desk)
     replies += _guarded("Gmail token", lambda: [Reply(text) for text in gmail_renew.reminder(

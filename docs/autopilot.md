@@ -25,11 +25,18 @@ sent (see "Mail mode" in [gmail.md](gmail.md)).
    - Find contacts within this week's outreach budget ([outreach.md](outreach.md)): paid
      lookups only for jobs the budget covers, and only in prod with `DRY_RUN=false`. When the
      company's email domain is unknown, the bot asks; reply with the domain as usual.
+   - Add your LinkedIn connections at the company (Autopilot B, from the 🤝 LinkedIn
+     Connections table). A connection with an email who was not asked in the last 30 days
+     becomes a Peer contact of the job and is marked Asked, so the drafts include the
+     referral ask (the referral template, word for word). The others get a LinkedIn message
+     to send yourself, in a message after the summary (the bot never opens LinkedIn). In mail
+     mode send, no connection is mailed by itself: they are all listed as LinkedIn messages
+     (Referral asks > Mail them still works by hand).
    - Write Gmail drafts, one per contact (DRY RUN: a preview, nothing created). In mail mode
      send, check them and send the ones that pass; a message per job lists what was sent and
      what was kept as a draft, and why.
-6. **One summary**: the list of jobs with what was done for each, then each resume PDF with
-   an **I applied** button.
+6. **One summary**: the list of jobs with what was done for each, then per job its LinkedIn
+   messages to your connections and its resume PDF with an **I applied** button.
 
 A job whose resume cannot be built (for example no description yet: paste it with `/jd`)
 goes back to `/pending` and does not use one of the day's approvals. A failure in one job

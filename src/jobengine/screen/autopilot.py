@@ -8,7 +8,9 @@
    at most `screening.autopilot_approvals` a day. Apply low and Needs review stay in /pending.
 4. For each approved job: build the resume and save it (as "Approve resume" does), find
    contacts within this week's outreach budget (paid lookups only in prod with DRY_RUN false),
-   and write Gmail drafts. Drafts are never sent.
+   add your LinkedIn connections there (Autopilot B: those with an email get the referral
+   ask in the drafts, the others a LinkedIn message to send yourself), and write Gmail
+   drafts. Drafts are never sent.
 5. One summary message, then each resume PDF with an "I applied" button.
 """
 
@@ -60,9 +62,12 @@ class JobReport:
     pack: list[str] = field(default_factory=list)  # the Apply pack (PR 11)
     mail: str | None = None  # mail mode send: what was sent and what was kept, and why
     ask: str | None = None  # a question to answer by reply (the company's email domain)
+    referrals: str = ""  # your LinkedIn connections there (Autopilot B)
+    linkedin: str | None = None  # the LinkedIn messages to send yourself
 
     def line(self, number: int) -> str:
-        steps = ", ".join(p for p in (self.resume, self.contacts, self.drafts) if p)
+        steps = ", ".join(p for p in (self.resume, self.contacts, self.referrals, self.drafts)
+                          if p)
         text = f"{number}. {self.company}, {self.role} ({self.verdict}): {steps}"
         return f"{text}\n   {self.url}" if self.url else text
 
@@ -216,17 +221,20 @@ def _prepare(desk: Desk, row: JobRow) -> JobReport:
     values = (desk.repo.get_values(row.page_id) if desk.repo else None) or {}
     decision = planner.plan(c.state, c.config(), c.reference(), values, row.page_id, c.today())
     found = contact_finder.find_contacts(c, row.page_id, paid=decision.outreach)
+    ids: list[str] = []
     if found.status == "waiting_domain":
         report.contacts = "contacts wait for the company's email domain (answer below)"
         report.ask = found.message
+        _referrals(desk, row.page_id, report)  # drafted with the others once you answer
         return report
     if found.status != "done":
         report.contacts = f"no contacts ({_first_line(found.message)})"
-        return report
-    contact_finder.on_contacts_ready(row.page_id, found.contacts)
-    ids = [x.page_id for x in found.contacts if getattr(x, "page_id", None)]
-    report.contacts = f"{len(ids)} contact{'' if len(ids) == 1 else 's'}" + (
-        "" if decision.outreach else " (apply only: free sources)")
+    else:
+        contact_finder.on_contacts_ready(row.page_id, found.contacts)
+        ids = [x.page_id for x in found.contacts if getattr(x, "page_id", None)]
+        report.contacts = f"{len(ids)} contact{'' if len(ids) == 1 else 's'}" + (
+            "" if decision.outreach else " (apply only: free sources)")
+    ids += _referrals(desk, row.page_id, report)
     if not ids or desk.mail is None:
         return report
     drafts = mail_drafter.create_drafts(desk.mail, row.page_id)
@@ -247,6 +255,44 @@ def _prepare(desk: Desk, row: JobRow) -> JobReport:
     return report
 
 
+def _referrals(desk: Desk, job_id: str, report: JobReport) -> list[str]:
+    """Autopilot B: your LinkedIn connections at the company. Those with an email become
+    contacts of the job, so the drafts include the referral ask (draft mode only: in mail
+    mode send they are listed, never mailed by themselves); the others get a LinkedIn
+    message to send yourself. Returns the contact ids added."""
+    from jobengine.contacts import connections
+
+    if desk.repo is None:
+        return []
+    try:
+        values = desk.repo.get_values(job_id) or {}
+        matches = desk._connections_at(values)
+        if not matches:
+            return []
+        today = desk.today()
+        mailable = connections.mailable(matches, today)
+        if desk.sending() or desk.mail is None or desk.contacts is None \
+                or desk.contacts.contacts is None:
+            mailable = []
+        chosen = desk.add_referral_contacts(job_id, values, mailable) if mailable else []
+        mailed = {m.row.person.name for m in mailable}
+        rest = [m for m in matches if m.row.person.name not in mailed]
+        parts = []
+        if chosen:
+            parts.append(f"{len(chosen)} connection{'' if len(chosen) == 1 else 's'} in the "
+                         "drafts (referral ask)")
+        if rest:
+            parts.append(f"{len(rest)} LinkedIn message{'' if len(rest) == 1 else 's'} to "
+                         "send yourself (below)")
+            report.linkedin = desk.referral_messages(values, rest)
+        report.referrals = ", ".join(parts)
+        return [x.page_id for x in chosen if getattr(x, "page_id", None)]
+    except Exception as exc:  # the job's resume and contacts stay as they are
+        log.warning("autopilot referrals failed for %s: %s", job_id, exc)
+        report.referrals = f"connections not checked ({exc})"
+        return []
+
+
 def _prepare_safely(desk: Desk, row: JobRow) -> JobReport:
     try:
         return _prepare(desk, row)
@@ -259,7 +305,7 @@ def _prepare_safely(desk: Desk, row: JobRow) -> JobReport:
 
 
 def _finish(desk: Desk, lines: list[str], progress: Progress) -> list[Reply]:
-    from jobengine.screen.desk import Reply, short_id
+    from jobengine.screen.desk import MAX_TEXT, Reply, short_id
 
     rows, room = _candidates(desk)
     reports: list[JobReport] = []
@@ -282,6 +328,8 @@ def _finish(desk: Desk, lines: list[str], progress: Progress) -> list[Reply]:
             replies.append(Reply(report.ask))
         if report.mail:
             replies.append(Reply(report.mail))
+        if report.linkedin:
+            replies.append(Reply(report.linkedin[:MAX_TEXT]))
         if report.pdf is not None:
             buttons: list[tuple[str, str]] = []
             if report.resume == "resume saved":
