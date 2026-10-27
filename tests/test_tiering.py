@@ -6,7 +6,9 @@ from jobengine.screen.models import Extraction, JobRow, Quoted, Requirement
 from jobengine.screen.tiering import (
     build_matrix,
     contract_type,
+    days_old,
     employer_size,
+    fresh,
     gap_count,
     permanent_contract,
     rank_key,
@@ -147,3 +149,20 @@ def test_rank_from_written_row():
     blocked = row(screen_verdict="Apply low", visa_flags=(visa.NOT_ON_IND,))
     assert rank_key(written, REF, TODAY) > rank_key(blocked, REF, TODAY)
     assert rank_key(blocked, REF, TODAY)[1] == 0
+
+
+def test_freshest_first_within_a_tier():
+    def key(verdict, posted):
+        return rank_key(row(posted_date=posted, years_required=3), REF, TODAY,
+                        verdict=verdict, bottom=False, ext=ext())
+
+    today = key("Apply normal", TODAY)
+    two_days = key("Apply normal", date(2026, 9, 29))
+    five_days = key("Apply normal", date(2026, 9, 26))
+    old = key("Apply normal", date(2026, 9, 1))
+    unknown = key("Apply normal", None)
+    assert today == two_days > five_days > unknown == old
+    assert key("Apply high", date(2026, 9, 1)) > today  # the tier still comes first
+    assert fresh(row(posted_date=TODAY), TODAY)
+    assert not fresh(row(posted_date=date(2026, 9, 28)), TODAY)
+    assert days_old(row(posted_date=date(2026, 10, 3)), TODAY) is None  # a future date

@@ -201,7 +201,8 @@ requirements and nice-to-haves.
 
 `/pending` order: tier, then rows that cannot sponsor last, then points: years 2 to 4 +3,
 unknown +1, exactly 5 -2; sponsorship stated +3; Target Companies tier 1 to 4 or 6 +2; ghost
-risk High -5, Medium -2; posted in the last 7 days +1.
+risk High -5, Medium -2; posted today or in the 2 days before +3 (freshest first, 28 Oct: the first applicants get the most
+replies; the /pending card marks these jobs 🆕), posted 3 to 7 days ago +1.
 
 ## Country rules
 
