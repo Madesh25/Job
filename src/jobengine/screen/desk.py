@@ -2215,11 +2215,16 @@ class Desk:
         from jobengine.contacts.credits import CreditBook
         from jobengine.screen import schedule
         from jobengine.strategy import auto_update
-        from jobengine.track import costs, daily_report, health_report, holiday
+        from jobengine.track import costs, daily_report, health_report
+        from jobengine.track import holiday as holiday_mode
 
         config = self.deps.config()
         today = daily_report.local(self.tracking_now(), config).date()
         blockers, soon, fine = [], [], []
+        back = holiday_mode.active(self.state, today)
+        if back is not None:  # /pause (I8)
+            soon.append(f"🏖 Holiday mode until {back:%a %d %b}: nothing is approved or "
+                        "mailed by itself. /resume ends it.")
         found = health_report.tables(self.s.notion_read, self.s.notion_write)
         problems = health_report.table_problems(found, self.table_query)
         blockers += problems
@@ -2254,10 +2259,6 @@ class Desk:
                                  else ""))
         else:
             fine.append(f"/fetch gate open for {gate} more days")
-        back = holiday.active(self.state, today)
-        if back is not None:
-            soon.append(f"🏖 Holiday mode until {back:%a %d %b}: nothing is approved or "
-                        "mailed by itself. /resume ends it.")
         book = CreditBook(config, today)
         if book.used_up():
             soon.append(f"No contact credit left this month: {', '.join(book.used_up())}")
