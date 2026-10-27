@@ -19,8 +19,10 @@ from __future__ import annotations
 import json
 import logging
 import re
+import threading
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Protocol
 
@@ -137,8 +139,9 @@ class Usage:
 WEB_SEARCH_DOLLARS = 0.01  # $10 per 1,000 web searches, billed on top of the tokens
 
 # Where every call's estimated cost goes (the month's running total in Bot State, see
-# track/costs.py): (stage, dollars). Set once by the bot; None in tests and scripts.
-CostSink = Callable[[str, float], None]
+# track/costs.py): (stage, dollars, provider). Set once by the bot; None in tests and scripts.
+CLAUDE, GEMINI, DEEPSEEK = "claude", "gemini", "deepseek"
+CostSink = Callable[[str, float, str], None]
 _cost_sink: CostSink | None = None
 
 
@@ -147,18 +150,39 @@ def set_cost_sink(sink: CostSink | None) -> None:
     _cost_sink = sink
 
 
-def record_cost(stage: str, dollars: float) -> None:
+def record_cost(stage: str, dollars: float, provider: str = CLAUDE) -> None:
     if _cost_sink is None or dollars <= 0:
         return
     try:
-        _cost_sink(stage, dollars)
+        _cost_sink(stage, dollars, provider)
     except Exception:  # the cost total is a report: never fail a call over it
         log.exception("could not record the LLM cost")
 
 
-# The monthly cap (track/cost_guard.py): (stage, config) -> why the call may not run, or
-# None. Set once by the bot; None in tests and scripts.
-CostGuard = Callable[[str, Any], "str | None"]
+# Gemini or DeepSeek calls that failed and went to Claude (27 Oct): kept in memory until the
+# bot's AI watch takes them (Desk.ai_cap_tick), which tells you when they pile up.
+_fallback_lock = threading.Lock()
+_fallbacks: list[tuple[datetime, str, str, str]] = []  # (when, stage, model, error)
+MAX_FALLBACKS = 200
+
+
+def note_fallback(stage: str, model: str, error: str) -> None:
+    with _fallback_lock:
+        _fallbacks.append((datetime.now(), stage, model, " ".join(str(error).split())[:200]))
+        del _fallbacks[:-MAX_FALLBACKS]
+
+
+def take_fallbacks() -> list[tuple[datetime, str, str, str]]:
+    with _fallback_lock:
+        out = list(_fallbacks)
+        _fallbacks.clear()
+        return out
+
+
+# The monthly caps (track/cost_guard.py): (stage, config, provider) -> why the call may not
+# run, or None. provider is "claude" just before a Claude call, "any" before any call. Set
+# once by the bot; None in tests and scripts.
+CostGuard = Callable[[str, Any, str], "str | None"]
 _cost_guard: CostGuard | None = None
 
 
@@ -175,12 +199,12 @@ class LLMPausedError(LLMError):
     """The month's AI cap is reached (Config ai.monthly_cap): the call did not run."""
 
 
-def check_cost(stage: str, config: Any) -> None:
-    """Raise LLMPausedError when the monthly cap pauses this stage."""
+def check_cost(stage: str, config: Any, provider: str = "any") -> None:
+    """Raise LLMPausedError when a monthly cap pauses this stage (or Claude)."""
     if _cost_guard is None:
         return
     try:
-        why = _cost_guard(stage, config)
+        why = _cost_guard(stage, config, provider)
     except Exception:  # the cap is a safety net: never fail a call because it broke
         log.exception("could not check the AI cap")
         return
@@ -623,7 +647,7 @@ class GeminiLLM:
                                       "contents": contents, "generationConfig": config})
             meta = data.get("usageMetadata") or {}
             self.usage.others.add(model)
-            record_cost(stage, self.usage.add(model, gemini_usage(meta)))
+            record_cost(stage, self.usage.add(model, gemini_usage(meta)), GEMINI)
             log.info("llm stage=%s model=%s input_tokens=%s output_tokens=%s thinking=%s",
                      stage, model, meta.get("promptTokenCount"),
                      meta.get("candidatesTokenCount"), meta.get("thoughtsTokenCount"))
@@ -669,7 +693,7 @@ class GeminiLLM:
         queries = grounding.get("webSearchQueries") or []
         self.usage.others.add(model)
         record_cost(stage, self.usage.add(model, gemini_usage(meta))
-                    + GEMINI_SEARCH_DOLLARS * len(queries))
+                    + GEMINI_SEARCH_DOLLARS * len(queries), GEMINI)
         log.info("llm stage=%s model=%s input_tokens=%s output_tokens=%s searches=%s", stage,
                  model, meta.get("promptTokenCount"), meta.get("candidatesTokenCount"),
                  len(queries))
@@ -819,7 +843,7 @@ class DeepSeekLLM:
             data = data if isinstance(data, dict) else {}
             usage = data.get("usage") or {}
             self.usage.others.add(model)
-            record_cost(stage, self.usage.add(model, deepseek_usage(usage)))
+            record_cost(stage, self.usage.add(model, deepseek_usage(usage)), DEEPSEEK)
             log.info("llm stage=%s model=%s input_tokens=%s output_tokens=%s", stage, model,
                      usage.get("prompt_tokens"), usage.get("completion_tokens"))
             choices = data.get("choices") or [{}]
@@ -883,6 +907,7 @@ class ModelRouter:
     def _failed(self, stage: str, model: str, exc: Exception) -> str:
         self.usage.fallbacks += 1
         log.warning("%s %s failed, %s answers instead: %s", model, stage, self._fallback(), exc)
+        note_fallback(stage, model, str(exc))
         return self._fallback()
 
     def complete_json(
@@ -900,6 +925,7 @@ class ModelRouter:
                                             thinking=thinking_for(stage, self.config))
             except LLMError as exc:
                 model = self._failed(stage, model, exc)
+        check_cost(stage, self.config, CLAUDE)  # Config ai.claude_cap: the safety net's limit
         return self.claude.complete_json(stage, system, user, max_tokens=max_tokens,
                                          key=key, model=model)
 
@@ -920,6 +946,7 @@ class ModelRouter:
                 model = self._failed(stage, model, exc)
         elif is_deepseek(model):
             model = self._fallback()
+        check_cost(stage, self.config, CLAUDE)
         return self.claude.complete_json_with_search(stage, system, user,
                                                      max_tokens=max_tokens, max_uses=max_uses,
                                                      key=key, model=model, titles=titles)
@@ -936,6 +963,7 @@ class ModelRouter:
         check_cost(stage, self.config)
         if not self.batch_ok(stage):
             raise LLMError("the half-price batch needs a Claude model")
+        check_cost(stage, self.config, CLAUDE)
         return self.claude.submit_batch(stage, system, items, max_tokens=max_tokens)
 
     def batch_status(self, batch_id: str) -> BatchStatus:
