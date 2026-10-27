@@ -51,7 +51,7 @@ FAKE_FILES_DIR = ROOT_DIR / "out" / "fake"
 POLL_TIMEOUT = 30
 
 HELP_TEXT = (
-    "Job Engine commands: grouped like the Command guide. Start each day with /next.\n"
+    "Job Engine commands: as in the Command guide; start each day with /next.\n"
     "\n🔵 Find and screen\n"
     "/fetch - search for new jobs, then screen them\n"
     "/screen - screen jobs that are not screened yet\n"
@@ -64,9 +64,9 @@ HELP_TEXT = (
     "/linkedin - LinkedIn jobs one at a time: paste each description, tap Done\n"
     "/add <job link> - save a job from a company's own site, resume and Target Companies\n"
     "/newcompanies - companies hiring for your roles, not in Target Companies\n"
-    "/fetchreport - where the last /fetch's postings went, per source, and the dropped jobs "
-    "by reason; /fetchreport <word> for one\n"
-    "/alertcheck - the job alert emails the next /fetch reads, and the jobs found in each\n"
+    "/fetchreport - where the last /fetch's postings went and why jobs were dropped; "
+    "/fetchreport <word> for one\n"
+    "/alertcheck - the job alert mails the next /fetch reads, and their jobs\n"
     "\n🟢 Review and apply\n"
     "/pending - review screened jobs one at a time (Approve, Skip, "
     "Next); /pending poland, netherlands, ireland, remote or all\n"
@@ -74,7 +74,7 @@ HELP_TEXT = (
     "/autofill - the browser bookmark that fills forms from the Apply pack code\n"
     "/answer <question> = <answer> - save a form answer; it is in every Apply pack after\n"
     "/answers - your saved form answers (/answer delete N removes one)\n"
-    "/dryrun <url or id> - fill the job's form in a browser, never submit (screenshot)\n"
+    "/dryrun <url or id> - fill the job's form in a browser, never submit\n"
     "/autoapply - dry runs for the jobs with a built resume, 3 at a time (30 a day)\n"
     "/gaps - skills jobs ask for that you lack, and which certificate covers most\n"
     "/keywords - the tools your best jobs name most, and which to add to your LinkedIn profile\n"
@@ -95,19 +95,21 @@ HELP_TEXT = (
     "/thanks <url or id> <name> - the thank-you mail to send after an interview\n"
     "/stats - applied, replies, interviews and reply rates (30 days and all time)\n"
     "/digest - the weekly digest now\n"
-    "/spotcheck - 2 of the week's resumes to look at (notes: what you marked wrong)\n"
+    "/spotcheck - 2 of the week's resumes to look at (/spotcheck notes)\n"
     "/report - today's daily report now (it also comes every evening, and by email)\n"
     "\n🟡 Strategy, health and control\n"
     "/update - monthly strategy research for your review (opens /fetch); /update new again\n"
     "/rules - V16 non-negotiables, thresholds, adopted tips and the /fetch gate\n"
     "/autopilot - fetch, screen at half price, approve the best (10 a day), save resumes, "
     "find contacts, write Gmail drafts\n"
-    "/autopilot when - the schedule (07:00 and 19:30, Config schedule.autopilot), next run\n"
+    "/autopilot when - its schedule (07:00 and 19:30) and the next run\n"
     "/next - your day in order: what is done and what to do now\n"
-    "/gmailtoken - your Gmail tokens; /gmailtoken m02 or mm renews one in 2 minutes\n"
+    "/pause 5d - holiday mode: jobs found and screened, none approved or mailed\n"
+    "/resume - end holiday mode now\n"
+    "/gmailtoken - your Gmail tokens; /gmailtoken m02 or mm renews one\n"
     "/health - Notion, Gmail tokens, Anthropic key, last runs\n"
     "/status - environment, safety settings, job and contact counts\n"
-    "/sources - sweep sources, their secrets and the last sweep counts\n"
+    "/sources - sweep sources, their secrets and the last counts\n"
     "/start - check that the bot is alive\n"
     "/end - stop the running /fetch, /screen or /autopilot at its next step\n"
     "/restart - restart the bot (reloads its code and Notion settings)\n"
@@ -184,7 +186,8 @@ DESK_COMMANDS = ("next", "pending", "add", "newcompanies", "report", "jd", "done
                  "outreach", "drafts", "answer", "answers", "autofill", "dryrun", "autoapply",
                  "fetchcontacts",
                  "alertcheck", "fetchreport", "linkedin", "today", "followups", "stats",
-                 "sources", "health", "digest", "spotcheck", "update", "rules")
+                 "sources", "health", "digest", "spotcheck", "update", "rules", "pause",
+                 "resume")
 
 # (method, payload, http_timeout) -> decoded JSON response
 Transport = Callable[[str, dict[str, Any], float], dict[str, Any]]
@@ -980,6 +983,10 @@ def desk_replies(update: dict[str, Any], s: Settings, desk: Desk | None) -> list
         return _guarded("/update", lambda: desk.update_command(args))
     if command == "rules":
         return _guarded("/rules", desk.rules_command)
+    if command == "pause":
+        return _guarded("/pause", lambda: desk.pause_command(args))
+    if command == "resume":
+        return _guarded("/resume", desk.resume_command)
     if command == "add":
         return _guarded("/add", lambda: desk.add_command(args))
     if command == "newcompanies":

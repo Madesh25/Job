@@ -27,7 +27,7 @@ from jobengine.resume.builder import hex_id
 from jobengine.safety import gmail_write_allowed
 from jobengine.settings import Settings
 from jobengine.sweep.normalize import canon_company
-from jobengine.track import bounces, followup, linking
+from jobengine.track import bounces, followup, holiday, linking
 from jobengine.track.classify import DEFAULT_OPT_OUT, classify, is_auto_reply
 from jobengine.track.models import (
     AUTO_REPLY,
@@ -732,7 +732,8 @@ def run_daily(deps: TrackDeps, now: datetime) -> DailyReport:
             ("application linking", lambda: link_applications(run, report)),
             ("rejection mails", lambda: rejections_from_mail(run, window, report)),
             ("bounces", lambda: find_bounces(run, window, report)),
-            ("follow-ups", lambda: draft_followups(run, report)),
+            ("follow-ups", lambda: None if holiday.active(deps.state, now.date())
+             else draft_followups(run, report)),  # /pause: follow-ups wait (I8)
             ("ghosted", lambda: mark_ghosted(run, report)),
         ]
     steps.append(("retention", lambda: list_retention(run, report)))

@@ -306,8 +306,14 @@ def _prepare_safely(desk: Desk, row: JobRow) -> JobReport:
 
 def _finish(desk: Desk, lines: list[str], progress: Progress) -> list[Reply]:
     from jobengine.screen.desk import MAX_TEXT, Reply, short_id
+    from jobengine.track import holiday
 
     rows, room = _candidates(desk)
+    back = holiday.active(desk.state, desk.today())
+    if back is not None:  # Autopilot I8: found and screened, nothing approved or mailed
+        lines.append(f"🏖 Holiday mode until {back:%a %d %b}: {holiday.STOPS}. {len(rows)} "
+                     "Apply high or Apply normal jobs wait in /pending. /resume ends it.")
+        return [Reply("\n\n".join(t for t in lines if t))]
     reports: list[JobReport] = []
     done = 0
     for row in rows:

@@ -1094,6 +1094,8 @@ class Desk:
             queue.add(self.state, config, self._ready(), now)
         elif not queue.waiting(self.state, now):
             return []  # auto-apply off and nothing queued by /autoapply: no Bot State writes
+        if self.on_holiday():  # /pause: the queue waits (I8)
+            return []
         if self.s.bot_mode != "webhook":  # the bot on your laptop is the laptop worker
             queue.laptop_seen(self.state, now)
             return self._fill_queued("laptop", now)
@@ -1891,9 +1893,27 @@ class Desk:
                                       self.tips(tips_mod.OUTREACH, values.get("Country")))
         return [Reply(message[:MAX_TEXT])]
 
+    def on_holiday(self) -> bool:
+        """/pause is on (Autopilot I8): nothing is approved or sent by itself."""
+        from jobengine.track import holiday
+
+        return holiday.active(self.state, self.tracking_now().date()) is not None
+
+    def pause_command(self, args: str) -> list[Reply]:
+        from jobengine.track import holiday
+
+        return [Reply(holiday.pause(self.state, args, self.tracking_now().date()))]
+
+    def resume_command(self) -> list[Reply]:
+        from jobengine.track import holiday
+
+        return [Reply(holiday.resume(self.state, self.tracking_now().date()))]
+
     def mail_queue_tick(self) -> list[Reply]:
         """Every few minutes: send one queued mail whose recipient's morning has come."""
         if self.mail is None or not self.sending() and not mail_timing.load(self.state):
+            return []
+        if self.on_holiday():  # the queue waits for you (I8)
             return []
         text = mail_sender.send_due(self.mail, self.state)
         return [Reply(text[:MAX_TEXT])] if text else []
@@ -2195,7 +2215,7 @@ class Desk:
         from jobengine.contacts.credits import CreditBook
         from jobengine.screen import schedule
         from jobengine.strategy import auto_update
-        from jobengine.track import costs, daily_report, health_report
+        from jobengine.track import costs, daily_report, health_report, holiday
 
         config = self.deps.config()
         today = daily_report.local(self.tracking_now(), config).date()
@@ -2234,6 +2254,10 @@ class Desk:
                                  else ""))
         else:
             fine.append(f"/fetch gate open for {gate} more days")
+        back = holiday.active(self.state, today)
+        if back is not None:
+            soon.append(f"🏖 Holiday mode until {back:%a %d %b}: nothing is approved or "
+                        "mailed by itself. /resume ends it.")
         book = CreditBook(config, today)
         if book.used_up():
             soon.append(f"No contact credit left this month: {', '.join(book.used_up())}")
@@ -2261,8 +2285,13 @@ class Desk:
         now = self.tracking_now()
         if not health_report.due(config, self.state, now):
             return []
-        health_report.mark_sent(self.state, daily_report.local(now, config).date())
-        return [Reply(self.health_report_text()[:MAX_TEXT])]
+        today = daily_report.local(now, config).date()
+        health_report.mark_sent(self.state, today)
+        from jobengine.track import holiday
+
+        back = holiday.ended(self.state, today)  # the day you are back from /pause (I8)
+        return [*([Reply(back)] if back else []),
+                Reply(self.health_report_text()[:MAX_TEXT])]
 
     def daily_report_tick(self) -> list[Reply]:
         """Every few minutes (and POST /tasks/report): the evening report, once a day, on
@@ -2390,7 +2419,7 @@ class Desk:
         config = self.deps.config()
         here = self._nudge_here()
         ready = self._ready()
-        if not nudge.due(config, self.state, here, len(ready)):
+        if not nudge.due(config, self.state, here, len(ready)) or self.on_holiday():
             return []
         evening = nudge.evening_of(here)
         value = nudge.get(self.state, evening)
