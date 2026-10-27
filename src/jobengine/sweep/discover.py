@@ -6,6 +6,7 @@ After each /fetch, from the jobs that passed the scope filters:
 - New companies: a company with jobs from the alerts, Adzuna, Jooble, NoFluffJobs or IamExpat
   that is not in Target Companies (not even unticked), not an agency and not one you turned
   down is kept as a suggestion in Bot State (`discover.companies`, the last MAX_DAYS days).
+  Companies from the visa sponsor lists come here too (sweep/sponsors.py, 28 Oct).
   /newcompanies shows them one at a time, the ones whose job link shows a job board the bot
   can read (Greenhouse, Lever, ...) first, with "Add to Target Companies" (as /add does, with
   Undo) and "Not interested" (never suggested again, `discover.skip`). Nothing is added
@@ -135,6 +136,8 @@ def record(state: Any, found: Found, today: date) -> int:
         for name in ("roles", "countries", "urls", "boards"):
             old[name] = list(dict.fromkeys([*old.get(name, []), *item[name]]))
         old["last"] = item["last"]
+        if item.get("sponsor"):  # found on a visa sponsor list (sweep/sponsors.py)
+            old["sponsor"] = item["sponsor"]
     cutoff = (today - timedelta(days=MAX_DAYS)).isoformat()
     kept = {k: v for k, v in items.items() if v.get("last", "") >= cutoff}
     newest = sorted(kept.items(), key=lambda kv: kv[1].get("last", ""), reverse=True)
@@ -155,10 +158,11 @@ def suggestions(state: Any, companies: list[TargetCompany]) -> list[tuple[str, d
     items = ((state.get(KEY) or {}).get("items")) or {}
     open_items = [(k, v) for k, v in items.items() if k not in known and k not in turned_down]
 
-    def order(kv: tuple[str, dict[str, Any]]) -> tuple[int, int]:
+    def order(kv: tuple[str, dict[str, Any]]) -> tuple[int, int, int]:
         _url, platform = site_of(kv[1].get("urls") or [])
         readable = platform not in ("Unknown", "Custom")
-        return (0 if readable else 1, -len(kv[1].get("roles") or []))
+        sponsor = bool(kv[1].get("sponsor"))  # on a visa sponsor list: they hire from abroad
+        return (0 if readable else 1, 0 if sponsor else 1, -len(kv[1].get("roles") or []))
 
     open_items.sort(key=lambda kv: kv[1].get("last", ""), reverse=True)  # newest first, then
     return sorted(open_items, key=order)  # stable: newest stays first within the same order

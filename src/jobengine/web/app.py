@@ -111,6 +111,7 @@ def desk_tasks(s: Settings, desk: Desk, client: tb.TelegramClient,
         send(desk.connections_reminder())  # the monthly LinkedIn export, when it is due
         send(desk.leftover_tick())  # credits left on the day before a provider renews
         send(desk.ai_cap_tick())  # the month's AI cap at 80% and 100% (I6)
+        send(desk.sponsor_tick())  # companies from the visa sponsor lists (Saturdays)
         send(desk.weekly_audit_tick())  # a weekly audit missed on Sunday comes the next day
         return {"ok": report.ok, "sent": len(report.sent), "replies": len(report.replies),
                 "followups": len(report.followups), "reminder": bool(reminder)}
