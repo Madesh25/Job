@@ -62,14 +62,15 @@ def test_the_router_refuses_a_paused_call(monkeypatch):
             return {}
 
     router = llm.ModelRouter(settings(), CAP, claude=Claude())
-    monkeypatch.setattr(llm, "_cost_guard", lambda stage, config: "AI paused: test")
+    monkeypatch.setattr(llm, "_cost_guard", lambda stage, config, provider: "AI paused: test")
     with pytest.raises(llm.LLMPausedError, match="AI paused: test"):
         router.complete_json("score", "s", "u")
     with pytest.raises(llm.LLMError):
         router.submit_batch("score", "s", [("a", "b")])
-    monkeypatch.setattr(llm, "_cost_guard", lambda stage, config: None)
+    monkeypatch.setattr(llm, "_cost_guard", lambda stage, config, provider: None)
     assert router.complete_json("score", "s", "u") == {}
-    monkeypatch.setattr(llm, "_cost_guard", lambda stage, config: 1 / 0)  # a broken check
+    broken = lambda stage, config, provider: 1 / 0  # noqa: E731  (a broken check)
+    monkeypatch.setattr(llm, "_cost_guard", broken)
     assert router.complete_json("score", "s", "u") == {} and len(calls) == 2
 
 

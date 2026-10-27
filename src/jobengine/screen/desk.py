@@ -2268,9 +2268,10 @@ class Desk:
                                  else ""))
         else:
             fine.append(f"/fetch gate open for {gate} more days")
-        cap = cost_guard.health_line(config, self.state, today)
-        if cap is not None:
-            (blockers if cap[0] == "blocker" else soon).append(cap[1])
+        for cap in (cost_guard.health_line(config, self.state, today),
+                    cost_guard.claude_health_line(config, self.state, today)):
+            if cap is not None:
+                (blockers if cap[0] == "blocker" else soon).append(cap[1])
         from jobengine.track import audit as audit_mod
 
         missing, review = audit_mod.morning_lines(
@@ -2313,12 +2314,36 @@ class Desk:
         from jobengine.track import cost_guard
 
         today = self.tracking_now().date()
-        found = cost_guard.alert(self.deps.config(), self.state, today)
-        if found is None:
+        config = self.deps.config()
+        replies = self._ai_watch(config, today)
+        found = cost_guard.alert(config, self.state, today)
+        if found is not None:
+            text, button = found
+            replies.append(Reply(text, [(f"Allow AI for the rest of {today:%B}", "ai:on")]
+                                 if button else []))
+        claude = cost_guard.claude_alert(config, self.state, today)
+        if claude:
+            replies.append(Reply(claude))
+        return replies
+
+    def _ai_watch(self, config: Any, today: date) -> list[Reply]:
+        """27 Oct: DeepSeek (or Gemini) failing again and again is told at once, with what
+        failed, at most every 3 hours. The failures are kept in memory (no Notion read)."""
+        from jobengine import llm
+        from jobengine.track import cost_guard, costs
+
+        now = datetime.now()
+        self._ai_fails = [*getattr(self, "_ai_fails", []), *llm.take_fallbacks()]
+        last = getattr(self, "_ai_watch_sent", None)
+        if len(self._ai_fails) < cost_guard.WATCH_MIN or (
+                last is not None and now - last < timedelta(hours=cost_guard.WATCH_EVERY_HOURS)):
             return []
-        text, button = found
-        return [Reply(text, [(f"Allow AI for the rest of {today:%B}", "ai:on")]
-                      if button else [])]
+        fails, self._ai_fails, self._ai_watch_sent = self._ai_fails, [], now
+        text = cost_guard.watch_text(
+            fails, fails[0][0], costs.provider_spent(self.state, today, "claude"),
+            cost_guard.cap(config, cost_guard.CLAUDE_CAP_KEY),
+            cost_guard.claude_paused(config, self.state, today))
+        return [Reply(text[:MAX_TEXT])]
 
     def ai_allow(self) -> list[Reply]:
         from jobengine.track import cost_guard

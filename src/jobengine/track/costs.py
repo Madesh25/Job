@@ -16,7 +16,7 @@ from typing import Any
 
 from jobengine.bot_state import BotState
 
-KEY = "llm.cost_month"  # bot_state: {"month", "total", "calls", "stages", "last"}
+KEY = "llm.cost_month"  # bot_state: {"month", "total", "calls", "stages", "providers", "last"}
 # LLM stage -> what it is in the digest ("score" is screening and reading replies).
 STAGE_NAMES = {"score": "screening", "reply": "replies", "tailor": "resumes",
                "resume": "resumes", "cover": "cover letters", "prep": "interview prep",
@@ -29,7 +29,8 @@ def _month(day: date) -> str:
     return day.strftime("%Y-%m")
 
 
-def record(state: BotState, today: date, stage: str, dollars: float) -> None:
+def record(state: BotState, today: date, stage: str, dollars: float,
+           provider: str = "claude") -> None:
     with _lock:
         value = state.get(KEY) or {}
         month = _month(today)
@@ -42,15 +43,27 @@ def record(state: BotState, today: date, stage: str, dollars: float) -> None:
         stages: dict[str, Any] = dict(value.get("stages") or {})
         stages[stage] = round(float(stages.get(stage) or 0.0) + dollars, 6)
         value["stages"] = stages
+        providers: dict[str, Any] = dict(value.get("providers") or {})
+        providers[provider] = round(float(providers.get(provider) or 0.0) + dollars, 6)
+        value["providers"] = providers  # since 27 Oct: Claude has its own cap
         state.set(KEY, value)
     from jobengine.track import day_ledger
 
     day_ledger.add_cost(state, today, dollars)  # the daily report's "AI today"
 
 
-def sink(state: BotState, today: Callable[[], date]) -> Callable[[str, float], None]:
+def sink(state: BotState, today: Callable[[], date]) -> Callable[[str, float, str], None]:
     """What the bot passes to jobengine.llm.set_cost_sink."""
-    return lambda stage, dollars: record(state, today(), stage, dollars)
+    return lambda stage, dollars, provider="claude": record(state, today(), stage, dollars,
+                                                            provider)
+
+
+def provider_spent(state: BotState | None, today: date, provider: str) -> float:
+    """This month's estimated cost of one provider (claude, deepseek, gemini)."""
+    value = (state.get(KEY) if state is not None else None) or {}
+    if value.get("month") != _month(today):
+        return 0.0
+    return float((value.get("providers") or {}).get(provider) or 0.0)
 
 
 def month_line(state: BotState, today: date) -> str:

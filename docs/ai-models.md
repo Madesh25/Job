@@ -91,6 +91,25 @@ Bot State keeps `ai.cap_alert` (which message went out this month) and `ai.cap_a
 month you allowed). The check sits in the shared router (`llm.check_cost`), so every paid call
 goes through it; if the check itself breaks, the call runs.
 
+## Claude as the safety net only, with its own cap (27 Oct, your decision)
+
+DeepSeek does all the AI work (Gemini only for the two web searches, inside its free 5,000
+searches a month). Claude Haiku answers only when a DeepSeek or Gemini call fails.
+
+- **Notion Config `ai.claude_cap`** is the most Claude may cost in a month, in US dollars
+  (you set 5). At 80% the bot warns once. At the cap Claude stops until the 1st: DeepSeek
+  keeps working, and a call DeepSeek fails then fails too (that job waits for the next run)
+  instead of going to Claude. Reading replies still falls back to Claude (about a cent a
+  month). Raising the value restarts Claude at once.
+- **The AI watch:** when DeepSeek or Gemini fails 3 times, a Telegram message says which
+  model, how often, in which jobs (screening, resumes, mails ...), the last error and what
+  Claude cost so far; at most one message every 3 hours. The failures are kept in memory, so
+  the watch adds no Notion reads.
+- The morning check says when Claude is at 80% or paused; the weekly audit lists every
+  "failed, claude-haiku-4-5 answers instead" warning of the week.
+- The month's AI total (Bot State `llm.cost_month`) now keeps each provider apart
+  (`providers`: claude, deepseek, gemini); `ai.monthly_cap` still caps all of them together.
+
 ## Setup (once, after go-live)
 
 1. Google AI Studio (aistudio.google.com) -> Get API key, in a Google Cloud project **with
