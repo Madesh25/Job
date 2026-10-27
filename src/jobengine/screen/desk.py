@@ -330,6 +330,9 @@ class Desk:
         # The weekly job board check (sweep/board_watch.py): (today, folder) -> the checks;
         # None where Target Companies cannot be read.
         self.board_reader: Callable[[date, Path], list[Any]] | None = None
+        # Visa sponsor companies (sweep/sponsors.py): (candidate, today, fits) -> Checked;
+        # None where job boards cannot be read.
+        self.sponsor_reader: Callable[[Any, date, Any], Any] | None = None
         # The outside heartbeat (heartbeat.py, H4): True pings the check, False its /fail.
         self.heartbeat: Callable[[bool], bool] = lambda ok: heartbeat.ping(self.s, ok)
         # Set by the bot for each update: sends a reply at once (before a long build).
@@ -2681,6 +2684,61 @@ class Desk:
         message = board_watch.text(week)
         return [Reply(message[:MAX_TEXT])] if message else []
 
+    def ind_names(self, config: Any) -> list[str]:
+        """The Dutch IND sponsor register's names ([] when it cannot be read)."""
+        from jobengine.ind_register import load_register
+
+        url = config.get("ind_register.url")
+        if not url:
+            return []
+        try:
+            return load_register(str(url), self.deps.get_text).names
+        except (http.HttpError, ValueError) as exc:
+            log.warning("IND register not read for the sponsor companies: %s", exc)
+            return []
+
+    def sponsor_tick(self) -> list[Reply]:
+        """Every few minutes (and the daily task): companies from the visa sponsor lists with
+        jobs for you, as /newcompanies suggestions, Saturday from 11:00 India time (28 Oct)."""
+        from jobengine.sweep import discover, sponsors
+        from jobengine.track import daily_report
+
+        if self.sponsor_reader is None:
+            return []
+        config = self.deps.config()
+        now = daily_report.local(self.tracking_now(), config)
+        if not sponsors.due(config, self.state, now):
+            return []
+        sponsors.mark_done(self.state, now.date())
+        today = now.date()
+        permits = self.permits()
+        known = [c.name for c in self.reference().companies]
+        open_names = [str(v.get("name") or "")
+                      for _, v in discover.suggestions(self.state, self.reference().companies)]
+        picked = sponsors.candidates(
+            self.ind_names(config), permits.counts if permits is not None else {},
+            [*known, *open_names], discover.skipped(self.state),
+            sponsors.checked(self.state, today),
+            lambda name: bool(agency_by_name(name, config)))
+        if not picked:
+            return []
+        fits = sponsors.place_check(self.s, config)
+        found = []
+        for candidate in picked:
+            try:
+                result = self.sponsor_reader(candidate, today, fits)
+            except Exception:  # one company never stops the others
+                log.exception("sponsor company %s not checked", candidate.name)
+                continue
+            if result.roles:
+                found.append(result)
+        sponsors.remember(self.state, today, [c.name for c in picked])
+        discover.record(self.state, discover.Found(new={
+            discover.company_key(sponsors.short_name(f.candidate.name)): sponsors.item(f, today)
+            for f in found}), today)
+        message = sponsors.text(len(picked), found)
+        return [Reply(message[:MAX_TEXT])] if message else []
+
     # ------------------------------------------------------------ weekly audit (27 Oct)
 
     def weekly_audit_tick(self) -> list[Reply]:
@@ -3384,10 +3442,11 @@ class Desk:
         else:
             site = "Site: not known yet (the next /fetch looks for its job board by the name)"
         ref = discover.ref(key)
+        visa = f"Visa: {item['sponsor']}\n" if item.get("sponsor") else ""
         return [Reply(
             f"\U0001F50E New company 1 of {len(items)}: {item.get('name')}\n"
             f"Jobs seen ({', '.join(item.get('countries') or [])}): {shown}{more}\n"
-            f"Found through: {', '.join(item.get('boards') or [])}\n{site}\n"
+            f"Found through: {', '.join(item.get('boards') or [])}\n{visa}{site}\n"
             "Add it to Target Companies, so every /fetch reads its own job board?",
             [("Add to Target Companies", f"dc:{ref}"), ("Not interested", f"dn:{ref}")])]
 
@@ -3566,5 +3625,18 @@ def real_desk(s: Settings) -> Desk | None:
     from jobengine.sweep import boards
 
     desk.board_reader = lambda today, folder: boards.read_all(s, today, folder)
+    from jobengine.sweep import sponsors
+
+    def board_get(url: str, params: Any) -> Any:
+        return http.get_json(url, params=params or None, s=s)
+
+    def board_post(url: str, body: Any) -> Any:
+        return http.post_json(url, json=body, s=s)
+
+    def board_page(url: str) -> tuple[str, str]:
+        return http.get_page(url, s=s, accept_feed=True)
+
+    desk.sponsor_reader = lambda candidate, today, fits: sponsors.check(
+        s, candidate, board_get, board_post, board_page, today, fits)
     issue_log.install()  # the warnings and errors of the week, for the weekly audit
     return desk

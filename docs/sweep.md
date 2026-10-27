@@ -429,6 +429,19 @@ After each sweep, `sweep/discover.py` looks at the jobs that passed the scope fi
 
 `sweep.discover.enabled: false` turns both off.
 
+**Companies from the visa sponsor lists (28 Oct).** Once a week (Saturday from 11:00 India
+time, or the first day after when the bot was off) `sweep/sponsors.py` takes up to 40
+companies from the official sponsor lists the bot already reads: the Irish "Permits issued to
+companies" list (the most permits first) and the Dutch IND register (names that sound like
+IT: software, cloud, data, digital ...). It leaves out Target Companies, open suggestions,
+agencies, companies you turned down and companies checked in the last 90 days. For each it
+looks for a public job board by the company's name (Greenhouse, Lever, SmartRecruiters,
+Ashby, Workable, Recruitee, as /fetch does) and reads it. A company with at least one job for
+your titles in your countries right now becomes a `/newcompanies` suggestion, shown before the
+others, with a "Visa:" line (on the IND register, or the number of Irish permits). A message
+names what was found; a week with nothing found sends nothing. Bot State `sponsors.checked`
+keeps the companies checked; Notion Config `discover.sponsors` = `off` stops it.
+
 ## Where the postings went (loss report)
 
 Every posting a `/fetch` reads lands in exactly one bucket, per source, so the buckets add up
