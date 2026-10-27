@@ -297,19 +297,43 @@ job (Gemini: free up to 5,000 a month) and the Hunter or Prospeo credits of the 
    (22 Oct, "Company domain found by the bot" above). Job board and ATS hosts
    (greenhouse.io, lever.co, teamtailor.com, ...) are never used. Still unknown: the bot asks
    and the lookup waits for your reply.
-5. GitHub (free, when Config `contacts.github` is `on`; see above) for the Peer engineer
+5. The company's own website (free, 27 Oct; Config `contacts.site`, default on, `off` stops
+   it): see "Addresses on the company website" below. It runs for apply-only jobs too, when
+   the domain is already known.
+6. GitHub (free, when Config `contacts.github` is `on`; see above) for the Peer engineer
    slots, then the waterfall for the slots still open: Apollo (search, then one reveal per open slot), Hunter (one
    domain search), Snov (prospects, then an email search per chosen person), then the free
    plans: Prospeo (one people search, then one bulk reveal of verified emails for the open
    slots only) and Tomba (one domain search). It stops as soon
    as the mix is full. A provider is skipped when its key is missing, its counter is used up,
    or paid calls are off.
-6. Candidates are classified by title (`contacts.title_patterns` in `config/base.yaml`; HR,
+7. Candidates are classified by title (`contacts.title_patterns` in `config/base.yaml`; HR,
    Human Resources, People Operations and Talent titles count as Recruiter/TA, so they get the
    cold mail and never the referral ask),
    personal and off-domain emails are dropped, in-country people come first (others only when
    no one in the country fits, noted `outside <country>`), and emails are deduped against the
    whole Contacts database: a known email reuses its row.
+
+## Addresses on the company website (27 Oct, your request: free contacts)
+
+Before any paid lookup the bot reads the company's home page (`https://<domain>/`), its
+careers URL from Target Companies, and at most 4 of its own pages whose link names careers,
+jobs or contact (English, Polish and Dutch words: careers, jobs, join, werken, vacatures,
+kariera, praca, kontakt, over-ons ...). Only addresses **written on those pages** on the
+company's domain are kept; nothing is guessed.
+
+- A hiring mailbox (`careers@`, `jobs@`, `hr@`, `recruitment@`, `rekrutacja@`, `werkenbij@`,
+  `people@` ...) is saved like a mailbox in a job posting: Type Other, Source Careers page.
+- A named person's address only from a careers or jobs page, or when the line around it says
+  recruiting, HR, talent or people: Type Recruiter/TA, Source Careers page.
+- `info@`, `sales@`, `support@`, `biuro@` and the like, people on other domains, and addresses
+  only inside page scripts are left out. Notes say which page the address was on.
+- Each company's result is kept in Bot State (`site_emails:<company>`) for 30 days, so its
+  next jobs read no page. A page that cannot be read is skipped; LinkedIn is never opened.
+
+With 2 contacts per job (Config `contacts.per_job`) and the free steps (cache, job posting,
+company website, GitHub, AI search on Gemini's free searches, your LinkedIn connections),
+the paid credits are kept for the jobs the free steps cannot fill.
 
 ## What gets written
 

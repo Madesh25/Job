@@ -16,7 +16,7 @@ from jobengine import http
 from jobengine.bot_state import BotState, FakeBotState
 from jobengine.config_store import ConfigStore
 from jobengine.contacts import cache as contact_cache
-from jobengine.contacts import jd_emails
+from jobengine.contacts import jd_emails, site_emails
 from jobengine.contacts import web_search as ai_search
 from jobengine.contacts.classify import (
     PERSONAL_DOMAINS,
@@ -475,6 +475,10 @@ def find_contacts(deps: ContactDeps, job_id: str, paid: bool = True) -> Contacts
     book = CreditBook(config, today, deps.config_writer(config))
     if open_slots() and not paid:
         result.notes.append(APPLY_ONLY_NOTE)
+        known = find_domain(company, deps.reference(), config, deps.state)
+        if known and site_emails.is_on(config):  # free, so apply-only jobs get it too
+            _site_step(deps, company, known, country, result, chosen, generic, seen, by_email,
+                       open_slots, personal, today)
     elif open_slots():
         domain = find_domain(company, deps.reference(), config, deps.state)
         if domain is None:
@@ -491,6 +495,9 @@ def find_contacts(deps: ContactDeps, job_id: str, paid: bool = True) -> Contacts
                                                              "company": company})
             deps.state.set(OPEN_ASK, {"ref": job_ref(job_id), "company": company})
             return result
+        if site_emails.is_on(config):  # the company's own pages, free (27 Oct)
+            _site_step(deps, company, domain, country, result, chosen, generic, seen, by_email,
+                       open_slots, personal, today)
         if (config.get(GITHUB_SWITCH) or "").strip().lower() == "on" and \
                 open_slots().get(PEER, 0) > 0:
             _github_step(deps, config, company, domain, country, result, chosen, seen,
@@ -757,6 +764,46 @@ def github_org_known(deps: ContactDeps, config: ConfigStore, company: str) -> st
             return value.strip()
     remembered = deps.state.get(f"github_org:{canon_company(company)}")
     return None if remembered is None else str(remembered.get("org") or "")
+
+
+def _site_step(deps: ContactDeps, company: str, domain: str, country: str,
+               result: ContactsResult, chosen: list[Chosen], generic: list[Chosen],
+               seen: set[str], by_email: dict[str, tuple[str, dict[str, Any]]],
+               open_slots: Callable[[], dict[str, int]], personal: Any, today: date) -> None:
+    """Addresses written on the company's own careers and contact pages (site_emails.py):
+    a hiring mailbox like a job posting's, a named recruiter into a Recruiter/TA slot."""
+    key = canon_company(company)
+    found = site_emails.cached(deps.state, key, today)
+    if found is None:
+        target = deps.reference().company(company)
+        found, pages = site_emails.search(domain, deps.read_page, personal,
+                                          [target.careers_url if target else None])
+        if pages:
+            site_emails.remember(deps.state, key, today, found)
+    added = 0
+    for item in found:
+        key_email = item.email.lower()
+        if key_email in seen:
+            continue
+        existing = by_email.get(key_email)
+        note = f"on the company website: {item.url}"
+        if item.generic:
+            seen.add(key_email)
+            generic.append(Chosen(name=item.email, title="", email=item.email, type=OTHER,
+                                  source="Careers page", country=_country(country),
+                                  page_id=existing[0] if existing else None,
+                                  cached=bool(existing), notes=note))
+            added += 1
+        elif open_slots().get(RECRUITER, 0) > 0 or (flexible_roles(deps.s) and open_slots()):
+            seen.add(key_email)
+            chosen.append(Chosen(name=item.name or item.email, title="", email=item.email,
+                                 type=RECRUITER, source="Careers page",
+                                 country=_country(country),
+                                 page_id=existing[0] if existing else None,
+                                 cached=bool(existing), notes=note))
+            added += 1
+    if added:
+        result.notes.append(f"company website: {added} address(es) found on {domain}")
 
 
 def _github_step(deps: ContactDeps, config: ConfigStore, company: str, domain: str,
