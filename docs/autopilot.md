@@ -17,8 +17,11 @@ sent (see "Mail mode" in [gmail.md](gmail.md)).
      other commands in the meantime.
    - Webhook (Cloud Run): send `/autopilot` again later; it carries on without a new fetch.
 4. **Approve**: the best Apply high and Apply normal jobs, in the `/pending` order, at most
-   `screening.autopilot_approvals` (10) a day (Bot State `autopilot.day`). Apply low and
-   Needs review are never approved by autopilot; they wait in `/pending`.
+   `screening.autopilot_approvals` a day (50 since 27 Oct, was 10; Bot State
+   `autopilot.day`). Apply low and Needs review are never approved by autopilot; they wait
+   in `/pending`. With Config `apply.auto` = `true` the approved jobs then go to the
+   auto-apply queue, and with auto-submit on ([apply-pack.md](apply-pack.md), step 5) the
+   complete forms are submitted; the rest come to you as Apply by hand.
 5. **For each approved job**:
    - Build the resume and save it, the same as tapping **Approve resume** (Drive in prod,
      `out/` when Drive writes are off).
@@ -72,7 +75,7 @@ see whether it is on and when it runs next.
   30 minutes after each start time ([deploy.md](deploy.md) B4). The first call starts the
   run; later calls carry on with its half-price batch once it has answered. The call is
   answered at once and the run reports in Telegram (a failure too, also by email).
-- It is the same run as `/autopilot`: at most `screening.autopilot_approvals` (10) approvals
+- It is the same run as `/autopilot`: at most `screening.autopilot_approvals` (50) approvals
   a day for both runs together, and the mail mode (`/mailmode`) decides between drafts and
   sending. The summary starts with "Scheduled autopilot (07:00 Asia/Kolkata)".
 

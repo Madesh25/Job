@@ -75,7 +75,7 @@ HELP_TEXT = (
     "/answer <question> = <answer> - save a form answer; it is in every Apply pack after\n"
     "/answers - your saved form answers (/answer delete N)\n"
     "/dryrun <url or id> - fill the job's form in a browser, never submit\n"
-    "/autoapply - dry runs for the jobs with a built resume, 3 at a time (30 a day)\n"
+    "/autoapply - fill forms of jobs with a resume; submit when it is on (50 a day)\n"
     "/gaps - skills jobs ask for that you lack, and which certificate covers most\n"
     "/keywords - the tools your best jobs name most, and which to add to your LinkedIn profile\n"
     "\n🟠 Contacts and mails\n"
