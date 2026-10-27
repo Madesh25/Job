@@ -13,6 +13,8 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from datetime import date
+from typing import Any
 
 NEXT = "\n\n\U0001F449 Next: "
 
@@ -64,7 +66,64 @@ def hint(command: str | None, args: str, text: str) -> str | None:
         return "tap Hands-on or Production for a skill you have; /pending to continue."
     if command == "autopilot":
         return "check the resumes and drafts above; /pending for the jobs it left for you."
+    # 27 Oct (Command guide): the commands that ended without a next step.
+    if command == "credits":
+        return "/outreach to see which approved jobs this week's credits cover."
+    if command == "outreach":
+        return "/fetchcontacts after applying: contacts and drafts within this budget."
+    if command == "stats":
+        return "/gaps for what to learn next; /keywords once a month for your LinkedIn profile."
+    if command == "keywords":
+        return ("put the words marked \"add it\" in your LinkedIn headline or Skills; /gaps "
+                "for what to learn.")
+    if command == "connections":
+        return ("/pending to continue: under each contacts answer, Referral asks lists your "
+                "connections at that company.")
+    if command == "agencies" and not word and "/agencies <" not in text:
+        return "/agencies <name> for an agency's intro mail."
+    if command == "mailqueue":
+        return "/today tomorrow shows what was sent and the replies."
+    if command == "mailmode" and text.startswith("Mail mode:"):
+        return "/autopilot and /fetchcontacts use this mode from now on."
+    if command == "digest":
+        return "/stats for the full numbers, /gaps for what to learn."
+    if command == "report":
+        return "/next for what to do now."
+    if command == "status":
+        return "/health for what would stop the run, /next for your day."
+    if command in ("answer", "answers"):
+        return "/applypack <job> shows them with the job's form answers."
     return None
+
+
+# The weekly and monthly commands /next adds when they are due (27 Oct, Command guide):
+# command -> (days between, what it is for). The last use is kept in Bot State.
+PERIODIC = {"stats": (7, "your reply rates: what works (weekly)"),
+            "gaps": (7, "skills to learn next (weekly)"),
+            "keywords": (30, "words for your LinkedIn profile (monthly)")}
+USED_KEY = "next.used"  # bot_state: {command: iso date of its last use}
+
+
+def mark_used(state: Any, command: str, today: date) -> None:
+    if state is None or command not in PERIODIC:
+        return
+    used = dict(state.get(USED_KEY) or {})
+    used[command] = today.isoformat()
+    state.set(USED_KEY, used)
+
+
+def periodic_due(state: Any, today: date) -> list[str]:
+    """The weekly and monthly commands not used for their period (never used: due)."""
+    used = (state.get(USED_KEY) if state is not None else None) or {}
+    out = []
+    for command, (days, what) in PERIODIC.items():
+        try:
+            last = date.fromisoformat(str(used.get(command) or ""))
+        except ValueError:
+            last = None
+        if last is None or (today - last).days >= days:
+            out.append(f"/{command}: {what}")
+    return out
 
 
 @dataclass(frozen=True)
@@ -75,6 +134,7 @@ class DayState:
     pending: int
     applied_today: int
     contacts_done: bool  # /fetchcontacts ran today
+    also: tuple[str, ...] = ()  # weekly and monthly steps that are due
 
 
 def checklist(state: DayState) -> str:
@@ -101,4 +161,7 @@ def checklist(state: DayState) -> str:
         lines.append(f"{mark} {command}: {what}")
     if now:
         lines.append(f"\nDo now: {now}")
+    if state.also:
+        lines.append("\nAlso due:")
+        lines += [f"📅 {item}" for item in state.also]
     return "\n".join(lines)

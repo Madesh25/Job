@@ -1651,8 +1651,35 @@ class Desk:
             fetched_today=last.get("at") == today.isoformat(),
             unscreened=unscreened, waiting_jd=len(waiting_rows),
             pending=len(pending_rows(self.repo)), applied_today=len(applied),
-            contacts_done=bool(applied) and all(v.get("Contacts") for _, v in applied))
+            contacts_done=bool(applied) and all(v.get("Contacts") for _, v in applied),
+            also=tuple(self._also_due(today)))
         return [Reply(next_steps.checklist(state))]
+
+    def _also_due(self, today: date) -> list[str]:
+        """/next: the weekly and monthly steps that are due (27 Oct, Command guide)."""
+        from jobengine import next_steps
+        from jobengine.track import health_report
+
+        out = next_steps.periodic_due(self.state, today)
+        if self.strategy is not None and strategy_runner.open_review(self.strategy):
+            out.append("/update: strategy tips wait for your Adopt or Reject")
+        else:
+            gate = health_report.gate_days(self.deps.config(), today)
+            if gate is not None and gate <= health_report.GATE_SOON_DAYS:
+                out.append("/update: the monthly strategy review, "
+                           + (f"/fetch closes in {gate} day(s)" if gate > 0
+                              else "/fetch is blocked until it is done"))
+        when, _count = connections.last_import(self.state)
+        if when is not None and (today - when).days >= connections.REFRESH_DAYS:
+            out.append("LinkedIn export: send the new Connections zip to the bot (/connections)")
+        return out
+
+    def note_command(self, command: str | None) -> None:
+        """Remember when you last used /stats, /gaps or /keywords (for /next)."""
+        from jobengine import next_steps
+
+        if command:
+            next_steps.mark_used(self.state, command, self.today())
 
     def fetch_contacts_command(self) -> list[Reply]:
         """/fetchcontacts: what a run for today's applied jobs would do, and a Go button.

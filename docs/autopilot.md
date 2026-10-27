@@ -136,3 +136,18 @@ Your decision of 25 Oct: you start applying at 22:00 India time, and a gentle pu
 - Long polling checks every few minutes. Cloud Run: Scheduler job `je-nudge-prod` calls
   `POST /tasks/nudge` every 30 minutes from 22:00 to 00:30 ([deploy.md](deploy.md) B4).
 
+
+## /help, Next lines and /next (Autopilot H)
+
+- `/help` lists the commands in the five groups of the Command guide page in Notion, in the
+  order of the day: Find and screen, Review and apply, Contacts and mails, Replies and
+  interviews, Strategy, health and control. It fits in one Telegram message. The `/` menu
+  starts with /start, /next, /status, /fetch and /autopilot, then follows the same groups.
+- Commands that ended without a next step now end with `👉 Next: ...`: /credits, /outreach,
+  /stats, /keywords, /connections, /agencies (the list), /mailmode (once a mode is set),
+  /mailqueue, /digest, /report, /status, /answer and /answers. An answer that already says
+  what comes next (buttons, its own "Next:", a question) gets none.
+- `/next` adds an "Also due" part when a weekly or monthly step is due: /stats and /gaps a
+  week after you last sent them, /keywords a month after, /update when strategy tips wait or
+  /fetch closes within 5 days, and the LinkedIn export 30 days after the last one. Bot State
+  `next.used` keeps the day you last sent /stats, /gaps and /keywords.
