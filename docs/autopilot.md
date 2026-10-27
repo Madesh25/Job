@@ -151,3 +151,19 @@ Your decision of 25 Oct: you start applying at 22:00 India time, and a gentle pu
   week after you last sent them, /keywords a month after, /update when strategy tips wait or
   /fetch closes within 5 days, and the LinkedIn export 30 days after the last one. Bot State
   `next.used` keeps the day you last sent /stats, /gaps and /keywords.
+
+## Holiday mode: /pause and /resume (Autopilot I8)
+
+`/pause 5d` (5 days) or `/pause 2026-11-05` (the day you are back; at most 60 days) turns it
+on. While it is on:
+
+- The autopilot and the afternoon check still fetch and screen, so nothing is missed, but
+  the autopilot approves nothing and builds no resume. Its summary says how many Apply high
+  and Apply normal jobs wait in `/pending`.
+- No mail is sent by itself: the mail queue waits, the daily check writes no follow-up
+  drafts, auto-apply and the evening apply nudge stop.
+- Your own commands still work. `/pause` alone says when it ends.
+- The morning check lists it under "Needs you soon".
+
+It ends by itself on the day you are back (that day's first autopilot summary starts with a
+welcome back), or at once with `/resume`. Bot State `holiday` keeps the day you are back.
