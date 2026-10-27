@@ -121,6 +121,7 @@ def desk_tasks(s: Settings, desk: Desk, client: tb.TelegramClient,
         send([Reply(run_weekly_digest(desk.track, desk.tracking_now()))])
         send(desk.spot_check_tick())  # Sunday 20:00 India time: 2 resumes to look at (H5)
         send(desk.expired_check_tick())  # the weekly link check: closed jobs Expired (I1)
+        send(desk.board_check_tick())  # the weekly job board check, before the audit
         send(desk.weekly_audit_tick())  # the weekly self-audit (Sunday from 20:00)
         return {"ok": True}
 

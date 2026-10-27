@@ -6,6 +6,8 @@ from dataclasses import dataclass, field
 from datetime import date
 from typing import Any
 
+from jobengine.sweep.filter_watch import Watch
+
 COUNTRY_FLAGS = {
     "Poland": "\U0001F1F5\U0001F1F1",
     "Netherlands": "\U0001F1F3\U0001F1F1",
@@ -243,6 +245,7 @@ class SweepSummary:
     site_missed: list[str] = field(default_factory=list)  # sweep/discover.py
     new_companies: int = 0  # new suggestions for /newcompanies (sweep/discover.py)
     tidy: list[str] = field(default_factory=list)  # sweep/inbox_tidy.py
+    watch: Watch = field(default_factory=Watch)  # dropped titles for the audit
 
     def _skipped_detail(self) -> str:
         if not self.skipped_by:

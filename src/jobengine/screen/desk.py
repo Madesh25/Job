@@ -12,6 +12,7 @@ import re
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta, timezone
+from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 
@@ -326,6 +327,9 @@ class Desk:
         self.autoapply_issues: Any = None
         self.audit_table: Any = None  # Weekly Audit (27 Oct); None: the audit is Telegram only
         self._audit_checked: date | None = None  # the day the weekly audit was last checked
+        # The weekly job board check (sweep/board_watch.py): (today, folder) -> the checks;
+        # None where Target Companies cannot be read.
+        self.board_reader: Callable[[date, Path], list[Any]] | None = None
         # The outside heartbeat (heartbeat.py, H4): True pings the check, False its /fail.
         self.heartbeat: Callable[[bool], bool] = lambda ok: heartbeat.ping(self.s, ok)
         # Set by the bot for each update: sends a reply at once (before a long build).
@@ -2655,6 +2659,26 @@ class Desk:
         expired_check.expire(result, self.repo.update)
         return [Reply(result.text()[:MAX_TEXT])]
 
+    def board_check_tick(self) -> list[Reply]:
+        """Every few minutes (and the digest task): the weekly job board check, Sunday from
+        10:00 India time on the prod bot; a message only when a board changed (28 Oct)."""
+        import tempfile
+
+        from jobengine.sweep import board_watch
+        from jobengine.track import daily_report
+
+        if self.board_reader is None:
+            return []
+        config = self.deps.config()
+        now = daily_report.local(self.tracking_now(), config)
+        if not board_watch.due(self.s, config, self.state, now):
+            return []
+        with tempfile.TemporaryDirectory() as folder:  # the saved pages are not needed here
+            checks = self.board_reader(now.date(), Path(folder))
+        week = board_watch.record(self.state, now.date(), checks)
+        message = board_watch.text(week)
+        return [Reply(message[:MAX_TEXT])] if message else []
+
     # ------------------------------------------------------------ weekly audit (27 Oct)
 
     def weekly_audit_tick(self) -> list[Reply]:
@@ -2688,6 +2712,7 @@ class Desk:
 
     def run_audit(self, monday: date) -> list[Reply]:
         """Build the audit of the week starting `monday`, write it to Notion and say so."""
+        from jobengine.sweep import board_watch, filter_watch
         from jobengine.track import audit, daily_report, day_ledger, issue_log, spot_check
 
         config = self.deps.config()
@@ -2707,7 +2732,9 @@ class Desk:
         data = audit.AuditInput(
             today=now.date(), jobs=jobs, contacts=contacts, ledger=ledger,
             issues=issue_log.week(self.state, monday), previous=previous,
-            spot_notes=spot_check.notes(self.state), form_issues=forms)
+            spot_notes=spot_check.notes(self.state), form_issues=forms,
+            fetch=filter_watch.week_of(self.state.get(filter_watch.KEY), monday),
+            boards=self.state.get(board_watch.KEY))
         report = audit.build(data, monday)
         blocks: list[tuple[str, ...]] = []
         for head, lines in report.sections:
@@ -3534,5 +3561,8 @@ def real_desk(s: Settings) -> Desk | None:
     from jobengine.track import issue_log
 
     desk.audit_table = audit_table(s, client)
+    from jobengine.sweep import boards
+
+    desk.board_reader = lambda today, folder: boards.read_all(s, today, folder)
     issue_log.install()  # the warnings and errors of the week, for the weekly audit
     return desk
