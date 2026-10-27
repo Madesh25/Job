@@ -22,6 +22,7 @@ import zlib
 from typing import Any
 from urllib.parse import quote
 
+from jobengine.apply.answers import for_country
 from jobengine.apply.answers import items as saved_answers
 from jobengine.apply.pack import MISSING, answer
 from jobengine.config_store import ConfigStore
@@ -85,7 +86,8 @@ def code(s: Settings, config: ConfigStore, state: Any, values: dict[str, Any], *
     data: dict[str, Any] = {
         "job": f"{values.get('Company') or ''}, {values.get('Role') or ''}".strip(", "),
         "fields": fields(s, config, values, letter=letter, why=why),
-        "answers": [[r["q"], r["a"]] for r in saved_answers(state)],
+        "answers": [[r["q"], r["a"]] for r in for_country(saved_answers(state),
+                                                          values.get("Country"))],
     }
     text = encode(data)
     while len(text) > MAX_CODE and data["answers"]:

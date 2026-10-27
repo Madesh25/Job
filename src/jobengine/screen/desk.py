@@ -980,7 +980,7 @@ class Desk:
             return []
         body = self.repo.read_body(job_id)
         text = pack.build(self.s, self.deps.config(), values, specific_details(body),
-                          self.today(), answers.pack_lines(self.state))
+                          self.today(), answers.pack_lines(self.state, values.get("Country")))
         letter = self.cover_letter(job_id, values, body, resume_pdf)
         if self.deps.write:
             try:
@@ -1036,7 +1036,9 @@ class Desk:
         config = self.deps.config()
         profile = autofill.fields(self.s, config, values, why=why)
         # Your saved answers win over an Answer bank row of the same question (newer).
-        saved = [*form_review.bank_answers(self.answer_bank), *answers.items(self.state)]
+        saved = answers.for_country(
+            [*form_review.bank_answers(self.answer_bank), *answers.items(self.state)],
+            values.get("Country"))  # a salary for another country is never used
         body = self.repo.read_body(row.page_id) if row is not None and self.repo else []
         now = self.tracking_now()
         form_review.prune_approved(self.state, now)
@@ -1229,9 +1231,20 @@ class Desk:
         """/answer <question> = <answer>: kept for every later Apply pack (feature 10)."""
         return [Reply(answers.command(self.state, args))]
 
-    def answers_command(self) -> list[Reply]:
-        """/answers: your saved form answers."""
+    def answers_command(self, args: str = "") -> list[Reply]:
+        """/answers: your saved form answers; /answers start: the starter pack questions."""
+        from jobengine.apply import starter
+
+        if args.strip().lower() == "start":
+            return [Reply(starter.start(self.state, self.now()))]
         return [Reply(answers.listing(self.state)[:MAX_TEXT])]
+
+    def starter_text(self, message: str) -> list[Reply] | None:
+        """A plain message while a starter pack question waits is its answer."""
+        from jobengine.apply import starter
+
+        said = starter.reply(self.state, self.now(), message, self.answer_bank)
+        return [Reply(said)] if said else None
 
     def cover_letter(self, job_id: str, values: dict[str, Any], body: list[str],
                      resume_pdf: bytes | None) -> cover.Letter | None:
@@ -3215,7 +3228,8 @@ class Desk:
         """A plain text message. None when no capture is active (the bot answers as usual)."""
         capture = self.captures.get()
         if capture is None:
-            return self.domain_text(message) or self._rebuild_answer(message)
+            return (self.domain_text(message) or self._rebuild_answer(message)
+                    or self.starter_text(message))
         if self.captures.expired(capture, self.now()):
             return [self._discarded(capture)]
         capture = self.captures.add(capture, message)
