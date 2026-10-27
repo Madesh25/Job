@@ -93,6 +93,17 @@ off) one message comes before the 07:00 run (`track/health_report.py`):
 Long polling checks it every few minutes; Cloud Run gets `POST /tasks/health`
 ([deploy.md](deploy.md)).
 
+## Companies you apply to join Target Companies (Autopilot A2)
+
+With Notion Config `apply.add_companies` = `true` (off by default: Target Companies is shared
+with prod, so you switch it on), the company of a job you applied to is added to Target
+Companies, so every `/fetch` reads its own job board from then on. It happens when you tap
+`I applied`, and when a confirmation mail marks the job Applied (Autopilot A). The row gets the
+job board from the job link (Greenhouse, Lever, ...), or the company's site, or no link when
+the job came from LinkedIn or another job board (then `/fetch` looks for the board by the
+name); Notes say "Added from your application on <date>". Each add comes with an `Undo`
+button. A company already there (even unticked) or an agency is skipped without a message.
+
 ## Afternoon check (apply early)
 
 Jobs posted after the morning run would wait until the next day, and the first applicants
