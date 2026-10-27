@@ -72,6 +72,25 @@ Google retired the 2.5 models in October 2026: use the names above.
 - Gemini calls go through `jobengine.http`, so `generativelanguage.googleapis.com` is on
   `safety.allowed_hosts`. Prompts are never logged.
 
+## Monthly cap (Autopilot I6)
+
+Notion Config `ai.monthly_cap` is the most the AI may cost in a month, in US dollars, for
+example `15`. It uses the same estimate as the "AI in <month>" line of /health and the digest.
+Empty or 0 means no cap.
+
+- At 80% the bot sends `💸 AI cost: about $X of your $Y cap` once that month.
+- At 100% it pauses the paid AI until the 1st and says so once, with the button "Allow AI for
+  the rest of <month>". While it is paused, screening, resumes, mails, contact search and
+  /update answer `AI paused: ...` instead of calling the AI. The autopilot screening stops
+  after the first job rather than listing every job.
+- Reading your replies (stage `reply`) is never paused: it costs about a cent a day.
+- The morning check lists the pause as a blocker and 80% or more as "needs you soon".
+- Raising the cap in Config lifts the pause at once; the button lifts it for this month only.
+
+Bot State keeps `ai.cap_alert` (which message went out this month) and `ai.cap_allow` (the
+month you allowed). The check sits in the shared router (`llm.check_cost`), so every paid call
+goes through it; if the check itself breaks, the call runs.
+
 ## Setup (once, after go-live)
 
 1. Google AI Studio (aistudio.google.com) -> Get API key, in a Google Cloud project **with
