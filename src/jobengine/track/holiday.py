@@ -3,8 +3,8 @@
 While it is on, the autopilot still fetches and screens (so nothing is missed), but approves
 nothing, builds no resume and sends no mail: the mail queue waits, follow-up drafts wait,
 auto-apply and the evening apply nudge stop. Your own commands still work. It ends by itself
-on the day you are back (the morning check that day starts with a welcome back), or at once
-with /resume. Until then the morning check says when it ends.
+on the day you are back (that day's first autopilot summary starts with a welcome back), or
+at once with /resume. Until then the morning check says when it ends.
 """
 
 from __future__ import annotations

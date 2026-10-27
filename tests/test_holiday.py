@@ -1,7 +1,7 @@
 """Holiday mode (Autopilot I8, 27 Oct): /pause keeps finding and screening, approves and
 mails nothing; /resume or the day you are back ends it."""
 
-from datetime import UTC, date, datetime
+from datetime import date
 
 from test_autopilot import Fetch, make_desk
 from test_telegram_bot import Clock, settings, talk
@@ -74,14 +74,14 @@ def test_commands_and_the_morning_check():
     assert "Holiday mode" not in d.health_report_text()
 
 
-def test_the_morning_check_on_the_day_you_are_back_starts_with_a_welcome():
-    d = fake_desk(settings(), FAKE_TODAY, now=Clock())
-    d.state.set(holiday.KEY, {"back": "2026-10-27", "since": "2026-10-20"})
-    d._track_now = lambda: datetime(2026, 10, 27, 1, 5, tzinfo=UTC)  # 06:35 in India
-    replies = d.health_report_tick()
-    assert replies[0].text.startswith("✅ Welcome back")
-    assert replies[1].text.startswith("🩺 Morning check")
-    assert d.state.get(holiday.KEY) is None
+def test_the_first_autopilot_run_on_the_day_you_are_back_starts_with_a_welcome(tmp_path):
+    desk = make_desk(tmp_path)
+    today = desk.today()
+    desk.state.set(holiday.KEY, {"back": today.isoformat(), "since": "2026-09-25"})
+    replies = desk.autopilot(Fetch())
+    assert replies[0].text.startswith("✅ Welcome back: holiday mode ended today.")
+    assert "Autopilot done: 7 jobs approved" in replies[0].text
+    assert desk.state.get(holiday.KEY) is None
 
 
 def test_follow_up_drafts_wait_while_you_are_away():

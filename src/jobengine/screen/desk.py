@@ -2216,11 +2216,12 @@ class Desk:
         from jobengine.screen import schedule
         from jobengine.strategy import auto_update
         from jobengine.track import costs, daily_report, health_report
-        from jobengine.track import holiday as holiday_mode
 
         config = self.deps.config()
         today = daily_report.local(self.tracking_now(), config).date()
         blockers, soon, fine = [], [], []
+        from jobengine.track import holiday as holiday_mode
+
         back = holiday_mode.active(self.state, today)
         if back is not None:  # /pause (I8)
             soon.append(f"🏖 Holiday mode until {back:%a %d %b}: nothing is approved or "
@@ -2286,13 +2287,8 @@ class Desk:
         now = self.tracking_now()
         if not health_report.due(config, self.state, now):
             return []
-        today = daily_report.local(now, config).date()
-        health_report.mark_sent(self.state, today)
-        from jobengine.track import holiday
-
-        back = holiday.ended(self.state, today)  # the day you are back from /pause (I8)
-        return [*([Reply(back)] if back else []),
-                Reply(self.health_report_text()[:MAX_TEXT])]
+        health_report.mark_sent(self.state, daily_report.local(now, config).date())
+        return [Reply(self.health_report_text()[:MAX_TEXT])]
 
     def daily_report_tick(self) -> list[Reply]:
         """Every few minutes (and POST /tasks/report): the evening report, once a day, on

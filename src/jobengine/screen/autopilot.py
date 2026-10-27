@@ -314,6 +314,9 @@ def _finish(desk: Desk, lines: list[str], progress: Progress) -> list[Reply]:
         lines.append(f"🏖 Holiday mode until {back:%a %d %b}: {holiday.STOPS}. {len(rows)} "
                      "Apply high or Apply normal jobs wait in /pending. /resume ends it.")
         return [Reply("\n\n".join(t for t in lines if t))]
+    welcome = holiday.ended(desk.state, desk.today())  # the first run on the day you are back
+    if welcome:
+        lines.insert(0, welcome)
     reports: list[JobReport] = []
     done = 0
     for row in rows:

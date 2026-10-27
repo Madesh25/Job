@@ -154,5 +154,5 @@ on. While it is on:
 - Your own commands still work. `/pause` alone says when it ends.
 - The morning check lists it under "Needs you soon".
 
-It ends by itself on the day you are back (that morning check starts with a welcome back), or
-at once with `/resume`. Bot State `holiday` keeps the day you are back.
+It ends by itself on the day you are back (that day's first autopilot summary starts with a
+welcome back), or at once with `/resume`. Bot State `holiday` keeps the day you are back.
