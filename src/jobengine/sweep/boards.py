@@ -333,12 +333,11 @@ def save_csv(rows: list[Check], out_dir: Path = OUT_DIR) -> Path:
     return path
 
 
-def check_all(s: Settings, today: date) -> str:
-    """The real run: Target Companies from Notion, the network through jobengine.http."""
+def read_all(s: Settings, today: date, out_dir: Path = OUT_DIR) -> list[Check]:
+    """The real run: Target Companies from Notion, the network through jobengine.http.
+    Also the weekly check of the bot (sweep/board_watch.py)."""
     from jobengine.notion_repo import NotionClient, NotionReader
 
-    if not s.notion_token:
-        return "Board check cannot run: NOTION_TOKEN missing"
     companies = NotionReader(NotionClient(s.notion_token, s), s).target_companies()
 
     def get(url: str, params: Mapping[str, Any]) -> Any:
@@ -351,6 +350,13 @@ def check_all(s: Settings, today: date) -> str:
         # SuccessFactors job feeds are RSS: accepted here too.
         return http.get_page(url, s=s, accept_feed=True)
 
-    rows = run(s, companies, load_candidates(), get, post, page, today, new=load_new())
+    return run(s, companies, load_candidates(), get, post, page, today, out_dir,
+               new=load_new())
+
+
+def check_all(s: Settings, today: date) -> str:
+    if not s.notion_token:
+        return "Board check cannot run: NOTION_TOKEN missing"
+    rows = read_all(s, today)
     path = save_csv(rows)
     return f"{report_text(rows)}\n\nSaved {path}; zip the out/boards folder and send it."

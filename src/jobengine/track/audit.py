@@ -25,6 +25,7 @@ from dataclasses import dataclass, field
 from datetime import date, datetime, time, timedelta
 from typing import Any
 
+from jobengine.sweep import board_watch
 from jobengine.track.stats import CONTACTED, Funnel, pct
 
 DONE_KEY = "audit.done"  # bot_state: {"week": <iso Monday of the last audited week>}
@@ -38,6 +39,7 @@ MIN_SAMPLE = 5  # applications in a group before its reply rate is compared
 NOT_APPLIED_DAYS = 2
 FAST_REJECT_DAYS = 3
 TOP_ISSUES = 10
+FILTER_SHOWN = 15  # titles shown per filter list
 RATE_STEP = 0.02  # a change of 2 points in the reply rate counts as better or worse
 NEW, REVIEWED, ACTIONS_SET = "New", "Reviewed", "Actions set"
 LEVELS = ("high", "medium", "info")
@@ -53,8 +55,11 @@ OPUS_PROMPT = (
     "earlier weeks if I paste them): 1) name the 3 biggest problems, most costly first, with "
     "the number that shows each; 2) for each, the most likely cause and the smallest change "
     "to test next week, with the number that would show it worked; 3) what to stop doing "
-    "because it keeps failing; 4) what is working and should get more effort. Say when the "
-    "data is too small to judge. Do not invent numbers.")
+    "because it keeps failing; 4) what is working and should get more effort; 5) from the "
+    "filter section: which dropped titles fit my profile (a title to add to my title list) "
+    "and which saved jobs did not (a word to leave out). Never suggest loosening the "
+    "seniority, country, language, sponsorship or office-only rules. Say when the data is "
+    "too small to judge. Do not invent numbers.")
 
 
 @dataclass
@@ -77,6 +82,8 @@ class AuditInput:
     previous: list[dict[str, Any]] = field(default_factory=list)  # earlier audits, newest first
     spot_notes: list[dict[str, str]] = field(default_factory=list)
     form_issues: list[dict[str, Any]] = field(default_factory=list)
+    fetch: Mapping[str, Any] = field(default_factory=dict)  # sweep/filter_watch.py, the week
+    boards: Mapping[str, Any] | None = None  # sweep/board_watch.py, the last board check
 
 
 @dataclass
@@ -413,6 +420,73 @@ def quality(data: AuditInput, monday: date, sunday: date) -> list[Finding]:
     return out
 
 
+def _top(items: Mapping[str, list[Any]], limit: int, label: str) -> list[str]:
+    """The most frequent titles of a filter_watch list: [count, title, word, where]."""
+    ranked = sorted(items.values(), key=lambda item: (-item[0], item[1].lower()))[:limit]
+    out = []
+    for n, title, word, where in ranked:
+        tag = f" [{label}: {word}]" if word else ""
+        out.append(f"   {n}x {title}{tag}, e.g. {where}")
+    return out
+
+
+def fetch_lines(week: Mapping[str, Any]) -> list[str]:
+    """What /fetch read and dropped this week, and the titles a filter may have got wrong."""
+    if not week:
+        return ["- No /fetch data for this week (kept from 28 Oct, by every /fetch)."]
+    sources = week.get("sources") or {}
+    read = sum(v[0] for v in sources.values())
+    saved = sum(v[1] for v in sources.values())
+    runs = int(week.get("runs") or 0)
+    lines = [f"- {runs} {'fetch' if runs == 1 else 'fetches'}: {read} postings read, {saved} "
+             "saved as new "
+             "jobs (company boards: only titles in scope are counted as read)."]
+    if sources:
+        lines.append("- Per source (read / saved): " + "; ".join(
+            f"{name} {v[0]} / {v[1]}" for name, v in
+            sorted(sources.items(), key=lambda kv: -kv[1][0])))
+    reasons = sorted((week.get("reasons") or {}).items(), key=lambda kv: -kv[1])
+    if reasons:
+        lines.append("- Dropped by reason: " + ", ".join(f"{r} {n}" for r, n in reasons[:8]))
+    totals = week.get("totals") or {}
+    near, excluded, low = (week.get(k) or {} for k in ("near", "excluded", "low"))
+    if totals.get("near"):
+        lines.append(f"🟠 Maybe missed by the title filter: {totals['near']} postings in your "
+                     f"countries with a near word in the title but not one of your titles "
+                     f"({len(near)} different title(s)). The most frequent:")
+        lines += _top(near, FILTER_SHOWN, "word")
+    else:
+        lines.append("- Maybe missed by the title filter: none this week.")
+    if totals.get("excluded"):
+        lines.append(f"🔵 Your titles left out by an excluded word: {totals['excluded']}. "
+                     "Mostly seniority on purpose; look for a wrong hit (a word that is not "
+                     "about seniority):")
+        lines += _top(excluded, 10, "excluded")
+    if totals.get("low"):
+        lines.append(f"🔵 Dropped for too few of your skills: {totals['low']}. The most "
+                     "frequent:")
+        lines += _top(low, 8, "")
+    return lines
+
+
+def wrong_in(data: AuditInput, monday: date, sunday: date) -> list[str]:
+    """Saved jobs that were not your profile: screening said Skip, or you declined them."""
+    new = [v for v in data.jobs if _between(v.get("First seen"), monday, sunday)]
+    skipped = [v for v in new if v.get("Screen verdict") == "Skip"]
+    declined = [v for v in data.jobs if v.get("Status") == "Declined"
+                and _between(v.get("Last activity date"), monday, sunday)]
+    if not skipped and not declined:
+        return [f"- Saved but not your profile: none of the {len(new)} new jobs this week."]
+    why = Counter(str(v.get("Skip reason") or "no reason") for v in skipped)
+    lines = [f"🟠 Saved but not your profile: screening said Skip for {len(skipped)} of the "
+             f"{len(new)} new jobs this week"
+             + (f" ({', '.join(f'{k} {n}' for k, n in why.most_common(6))})" if why else "")
+             + f"; you declined {len(declined)}. Their titles:"]
+    titles = Counter(" ".join(str(v.get("Role") or "?").split()) for v in [*skipped, *declined])
+    lines += [f"   {n}x {title}" for title, n in titles.most_common(FILTER_SHOWN)]
+    return lines
+
+
 def last_actions(data: AuditInput, rate: float, applied: int) -> list[str]:
     if not data.previous:
         return ["- First audit: nothing to compare with yet."]
@@ -471,6 +545,11 @@ def build(data: AuditInput, monday: date) -> Audit:
          [f.line() for f in stale] or ["- Nothing yet (needs "
                                        f"{REPEAT_MIN}+ tries in one group with 0 replies)."]),
         ("What works (settled applications)", what_works(data, sunday)),
+        ("Fetch and filters: jobs a filter may have got wrong",
+         [*fetch_lines(data.fetch), *wrong_in(data, monday, sunday),
+          "- The bot never changes the filters. Opus may suggest a title to add or a word to "
+          "leave out; you decide, and the change is made by hand."]),
+        ("Job boards (weekly check)", board_watch.audit_lines(data.boards, monday, sunday)),
         ("Last week's actions", last_actions(data, group.rate, props["Applied"])),
         ("For Opus", [OPUS_PROMPT, "When you decide, set Status to Actions set and write the "
                                    "Actions here; next week's audit follows them."]),

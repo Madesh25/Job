@@ -48,7 +48,8 @@ page is saved in `out/boards/<company>.html`. The table is printed and saved as
 so only "OK" with a job count means `/fetch` can read that company. The links that work are
 then put in Target Companies (with your OK) and taken out of the candidates file. In Docker:
 `docker run --rm -it --env-file .env -v "${PWD}/out:/app/out" job-engine python -m
-jobengine.sweep --check-boards`.
+jobengine.sweep --check-boards`. Since 28 Oct the prod bot also runs it by itself every
+Sunday and tells you only what changed (docs/tracking.md, Weekly job board check).
 
 **New companies and board fixes (10 Oct).** The `new:` list in `config/board_candidates.yaml`
 names companies proposed for Target Companies (mid-size companies, scale-ups and startups that

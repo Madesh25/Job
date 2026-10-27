@@ -22,6 +22,7 @@ from jobengine.sweep import (
     crossmatch,
     discover,
     fakes,
+    filter_watch,
     fit,
     fulltext,
     inbox_tidy,
@@ -30,6 +31,7 @@ from jobengine.sweep.dedupe import IndexRow, create_plan, description_blocks, up
 from jobengine.sweep.gate import strategy_gate
 from jobengine.sweep.models import (
     ALREADY,
+    KEPT_BUCKETS,
     MERGED,
     SAVED,
     SKIP_WORDS,
@@ -296,6 +298,8 @@ def _count(summary: SweepSummary, reason: str, jobs: list[Job] | None = None) ->
         summary.fully_remote += n
     elif reason == LOW_MATCH:
         summary.low_match += n
+        for job in jobs or []:
+            summary.watch.add("low", job.role, "", f"{job.company} ({job.city or job.country})")
     else:
         summary.needs_language += n
 
@@ -442,13 +446,28 @@ def run_sweep(
     rules = Rules.from_config(s.sweep)
     active = parse_active_countries(config.get("countries.active"))
 
+    summary = SweepSummary(countries=list(active), labels=dict(SOURCE_LABELS))
+
     def keep(title: str, location: str) -> bool:
         country, city = place(location, rules)
         if not rules.remote_jobs and remote_only(location, title, city):
             return False
-        return title_scope(title, rules) is None and place_allowed(country, city, active, rules)
+        if not place_allowed(country, city, active, rules):
+            return False
+        why = title_scope(title, rules)
+        if why:  # a company board's title the filter left out, for the weekly audit
+            summary.watch.title_drop(why, title, f"company board ({location or 'no place'})")
+        return why is None
 
-    summary = SweepSummary(countries=list(active), labels=dict(SOURCE_LABELS))
+    def may_take(raw: Any) -> bool:
+        """The place of a posting the title filter dropped is one you take (or unknown)."""
+        country, city = place(raw.location_text, rules, raw.location_area)
+        if country is None:
+            return True
+        if not rules.remote_jobs and remote_only(raw.location_text, raw.title, city):
+            return False
+        return place_allowed(country, city, active, rules)
+
     loss = summary.loss
     repo = deps.repo
     if repo is None:
@@ -579,6 +598,10 @@ def run_sweep(
                 summary.skipped_by[why] = summary.skipped_by.get(why, 0) + 1
                 loss.add(raw.source, SKIP_WORDS.get(why, why),
                          f"{raw.title} | {raw.company} | {raw.location_text or '(no place)'}")
+                if why.startswith("title") and may_take(raw):
+                    summary.watch.title_drop(
+                        outcome.reason, raw.title,
+                        f"{raw.company} ({raw.location_text or 'no place'})")
                 log.debug("skipped %s: %s", raw.title, outcome.reason)
                 continue
             seen.append(outcome)
@@ -710,5 +733,10 @@ def run_sweep(
             state.set(LAST_REPORT, loss.to_state(today.isoformat()))
         except Exception:  # never fail a sweep over the loss report
             log.exception("could not store the loss report")
+        try:
+            filter_watch.save(state, today, summary.watch, loss.by_source, summary.labels,
+                              KEPT_BUCKETS, SAVED)
+        except Exception:  # never fail a sweep over the weekly filter review
+            log.exception("could not store the week's dropped titles")
     day_ledger.add_sweep(summary.sources, summary.new, summary.updated)
     return summary

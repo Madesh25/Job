@@ -262,6 +262,23 @@ opening the link. Closed jobs get Status Expired, so /pending only shows live jo
 - Notion Config `schedule.expired_check` = `false` switches it off (default on). Bot State
   `expired.check` keeps the date of the last check. On Cloud Run the Sunday digest task runs it.
 
+## Weekly job board check (28 Oct, your request)
+
+Every Sunday from 10:00 India time (or the first day after, when the bot was off) the bot runs
+the job board check of `python -m jobengine.sweep --check-boards` by itself (`sweep/boards.py`;
+it reads only and writes nothing to Notion) and compares it with last week's
+(`sweep/board_watch.py`):
+
+- 🔴 a board that worked and now fails (HTTP 404, a moved site);
+- 🟠 a board that had jobs in Poland, the Netherlands or Ireland and now has none;
+- 🟠 a board whose jobs fell to half or less (from 10 jobs or more);
+- 🟢 a board that failed and works again.
+
+A message comes only when something changed; the first run sends one short summary. The
+weekly audit shows the same result. On by default only on the prod bot (after go-live);
+Notion Config `schedule.board_check` = `true` or `false` overrides that. Bot State
+`boards.weekly` keeps the last result. On Cloud Run the Sunday digest task runs it too.
+
 ## Weekly self-audit (27 Oct, your request)
 
 Every Sunday from 20:00 India time (with the digest; on the first day after when the bot was
@@ -288,9 +305,20 @@ The report, counted from your own data with no AI:
    sent and no reply; 8 or more follow-ups unanswered; a source with 20 or more jobs and none
    Apply high or normal.
 4. **What works**: the reply rate per group with at least 5 settled applications.
-5. **Last week's actions**: the reply rate and applications before and after, and the
+5. **Fetch and filters: jobs a filter may have got wrong** (28 Oct). Every `/fetch` keeps,
+   for its week, what it read and dropped (`sweep/filter_watch.py`, Bot State
+   `sweep.filter_weeks`). The audit lists: postings read and saved per source; the drop
+   reasons; 🟠 titles in your countries that are not one of your titles but have a near word
+   (cloud, infrastructure, platform, kubernetes, terraform ...), the ones a few changed words
+   can hide; 🔵 DevOps-type titles left out by an excluded word (mostly seniority on purpose,
+   sometimes a wrong hit like "Staff Augmentation"); 🔵 jobs dropped for too few of your
+   skills; and 🟠 the other way round, saved jobs that were not your profile (screening said
+   Skip, or you declined them), with their titles. The bot never changes the filters: Opus may
+   suggest a title to add or a word to leave out, and you decide.
+6. **Job boards (weekly check)**: the result of the Sunday board check above.
+7. **Last week's actions**: the reply rate and applications before and after, and the
    Actions you wrote on last week's row.
-6. **For Opus**: a ready prompt. Open the page, give it to Opus, then set the row's Status
+8. **For Opus**: a ready prompt. Open the page, give it to Opus, then set the row's Status
    (New, Reviewed, Actions set) and write the Actions you decide. The next audit reports on
    them.
 
