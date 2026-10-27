@@ -262,6 +262,50 @@ opening the link. Closed jobs get Status Expired, so /pending only shows live jo
 - Notion Config `schedule.expired_check` = `false` switches it off (default on). Bot State
   `expired.check` keeps the date of the last check. On Cloud Run the Sunday digest task runs it.
 
+## Weekly self-audit (27 Oct, your request)
+
+Every Sunday from 20:00 India time (with the digest; on the first day after when the bot was
+off) the bot writes one row in the Notion table **Weekly Audit**, with the full report in the
+page, and sends a short summary with the link to Telegram. It cannot be switched off. `/audit`
+writes it now. The first audit ever comes on the first Sunday evening after the deploy.
+
+The report, counted from your own data with no AI:
+
+1. **Scorecard**: applications this week against last week; the reply rate of the "settled"
+   group (jobs applied 7 to 35 days ago, since replies take a week or more), interviews,
+   rejections and ghosted; what the bot did each day (day ledger: new jobs, screened, Apply
+   high or normal, resumes, contacts, drafts, mails sent, replies, AI cost).
+2. **Where it went wrong this week** (🔴 serious, 🟠 to fix, 🔵 for information): approved
+   jobs with a resume not applied after 2 days; jobs that expired after their resume was
+   built; applications without any contact; Gmail drafts older than 3 days not sent; bounces
+   by the source that gave the address; rejections, with how many came within 3 days (usually
+   an automatic filter); resumes you marked wrong in the spot check; wrong answers in dry-run
+   forms; days the bot did not run; and the warnings and errors the bot logged, the most
+   frequent first.
+3. **Done again and again without results** (last 4 weeks, this week left out): any country,
+   board, screen verdict, sponsorship or role family with 8 or more applications and no
+   reply; mails to one kind of person (recruiters, hiring managers, engineers) with 8 or more
+   sent and no reply; 8 or more follow-ups unanswered; a source with 20 or more jobs and none
+   Apply high or normal.
+4. **What works**: the reply rate per group with at least 5 settled applications.
+5. **Last week's actions**: the reply rate and applications before and after, and the
+   Actions you wrote on last week's row.
+6. **For Opus**: a ready prompt. Open the page, give it to Opus, then set the row's Status
+   (New, Reviewed, Actions set) and write the Actions you decide. The next audit reports on
+   them.
+
+The morning check names an audit that is missing on Tuesday (a blocker: send `/audit`) and an
+audit still New 3 days after its week ended.
+
+The warnings and errors come from `track/issue_log.py`: every WARNING or ERROR of the bot's
+own loggers is counted in memory under a short pattern (numbers, ids and links blanked) and
+written to Bot State `audit.issues` at most every 30 minutes; counts of a run that stops
+before that write are lost. Bot State `audit.done` keeps the last audited week.
+
+Tables: Weekly Audit (DEV) in DEV Sandbox (`notion.write.weekly_audit` in dev and local).
+There is no prod table yet: in prod the audit comes in Telegram only, with a DRY RUN line,
+until you OK the prod table.
+
 ## Heartbeat (Autopilot H4)
 
 The daily report and the failure mails come from the bot itself, so when the PC, the

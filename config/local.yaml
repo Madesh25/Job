@@ -9,6 +9,8 @@ notion:
     # Autopilot H8 (25 Oct): Answer bank (DEV) and Auto-apply issues (DEV), DEV Sandbox.
     answer_bank: "5d8824c4-5cfd-4bd5-887c-30bf61184bb2"
     autoapply_issues: "6625f742-f410-4836-a4c1-a9e1d9026952"
+    # 27 Oct: the weekly self-audit, Weekly Audit (DEV) in DEV Sandbox.
+    weekly_audit: "8c2c1eaf-8ce3-4482-8fac-55f838b47a9e"
 gmail:
   sender: "madeshwaranm02@gmail.com"
 llm:

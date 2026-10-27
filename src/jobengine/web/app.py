@@ -111,6 +111,7 @@ def desk_tasks(s: Settings, desk: Desk, client: tb.TelegramClient,
         send(desk.connections_reminder())  # the monthly LinkedIn export, when it is due
         send(desk.leftover_tick())  # credits left on the day before a provider renews
         send(desk.ai_cap_tick())  # the month's AI cap at 80% and 100% (I6)
+        send(desk.weekly_audit_tick())  # a weekly audit missed on Sunday comes the next day
         return {"ok": report.ok, "sent": len(report.sent), "replies": len(report.replies),
                 "followups": len(report.followups), "reminder": bool(reminder)}
 
@@ -120,6 +121,7 @@ def desk_tasks(s: Settings, desk: Desk, client: tb.TelegramClient,
         send([Reply(run_weekly_digest(desk.track, desk.tracking_now()))])
         send(desk.spot_check_tick())  # Sunday 20:00 India time: 2 resumes to look at (H5)
         send(desk.expired_check_tick())  # the weekly link check: closed jobs Expired (I1)
+        send(desk.weekly_audit_tick())  # the weekly self-audit (Sunday from 20:00)
         return {"ok": True}
 
     def sweep() -> dict[str, Any]:
