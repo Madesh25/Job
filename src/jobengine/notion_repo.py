@@ -1202,6 +1202,52 @@ class FakeTable:
         return [dict(r) for r in self.created]
 
 
+# ---------------------------------------------------------------- weekly audit (27 Oct)
+
+AUDIT_TYPES = {
+    "Week": "title", "Week start": "date", "Applied": "number", "Replies": "number",
+    "Interviews": "number", "Reply rate": "number", "Mails sent": "number", "Errors": "number",
+    "AI cost": "number", "Verdict": "select", "Status": "select", "Actions": "rich_text",
+}
+MAX_CHILDREN = 100  # Notion's limit per request
+
+
+class AuditTable(NotionTable):
+    """Weekly Audit: one row a week, the report in its page body."""
+
+    def create_page(self, props: dict[str, Any], blocks: list[tuple[str, ...]]) -> str:
+        children = typed_blocks(blocks)
+        body = {"parent": {"type": "data_source_id", "data_source_id": self.data_source_id},
+                "properties": {name: notion_value(self.types[name], value)
+                               for name, value in props.items() if value not in (None, "")},
+                "children": children[:MAX_CHILDREN]}
+        page_id = self.client.request("POST", "/pages", body)["id"]
+        for i in range(MAX_CHILDREN, len(children), MAX_CHILDREN):
+            self.client.request("PATCH", f"/blocks/{page_id}/children",
+                                {"children": children[i:i + MAX_CHILDREN]})
+        return page_id
+
+
+class FakeAuditTable(FakeTable):
+    def __init__(self) -> None:
+        super().__init__()
+        self.bodies: list[list[tuple[str, ...]]] = []
+
+    def create_page(self, props: dict[str, Any], blocks: list[tuple[str, ...]]) -> str:
+        self.bodies.append(list(blocks))
+        return self.create(props)
+
+
+def audit_table(s: Settings, client: NotionClient) -> AuditTable | None:
+    """Weekly Audit, or None when it is not writable here (the audit then comes in Telegram
+    only, with a DRY RUN line)."""
+    target = notion_write_target("weekly_audit", s)
+    if target is None:
+        log.warning("DRY RUN: would write to weekly_audit")
+        return None
+    return AuditTable(client, target, AUDIT_TYPES)
+
+
 def autoapply_tables(s: Settings, client: NotionClient) -> tuple[Any, Any]:
     """(Answer bank, Auto-apply issues), each None when not writable in this env."""
     out = []

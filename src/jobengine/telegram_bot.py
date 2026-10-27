@@ -73,7 +73,7 @@ HELP_TEXT = (
     "/applypack <url or id> - ready answers for a job's form (visa, notice, salary)\n"
     "/autofill - the browser bookmark that fills forms from the Apply pack code\n"
     "/answer <question> = <answer> - save a form answer; it is in every Apply pack after\n"
-    "/answers - your saved form answers (/answer delete N removes one)\n"
+    "/answers - your saved form answers (/answer delete N)\n"
     "/dryrun <url or id> - fill the job's form in a browser, never submit\n"
     "/autoapply - dry runs for the jobs with a built resume, 3 at a time (30 a day)\n"
     "/gaps - skills jobs ask for that you lack, and which certificate covers most\n"
@@ -82,7 +82,7 @@ HELP_TEXT = (
     "/fetchcontacts - contacts and Gmail drafts (resume attached) for today's applied jobs\n"
     "/contacts <url or id> - contacts for a job, and your LinkedIn connections there\n"
     "/drafts <url or id> - write Gmail drafts for a job's contacts again\n"
-    "/connections - your LinkedIn connections table; send the LinkedIn export zip to update it\n"
+    "/connections - your LinkedIn connections; send the export zip to update\n"
     "/credits - contact credits left, asked from each provider\n"
     "/outreach - this week's budget: which approved jobs get contacts and cold mails\n"
     "/mailmode - draft (only write Gmail drafts) or send (check every mail, then send it)\n"
@@ -92,14 +92,15 @@ HELP_TEXT = (
     "/today - run the daily check now (sent mails, replies, bounces, follow-ups)\n"
     "/followups - follow-up drafts waiting to be sent, and follow-ups due soon\n"
     "/prep <url or id> - interview prep: likely questions, your gaps, questions to ask them\n"
-    "/thanks <url or id> <name> - the thank-you mail to send after an interview\n"
+    "/thanks <url or id> <name> - the thank-you mail after an interview\n"
     "/stats - applied, replies, interviews and reply rates (30 days and all time)\n"
     "/digest - the weekly digest now\n"
     "/spotcheck - 2 of the week's resumes to look at (/spotcheck notes)\n"
     "/report - today's daily report now (it also comes every evening, and by email)\n"
     "\n🟡 Strategy, health and control\n"
-    "/update - monthly strategy research for your review (opens /fetch); /update new again\n"
-    "/rules - V16 non-negotiables, thresholds, adopted tips and the /fetch gate\n"
+    "/update - monthly strategy research (opens /fetch); /update new again\n"
+    "/rules - V16 rules, thresholds, adopted tips and the /fetch gate\n"
+    "/audit - the weekly self-audit now (it also comes every Sunday)\n"
     "/autopilot - fetch, screen at half price, approve the best (10 a day), save resumes, "
     "find contacts, write Gmail drafts\n"
     "/autopilot when - its schedule (07:00 and 19:30) and the next run\n"
@@ -188,7 +189,7 @@ DESK_COMMANDS = ("next", "pending", "add", "newcompanies", "report", "jd", "done
                  "fetchcontacts",
                  "alertcheck", "fetchreport", "linkedin", "today", "followups", "stats",
                  "sources", "health", "digest", "spotcheck", "update", "rules", "pause",
-                 "resume")
+                 "resume", "audit")
 
 # (method, payload, http_timeout) -> decoded JSON response
 Transport = Callable[[str, dict[str, Any], float], dict[str, Any]]
@@ -984,6 +985,8 @@ def desk_replies(update: dict[str, Any], s: Settings, desk: Desk | None) -> list
         return _guarded("/update", lambda: desk.update_command(args))
     if command == "rules":
         return _guarded("/rules", desk.rules_command)
+    if command == "audit":
+        return _guarded("/audit", lambda: desk.audit_command(args))
     if command == "pause":
         return _guarded("/pause", lambda: desk.pause_command(args))
     if command == "resume":
@@ -1182,6 +1185,7 @@ def autopilot_check(client: TelegramClient, s: Settings, desk: Desk | None,
     replies += _scheduled("Reply check", desk.reply_ping_tick, desk)
     replies += _scheduled("Daily report", desk.daily_report_tick, desk)
     replies += _scheduled("Spot check", desk.spot_check_tick, desk)
+    replies += _scheduled("Weekly audit", desk.weekly_audit_tick, desk)
     replies += _scheduled("Link check", desk.expired_check_tick, desk)
     replies += _scheduled("Apply nudge", desk.nudge_tick, desk)
     replies += _scheduled("Auto-apply", desk.autoapply_tick, desk)

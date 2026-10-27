@@ -324,6 +324,8 @@ class Desk:
         # (notion_repo.NotionTable); None where not writable (DRY RUN).
         self.answer_bank: Any = None
         self.autoapply_issues: Any = None
+        self.audit_table: Any = None  # Weekly Audit (27 Oct); None: the audit is Telegram only
+        self._audit_checked: date | None = None  # the day the weekly audit was last checked
         # The outside heartbeat (heartbeat.py, H4): True pings the check, False its /fail.
         self.heartbeat: Callable[[bool], bool] = lambda ok: heartbeat.ping(self.s, ok)
         # Set by the bot for each update: sends a reply at once (before a long build).
@@ -2269,6 +2271,12 @@ class Desk:
         cap = cost_guard.health_line(config, self.state, today)
         if cap is not None:
             (blockers if cap[0] == "blocker" else soon).append(cap[1])
+        from jobengine.track import audit as audit_mod
+
+        missing, review = audit_mod.morning_lines(
+            self.state, daily_report.local(self.tracking_now(), config), self.audit_rows())
+        blockers += missing
+        soon += review
         book = CreditBook(config, today)
         if book.used_up():
             soon.append(f"No contact credit left this month: {', '.join(book.used_up())}")
@@ -2583,6 +2591,79 @@ class Desk:
         result = expired_check.check(rows, self.get_page, now.date())
         expired_check.expire(result, self.repo.update)
         return [Reply(result.text()[:MAX_TEXT])]
+
+    # ------------------------------------------------------------ weekly audit (27 Oct)
+
+    def weekly_audit_tick(self) -> list[Reply]:
+        """Every few minutes (and the digest and daily tasks): write the week's warnings and
+        errors to Bot State (at most every 30 minutes), and the weekly audit once it is due
+        (Sunday from 20:00 India time). Bot State is read for it once a day at most."""
+        from jobengine.track import audit, daily_report, issue_log
+
+        config = self.deps.config()
+        now = daily_report.local(self.tracking_now(), config)
+        issue_log.flush(self.state, now.date(), now)
+        if self._audit_checked == now.date() or not audit.due(self.state, now):
+            self._audit_checked = now.date()
+            return []
+        self._audit_checked = now.date()
+        return self.run_audit(audit.audited_week(now)[0])
+
+    def audit_command(self, args: str) -> list[Reply]:
+        """/audit: the self-audit of the last full week now (it also comes every Sunday)."""
+        from jobengine.track import audit, daily_report
+
+        now = daily_report.local(self.tracking_now(), self.deps.config())
+        return self.run_audit(audit.audited_week(now)[0])
+
+    def audit_rows(self) -> list[dict[str, Any]]:
+        """The Weekly Audit rows, newest first ([] when there is no table here)."""
+        if self.audit_table is None:
+            return []
+        rows = self.audit_table.rows()
+        return sorted(rows, key=lambda r: str(r.get("Week start") or ""), reverse=True)
+
+    def run_audit(self, monday: date) -> list[Reply]:
+        """Build the audit of the week starting `monday`, write it to Notion and say so."""
+        from jobengine.track import audit, daily_report, day_ledger, issue_log, spot_check
+
+        config = self.deps.config()
+        now = daily_report.local(self.tracking_now(), config)
+        issue_log.flush(self.state, now.date(), now, force=True)
+        if self.track is not None:
+            jobs = [v for _, v in self.track.jobs.query_rows()] if self.track.jobs else []
+            contacts = ([v for _, v in self.track.contacts.all_rows()]
+                        if self.track.contacts else [])
+        else:
+            jobs = [v for _, v in self.repo.query_rows()] if self.repo is not None else []
+            contacts = []
+        ledger = dict(((self.state.get(day_ledger.KEY) or {}).get("days")) or {})
+        previous = [r for r in self.audit_rows()
+                    if str(r.get("Week start") or "") < monday.isoformat()]
+        forms = self.autoapply_issues.rows() if self.autoapply_issues is not None else []
+        data = audit.AuditInput(
+            today=now.date(), jobs=jobs, contacts=contacts, ledger=ledger,
+            issues=issue_log.week(self.state, monday), previous=previous,
+            spot_notes=spot_check.notes(self.state), form_issues=forms)
+        report = audit.build(data, monday)
+        blocks: list[tuple[str, ...]] = []
+        for head, lines in report.sections:
+            blocks.append(("heading_2", head))
+            blocks += [("paragraph", line) for line in lines]
+        if self.audit_table is None:
+            audit.mark_done(self.state, monday)
+            return [Reply(report.summary), Reply(
+                ("DRY RUN: there is no Weekly Audit table in this environment, so the audit "
+                 "is here only.\n\n" + report.text())[:MAX_TEXT])]
+        try:
+            page_id = self.audit_table.create_page(report.props, blocks)
+        except Exception as exc:  # said once; the next try is tomorrow or /audit
+            log.exception("weekly audit not written")
+            return [Reply(f"The weekly audit could not be written to Notion: {exc}. It tries "
+                          "again tomorrow; /audit tries now.\n\n" + report.text()[:3000])]
+        audit.mark_done(self.state, monday)
+        link = f"https://www.notion.so/{str(page_id).replace('-', '')}"
+        return [Reply(f"{report.summary}\n{link}")]
 
     def spot_check_tick(self) -> list[Reply]:
         """Sunday 20:00 India time (with the digest): the spot check, once a week."""
@@ -3318,6 +3399,9 @@ def fake_desk(s: Settings, today: date, now: Callable[[], datetime] | None = Non
     from jobengine.notion_repo import FakeTable
 
     desk.answer_bank, desk.autoapply_issues = FakeTable(), FakeTable()
+    from jobengine.notion_repo import FakeAuditTable
+
+    desk.audit_table = FakeAuditTable()
     desk.pings = []  # type: ignore[attr-defined]  # heartbeat pings: True ok, False fail
     desk.heartbeat = lambda ok: desk.pings.append(ok) or True  # type: ignore[attr-defined]
     desk.owner_mail = lambda subject, text: desk.mails.append(  # type: ignore[attr-defined]
@@ -3383,4 +3467,9 @@ def real_desk(s: Settings) -> Desk | None:
     from jobengine.notion_repo import autoapply_tables
 
     desk.answer_bank, desk.autoapply_issues = autoapply_tables(s, client)
+    from jobengine.notion_repo import audit_table
+    from jobengine.track import issue_log
+
+    desk.audit_table = audit_table(s, client)
+    issue_log.install()  # the warnings and errors of the week, for the weekly audit
     return desk

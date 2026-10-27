@@ -39,7 +39,7 @@ TABLE_NAMES = {"job_opportunities": "Job Opportunities", "contacts": "Contacts",
                "answer_bank": "Answer bank", "autoapply_issues": "Auto-apply issues",
                "target_companies": "Target Companies", "config": "Config",
                "strategy": "Strategy", "skills_inventory": "Skills Inventory",
-               "term_map": "Term Map"}
+               "term_map": "Term Map", "weekly_audit": "Weekly Audit"}
 
 
 def is_on(config: Any) -> bool:
