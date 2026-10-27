@@ -57,7 +57,7 @@ from jobengine.screen.runner import (
     unscreened_rows,
     waiting_for_jd,
 )
-from jobengine.screen.tiering import rank_key
+from jobengine.screen.tiering import fresh, rank_key
 from jobengine.screen.visa import agency_by_name
 from jobengine.settings import ROOT_DIR, Settings
 from jobengine.strategy import runner as strategy_runner
@@ -514,6 +514,8 @@ class Desk:
         body = self.repo.read_body(row.page_id)
         counts = match_counts(body)
         posted = row.posted_date.isoformat() if row.posted_date else "unknown"
+        if fresh(row, self.today()):
+            posted += " 🆕"
         place = ", ".join(p for p in (row.city, row.country) if p) or "unknown place"
         lines = [
             f"[{index + 1}/{total}] {row.screen_verdict}",

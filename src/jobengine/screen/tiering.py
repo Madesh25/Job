@@ -13,6 +13,11 @@ from jobengine.screen.models import Extraction, JobRow, MatrixItem, Requirement
 TIERS = ("Needs review", "Apply low", "Apply normal", "Apply high")  # lowest first
 LARGE_TIERS = frozenset({1, 2, 3, 4, 6})
 SNIPPET_NOTE = "snippet only, paste the full JD with /jd"
+# Freshest first (28 Oct, your OK): the first applicants get the most replies, so a job
+# posted today or in the FRESH_DAYS before ranks above an older one of the same tier.
+FRESH_DAYS = 2
+FRESH_BOOST = 3  # as much as stated sponsorship
+WEEK_BOOST = 1  # posted 3 to 7 days ago
 
 
 def _strength(backings: list[Backing]) -> tuple[str, Backing | None]:
@@ -142,6 +147,19 @@ def is_bottom(row: JobRow) -> bool:
     )
 
 
+def days_old(row: JobRow, today: date) -> int | None:
+    """Days since the job was posted (None: the date is unknown or in the future)."""
+    if row.posted_date is None:
+        return None
+    age = (today - row.posted_date).days
+    return age if age >= 0 else None
+
+
+def fresh(row: JobRow, today: date) -> bool:
+    age = days_old(row, today)
+    return age is not None and age <= FRESH_DAYS
+
+
 def rank_key(
     row: JobRow,
     ref: Reference,
@@ -151,7 +169,8 @@ def rank_key(
     bottom: bool | None = None,
     ext: Extraction | None = None,
 ) -> tuple[int, int, int]:
-    """Sort key for /pending, highest first (use with reverse=True). Reads the written row;
+    """Sort key for /pending and the autopilot, highest first (use with reverse=True): the
+    tier first, then the score (a fresh job gets FRESH_BOOST). Reads the written row;
     `verdict`, `bottom` and `ext` override it right after screening."""
     verdict = verdict or row.screen_verdict or ""
     bottom = is_bottom(row) if bottom is None else bottom
@@ -170,7 +189,10 @@ def rank_key(
     if company and company.tier_number in LARGE_TIERS:
         score += 2
     score += {"High": -5, "Medium": -2}.get(row.ghost_risk or "", 0)
-    if row.posted_date and 0 <= (today - row.posted_date).days <= 7:
-        score += 1
+    age = days_old(row, today)
+    if age is not None and age <= FRESH_DAYS:
+        score += FRESH_BOOST
+    elif age is not None and age <= 7:
+        score += WEEK_BOOST
     tier_index = TIERS.index(verdict) if verdict in TIERS else -1
     return (tier_index, 0 if bottom else 1, score)
