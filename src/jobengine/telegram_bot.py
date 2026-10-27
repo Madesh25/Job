@@ -51,61 +51,64 @@ FAKE_FILES_DIR = ROOT_DIR / "out" / "fake"
 POLL_TIMEOUT = 30
 
 HELP_TEXT = (
-    "Job Engine commands:\n"
-    "/start - check that the bot is alive\n"
-    "/next - your day in order: what is done and what to do now\n"
-    "/status - environment, safety settings, job and contact counts\n"
+    "Job Engine commands: grouped like the Command guide. Start each day with /next.\n"
+    "\n🔵 Find and screen\n"
     "/fetch - search for new jobs, then screen them\n"
-    "/autopilot - fetch, screen at half price, approve the best (10 a day), save resumes, "
-    "find contacts and write Gmail drafts (never sent)\n"
-    "/autopilot when - the schedule (07:00 and 19:30, Config schedule.autopilot), next run\n"
-    "/pending - review screened jobs one at a time (Approve, Skip, "
-    "Next); /pending poland, netherlands, ireland, remote or all\n"
-    "/add <job link> - save a job from a company's own site, resume and Target Companies\n"
-    "/newcompanies - companies hiring for your roles, not in Target Companies\n"
-    "/jd <url> - paste a job description (LinkedIn, Pracuj.pl and other blocked sites), "
-    "then /done\n"
-    "/jd - list jobs waiting for a description\n"
-    "/linkedin - LinkedIn jobs one at a time: paste each description, tap Done (screened)\n"
     "/screen - screen jobs that are not screened yet\n"
     "/screen <url or id> - screen one job again\n"
     "/screen batch - send them at half price, answers later\n"
     "/screen collect - save the answers of that batch\n"
-    "/fetchreport - where the postings of the last /fetch went, per source, and the dropped "
-    "jobs by reason; /fetchreport <word> for one reason or source\n"
+    "/jd <url> - paste a job description (LinkedIn, Pracuj.pl, other blocked sites), then "
+    "/done\n"
+    "/jd - list jobs waiting for a description\n"
+    "/linkedin - LinkedIn jobs one at a time: paste each description, tap Done\n"
+    "/add <job link> - save a job from a company's own site, resume and Target Companies\n"
+    "/newcompanies - companies hiring for your roles, not in Target Companies\n"
+    "/fetchreport - where the last /fetch's postings went, per source, and the dropped jobs "
+    "by reason; /fetchreport <word> for one\n"
     "/alertcheck - the job alert emails the next /fetch reads, and the jobs found in each\n"
-    "/gaps - skills jobs ask for that you do not have yet, and which certificate covers most\n"
-    "/keywords - the tools your best jobs name most, and which to add to your LinkedIn profile\n"
-    "/contacts <url or id> - contacts for a job (saved ones, Hunter, Prospeo, AI search) and "
-    "your LinkedIn connections there\n"
-    "/credits - contact credits left, asked from each provider\n"
-    "/agencies - recruitment agencies by country; /agencies <name> gives the intro mail\n"
-    "/outreach - this week's outreach budget (which approved jobs get contacts and cold mails)\n"
-    "/fetchcontacts - contacts and Gmail drafts (resume attached) for the jobs you applied "
-    "to today\n"
-    "/drafts <url or id> - write Gmail drafts for a job's contacts again\n"
-    "/applypack <url or id> - ready answers for a job's application form (visa, notice, salary)\n"
+    "\n🟢 Review and apply\n"
+    "/pending - review screened jobs one at a time (Approve, Skip, "
+    "Next); /pending poland, netherlands, ireland, remote or all\n"
+    "/applypack <url or id> - ready answers for a job's form (visa, notice, salary)\n"
+    "/autofill - the browser bookmark that fills forms from the Apply pack code\n"
     "/answer <question> = <answer> - save a form answer; it is in every Apply pack after\n"
     "/answers - your saved form answers (/answer delete N removes one)\n"
-    "/autofill - the browser bookmark that fills application forms from the Apply pack code\n"
     "/dryrun <url or id> - fill the job's form in a browser, never submit (screenshot)\n"
     "/autoapply - dry runs for the jobs with a built resume, 3 at a time (30 a day)\n"
-    "/prep <url or id> - interview prep: likely questions, your gaps, questions to ask them\n"
-    "/thanks <url or id> <name> - the thank-you mail to send after an interview\n"
+    "/gaps - skills jobs ask for that you lack, and which certificate covers most\n"
+    "/keywords - the tools your best jobs name most, and which to add to your LinkedIn profile\n"
+    "\n🟠 Contacts and mails\n"
+    "/fetchcontacts - contacts and Gmail drafts (resume attached) for today's applied jobs\n"
+    "/contacts <url or id> - contacts for a job, and your LinkedIn connections there\n"
+    "/drafts <url or id> - write Gmail drafts for a job's contacts again\n"
+    "/connections - your LinkedIn connections table; send the LinkedIn export zip to update it\n"
+    "/credits - contact credits left, asked from each provider\n"
+    "/outreach - this week's budget: which approved jobs get contacts and cold mails\n"
     "/mailmode - draft (only write Gmail drafts) or send (check every mail, then send it)\n"
-    "/mailqueue - mails waiting for the recipient's morning (Tue to Thu, 8 to 10 their time)\n"
+    "/mailqueue - mails waiting for the recipient's morning (Tue to Thu, 8 to 10)\n"
+    "/agencies - recruitment agencies by country; /agencies <name> gives the intro mail\n"
+    "\n🔴 Replies and interviews\n"
     "/today - run the daily check now (sent mails, replies, bounces, follow-ups)\n"
     "/followups - follow-up drafts waiting to be sent, and follow-ups due soon\n"
+    "/prep <url or id> - interview prep: likely questions, your gaps, questions to ask them\n"
+    "/thanks <url or id> <name> - the thank-you mail to send after an interview\n"
     "/stats - applied, replies, interviews and reply rates (30 days and all time)\n"
-    "/sources - sweep sources, their secrets and the last sweep counts\n"
-    "/health - Notion, Gmail tokens, Anthropic key, last runs\n"
-    "/gmailtoken - your Gmail tokens; /gmailtoken m02 or mm renews one in 2 minutes\n"
     "/digest - the weekly digest now\n"
     "/spotcheck - 2 of the week's resumes to look at (notes: what you marked wrong)\n"
-    "/report - today's daily report now (it also comes by itself every evening, and by email)\n"
+    "/report - today's daily report now (it also comes every evening, and by email)\n"
+    "\n🟡 Strategy, health and control\n"
     "/update - monthly strategy research for your review (opens /fetch); /update new again\n"
-    "/connections - your LinkedIn connections table; send the LinkedIn export zip to update it\n"
     "/rules - V16 non-negotiables, thresholds, adopted tips and the /fetch gate\n"
+    "/autopilot - fetch, screen at half price, approve the best (10 a day), save resumes, "
+    "find contacts, write Gmail drafts\n"
+    "/autopilot when - the schedule (07:00 and 19:30, Config schedule.autopilot), next run\n"
+    "/next - your day in order: what is done and what to do now\n"
+    "/gmailtoken - your Gmail tokens; /gmailtoken m02 or mm renews one in 2 minutes\n"
+    "/health - Notion, Gmail tokens, Anthropic key, last runs\n"
+    "/status - environment, safety settings, job and contact counts\n"
+    "/sources - sweep sources, their secrets and the last sweep counts\n"
+    "/start - check that the bot is alive\n"
     "/end - stop the running /fetch, /screen or /autopilot at its next step\n"
     "/restart - restart the bot (reloads its code and Notion settings)\n"
     "/help - show this list"
@@ -136,13 +139,19 @@ def split_text(text: str, limit: int = MESSAGE_LIMIT) -> list[str]:
     return [p for p in parts if p.strip()] or [text[:limit]]
 
 
+MENU_FIRST = ("start", "next", "status", "fetch", "autopilot")  # the / menu starts with these
+
+
 def bot_commands() -> list[dict[str, str]]:
     """The / menu Telegram shows while typing: one entry per command in HELP_TEXT."""
-    out: dict[str, str] = {}
-    for line in HELP_TEXT.splitlines()[1:]:
+    out: dict[str, str] = {name: "" for name in MENU_FIRST}
+    for line in HELP_TEXT.splitlines():
+        if not line.startswith("/"):  # the first line, group headings, blank lines
+            continue
         head, _, description = line.partition(" - ")
         name = head.split()[0].lstrip("/")
-        out.setdefault(name, description[:256])
+        if not out.get(name):
+            out[name] = description[:256]
     return [{"command": name, "description": text} for name, text in out.items()]
 
 
@@ -892,6 +901,8 @@ def desk_replies(update: dict[str, Any], s: Settings, desk: Desk | None) -> list
         return None
     command = parse_command(text)
     args = text.split(maxsplit=1)[1] if len(text.split(maxsplit=1)) > 1 else ""
+    if command in next_steps.PERIODIC:  # /next lists them again a week or a month later
+        _guarded("Used", lambda: desk.note_command(command) or [])
     replied = message.get("reply_to_message") or {}
     if command is None and replied:
         ref_text = replied.get("caption") or replied.get("text") or ""
