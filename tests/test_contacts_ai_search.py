@@ -206,7 +206,8 @@ def test_linkedin_result_is_checked_by_its_title_only(no_waterfall):
         result = find_contacts(d, PL)
     finally:
         del EMAILS["Anna"], EMAILS["Piotr"]
-    assert read == []  # LinkedIn is never opened
+    # LinkedIn is never opened (since 27 Oct the company's own home page is read first).
+    assert read and not any("linkedin" in url for url in read)
     assert "site:linkedin.com/in" in llm.calls[0][3]
     got = {c.name: c for c in result.contacts}
     # nl.linkedin.com places Anna in the Netherlands; Piotr's www. address says nothing, so
