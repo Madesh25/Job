@@ -1407,7 +1407,6 @@ class Desk:
         """A LinkedIn message per connection at the company (the peer note: they are already
         connected, so it is a message, not an invitation), and "Mail them" when some have an
         email."""
-        from jobengine.contacts import linkedin_notes
         from jobengine.resume.builder import notion_id
 
         if self.repo is None:
@@ -1418,6 +1417,21 @@ class Desk:
         if not matches:
             return [Reply(f"No LinkedIn connection at {values.get('Company') or 'this company'} "
                           "in the 🤝 LinkedIn Connections table.")]
+        today = self.today()
+        reply = Reply(self.referral_messages(values, matches)[:MAX_TEXT])
+        can_mail = connections.mailable(matches, today)
+        if can_mail and self.mail is not None:
+            reply.buttons = [(f"Mail them ({len(can_mail)})", f"rm:{short_id(job_id)}")]
+            reply.text += (f"\n\n{len(can_mail)} of them have an email: Mail them adds them as "
+                           "contacts of this job, then Write Gmail drafts uses the referral "
+                           "template word for word.")
+        return [reply]
+
+    def referral_messages(self, values: dict[str, Any],
+                          matches: list[connections.Match]) -> str:
+        """A LinkedIn message per connection (the peer note), to send yourself."""
+        from jobengine.contacts import linkedin_notes
+
         config = self.deps.config()
         base = self.s.apply_pack.get("linkedin_notes") or {}
         template = (config.get("linkedin.note_peer") or base.get("peer")
@@ -1438,14 +1452,7 @@ class Desk:
                 head += f": asked on {asked:%d %b}, wait before asking again"
             where = p.url or f'search "{p.name} {company}" on LinkedIn'
             blocks.append(f"{head}\n{where}\n{note}")
-        reply = Reply("\n\n".join(blocks)[:MAX_TEXT])
-        can_mail = connections.mailable(matches, today)
-        if can_mail and self.mail is not None:
-            reply.buttons = [(f"Mail them ({len(can_mail)})", f"rm:{short_id(job_id)}")]
-            reply.text += (f"\n\n{len(can_mail)} of them have an email: Mail them adds them as "
-                           "contacts of this job, then Write Gmail drafts uses the referral "
-                           "template word for word.")
-        return [reply]
+        return "\n\n".join(blocks)
 
     def connection_lookup_tap(self, job_id: str) -> list[Reply]:
         """Prospeo by the LinkedIn profile link for at most MAX_ON_DEMAND connections at the
@@ -1531,7 +1538,6 @@ class Desk:
     def referral_mail_tap(self, job_id: str) -> list[Reply]:
         """Adds the connections with an email as Peer contacts of the job (Source Other, a
         Notes line saying LinkedIn connection) and marks them Asked in the table."""
-        from jobengine.contacts.models import PEER, Chosen
         from jobengine.resume.builder import notion_id
 
         if self.repo is None or self.contacts is None or self.contacts.contacts is None:
@@ -1543,6 +1549,20 @@ class Desk:
         if not matches:
             return [Reply("No connection to mail: none has an email, or all were asked in "
                           f"the last {connections.ASKED_DAYS} days.")]
+        chosen = self.add_referral_contacts(job_id, values, matches)
+        names = ", ".join(m.row.person.name for m in matches)
+        return self._then_drafts(Reply(f"Added as contacts of this job: {names}. They are "
+                                       "marked Asked in 🤝 LinkedIn Connections."),
+                                 job_id, chosen)
+
+    def add_referral_contacts(self, job_id: str, values: dict[str, Any],
+                              matches: list[connections.Match]) -> list[Any]:
+        """Connections with an email become Peer contacts of the job (Source Other, a Notes
+        line saying LinkedIn connection) and are marked Asked in the table."""
+        from jobengine.contacts.models import PEER, Chosen
+
+        assert self.contacts is not None and self.contacts.contacts is not None
+        today = self.today()
         by_email = {(v.get("Email") or "").strip().lower(): pid
                     for pid, v in self.contacts.contacts.all_rows() if v.get("Email")}
         chosen = []
@@ -1556,10 +1576,7 @@ class Desk:
         contact_finder.write_contacts(self.contacts, job_id, values, chosen, today)
         if self.connections is not None:
             connections.mark_asked(self.connections, matches, today)
-        names = ", ".join(m.row.person.name for m in matches)
-        return self._then_drafts(Reply(f"Added as contacts of this job: {names}. They are "
-                                       "marked Asked in 🤝 LinkedIn Connections."),
-                                 job_id, chosen)
+        return chosen
 
     def _then_drafts(self, first: Reply, job_id: str, contacts: list[Any]) -> list[Reply]:
         """The contacts summary with a "Write Gmail drafts" button: drafts are only written
@@ -2152,6 +2169,7 @@ class Desk:
         from jobengine.contacts import connections as connections_mod
         from jobengine.contacts.credits import CreditBook
         from jobengine.screen import schedule
+        from jobengine.strategy import auto_update
         from jobengine.track import cost_guard, costs, daily_report, health_report
 
         config = self.deps.config()
@@ -2186,7 +2204,9 @@ class Desk:
                             "check).")
         elif gate <= health_report.GATE_SOON_DAYS:
             soon.append(f"/update is due in {gate} day(s), then /fetch stops until you run "
-                        "it.")
+                        "it." + (" The bot runs the research by itself (once, from 07:00); "
+                                 "you adopt or reject the tips." if auto_update.is_on(config)
+                                 else ""))
         else:
             fine.append(f"/fetch gate open for {gate} more days")
         cap = cost_guard.health_line(config, self.state, today)
@@ -2489,6 +2509,24 @@ class Desk:
         spot_check.remember(self.state, cards)
         return replies
 
+    def expired_check_tick(self) -> list[Reply]:
+        """Every few minutes (and the digest task): the weekly link check, which marks open
+        jobs whose posting closed Expired (Autopilot I1)."""
+        from jobengine.track import daily_report, expired_check
+
+        if self.repo is None:
+            return []
+        config = self.deps.config()
+        now = daily_report.local(self.tracking_now(), config)
+        if not expired_check.due(config, self.state, now):
+            return []
+        expired_check.mark_done(self.state, now.date())
+        rows = [job_row(pid, values) for pid, values in self.repo.query_rows(
+            select_filter("Status", *expired_check.OPEN_STATUSES))]
+        result = expired_check.check(rows, self.get_page, now.date())
+        expired_check.expire(result, self.repo.update)
+        return [Reply(result.text()[:MAX_TEXT])]
+
     def spot_check_tick(self) -> list[Reply]:
         """Sunday 20:00 India time (with the digest): the spot check, once a week."""
         from jobengine.track import spot_check
@@ -2540,6 +2578,31 @@ class Desk:
             self.say(Reply(strategy_runner.STARTED))
         result = strategy_runner.run_update(self.strategy, force=force)
         return [*(Reply(m[:MAX_TEXT]) for m in result.messages),
+                *(Reply(c.text, c.buttons) for c in result.cards)]
+
+    def auto_update_tick(self) -> list[Reply]:
+        """Every few minutes (and the daily task): the monthly /update by itself, once, when
+        the /fetch gate closes within 5 days (Autopilot I5)."""
+        from jobengine.strategy import auto_update
+        from jobengine.sweep.gate import last_update
+        from jobengine.track import daily_report
+
+        if self.strategy is None:
+            return []
+        config = self.deps.config()
+        now = daily_report.local(self.tracking_now(), config)
+        updated = last_update(config, self.strategy.state, self.strategy.s)
+        if updated is None or not auto_update.due(
+                config, self.strategy.state, updated, now,
+                strategy_runner.open_review(self.strategy)):
+            return []
+        left = auto_update.days_left(updated, config.get_int("strategy_refresh_days"),
+                                     now.date())
+        result = strategy_runner.run_update(self.strategy)
+        ok = strategy_runner.open_review(self.strategy)
+        auto_update.mark(self.strategy.state, updated, now.date(), ok=ok)
+        first = auto_update.intro(left or 0) if ok else auto_update.FAILED
+        return [Reply(first), *(Reply(m[:MAX_TEXT]) for m in result.messages),
                 *(Reply(c.text, c.buttons) for c in result.cards)]
 
     def strategy_tap(self, action: str, arg: str) -> list[Reply]:
