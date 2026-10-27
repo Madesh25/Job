@@ -1,7 +1,7 @@
 """Send at the recipient's morning (PR 13), mail mode "send" only.
 
 A mail that passed every check is sent at once only inside the recipient's send window
-(default Tuesday to Thursday, 08:00 to 10:00 in the job's country). Outside it, the draft
+(default Monday to Friday since 27 Oct, 08:00 to 10:00 in the job's country). Outside it, the draft
 stays in Gmail and waits in a queue (Bot State `mail.queue`); the queue is checked every few
 minutes (long polling, or Cloud Scheduler's POST /tasks/mail on Cloud Run) and sends at
 most one waiting mail per check, so the mails of a morning go out a few minutes apart.
@@ -73,7 +73,7 @@ def _time(value: object, default: str) -> time:
 
 def window(mail_yaml: dict[str, Any], config: Any) -> Window:
     raw = mail_yaml.get("send_window") or {}
-    items = raw.get("days") or ["Tue", "Wed", "Thu"]
+    items = raw.get("days") or ["Mon", "Tue", "Wed", "Thu", "Fri"]
     days = tuple(sorted({DAYS.index(str(d)[:3].title()) for d in items
                          if str(d)[:3].title() in DAYS})) or (1, 2, 3)
     start, end = _time(raw.get("start"), "08:00"), _time(raw.get("end"), "10:00")

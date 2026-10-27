@@ -378,7 +378,7 @@ mail:
     steps: [10, 15, 20, 25, 30]
   send_window:
     enabled: true
-    days: [Tue, Wed, Thu]
+    days: [Mon, Tue, Wed, Thu, Fri]  # 27 Oct, your decision (was Tue to Thu)
     start: "08:00"
     end: "10:00"
 sweep:

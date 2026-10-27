@@ -46,7 +46,8 @@ def test_window_from_yaml_and_config():
                                        "end": "bad"}}, config)
     assert (w.days, w.start.isoformat(), w.end.isoformat()) == ((0, 4), "07:30:00", "10:00:00")
     assert w.text() == "Mon, Fri, 07:30 to 10:00 the recipient's time"
-    assert timing.window({}, config).text() == "Tue to Thu, 08:00 to 10:00 the recipient's time"
+    # 27 Oct: Monday to Friday by default (was Tuesday to Thursday).
+    assert timing.window({}, config).text() == "Mon to Fri, 08:00 to 10:00 the recipient's time"
     assert not timing.window({}, ConfigStore.from_values({timing.WINDOW_KEY: "off"})).enabled
 
 
@@ -62,14 +63,14 @@ def test_outside_the_window_the_checked_mails_wait():
     text = d.tap("dr:pl-clean")[0].text
     assert "Sent 0 of 4" in text
     assert ("Waiting for the recipient's morning (/mailqueue shows the queue), then sent by "
-            "itself after the same checks:\n- Piotr Example (cold mail): Tue 06 Oct 08:00 CEST"
+            "itself after the same checks:\n- Piotr Example (cold mail): Fri 02 Oct 08:00 CEST"
             ) in text
     assert d.mail.gmail().sent == []
     assert len(timing.load(d.state)) == 4
     assert statuses(d)["fake-contact-9"][0] != "Contacted"
     queue = d.mailqueue_command()[0].text
-    assert queue.startswith("Send window: Tue to Thu, 08:00 to 10:00 the recipient's time.\n"
-                            "4 mails waiting:\n- Piotr Example (cold mail), Tue 06 Oct 08:00")
+    assert queue.startswith("Send window: Mon to Fri, 08:00 to 10:00 the recipient's time.\n"
+                            "4 mails waiting:\n- Piotr Example (cold mail), Fri 02 Oct 08:00")
 
 
 def test_the_queue_sends_one_mail_per_check_in_the_morning():
@@ -146,7 +147,7 @@ def test_mailqueue_command_and_the_polling_loop():
     d.tap("dr:pl-clean")
     fake = ButtonTelegram([[update(1, "/mailqueue")]])
     tb.poll_once(tb.TelegramClient(fake), settings(), None, desk=d)
-    assert fake.sent[-1][1].startswith("[LOCAL] Send window: Tue to Thu")
+    assert fake.sent[-1][1].startswith("[LOCAL] Send window: Mon to Fri")
     assert "mailqueue" in [c["command"] for c in tb.bot_commands()]
     d.mail.now = lambda: at(6, 8, 5)
     tb.autopilot_check(tb.TelegramClient(fake), settings(), d)
