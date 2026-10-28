@@ -98,6 +98,23 @@ def test_a_refusal_stops_the_run():
     assert out.notes == ["stopped after 1: prospeo: HTTP 429"]
 
 
+def test_no_match_for_one_person_skips_only_that_person():
+    """Phase 12 P12-03 (28 Oct): one NO_MATCH stopped the whole batch after 0 people."""
+    store = FakeConnections([ANNA, OTHER])
+    picks = store.rows()
+
+    def lookup_one(r):
+        if r.page_id == picks[0].page_id:
+            raise http.HttpError("POST https://api.prospeo.io/enrich-person failed: HTTP 400 "
+                                 "NO_MATCH", 400)
+        return {"Country": ("rich_text", "Poland")}, True
+
+    out = lookup.run(store, picks, lookup_one)
+    assert (out.asked, out.filled, out.no_match, out.notes) == (2, 1, 1, [])
+    assert lookup.summary("Prospeo", out, "at ING").endswith(
+        "1 not known to Prospeo (skipped, no credit).")
+
+
 def test_the_leftovers_are_used_once_on_the_last_day():
     state = FakeBotState()
     today = date(2026, 11, 22)

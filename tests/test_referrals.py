@@ -94,7 +94,7 @@ def test_contacts_answer_lists_your_connections_and_the_referral_flow():
     [asks] = d.tap("rf:pl-clean")
     assert asks.text.startswith("Referral asks for DevOps Engineer at Vistula Cloud: send each "
                                 "one yourself as a LinkedIn message")
-    assert "https://www.linkedin.com/in/ola-n\nHi Ola, I applied for the DevOps Engineer" in \
+    assert "https://www.linkedin.com/in/ola-n\nHi Ola, I am applying for the DevOps Engineer" in \
         asks.text
     assert asks.buttons and asks.buttons[0][1] == "rm:pl-clean"
 

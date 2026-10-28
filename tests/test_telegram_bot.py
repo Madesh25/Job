@@ -824,7 +824,9 @@ def test_a_domain_button_answers_the_question(desk):
 
 
 def test_contacts_command_needs_a_job(desk):
-    assert talk(desk, "/contacts").sent[0][1] == "[LOCAL] Send /contacts <job URL or page id>."
+    overview = talk(desk, "/contacts").sent[0][1]
+    assert overview.startswith("[LOCAL] Contacts: ") and " in Notion (" in overview
+    assert "This week (from Monday" in overview and "Send /contacts <job link or id>." in overview
     assert "No Job Opportunities row" in talk(desk, "/contacts nothing-here").sent[0][1]
 
 

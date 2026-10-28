@@ -403,6 +403,36 @@ Hunter `v2/domain-search`, Snov OAuth plus the v2 `domain-search/prospects` star
 and read the answers tolerantly. Run the probe for each provider before the first real lookup;
 if a field or endpoint differs, the probe output shows it.
 
+## Phase 12 fixes (28 Oct, from the Orange flow test)
+
+- **/contacts for any job link.** A link not in Job Opportunities is saved first as a new
+  job (Status New, not screened; `/add <link>` screens it and builds the resume): a company
+  page is read for the company and country. A LinkedIn link, or a site that blocks the bot,
+  is never opened: type the company and country after it,
+  `/contacts <link> <company>, <country>, <role>` (a city works as the country, the role is
+  optional). The job is saved with Board LinkedIn, then the 2 contacts and your LinkedIn
+  connections there with their referral messages follow. `/contacts` alone shows the
+  Contacts table in numbers (by Status, found and mailed this week).
+- **The same link with or without tracking parts** (utm, trk, gclid ...) finds the same job.
+- **A job row without a Country** takes it from its City, else from its company's Region in
+  Target Companies, so the strict location rule always applies (Comarch kept people of
+  unknown location because its row had no Country).
+- **Nothing found is remembered**: when the paid look-ups find nobody, the same company and
+  domain skip them for 7 days (Bot State `contacts.none:<company>`), so asking again spends
+  no credits; another domain searches again. The free steps (cache, job posting, company
+  website) still run.
+- **The answer says more**: `0 of 2 found. Missing: ...` also when nothing was found; the AI
+  search line says when none of its names had a work email Hunter or Prospeo knows; the
+  Hunter line says that Hunter gives no location per person, so its people count only once
+  another source confirms the country (strict rule).
+- **Location and email for connections**: a person Prospeo does not know (NO_MATCH) is
+  skipped, no longer stopping the whole batch.
+- **LinkedIn notes and referral messages** say "I applied for" only when the job is Applied
+  (else "I am applying for"), and use the job link without tracking parts; a job board's own
+  link (Adzuna, Jooble ...) becomes "on your careers page".
+- **/outreach** counts only the providers that can be asked (a key set, not refused this
+  month), so Apollo without a key and Snov's free plan no longer add jobs to the estimate.
+
 ## Your LinkedIn connections (flow feature 1, step 1, 23 Oct)
 
 Notion table **🤝 LinkedIn Connections** (one table for every env, your decision of 23 Oct;

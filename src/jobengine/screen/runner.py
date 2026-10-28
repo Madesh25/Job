@@ -518,6 +518,21 @@ def find_row(repo: JobsRepo, ref: str) -> JobRow | None:
     for pid, values in repo.query_rows(where):
         if ref.startswith("http") or ref in parse_posting_ids(values.get("Posting IDs")):
             return job_row(pid, values)
+    if ref.startswith("http"):
+        # The same link with or without tracking parts (utm_..., trk) is the same job
+        # (Phase 12 P12-01, 28 Oct: an Adzuna link matched only with its utm part).
+        from urllib.parse import urlsplit
+
+        from jobengine.mail.fill import job_link
+
+        wanted = job_link(ref)
+        parts = urlsplit(wanted)
+        base = f"{parts.netloc}{parts.path}".rstrip("/")
+        if wanted and base:
+            near = {"property": "URL", "url": {"contains": base}}
+            for pid, values in repo.query_rows(near):
+                if job_link(str(values.get("URL") or "")) == wanted:
+                    return job_row(pid, values)
     return None
 
 

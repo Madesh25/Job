@@ -342,7 +342,8 @@ def test_hunter_country_filter_counts_only_when_hunter_confirms_it():
     deps, _ = pdeps(s=settings(HUNTER_API_KEY="h"), request=request2)
     result = hunter.search("HCL", "hcl.com", "Netherlands", {PEER: 1}, deps)
     assert result.candidates[0].country_unverified
-    assert result.notes[0].startswith("hunter: its answer did not confirm the Netherlands")
+    assert result.notes[0].startswith("hunter: Hunter gives no location per person (its "
+                                      "answer did not confirm the Netherlands filter")
 
 
 def test_prospeo_searches_the_country_and_retries_without_a_refused_filter():
@@ -372,8 +373,9 @@ def test_hunter_free_plan_page_limit_is_a_short_note():
     deps, _ = pdeps(s=settings(HUNTER_API_KEY="h"), request=request)
     result = hunter.search("S", "s.com", "Ireland", {PEER: 1, RECRUITER: 1}, deps)
     assert "hunter: your plan shows only 10 people per search, no next page" in result.notes
-    assert result.notes[0].startswith("hunter: its answer did not confirm the Ireland filter "
-                                      "(it answered with: nothing)")
+    assert result.notes[0].startswith("hunter: Hunter gives no location per person (its "
+                                      "answer did not confirm the Ireland filter; it answered "
+                                      "with: nothing)")
 
 
 def test_snov_reads_a_place_field_and_names_its_fields_when_none():
