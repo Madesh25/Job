@@ -126,8 +126,10 @@ MAX_TEXT = 20000
 NO_GAP = ("none", "n/a", "-")  # a Gaps cell that says there is none
 HIGH_ALERT = "\U0001F525 Apply high: apply today while the posting is fresh."
 MAX_HIGH_ALERTS = 5
-# About what one screened job costs on Haiku (measured 10 Oct), for the /screen choice.
+# About what one screened job costs (Haiku measured 10 Oct; Gemini 3.5 Flash-Lite on 28 Oct:
+# 82 calls, $0.044), for the /screen choice. Another model: Haiku's figure scaled by its price.
 SCREEN_COST_PER_JOB = 0.003
+SCREEN_COSTS = {"claude-haiku-4-5": SCREEN_COST_PER_JOB, "gemini-3.5-flash-lite": 0.0006}
 MAX_KEYWORDS = 6  # missing keywords shown on a /pending card
 MAX_REWORD = 4  # cards sent at once after a screening; the rest are in /pending
 
@@ -296,6 +298,20 @@ TOKEN_ALERT = ("\u26a0\ufe0f A Gmail token has expired (invalid_grant): replies 
                "mm renews it in 2 minutes (a sign-in link, then you paste the address you land "
                "on), then /restart. While the Google OAuth app is in Testing, tokens expire "
                "every 7 days: publishing the app stops that (Phase 9, P9-37).")
+
+
+def screen_cost(s: Settings, config: Any) -> tuple[str, float]:
+    """The screening model and about what one job costs on it."""
+    from jobengine.llm import DEFAULT_MODEL, PRICES_PER_MTOK, model_for
+
+    model = model_for("score", config, s)
+    if model in SCREEN_COSTS:
+        return model, SCREEN_COSTS[model]
+    base, price = PRICES_PER_MTOK.get(DEFAULT_MODEL), PRICES_PER_MTOK.get(model)
+    if not base or not price:
+        return model, SCREEN_COST_PER_JOB
+    # A screening reads about 10 times as many tokens as it writes.
+    return model, SCREEN_COST_PER_JOB * (price[0] * 10 + price[1]) / (base[0] * 10 + base[1])
 
 
 class Desk:
@@ -3159,9 +3175,10 @@ class Desk:
                  f"({cap - room} screened today)."]
         if room:
             lines.append(f"Today's {room}: the best {room} now, the rest wait for tomorrow.")
-        lines.append(f"Over the limit: about ${SCREEN_COST_PER_JOB:.3f} a job (Haiku), so all "
-                     f"{waiting} cost about ${waiting * SCREEN_COST_PER_JOB:.2f}. Jobs without "
-                     "a description cost nothing (they wait for /jd).")
+        model, cost = screen_cost(self.s, self.deps.config())
+        lines.append(f"Over the limit: about ${cost:.4f} a job ({model}), so all {waiting} cost "
+                     f"about ${waiting * cost:.2f}. Jobs without a description cost nothing "
+                     "(they wait for /jd).")
         return Reply("\n".join(lines), buttons)
 
     def high_alerts(self, summary: ScreenSummary | None) -> list[Reply]:

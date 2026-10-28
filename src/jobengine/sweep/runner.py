@@ -26,6 +26,7 @@ from jobengine.sweep import (
     fit,
     fulltext,
     inbox_tidy,
+    job_links,
 )
 from jobengine.sweep.dedupe import IndexRow, create_plan, description_blocks, update_plan
 from jobengine.sweep.gate import strategy_gate
@@ -101,6 +102,9 @@ class SweepDeps:
     jooble: Callable[[], SourceResult] = lambda: SourceResult(name="jooble")
     nofluffjobs: Callable[[], SourceResult] = lambda: SourceResult(name="nofluffjobs")
     iamexpat: Callable[[], SourceResult] = lambda: SourceResult(name="iamexpat")
+    # (repo, config, state, today, boards, with_body, progress) -> job_links.Result: the
+    # alert rows' own links on the company's site (28 Oct). None: not looked up.
+    links: Callable[..., Any] | None = None
 
 
 def fake_deps(s: Settings, repo: JobsRepo | None = None) -> SweepDeps:
@@ -147,7 +151,24 @@ def real_deps(s: Settings) -> SweepDeps:
         jooble=lambda: jooble.fetch(s),
         nofluffjobs=lambda: nofluffjobs.fetch(s),
         iamexpat=lambda: iamexpat.fetch(s),
+        links=lambda *args: _find_links(s, *args),
     )
+
+
+def _find_links(s: Settings, repo: JobsRepo, config: ConfigStore, state: Any, today: date,
+                boards: tuple[str, ...], with_body: set[str], progress: Progress) -> Any:
+    """The direct job links pass with the real network and AI (sweep/job_links.py)."""
+    from jobengine.llm import make_llm
+    from jobengine.safety import llm_allowed
+
+    return job_links.run(
+        job_links.Deps(
+            s=s, repo=repo,
+            page=lambda url: http.get_page(url, s=s, blocked=fulltext.blocked_hosts(s)),
+            get=lambda url, params: http.get_json(url, params=params or None, s=s),
+            post=lambda url, body: http.post_json(url, json=body, s=s),
+            llm=make_llm(s, config) if llm_allowed(s) else None, state=state, today=today),
+        boards, with_body, progress)
 
 
 def _may_lack_body(row: IndexRow) -> bool:
@@ -706,6 +727,19 @@ def run_sweep(
             summary.linkedin_filled = filled.labels
         except Exception:  # never fail a sweep over the cross-match
             log.exception("LinkedIn cross-match failed")
+
+    # Pass 3b: alert rows get their own link on the company's site (28 Oct), so screening has
+    # the description and the autopilot can open the form.
+    if repo and deps.links is not None and job_links.enabled(s):
+        try:
+            boards = crossmatch.waiting_boards(
+                (s.sweep.get("gmail") or {}).get("sender_boards") or {},
+                fulltext.blocked_hosts(s)) + crossmatch.SNIPPET_BOARDS
+            found = deps.links(repo, config, state, today, boards, with_body, say)
+            summary.direct_links = found.labels
+            summary.direct_links_tried = found.tried
+        except Exception:  # never fail a sweep over the link search
+            log.exception("direct job links failed")
 
     # Pass 4: saved rows that still wait for a description get their page read (8 Oct).
     if repo and deps.page is not None:

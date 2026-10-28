@@ -398,6 +398,12 @@ sweep:
   crossmatch:
     enabled: true
     max_pages: 10
+  # Alert rows (LinkedIn, blocked boards, Adzuna) get the same job's own page on the company's
+  # site: the company job board first (free), else one AI web search (28 Oct, docs/sweep.md).
+  job_links:
+    enabled: true
+    max_rows: 40
+    max_searches: 20
   # Network work done at the same time: the sources, careers pages, job boards and job
   # pages. Notion writes stay at about 3 per second whatever this is.
   workers: 8
