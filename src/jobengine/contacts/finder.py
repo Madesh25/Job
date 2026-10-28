@@ -565,7 +565,7 @@ def find_contacts(deps: ContactDeps, job_id: str, paid: bool = True) -> Contacts
                            chosen, seen, by_email, open_slots, patterns, personal, unplaced)
         if unplaced and open_slots() and strict_location(deps.s, country) and nothing_on is None:
             _confirm_step(deps, book, unplaced, company, domain, country, result, chosen, seen,
-                          by_email, open_slots, patterns, personal)
+                          by_email, open_slots, patterns, personal, config)
         if open_slots() and nothing_on is None and \
                 (config.get(ai_search.SWITCH) or "").strip().lower() == "on":
             _ai_step(deps, config, book, company, domain, country, result, chosen, seen,
@@ -681,21 +681,12 @@ def _confirm_step(deps: ContactDeps, book: CreditBook, unplaced: list[Candidate]
                   chosen: list[Chosen], seen: set[str],
                   by_email: dict[str, tuple[str, dict[str, Any]]],
                   open_slots: Callable[[], dict[str, int]], patterns: Any,
-                  personal: Any) -> None:
+                  personal: Any, config: ConfigStore | None = None) -> None:
     """16 Oct, strict rule: Hunter gives no location, so its people were all left out. For
     the ones whose title fits an open slot, Prospeo is asked where they are (one credit per
-    person it knows); people it places in the job's country fill the slots."""
-    if not deps.s.prospeo_api_key or book.counters.get("prospeo") is None:
-        return
-    if "prospeo" in deps.busy:
-        who = "1 person" if len(unplaced) == 1 else f"{len(unplaced)} people"
-        result.notes.append(f"prospeo: busy, could not check where {who} without a location "
-                            f"{'is' if len(unplaced) == 1 else 'are'}")
-        return
-    s = deps.s if paid_api_allowed("prospeo", deps.s) else \
-        deps.s.model_copy(update=FIXTURE_KEYS)
-    pdeps = ProviderDeps(s=s, request=deps.request("prospeo"), sleep=deps.sleep,
-                         search_titles={}, patterns=patterns)
+    person it knows); 28 Oct: the people it did not place get a Google search for their
+    LinkedIn result (contacts/connection_search.py). People placed in the job's country fill
+    the slots."""
     slots = open_slots()
 
     def fits(c: Candidate) -> bool:
@@ -708,8 +699,44 @@ def _confirm_step(deps: ContactDeps, book: CreditBook, unplaced: list[Candidate]
             return sum(slots.values()) > 0  # any mix: any open slot will do
         return slots.get(kind, 0) > 0
 
+    confirmed: list[tuple[Candidate, str]] = []
+    asked_prospeo = _prospeo_confirm(deps, book, unplaced, country, result, seen, fits,
+                                     confirmed, patterns)
+    if config is not None:
+        done = {c.email.lower() for c, _how in confirmed} | asked_prospeo
+        _search_confirm(deps, config, [c for c in unplaced if c.email.lower() not in done],
+                        company, country, result, seen, fits, confirmed)
+    hows = {c.email.lower(): how for c, how in confirmed}
+    for candidate, kind, note in fill_slots([c for c, _how in confirmed], open_slots(),
+                                            country, domain, seen, patterns, personal,
+                                            strict=True, flexible=flexible_roles(deps.s)):
+        picked = _chosen(candidate, kind, note, by_email, country)
+        if not picked.cached:
+            ai_note = (f"found by AI web search on {candidate.found_on}" if candidate.found_on
+                       else "")
+            picked.notes = "; ".join(p for p in (picked.notes, ai_note,
+                                                 hows.get(candidate.email.lower(), "")) if p)
+        chosen.append(picked)
+
+
+def _prospeo_confirm(deps: ContactDeps, book: CreditBook, unplaced: list[Candidate],
+                     country: str, result: ContactsResult, seen: set[str],
+                     fits: Callable[[Candidate], bool],
+                     confirmed: list[tuple[Candidate, str]], patterns: Any) -> set[str]:
+    """Prospeo's location check; returns the addresses it asked about."""
+    asked_about: set[str] = set()
+    if not deps.s.prospeo_api_key or book.counters.get("prospeo") is None:
+        return asked_about
+    if "prospeo" in deps.busy:
+        who = "1 person" if len(unplaced) == 1 else f"{len(unplaced)} people"
+        result.notes.append(f"prospeo: busy, could not check where {who} without a location "
+                            f"{'is' if len(unplaced) == 1 else 'are'}")
+        return asked_about
+    s = deps.s if paid_api_allowed("prospeo", deps.s) else \
+        deps.s.model_copy(update=FIXTURE_KEYS)
+    pdeps = ProviderDeps(s=s, request=deps.request("prospeo"), sleep=deps.sleep,
+                         search_titles={}, patterns=patterns)
     asked = placed = 0
-    confirmed: list[Candidate] = []
     for candidate in unplaced:
         if asked >= MAX_CONFIRM or book.available("prospeo") <= 0:
             break
@@ -723,23 +750,47 @@ def _confirm_step(deps: ContactDeps, book: CreditBook, unplaced: list[Candidate]
             asked -= 1
             result.notes.append(BUSY_CHECK)
             break
+        asked_about.add(candidate.email.lower())
         if where and where.casefold() == country.casefold():
             placed += 1
-            confirmed.append(replace(candidate, country=country, country_unverified=False))
+            confirmed.append((replace(candidate, country=country, country_unverified=False),
+                              "location from Prospeo"))
     if asked:
         who = "1 person" if asked == 1 else f"{asked} people"
         result.notes.append(f"prospeo: checked where {who} without a location "
                             f"{'is' if asked == 1 else 'are'}: {placed} in {country}")
-    for candidate, kind, note in fill_slots(confirmed, open_slots(), country, domain, seen,
-                                            patterns, personal, strict=True,
-                                            flexible=flexible_roles(deps.s)):
-        picked = _chosen(candidate, kind, note, by_email, country)
-        if not picked.cached:
-            ai_note = (f"found by AI web search on {candidate.found_on}" if candidate.found_on
-                       else "")
-            picked.notes = "; ".join(p for p in (picked.notes, ai_note,
-                                                 "location from Prospeo") if p)
-        chosen.append(picked)
+    return asked_about
+
+
+def _search_confirm(deps: ContactDeps, config: ConfigStore, left: list[Candidate],
+                    company: str, country: str, result: ContactsResult, seen: set[str],
+                    fits: Callable[[Candidate], bool],
+                    confirmed: list[tuple[Candidate, str]]) -> None:
+    """28 Oct: a Google search for the LinkedIn result of people still without a location
+    (at most connection_search.MAX_CONTACTS). Only with real look-ups: test data has
+    invented names."""
+    from jobengine.contacts import connection_search
+
+    if not any(paid_api_allowed(n, deps.s) for n in ("hunter", "prospeo")):
+        return
+    picks = [c for c in left if c.email.lower() not in seen and fits(c) and c.name.strip()]
+    picks = picks[:connection_search.MAX_CONTACTS]
+    if not picks:
+        return
+    llm = deps.llm(config)
+    if llm is None:
+        return
+    placed = 0
+    for candidate in picks:
+        found = connection_search.place(llm, candidate.name, without_region(company),
+                                        candidate.title, country)
+        if found is not None:
+            placed += 1
+            confirmed.append((replace(candidate, country=country, country_unverified=False),
+                              f"location from Google search ({found.profile})"))
+    who = "1 person" if len(picks) == 1 else f"{len(picks)} people"
+    result.notes.append(f"Google search: looked for where {who} without a location "
+                        f"{'works' if len(picks) == 1 else 'work'}: {placed} in {country}")
 
 
 def _ai_step(deps: ContactDeps, config: ConfigStore, book: CreditBook, company: str,

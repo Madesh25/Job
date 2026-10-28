@@ -361,6 +361,9 @@ class Desk:
         # Visa sponsor companies (sweep/sponsors.py): (candidate, today, fits) -> Checked;
         # None where job boards cannot be read.
         self.sponsor_reader: Callable[[Any, date, Any], Any] | None = None
+        # Reads one public page (url -> (final url, html)) for the connection search's email
+        # check; None in tests and the fake bot.
+        self.page_reader: Callable[[str], tuple[str, str]] | None = None
         # The outside heartbeat (heartbeat.py, H4): True pings the check, False its /fail.
         self.heartbeat: Callable[[bool], bool] = lambda ok: heartbeat.ping(self.s, ok)
         # Set by the bot for each update: sends a reply at once (before a long build).
@@ -1635,7 +1638,8 @@ class Desk:
         if llm is not None:
             out = connection_search.run(self.connections, llm,
                                         [m.row for m in self._connections_at(values)],
-                                        self.state, today, connection_search.MAX_ON_DEMAND)
+                                        self.state, today, connection_search.MAX_ON_DEMAND,
+                                        self._email_domain, self.page_reader)
             if out.searched:
                 texts.append(connection_search.summary(out, f"at {company}"))
         if paid_api_allowed("prospeo", self.s) and self.s.prospeo_api_key:
@@ -1657,6 +1661,15 @@ class Desk:
         texts.append(self._connections_block(matches, company, values))
         return [Reply("\n\n".join(texts)[:MAX_TEXT],
                       [("Referral asks", f"rf:{short_id(job_id)}")])]
+
+    def _email_domain(self, company: str) -> str | None:
+        """The company's email domain from Target Companies (Domain), for the email check."""
+        try:
+            return next((str(c.domain) for c in self.reference().companies
+                         if getattr(c, "domain", None)
+                         and connections.same_company(c.name, company)), None)
+        except Exception:  # no domain only means no email check
+            return None
 
     def connection_search_tick(self) -> list[Reply]:
         """Once a day from connection_search.DAILY_HOUR (your clock): a Google search for
@@ -1683,8 +1696,9 @@ class Desk:
             people += [m.row for m in connections.at_company(
                 self.connections.rows_like(company), company, "")]
         out = connection_search.run(self.connections, llm, people, self.state, now.date(),
-                                    connection_search.MAX_DAILY)
-        if not out.placed and not out.left:
+                                    connection_search.MAX_DAILY, self._email_domain,
+                                    self.page_reader)
+        if not out.placed and not out.emails and not out.left:
             return []
         return [Reply(connection_search.summary(out, "at your approved jobs' companies"))]
 
@@ -3892,5 +3906,8 @@ def real_desk(s: Settings) -> Desk | None:
 
     desk.sponsor_reader = lambda candidate, today, fits: sponsors.check(
         s, candidate, board_get, board_post, board_page, today, fits)
+    from jobengine.sweep.fulltext import blocked_hosts
+
+    desk.page_reader = lambda url: http.get_page(url, s=s, blocked=blocked_hosts(s))
     issue_log.install()  # the warnings and errors of the week, for the weekly audit
     return desk

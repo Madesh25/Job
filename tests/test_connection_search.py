@@ -39,40 +39,49 @@ def stored(person, **info):
     return StoredRow("p1", person, False, info)
 
 
+def find(llm, person, domain="", pages=None):
+    """The search for one connection, as run() asks it."""
+    reader = (lambda url: (url, pages[url])) if pages is not None else None
+    return cs.search(llm, person.name, person.company, person.position, person.url, domain,
+                     reader)
+
+
 def test_the_country_comes_from_the_persons_own_result_only():
     own = "https://nl.linkedin.com/in/anna-test"
     llm = Search({"Anna Test": ({"url": own, "title": "Anna Test - SRE - Vistula Cloud | LinkedIn",
                                  "location": "Amsterdam"}, [own])})
-    seen = cs.search(llm, stored(ANNA))
+    seen = find(llm, ANNA)
     assert (seen.country, seen.other_company) == ("Netherlands", "")
     assert llm.asked == [("people", "Anna Test")]
     # The AI names a profile the search never returned: nothing is trusted.
     unsure = Search({"Anna Test": ({"url": own, "location": "Dublin"},
                                    ["https://www.linkedin.com/in/someone-else"])})
-    assert cs.search(unsure, stored(ANNA)) is None
+    assert find(unsure, ANNA) is None
 
 
 def test_the_place_shown_counts_for_your_three_countries_only():
     own = "https://www.linkedin.com/in/anna-test"
     llm = Search({"Anna Test": ({"url": own, "location": "Kraków, Małopolskie"}, [own])})
-    assert cs.search(llm, stored(ANNA)).country == "Poland"
+    assert find(llm, ANNA).country == "Poland"
     far = Search({"Anna Test": ({"url": own, "location": "Berlin, Germany"}, [own])})
-    assert cs.search(far, stored(ANNA)).country == ""
+    assert find(far, ANNA).country == ""
 
 
 def test_another_company_in_the_title_means_may_have_left():
     own = "https://pl.linkedin.com/in/anna-test"
     llm = Search({"Anna Test": ({"url": own, "title": "Anna Test - Platform Engineer - Acme"},
                                 [own])})
-    seen = cs.search(llm, stored(ANNA))
+    seen = find(llm, ANNA)
     assert (seen.country, seen.other_company) == ("Poland", "Acme")
     assert cs.title_company("Someone Else - SRE - Acme | LinkedIn", "Anna Test") == ""
 
 
 def test_no_profile_link_no_search_and_a_failed_search_is_nothing():
     llm = Search()
-    assert cs.search(llm, stored(NO_LINK)) is None and llm.asked == []
-    assert cs.search(Search(fail=True), stored(ANNA)) is None
+    store = FakeConnections([NO_LINK])
+    assert cs.run(store, llm, store.rows(), FakeBotState(), TODAY, limit=5).searched == 0
+    assert llm.asked == []
+    assert find(Search(fail=True), ANNA) is None
 
 
 def test_a_run_fills_only_an_empty_country_and_waits_30_days():
@@ -89,7 +98,7 @@ def test_a_run_fills_only_an_empty_country_and_waits_30_days():
     again = cs.run(store, Search(), store.rows(), state, date(2026, 11, 20), limit=10)
     assert again.searched == 0  # Ola was searched 23 days ago, Anna has a country
     later = cs.run(store, Search(), store.rows(), state, date(2026, 11, 28), limit=10)
-    assert later.searched == 1
+    assert later.searched == 2  # both again: Anna still has no work email
 
 
 def test_may_have_left_shows_under_the_job():
@@ -120,7 +129,7 @@ def test_the_button_searches_first_then_prospeo_for_the_email():
     d.contacts.request = request
     [reply] = d.connection_lookup_tap("pl-clean")
     assert reply.text.startswith("🔎 Google search: 1 of your connections at Vistula Cloud "
-                                 "looked up, 1 now have a country")
+                                 "looked up: 1 now have a country, 0 a work email")
     assert "- Anna Test (Poland)" in reply.text and asked == ["prospeo"]
     assert "Anna Test: DevOps Engineer [Engineer, Poland]" in reply.text
 
@@ -139,3 +148,100 @@ def test_the_daily_search_takes_the_companies_of_approved_jobs():
     assert "Anna Test (Poland)" in reply.text
     assert [name for _stage, name in llm.asked] == ["Anna Test"]  # Ola works elsewhere
     assert d.connection_search_tick() == []  # once a day
+
+
+TEAM = "https://vistula.example.com/team"
+OWN = "https://pl.linkedin.com/in/anna-test"
+
+
+def with_email(email, page=TEAM, sources=(OWN, TEAM)):
+    return Search({"Anna Test": ({"url": OWN, "title": "Anna Test - DevOps - Vistula Cloud",
+                                  "email": email, "email_page": page}, list(sources))})
+
+
+def test_an_email_counts_only_when_the_bot_reads_it_on_that_page():
+    pages = {TEAM: "<p>Anna Test, DevOps: anna.test@vistula.example.com</p>"}
+    seen = find(with_email("anna.test@vistula.example.com"), ANNA, "vistula.example.com",
+                pages)
+    assert (seen.email, seen.email_page) == ("anna.test@vistula.example.com", TEAM)
+    # Not on the page, a personal address, another domain, a page the search never returned,
+    # no page reader: nothing is kept (never guessed).
+    for llm, domain in ((with_email("a.test@vistula.example.com"), "vistula.example.com"),
+                        (with_email("anna@gmail.com"), "vistula.example.com"),
+                        (with_email("anna.test@vistula.example.com"), "other.example.com"),
+                        (with_email("anna.test@vistula.example.com", sources=(OWN,)),
+                         "vistula.example.com")):
+        assert find(llm, ANNA, domain, pages).email == ""
+    assert find(with_email("anna.test@vistula.example.com"), ANNA, "vistula.example.com",
+                None).email == ""
+
+
+def test_the_company_site_is_its_email_domain_when_none_is_known():
+    assert cs.own_domain("https://careers.vistula.example/team", "Vistula Cloud") == (
+        "vistula.example")
+    assert cs.own_domain("https://medium.com/@anna", "Vistula Cloud") == ""
+
+
+def test_a_run_writes_email_and_one_note_but_never_over_yours():
+    pages = {TEAM: "<p>anna.test@vistula.example.com</p>"}
+    store = FakeConnections([ANNA])
+    out = cs.run(store, with_email("anna.test@vistula.example.com"), store.rows(),
+                 FakeBotState(), TODAY, limit=5, domain_of=lambda c: "vistula.example.com",
+                 read_page=lambda url: (url, pages[url]))
+    info = store.rows()[0].info
+    assert info["Work email"] == "anna.test@vistula.example.com"
+    assert info["Notes"].startswith("Google search 28 Oct: Anna Test - DevOps - Vistula Cloud")
+    assert out.emails == ["Anna Test (anna.test@vistula.example.com)"]
+    mine = FakeConnections([ANNA])
+    first = mine.rows()[0]
+    mine.update(first.page_id, {"Notes": ("rich_text", "Met at KubeCon")})
+    cs.run(mine, with_email(""), mine.rows(), FakeBotState(), TODAY, limit=5)
+    assert mine.rows()[0].info["Notes"] == "Met at KubeCon"
+
+
+def test_a_contact_without_a_profile_link_needs_name_and_company_in_the_title():
+    link = "https://nl.linkedin.com/in/piet-x"
+    good = Search({"Piet Smit": ({"url": link, "title": "Piet Smit - SRE - Dune Data"},
+                                 [link])})
+    assert cs.place(good, "Piet Smit", "Dune Data", "SRE", "Netherlands").profile == link
+    assert cs.place(good, "Piet Smit", "Dune Data", "SRE", "Poland") is None
+    other = Search({"Piet Smit": ({"url": link, "title": "Piet Smit - SRE - Acme"}, [link])})
+    assert cs.place(other, "Piet Smit", "Dune Data", "SRE", "Netherlands") is None
+    two = Search({"Piet Smit": ({"url": link, "title": "Piet Smit - SRE - Dune Data"},
+                                [link, "https://nl.linkedin.com/in/piet-y"])})
+    assert cs.place(two, "Piet Smit", "Dune Data", "SRE", "Netherlands") is None  # which one?
+
+
+class Anyone:
+    """A search that finds every person at the company in Poland."""
+
+    def __init__(self):
+        self.asked = []
+
+    def complete_json_with_search(self, stage, system, user, **kwargs):
+        lines = dict(line.split(": ", 1) for line in user.splitlines())
+        name, company = lines["Person"], lines["Company"]
+        self.asked.append(name)
+        link = "https://pl.linkedin.com/in/" + name.lower().replace(" ", "-")
+        return {"url": link, "title": f"{name} - Engineer - {company}"}, [link]
+
+
+def test_the_finder_places_hunter_people_by_google_search():
+    from test_contacts_free_providers import config_with
+    from test_contacts_wider import settings
+
+    from jobengine.contacts import finder
+    from jobengine.contacts.providers.base import FixtureHttp
+
+    d = finder.fake_deps(settings(HUNTER_API_KEY="h", CONTACTS_LIVE="true"))
+    d.today = lambda: date(2026, 10, 1)
+    config = config_with(apollo="75 / 75 per month", snov="50 / 50 per month")
+    d.config = lambda: config
+    fixture = FixtureHttp(d.s)
+    d.request = lambda provider: fixture
+    search = Anyone()
+    d.llm = lambda config: search
+    result = finder.find_contacts(d, "fixture-clean-pl")
+    assert search.asked and len(search.asked) <= cs.MAX_CONTACTS
+    assert any("location from Google search" in (c.notes or "") for c in result.contacts)
+    assert "Google search: looked for where" in result.message
