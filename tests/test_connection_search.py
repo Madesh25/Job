@@ -26,10 +26,12 @@ class Search:
         self.answers = answers or {}
         self.fail = fail
         self.asked = []
+        self.users = []
 
     def complete_json_with_search(self, stage, system, user, **kwargs):
         name = user.splitlines()[0].removeprefix("Person: ")
         self.asked.append((stage, name))
+        self.users.append(user)
         if self.fail:
             raise LLMError("Gemini call failed")
         return self.answers.get(name, ({"url": ""}, []))
@@ -53,10 +55,21 @@ def test_the_country_comes_from_the_persons_own_result_only():
     seen = find(llm, ANNA)
     assert (seen.country, seen.other_company) == ("Netherlands", "")
     assert llm.asked == [("people", "Anna Test")]
-    # The AI names a profile the search never returned: nothing is trusted.
-    unsure = Search({"Anna Test": ({"url": own, "location": "Dublin"},
-                                   ["https://www.linkedin.com/in/someone-else"])})
-    assert find(unsure, ANNA) is None
+    # 29 Oct: Google's grounding rarely lists LinkedIn pages. The AI's own answer counts
+    # when it is exactly the export's profile link and a search ran; the country then comes
+    # from the place shown, never from the address the AI wrote.
+    answered = Search({"Anna Test": ({"url": own, "location": "Dublin"},
+                                     ["https://example.com/other-page"])})
+    seen = find(answered, ANNA)
+    assert (seen.profile, seen.country) == (own, "Ireland")
+    assert "Their LinkedIn profile: https://www.linkedin.com/in/anna-test" in (
+        answered.users[0])
+    # Another profile, or no search at all: nothing is trusted.
+    other = Search({"Anna Test": ({"url": "https://nl.linkedin.com/in/anna-test-2",
+                                   "location": "Dublin"}, ["https://example.com/x"])})
+    assert find(other, ANNA) is None
+    no_search = Search({"Anna Test": ({"url": own, "location": "Dublin"}, [])})
+    assert find(no_search, ANNA) is None
 
 
 def test_the_place_shown_counts_for_your_three_countries_only():
@@ -320,3 +333,10 @@ def test_a_paused_ai_stops_the_run_and_marks_nobody_searched():
     assert (out.searched, out.failed) == (2, 2)
     assert len(cs.enrich_picks(store.rows(), state, TODAY)) == 2
     assert cs.place(flaky, "Piet Smit", "Dune Data", "SRE", "Netherlands") is None
+
+
+def test_searches_before_the_matching_fix_are_tried_again():
+    state = FakeBotState()
+    state.set(cs.KEY, {"people": {"in/anna-test": {"date": "2026-10-28"}}})
+    store = FakeConnections([ANNA])
+    assert len(cs.enrich_picks(store.rows(), state, TODAY)) == 1
