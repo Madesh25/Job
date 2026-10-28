@@ -64,13 +64,34 @@ Google retired the 2.5 models in October 2026: use the names above.
   JSON twice) is sent again to Haiku. The cost line then says "N calls failed,
   claude-haiku-4-5 answered". An outage never stops the bot. The cost line also names the
   non-Claude model used ("with gemini-3.5-flash-lite").
-- Local and dev always use Haiku (`llm.force_model`), whatever the Config says. Gemini and
-  DeepSeek run only in prod (and in the comparison command).
+- Local and dev use `llm.force_model` for every AI job, whatever the Config says: dev uses
+  Haiku; the PC uses `gemini-3.5-flash-lite` on Vertex AI since 28 Oct (see below). A failed
+  Gemini call and "Rebuild with Claude" use Haiku there.
 - The half-price batch exists only on Claude. When `model.score` is Gemini or DeepSeek,
   `/screen batch` and /autopilot screen at once instead; both cost less at full price than
   the Haiku batch.
-- Gemini calls go through `jobengine.http`, so `generativelanguage.googleapis.com` is on
-  `safety.allowed_hosts`. Prompts are never logged.
+- Gemini calls go through `jobengine.http`, so `generativelanguage.googleapis.com` and
+  `aiplatform.googleapis.com` are on `safety.allowed_hosts`. Prompts are never logged.
+
+## Gemini on Vertex AI (your Google Cloud credit, 28 Oct)
+
+The Google Cloud free trial credit (about $300, until 23 Dec 2026) pays for Gemini on
+Vertex AI (now called the Agent Platform API), but not for the Gemini API of Google AI
+Studio. With `VERTEX_API_KEY` set, every `gemini-...` model is called on Vertex AI in the
+project `llm.vertex_project` (config/base.yaml), location `llm.vertex_location` (`global`);
+without it the bot uses `GEMINI_API_KEY` as before. The request and the answer are the same.
+
+Setup (done 28 Oct in project job-search-engine-509510):
+
+1. The Agent Platform API (`aiplatform.googleapis.com`) is enabled.
+2. A service account `job-engine-ai` with only the role Vertex AI User (`roles/aiplatform.user`).
+   Not the runner account: that one can read the bot's secrets.
+3. An API key bound to that service account, restricted to the Agent Platform API, in `.env`
+   as `VERTEX_API_KEY` (never in a chat). For Cloud Run later: secret `vertex-api-key`.
+
+`/health` shows "Google AI: ..., Vertex AI, paid by your Google Cloud credit: OK" after one
+tiny call, or why Google refused it. When the credit ends, Google charges nothing unless
+the account is upgraded; then switch to DeepSeek (the plan below).
 
 ## Monthly cap (Autopilot I6)
 

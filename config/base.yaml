@@ -59,6 +59,8 @@ safety:
     - oauth2.googleapis.com
     # Gemini, only when a Config model.<stage> names a gemini-... model (llm.py)
     - generativelanguage.googleapis.com
+    # Gemini on Google Cloud Vertex AI (28 Oct), when VERTEX_API_KEY is set (llm.py)
+    - aiplatform.googleapis.com
     # Google's search result links in /update on Gemini: only the redirect is read
     - vertexaisearch.cloud.google.com
     # DeepSeek, only when Config model.score names a deepseek-... model (llm.py)
@@ -70,6 +72,12 @@ safety:
     - recruitee.com
     # Oracle Cloud HCM career sites (<tenant>.fa.<region>.oraclecloud.com)
     - oraclecloud.com
+llm:
+  # Gemini on Google Cloud Vertex AI (28 Oct): with VERTEX_API_KEY set, gemini-... models are
+  # called here instead of the Gemini API, so the Google Cloud credit pays for them (the
+  # credit does not pay for the Gemini API). "global" uses aiplatform.googleapis.com.
+  vertex_project: "job-search-engine-509510"
+  vertex_location: "global"
 screening:
   # Irish employment permits issued to companies (flow feature 6, ie_permits.py): the gov.ie
   # publication page (the bot follows its "companies" download) or the file itself. Irish

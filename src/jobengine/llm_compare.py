@@ -14,7 +14,7 @@ review, with a full description) and runs each task with both models:
 A DeepSeek model may only run the score task (--tasks score): it never gets your resume.
 
 Nothing is written to Notion, Gmail or Drive. The models are called by name, so this also
-runs locally, where the bot itself always uses haiku (llm.force_model). A Gemini call is not
+runs locally, whatever the bot itself uses there (llm.force_model). A Gemini call is not
 answered by Haiku here: a failure is counted as a failure. The report is
 out/compare/compare-<date>.html; it ends with the time, the failures and the estimated cost
 of each model. 20 jobs and all four tasks cost about $0.50 with haiku.
@@ -69,7 +69,8 @@ class Pinned:
 
 
 def pinned(s: Settings, config: Any, model: str, thinking: str | None = None) -> Pinned:
-    """The real client for `model` (ANTHROPIC_API_KEY, GEMINI_API_KEY or DEEPSEEK_API_KEY)."""
+    """The real client for `model` (ANTHROPIC_API_KEY, VERTEX_API_KEY or GEMINI_API_KEY, or
+    DEEPSEEK_API_KEY)."""
     if is_deepseek(model):
         deepseek = DeepSeekLLM(s)
         return Pinned(model, lambda stage, system, user, max_tokens: deepseek.complete_json(
