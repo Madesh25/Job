@@ -179,6 +179,26 @@ evening.
   `mail.send_window` = `off` sends at once, as before.
 - DRY RUN: the summary says `Would wait for the recipient's morning` and nothing is queued.
 
+### Safe sending (Phase 12, 28 Oct)
+
+While a new sender warms up, a few bounces can hurt the Gmail account, so in send mode the
+bot mails by itself only safe addresses (`mail/send_guard.py`); the rest stay Gmail drafts
+with the reason, for you to check and send:
+
+- **Trusted address:** a provider verified it (Status Verified), or the company wrote it
+  itself (Source `Job posting` or `Careers page`). An address a provider found but could not
+  verify (Hunter "accept all", a GitHub commit address) stays a draft: "the address is not
+  verified (Hunter): check it and send it from Gmail". Notion Config
+  `mail.send_unverified` = `true` lets the bot send those too.
+- **The domain receives mail:** a free DNS look-up for the domain's mail servers (Google
+  public DNS over https, `dns.google`). No mail server: the draft stays. A look-up that
+  fails never stops a mail.
+- **Bounce guard:** 2 bounces in one day, or 2 or more and over 5% of the last 7 days' mails,
+  pause sending by itself; the daily check says `🛑 Sending paused: ...`. Drafts are still
+  written and the morning queue waits. Look at the bounced contacts' Source in Contacts,
+  then `/mailmode send` starts sending again. Bot State `mail.bounce_guard` keeps the
+  counts of the last 14 days.
+
 ## Tokens (gmail.modify)
 
 Drafts need `gmail.modify`; the old OAuth Playground tokens only have `gmail.readonly`,

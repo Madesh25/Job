@@ -18,6 +18,7 @@ from jobengine.bot_state import BotState
 from jobengine.config_store import ConfigStore
 from jobengine.gmail_client import TrackGmail
 from jobengine.llm import LLMClient
+from jobengine.mail import send_guard
 from jobengine.mail.compose import ComposeError
 from jobengine.mail.fill import FillError, job_from_values
 from jobengine.mail.templates import Template
@@ -613,6 +614,10 @@ def find_bounces(run: Run, window: str, report: DailyReport) -> None:
             run.set_contact(pid, {"Status": new, "Notes": _append(
                 c.get("Notes"), f"bounced {message.when.date().isoformat()}")})
             report.bounced.append(address)
+    # Safe sending (mail/send_guard.py): too many bounces pause the bot's sending.
+    alert = send_guard.record_bounces(run.deps.state, run.today, len(report.bounced))
+    if alert:
+        report.notes.append(alert)
 
 
 def draft_followups(run: Run, report: DailyReport) -> None:

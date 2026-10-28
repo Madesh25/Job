@@ -7,6 +7,7 @@ import pytest
 from jobengine.bot_state import FakeBotState
 from jobengine.gmail_client import FakeGmail
 from jobengine.llm import FakeLLM
+from jobengine.mail import send_guard
 from jobengine.settings import load_settings
 from jobengine.track import runner
 from jobengine.track.fakes import load_threads
@@ -130,6 +131,9 @@ def test_bounces_from_header_and_dsn():
     assert "bounced 2026-10-04" in contact(d, "c-bob")["Notes"]
     assert report.bounced == ["bob.example@vistula.example.com",
                               "olga.example@northwind.example.org"]
+    # Safe sending (Phase 12): two bounces in a day pause the bot's sending.
+    assert any(n.startswith("🛑 Sending paused: 2 mails bounced today.") for n in report.notes)
+    assert send_guard.paused(d.state) == "2 mails bounced today"
 
 
 def test_followups_on_day_seven_not_six_and_never_twice():

@@ -6,6 +6,8 @@ checked twice (mail/preflight.py): the message the bot built, and the draft read
 Gmail. Only a draft with no problem is sent, with Gmail's drafts.send, at most
 `mail.daily_send_cap` (Config, default 10) a day. A draft with any problem stays in Gmail
 Drafts and the reason is shown. With DRY_RUN on, the checks run and nothing is sent.
+Safe sending (mail/send_guard.py, 28 Oct): an unverified address stays a draft, a domain
+without a mail server too, and sending pauses by itself after bounces.
 Outside prod every mail goes to your redirect address (safety.route_recipients).
 """
 
@@ -19,7 +21,7 @@ from typing import Any
 from jobengine.bot_state import BotState
 from jobengine.drive_client import DriveError
 from jobengine.gmail_client import GmailError
-from jobengine.mail import preflight, timing, warmup
+from jobengine.mail import preflight, send_guard, timing, warmup
 from jobengine.mail.drafter import (
     DraftsResult,
     MailDeps,
@@ -70,10 +72,13 @@ def mode(state: BotState | None) -> str:
 def mode_command(state: BotState | None, args: str, deps: MailDeps | None = None) -> str:
     """/mailmode, /mailmode draft, /mailmode send."""
     word = args.strip().lower()
+    resumed = False
     if word in (DRAFT, SEND):
         if state is None:
             return "The mail mode cannot be saved here (no Bot State)."
         state.set(MODE_KEY, {"mode": word})
+        if word == SEND:  # after a bounce pause (mail/send_guard.py): you checked them
+            resumed = send_guard.resume(state, deps.today() if deps else date.today())
     current = mode(state)
     if word and word not in (DRAFT, SEND):
         return f"Unknown mail mode {word!r}. Send /mailmode draft or /mailmode send."
@@ -85,6 +90,11 @@ def mode_command(state: BotState | None, args: str, deps: MailDeps | None = None
             config = deps.config()
             text += "\n" + warmup.line(deps.s.mail, state, config, deps.today(),
                                        ceiling(deps, config))
+        if resumed:
+            text = "Sending starts again after the bounce pause.\n" + text
+        why = send_guard.paused(state)
+        if why:
+            text += f"\nSending is paused: {why}. /mailmode send starts it again."
         return text
     return ("Mail mode: draft. Mails are written as Gmail drafts and never sent; you send "
             "them from Gmail. /mailmode send to let the bot send the drafts that pass every "
@@ -121,6 +131,7 @@ def _record(state: BotState | None, today: date, count: int) -> None:
     if state is not None:
         state.set(SENT_KEY, {"date": today.isoformat(), "count": count})
         warmup.mark_first_send(state, today)
+        send_guard.record_sent(state, today)
 
 
 def _append(notes: str | None, line: str) -> str:
@@ -149,7 +160,10 @@ def send_checked(deps: MailDeps, state: BotState | None, drafts: DraftsResult) -
         result.message = send_summary(deps, drafts, result)
         return result
     max_kb = _max_kb(deps, config)
-    notes: dict[str, str] = {}  # Contacts Notes, read once when the first mail goes out
+    stop = send_guard.paused(state)
+    # The contacts, read once: their Notes, Status and Source (mail/send_guard.py).
+    rows = dict(deps.contacts.all_rows()) if deps.contacts is not None else {}
+    notes = {pid: v.get("Notes") or "" for pid, v in rows.items()}
     label = s.env_label if s.app_env != PROD else ""
     window = timing.window(s.mail, config)
     now = deps.now()
@@ -167,6 +181,15 @@ def send_checked(deps: MailDeps, state: BotState | None, drafts: DraftsResult) -
                 problems = preflight.check_raw(gmail.draft_raw(line.draft_id), expected)
             if problems:
                 result.kept.append(f"{who}: {'; '.join(problems)}")
+                continue
+            if stop:
+                result.kept.append(f"{who}: sending is paused ({stop}); /mailmode send "
+                                   "starts it again")
+                continue
+            unsafe = send_guard.address_problem(rows.get(line.page_id), line.email, config,
+                                                deps.mx)
+            if unsafe:
+                result.kept.append(f"{who}: {unsafe}")
                 continue
             if window.enabled and not timing.inside(window, country, now):
                 at = timing.next_start(window, country, now)
@@ -200,8 +223,6 @@ def send_checked(deps: MailDeps, state: BotState | None, drafts: DraftsResult) -
         used += 1
         _record(state, today, used)
         result.sent.append(sent_line)
-        if deps.contacts is not None and not notes:
-            notes = {pid: v.get("Notes") or "" for pid, v in deps.contacts.all_rows()}
         _mark_contacted(deps, line.page_id, notes.get(line.page_id), sent.thread_id or
                         line.thread_id, today)
     if result.sent and not dry and deps.jobs is not None:
@@ -261,8 +282,8 @@ def send_due(deps: MailDeps, state: BotState | None) -> str | None:
     window = timing.window(s.mail, config)
     now = deps.now()
     due = timing.due_items(state, now, window)
-    if not due or not gmail_write_allowed(s):
-        return None
+    if not due or not gmail_write_allowed(s) or send_guard.paused(state):
+        return None  # a bounce pause: the queue waits for /mailmode send
     today = deps.today()
     cap = daily_cap(deps, config, state)
     used = sent_today(state, today)
@@ -270,6 +291,13 @@ def send_due(deps: MailDeps, state: BotState | None) -> str | None:
         return None  # the rest wait for the next morning
     item = due[0]
     kind = KIND.get(item.template, "mail")
+    rows = dict(deps.contacts.all_rows()) if deps.contacts is not None else {}
+    contact = rows.get(item.page_id) or {}
+    unsafe = send_guard.address_problem(contact, str(contact.get("Email") or item.to), config,
+                                        deps.mx)
+    if unsafe:
+        timing.remove(state, item.draft_id)
+        return f"Not sent, kept as a draft: {item.name}: {unsafe}."
     gmail = deps.gmail()
     try:
         raw = gmail.draft_raw(item.draft_id)
@@ -304,10 +332,8 @@ def send_due(deps: MailDeps, state: BotState | None) -> str | None:
     timing.remove(state, item.draft_id)
     used += 1
     _record(state, today, used)
-    notes = ""
-    if deps.contacts is not None:
-        notes = dict(deps.contacts.all_rows()).get(item.page_id, {}).get("Notes") or ""
-    _mark_contacted(deps, item.page_id, notes, sent.thread_id or item.thread_id, today)
+    _mark_contacted(deps, item.page_id, contact.get("Notes") or "",
+                    sent.thread_id or item.thread_id, today)
     if deps.jobs is not None:
         deps.jobs.update(item.job_id, {"Last activity date": today})
     local = timing.aware(now).astimezone(timing.zone(item.country))
