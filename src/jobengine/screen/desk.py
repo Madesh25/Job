@@ -1547,13 +1547,21 @@ class Desk:
             except Exception as exc:
                 log.warning("LinkedIn connections not updated from contacts: %s", exc)
         company = without_region(values.get("Company") or "")
-        reply.text += "\n\n" + connections.block(matches, company,
-                                                  values.get("Country") or "", self.today())
+        reply.text += "\n\n" + self._connections_block(matches, company, values)
         reply.buttons = [*reply.buttons, ("Referral asks", f"rf:{short_id(job_id)}")]
-        if self.contacts is not None and any(m.row.person.url and not m.country
-                                             for m in matches):
+        if self.contacts is not None and any(
+                m.row.person.url and not (m.country and m.row.info.get("Work email"))
+                for m in matches):
             reply.buttons = [*reply.buttons, ("Location and email",
                                               f"rl:{short_id(job_id)}")]
+
+    def _connections_block(self, matches: list[Any], company: str,
+                           values: dict[str, Any]) -> str:
+        from jobengine.contacts import connection_search
+
+        today = self.today()
+        return connections.block(matches, company, values.get("Country") or "", today,
+                                 connection_search.may_have_left(self.state, today))
 
     def referral_tap(self, job_id: str) -> list[Reply]:
         """A LinkedIn message per connection at the company (the peer note: they are already
@@ -1607,33 +1615,78 @@ class Desk:
         return "\n\n".join(blocks)
 
     def connection_lookup_tap(self, job_id: str) -> list[Reply]:
-        """Prospeo by the LinkedIn profile link for at most MAX_ON_DEMAND connections at the
-        company without a country (1 credit each when found)."""
+        """1. A Google search for where the connections at the company work (at most
+        connection_search.MAX_ON_DEMAND without a country; no LinkedIn page opened).
+        2. Prospeo by the LinkedIn profile link for at most MAX_ON_DEMAND of them without a
+        work email (1 credit each when found). An email is never guessed."""
         from jobengine.contacts import connection_lookup as lookup
+        from jobengine.contacts import connection_search
         from jobengine.resume.builder import notion_id
 
         c = self.contacts
         if self.repo is None or c is None or self.connections is None:
             return [Reply("Contacts are not available in this bot.")]
-        if not paid_api_allowed("prospeo", self.s) or not self.s.prospeo_api_key:
-            return [Reply("Prospeo is not asked here: " + contact_lookups(self.s))]
         job_id = notion_id(job_id)
         values = self.repo.get_values(job_id) or {}
-        picks = [m.row for m in self._connections_at(values)
-                 if m.row.person.url and not m.country][:lookup.MAX_ON_DEMAND]
-        if not picks:
-            return [Reply("Every connection there already has a country.")]
-        request = c.request("prospeo")
-        key = str(self.s.prospeo_api_key)
-        out = lookup.run(self.connections, picks,
-                         lambda row: lookup.prospeo_lookup(row, request, key),
-                         pause=lambda: c.sleep(lookup.PROSPEO_PAUSE))
         company = without_region(values.get("Company") or "")
-        text = lookup.summary("Prospeo", out, f"at {company}")
+        today = self.today()
+        texts = []
+        llm = self.deps.llm(self.deps.config())
+        if llm is not None:
+            out = connection_search.run(self.connections, llm,
+                                        [m.row for m in self._connections_at(values)],
+                                        self.state, today, connection_search.MAX_ON_DEMAND)
+            if out.searched:
+                texts.append(connection_search.summary(out, f"at {company}"))
+        if paid_api_allowed("prospeo", self.s) and self.s.prospeo_api_key:
+            picks = [m.row for m in self._connections_at(values)
+                     if m.row.person.url and not m.row.info.get("Work email")
+                     and m.kind != connections.OTHER_KIND][:lookup.MAX_ON_DEMAND]
+            if picks:
+                request = c.request("prospeo")
+                key = str(self.s.prospeo_api_key)
+                found = lookup.run(self.connections, picks,
+                                   lambda row: lookup.prospeo_lookup(row, request, key),
+                                   pause=lambda: c.sleep(lookup.PROSPEO_PAUSE))
+                texts.append(lookup.summary("Prospeo", found, f"at {company}"))
+        else:
+            texts.append("Prospeo (work emails) is not asked here: " + contact_lookups(self.s))
+        if not texts:
+            texts.append("Every connection there already has a country and a work email.")
         matches = self._connections_at(values)
-        text += "\n\n" + connections.block(matches, company, values.get("Country") or "",
-                                            self.today())
-        return [Reply(text[:MAX_TEXT], [("Referral asks", f"rf:{short_id(job_id)}")])]
+        texts.append(self._connections_block(matches, company, values))
+        return [Reply("\n\n".join(texts)[:MAX_TEXT],
+                      [("Referral asks", f"rf:{short_id(job_id)}")])]
+
+    def connection_search_tick(self) -> list[Reply]:
+        """Once a day from connection_search.DAILY_HOUR (your clock): a Google search for
+        where your connections at the companies of your approved jobs work (28 Oct)."""
+        from jobengine.contacts import connection_search
+        from jobengine.notion_repo import select_filter
+        from jobengine.track import daily_report
+
+        if self.repo is None or self.connections is None or self.state is None:
+            return []
+        config = self.deps.config()
+        now = daily_report.local(self.tracking_now(), config)
+        if not connection_search.daily_due(self.state, now):
+            return []
+        connection_search.mark_day(self.state, now.date())
+        llm = self.deps.llm(config)
+        if llm is None:
+            return []
+        rows = self.repo.query_rows(select_filter("Status", *connection_search.JOB_STATUSES))
+        companies = list(dict.fromkeys(without_region(v.get("Company") or "")
+                                       for _, v in rows if v.get("Company")))
+        people = []
+        for company in companies:
+            people += [m.row for m in connections.at_company(
+                self.connections.rows_like(company), company, "")]
+        out = connection_search.run(self.connections, llm, people, self.state, now.date(),
+                                    connection_search.MAX_DAILY)
+        if not out.placed and not out.left:
+            return []
+        return [Reply(connection_search.summary(out, "at your approved jobs' companies"))]
 
     def leftover_tick(self) -> list[Reply]:
         """Your idea of 23 Oct: on the last day before Prospeo or Hunter renews, the credits

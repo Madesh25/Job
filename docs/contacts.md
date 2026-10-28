@@ -500,8 +500,9 @@ The export has no location and LinkedIn is never opened. `contacts/connection_lo
 Only empty fields are written, and a personal address is never a work email. Paid calls
 follow `safety.paid_api_allowed` (prod with DRY_RUN off, or CONTACTS_LIVE on your PC).
 
-1. **On demand:** the "Location and email" button (`rl:`) under a job's connections asks
-   Prospeo for at most 3 people there without a country.
+1. **On demand:** the "Location and email" button (`rl:`) under a job's connections first
+   runs the Google search below for at most 6 people there without a country, then asks
+   Prospeo for at most 3 people without a work email (engineers, managers, HR).
 2. **Leftover credits (your idea):** once a day the bot asks Prospeo and Hunter how many
    credits are left and when new ones come (Prospeo: days left; Hunter: its reset date, else
    `contacts.hunter_renewal_day`, 23). On the last day before a renewal it spends what is
@@ -509,6 +510,27 @@ follow `safety.paid_api_allowed` (prod with DRY_RUN off, or CONTACTS_LIVE on you
    Companies first (Prospeo: then anyone without a country; Hunter: only Target Companies
    with a Domain). Once per renewal (Bot State `connections.leftover`); the answer says how
    many were looked up and filled.
+
+### Where they work, from a Google search (28 Oct, your request)
+
+Most connections are "location unknown" (the export has no location), so the strict
+location rule cannot use them. `contacts/connection_search.py` asks the AI (Config
+`model.people`: Gemini with Google Search on Vertex AI, or Claude with web search) for the
+person's public LinkedIn search result. LinkedIn is never opened.
+
+- Only the person's own profile link from your export counts, and only when the search
+  really returned it. A connection without a profile link is never searched.
+- Country: the result's address when it is a country site (nl., pl. or ie.linkedin.com),
+  else the place the result shows when it names Poland, the Netherlands or Ireland or one of
+  their cities. Written to an empty Country with Location source "AI search".
+- When the result's title names another company, the person is shown as "may have left: the
+  search shows X" under the job (kept in Bot State `connections.searched`; your Notes column
+  is not touched).
+- No email is looked for or guessed here: work emails still come only from Prospeo and
+  Hunter, or you send the LinkedIn message.
+- When: the button above, and once a day from 13:00 your time for the companies of your
+  Approved, Resume built and Applied jobs (at most 20 people). A person is searched again
+  after 30 days. About $0.0015 per person, paid by the Google Cloud credit now.
 
 ## Recruitment agencies (flow feature 7, /agencies)
 
