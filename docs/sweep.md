@@ -418,6 +418,34 @@ JustJoin or Pracuj.pl alert often finds its twin on NoFluffJobs or the company's
   waiting for `/jd`.
 - `sweep.crossmatch.enabled: false` turns it off.
 
+## Direct job links for alert jobs (28 Oct)
+
+A LinkedIn, JustJoin IT, Pracuj.pl or Adzuna row has a link the bot cannot use: LinkedIn is
+never opened and the job boards refuse it, so screening waits for /jd and the autopilot cannot
+open the form. After the cross-match, every open row of those boards (Status New, Screened,
+Approved or Resume built, not Skip) without an employer link is looked up on the company's own
+site (`src/jobengine/sweep/job_links.py`), newest first:
+
+1. The company's job board by its name (Greenhouse, Lever, SmartRecruiters, Ashby, Workable,
+   Recruitee): free, no AI. A posting with the same title in the row's city or country.
+2. Otherwise one AI web search (Config `model.fetch`, else `model.people`; on the PC Gemini on
+   Vertex AI, paid by the Google Cloud credit). Its answer is used only after the bot read the
+   page itself: an employer page (never LinkedIn, a job board or an aggregator), on the
+   company's own domain or a job system page naming the company, whose job title is the
+   row's title, with a full description.
+
+A found job gets that link in URL, and its page body gets "Earlier link (LinkedIn): ..." and
+the description (screening reads it). The dedupe keeps an employer link, so tomorrow's alert
+for the same job never puts the LinkedIn link back. Only the exact title counts. A row with
+no result is tried again after 14 days; a form behind a login or a captcha is still sent by
+you (the autopilot stops there and says so).
+
+- `sweep.job_links.max_rows` (40): rows looked at per sweep; `max_searches` (20): AI web
+  searches per sweep. The 267 rows waiting on 28 Oct are worked through over a few fetches.
+  A company without a job board found by its name is not asked again for 14 days.
+- `sweep.job_links.enabled: false` turns it off.
+- The /fetch summary says "Own job link found on the company's site: N of M" and lists them.
+
 ## New companies and jobs a company site missed (C1, 26 Oct)
 
 After each sweep, `sweep/discover.py` looks at the jobs that passed the scope filters:

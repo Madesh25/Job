@@ -19,7 +19,9 @@ def test_more_waiting_than_the_limit_gives_three_choices():
     _s, d = desk(2)
     choice = d.screen_choice()
     assert choice.text.startswith("16 jobs wait to be screened. Today's limit: 2 a day, 2 left")
-    assert "all 16 cost about $0.05" in choice.text
+    # The PC screens on Gemini since 28 Oct: about $0.0006 a job.
+    assert "about $0.0006 a job (gemini-3.5-flash-lite), so all 16 cost about $0.01" in (
+        choice.text)
     assert choice.buttons == [("Today's 2", "sc:2"), ("4 (over the limit)", "sc:4"),
                               ("All 16", "sc:16")]
 

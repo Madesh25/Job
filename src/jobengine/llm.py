@@ -38,7 +38,10 @@ STAGES = ("fetch", "score", "tailor", "email", "strategy", "resume", "cover", "p
           "people", "apply")
 # A stage without its own Config row uses its parent's model: before 20 Oct resumes, cover
 # letters and interview prep all used model.tailor.
-STAGE_PARENT = {"resume": "tailor", "cover": "tailor", "prep": "tailor"}
+STAGE_PARENT = {"resume": "tailor", "cover": "tailor", "prep": "tailor",
+                # The direct job link search (sweep/job_links.py, 28 Oct) is a web search like
+                # the contact search: model.fetch, else model.people.
+                "fetch": "people"}
 # FakeLLM fixtures of the newer stages stay in the folder they had before (reply sorting
 # used the "score" stage).
 FIXTURE_DIR = {**STAGE_PARENT, "reply": "score"}
@@ -46,7 +49,7 @@ DEFAULT_MODEL = "claude-haiku-4-5"
 GEMINI_PREFIX = "gemini-"
 DEEPSEEK_PREFIX = "deepseek-"
 # The stages that may search the web (Claude's web search or Gemini with Google Search).
-SEARCH_STAGES = ("strategy", "people")
+SEARCH_STAGES = ("strategy", "people", "fetch")
 # DeepSeek has no web search: it may run every other stage (plan C, 25 Oct; before that
 # only screening, 20 Oct).
 DEEPSEEK_STAGES = tuple(stage for stage in STAGES if stage not in SEARCH_STAGES)

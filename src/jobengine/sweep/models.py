@@ -240,6 +240,8 @@ class SweepSummary:
     own_site_count: int = 0  # companies with their own job site, covered by alerts
     full_tried: int = 0
     linkedin_filled: list[str] = field(default_factory=list)  # sweep/crossmatch.py
+    direct_links: list[str] = field(default_factory=list)  # sweep/job_links.py
+    direct_links_tried: int = 0
     backfilled: list[str] = field(default_factory=list)  # sweep/backfill.py
     alert_emails: int | None = None  # email alerts read (None: the source did not run)
     site_missed: list[str] = field(default_factory=list)  # sweep/discover.py
@@ -323,6 +325,11 @@ class SweepSummary:
             lines.append(f"\U0001F517 Descriptions taken from the same job on another site "
                          f"(alerts, Adzuna snippets; no /jd needed): {len(self.linkedin_filled)}")
             lines.extend(f"- {job}" for job in self.linkedin_filled)
+        if self.direct_links_tried:
+            lines.append(f"\U0001F3AF Own job link found on the company's site (screening reads "
+                         f"it, the autopilot can apply): {len(self.direct_links)} of "
+                         f"{self.direct_links_tried} alert jobs looked up")
+            lines.extend(f"- {job}" for job in self.direct_links[:10])
         if self.backfilled:
             lines.append(f"\U0001F4DD Saved jobs that waited for a description, now filled "
                          f"(/screen can screen them): {len(self.backfilled)}")
