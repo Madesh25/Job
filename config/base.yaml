@@ -27,6 +27,7 @@ safety:
   allowed_hosts:
     - api.notion.com
     - hc-ping.com  # the heartbeat (heartbeat.py, Autopilot H4)
+    - dns.google  # safe sending: does the contact's domain receive mail (mail/send_guard.py)
     - api.adzuna.com
     - boards-api.greenhouse.io
     - api.lever.co

@@ -78,6 +78,8 @@ class MailDeps:
     today: Callable[[], date] = date.today
     now: Callable[[], datetime] = datetime.now  # the send window (mail/timing.py)
     write: bool = True  # False: --no-write, render only
+    # Safe sending (mail/send_guard.py): domain -> receives mail; None: no DNS look-up.
+    mx: Callable[[str], bool | None] | None = None
     root: Path = ROOT_DIR  # where "DRY RUN: out/..." resume paths are resolved
 
 
@@ -460,9 +462,11 @@ def fake_deps(
 
 
 def real_deps(s: Settings, write: bool = True) -> MailDeps:
+    from jobengine import http
     from jobengine.drive_client import GoogleDrive
     from jobengine.gmail_client import GmailClient
     from jobengine.llm import make_llm
+    from jobengine.mail import send_guard
     from jobengine.mail.templates import load_templates
     from jobengine.notion_repo import (
         NotionClient,
@@ -482,4 +486,5 @@ def real_deps(s: Settings, write: bool = True) -> MailDeps:
         templates=lambda: load_templates(client, page),
         gmail=lambda: GmailClient.from_settings(s), drive=lambda: GoogleDrive.from_settings(s),
         llm=lambda config: make_llm(s, config) if llm_allowed(s) else None, write=write,
+        mx=send_guard.mx_lookup(lambda url, params: http.get_json(url, params=params, s=s)),
     )
