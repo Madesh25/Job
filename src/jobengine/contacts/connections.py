@@ -405,8 +405,10 @@ def at_company(rows: Iterable[StoredRow], company: str, country: str) -> list[Ma
     return sorted(found, key=order)
 
 
-def block(matches: list[Match], company: str, country: str, today: date) -> str:
-    """The lines under a job's contacts answer."""
+def block(matches: list[Match], company: str, country: str, today: date,
+          left: dict[str, str] | None = None) -> str:
+    """The lines under a job's contacts answer. `left`: person key -> the other company a
+    Google search showed (contacts/connection_search.py)."""
     lines = [f"🤝 Your LinkedIn connections at {company}: {len(matches)}"]
     for m in matches[:MAX_SHOWN]:
         p = m.row.person
@@ -414,6 +416,9 @@ def block(matches: list[Match], company: str, country: str, today: date) -> str:
         asked = m.asked_on(today)
         extra = f", asked {asked:%d %b}" if asked else ""
         mail = ", has an email" if m.email else ""
+        moved = (left or {}).get(p.key)
+        if moved:
+            extra += f", may have left: the search shows {moved}"
         lines.append(f"- {p.name}: {p.position or 'no position'} [{m.kind}, {where}{mail}"
                      f"{extra}]")
     if len(matches) > MAX_SHOWN:

@@ -1188,6 +1188,7 @@ def autopilot_check(client: TelegramClient, s: Settings, desk: Desk | None,
     replies += _scheduled("Link check", desk.expired_check_tick, desk)
     replies += _scheduled("Board check", desk.board_check_tick, desk)
     replies += _scheduled("Sponsor companies", desk.sponsor_tick, desk)
+    replies += _scheduled("Connection search", desk.connection_search_tick, desk)
     replies += _scheduled("Weekly audit", desk.weekly_audit_tick, desk)
     replies += _scheduled("Apply nudge", desk.nudge_tick, desk)
     replies += _scheduled("Auto-apply", desk.autoapply_tick, desk)
