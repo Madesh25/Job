@@ -49,6 +49,8 @@ log = logging.getLogger("jobengine.contacts")
 
 STAGE = "people"  # the contact search's model (Config model.people)
 KEY = "connections.searched"  # bot_state: {"people": {person key: {...}}, "day": iso}
+# Searches made before the matching fix of 29 Oct (version 1) do not count: tried again.
+SEARCH_VERSION = 2
 RECHECK_DAYS = 30
 MAX_ON_DEMAND = 6
 MAX_DAILY = 20
@@ -71,7 +73,8 @@ Answer with JSON only:
  "location": "<the place the search result shows, or empty>",
  "email": "<a work email address written on a public page you found, or empty>",
  "email_page": "<the link of the page where that address is written, or empty>"}
-Only this exact person (same first and last name). Use only what the search results show.
+Only this exact person (same first and last name; when their LinkedIn profile link is
+given, that profile). Use only what the search results show.
 Never make up or guess an email address. When you are not sure, leave the field empty."""
 
 
@@ -117,13 +120,19 @@ def title_company(title: str, name: str) -> str:
 
 
 def _profile(sources: list[str], profile_url: str, name: str, company: str,
-             title: str) -> str:
-    """The person's LinkedIn result among the search's links: their own export link for a
-    connection; for a contact, a profile link whose title names them and the company."""
+             title: str, answered: str = "") -> str:
+    """The person's LinkedIn result: for a connection, their own export link among the
+    search's links, or (29 Oct: Google's grounding rarely lists LinkedIn pages, so 50 of 50
+    were refused) the AI's answer when it is exactly that link and a search really ran;
+    for a contact, a profile link among the search's links whose title names them and the
+    company."""
     links = [u for u in sources if conn.person_key(u, "", "").startswith("in/")]
     if profile_url:
         want = conn.person_key(profile_url, "", "")
-        return next((u for u in links if conn.person_key(u, "", "") == want), "")
+        found = next((u for u in links if conn.person_key(u, "", "") == want), "")
+        if not found and sources and conn.person_key(answered, "", "") == want:
+            found = answered
+        return found
     shown = title_company(title, name)
     if links and shown and conn.same_company(shown, company):
         return links[0] if len(links) == 1 else ""
@@ -172,18 +181,28 @@ def search(llm: Any, name: str, company: str, position: str = "", profile_url: s
     error is raised (LLMError)."""
     user = (f"Person: {name}\nCompany: {company or 'not given'}\n"
             f"Position: {position or 'not given'}")
+    if profile_url:
+        user += f"\nTheir LinkedIn profile: {profile_url}"
     titles: dict[str, str] = {}
     raw, sources = llm.complete_json_with_search(STAGE, SYSTEM, user, max_tokens=500,
                                                  max_uses=3, titles=titles)
     raw = raw or {}
     answered = str(raw.get("title") or "")
-    own = _profile(sources, profile_url, name, company, answered)
+    own = _profile(sources, profile_url, name, company, answered,
+                   str(raw.get("url") or "").strip())
+    # Why a person was or was not matched (no names in the log).
+    log.info("person search at %s: %d results (%d LinkedIn), answer link %s, place %r: %s",
+             company, len(sources), sum("linkedin." in u for u in sources),
+             "given" if raw.get("url") else "empty", bool(raw.get("location")),
+             "matched" if own else "not matched")
     if not own:
         return None
     shown = titles.get(own) or ""
     title = shown if "linkedin" in shown.casefold() and " - " in shown else answered
     location = str(raw.get("location") or "").strip()
-    host = (urlsplit(own).hostname or "").lower()
+    # The address says the country only when Google returned it (the AI could write any
+    # address); else the place the result showed.
+    host = (urlsplit(own).hostname or "").lower() if own in sources else ""
     country = linkedin_country(host) or country_of(location) or ""
     now_at = title_company(title, name)
     other = now_at if now_at and not conn.same_company(now_at, company) else ""
@@ -200,7 +219,8 @@ def _load(state: Any, today: date) -> dict[str, Any]:
     value = dict((state.get(KEY) if state is not None else None) or {})
     cutoff = (today - timedelta(days=RECHECK_DAYS)).isoformat()
     value["people"] = {k: v for k, v in (value.get("people") or {}).items()
-                       if str((v or {}).get("date") or "") > cutoff}
+                       if str((v or {}).get("date") or "") > cutoff
+                       and (v or {}).get("v") == SEARCH_VERSION}
     return value
 
 
@@ -248,7 +268,7 @@ def record(store: conn.ConnectionsStore, row: conn.StoredRow, seen: Seen | None,
     if seen is FAILED:
         out.failed += 1
         return
-    entry: dict[str, Any] = {"date": today.isoformat()}
+    entry: dict[str, Any] = {"date": today.isoformat(), "v": SEARCH_VERSION}
     if seen is not None:
         props: dict[str, Any] = {}
         if seen.other_company:
