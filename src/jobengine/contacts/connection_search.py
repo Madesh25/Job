@@ -100,6 +100,8 @@ class Outcome:
     placed: list[str] = field(default_factory=list)  # "Anna Lis (Netherlands)"
     emails: list[str] = field(default_factory=list)  # "Anna Lis (anna@acme.com)"
     left: list[str] = field(default_factory=list)  # "Anna Lis (now Acme)"
+    failed: int = 0  # the AI call failed: tried again next time
+    stopped: str = ""  # why the run stopped early (the AI paused or its key refused)
 
 
 # ---------------------------------------------------------------- one person
@@ -161,20 +163,18 @@ def _email(raw: dict[str, Any], sources: list[str], domain: str, company: str,
     return (email, page) if email in found else ("", "")
 
 
+FAILED = Seen()  # search_row: the AI call itself failed (not remembered, tried again)
+
+
 def search(llm: Any, name: str, company: str, position: str = "", profile_url: str = "",
            domain: str = "", read_page: PageReader | None = None) -> Seen | None:
-    """None when the search did not return the person (nothing it said is trusted)."""
-    from jobengine.llm import LLMError
-
+    """None when the search did not return the person (nothing it said is trusted). An AI
+    error is raised (LLMError)."""
     user = (f"Person: {name}\nCompany: {company or 'not given'}\n"
             f"Position: {position or 'not given'}")
     titles: dict[str, str] = {}
-    try:
-        raw, sources = llm.complete_json_with_search(STAGE, SYSTEM, user, max_tokens=500,
-                                                     max_uses=3, titles=titles)
-    except LLMError as exc:
-        log.info("person search failed at %s: %s", company, exc)
-        return None
+    raw, sources = llm.complete_json_with_search(STAGE, SYSTEM, user, max_tokens=500,
+                                                 max_uses=3, titles=titles)
     raw = raw or {}
     answered = str(raw.get("title") or "")
     own = _profile(sources, profile_url, name, company, answered)
@@ -210,13 +210,63 @@ def may_have_left(state: Any, today: date) -> dict[str, str]:
     return {k: str(v.get("left")) for k, v in people.items() if v.get("left")}
 
 
-def wanted(row: conn.StoredRow, searched: dict[str, Any]) -> bool:
-    """A connection worth a search: a profile link, something missing, not searched lately."""
+def wanted(row: conn.StoredRow, searched: dict[str, Any], everyone: bool = False) -> bool:
+    """A connection worth a search: a profile link, something missing, not searched lately,
+    not junior; engineers, managers and HR unless `everyone`."""
     missing = not row.info.get("Country") or not row.info.get("Work email")
     return (not row.removed and bool(row.person.url) and missing
             and not is_junior(row.person.position)
-            and conn.kind(row.person.position) != conn.OTHER_KIND
+            and (everyone or conn.kind(row.person.position) != conn.OTHER_KIND)
             and row.person.key not in searched)
+
+
+def search_row(llm: Any, row: conn.StoredRow,
+               domain_of: Callable[[str], str | None] = lambda c: None,
+               read_page: PageReader | None = None) -> Seen | None:
+    """The search for one connection (network only: safe on a worker thread). FAILED when
+    the AI call failed; a paused AI (monthly cap) or a refused key is raised: every further
+    call would fail too."""
+    from jobengine.llm import LLMAuthError, LLMError, LLMPausedError
+
+    p = row.person
+    try:
+        return search(llm, p.name, p.company, p.position, p.url, domain_of(p.company) or "",
+                      read_page)
+    except (LLMPausedError, LLMAuthError):
+        raise
+    except LLMError as exc:
+        log.info("person search failed at %s: %s", p.company, exc)
+        return FAILED
+
+
+def record(store: conn.ConnectionsStore, row: conn.StoredRow, seen: Seen | None,
+           people: dict[str, Any], out: Outcome, today: date) -> None:
+    """Write what the search showed into the row's empty columns and remember the search
+    (a FAILED one is not remembered: the next run tries again)."""
+    p = row.person
+    out.searched += 1
+    if seen is FAILED:
+        out.failed += 1
+        return
+    entry: dict[str, Any] = {"date": today.isoformat()}
+    if seen is not None:
+        props: dict[str, Any] = {}
+        if seen.other_company:
+            entry["left"] = seen.other_company
+            out.left.append(f"{p.name} (now {seen.other_company})")
+        if seen.country and not row.info.get("Country"):
+            props["Country"] = ("rich_text", seen.country)
+            props["Location source"] = ("select", SOURCE)
+            out.placed.append(f"{p.name} ({seen.country})")
+        if seen.email and not row.info.get("Work email"):
+            props["Work email"] = ("email", seen.email)
+            out.emails.append(f"{p.name} ({seen.email})")
+        note = seen.note(today)
+        if note and not row.info.get("Notes"):
+            props["Notes"] = ("rich_text", note[:500])
+        if props:
+            store.update(row.page_id, props)
+    people[p.key] = entry
 
 
 def run(store: conn.ConnectionsStore, llm: Any, rows: Iterable[conn.StoredRow], state: Any,
@@ -226,36 +276,73 @@ def run(store: conn.ConnectionsStore, llm: Any, rows: Iterable[conn.StoredRow], 
     value = _load(state, today)
     people = value["people"]
     out = Outcome()
+    from jobengine.llm import LLMError
+
     for row in rows:
         if out.searched >= limit:
             break
         if not wanted(row, people):
             continue
-        out.searched += 1
-        p = row.person
-        seen = search(llm, p.name, p.company, p.position, p.url,
-                      domain_of(p.company) or "", read_page)
-        entry: dict[str, Any] = {"date": today.isoformat()}
-        if seen is not None:
-            props: dict[str, Any] = {}
-            if seen.other_company:
-                entry["left"] = seen.other_company
-                out.left.append(f"{p.name} (now {seen.other_company})")
-            if seen.country and not row.info.get("Country"):
-                props["Country"] = ("rich_text", seen.country)
-                props["Location source"] = ("select", SOURCE)
-                out.placed.append(f"{p.name} ({seen.country})")
-            if seen.email and not row.info.get("Work email"):
-                props["Work email"] = ("email", seen.email)
-                out.emails.append(f"{p.name} ({seen.email})")
-            note = seen.note(today)
-            if note and not row.info.get("Notes"):
-                props["Notes"] = ("rich_text", note[:500])
-            if props:
-                store.update(row.page_id, props)
-        people[p.key] = entry
+        try:
+            seen = search_row(llm, row, domain_of, read_page)
+        except LLMError as exc:  # paused or refused: every further call would fail too
+            out.stopped = str(exc)
+            break
+        record(store, row, seen, people, out, today)
     if state is not None:
         state.set(KEY, value)
+    return out
+
+
+# ---------------------------------------------------------------- /enrich: all of them
+
+
+ENRICH_WORKERS = 4  # searches at the same time
+ENRICH_CHUNK = 20  # people per step: written to Notion and saved, then /end may stop
+
+
+def enrich_picks(rows: Iterable[conn.StoredRow], state: Any, today: date,
+                 targets: Iterable[str] = ()) -> list[conn.StoredRow]:
+    """/enrich: every connection with a profile link that misses a country or a work email
+    (juniors left out): Target Companies first, then engineers, managers, HR, the rest."""
+    searched = _load(state, today)["people"]
+    names = list(targets)
+    found = [r for r in rows if wanted(r, searched, everyone=True)]
+
+    def order(r: conn.StoredRow) -> tuple[bool, int, str]:
+        at_target = any(conn.same_company(r.person.company, n) for n in names)
+        kind = conn.kind(r.person.position)
+        rank = conn.KIND_ORDER.index(kind) if kind in conn.KIND_ORDER else len(conn.KIND_ORDER)
+        return (not at_target, rank, r.person.name)
+
+    return sorted(found, key=order)
+
+
+def enrich(store: conn.ConnectionsStore, llm: Any, picks: list[conn.StoredRow], state: Any,
+           today: date, domain_of: Callable[[str], str | None] = lambda c: None,
+           read_page: PageReader | None = None,
+           step: Callable[[Outcome, int], None] = lambda out, total: None) -> Outcome:
+    """/enrich: search every pick, ENRICH_WORKERS at a time. After each chunk the rows are
+    written and bot_state saved, then `step` runs (progress, and /end's safe point)."""
+    from jobengine.llm import LLMError
+    from jobengine.parallel import run_all
+
+    value = _load(state, today)
+    people = value["people"]
+    out = Outcome()
+    for start in range(0, len(picks), ENRICH_CHUNK):
+        chunk = picks[start:start + ENRICH_CHUNK]
+        try:
+            found = run_all(lambda r: search_row(llm, r, domain_of, read_page), chunk,
+                            ENRICH_WORKERS)
+        except LLMError as exc:  # paused or refused: this chunk is tried again next time
+            out.stopped = str(exc)
+            break
+        for row, seen in zip(chunk, found, strict=True):
+            record(store, row, seen, people, out, today)
+        if state is not None:
+            state.set(KEY, value)
+        step(out, len(picks))
     return out
 
 
@@ -265,6 +352,12 @@ def summary(out: Outcome, where: str) -> str:
              "public page (no LinkedIn page opened, no email guessed)."]
     lines += [f"- {name}" for name in out.placed[:10]]
     lines += [f"- {name}" for name in out.emails[:10]]
+    if out.failed:
+        lines.append(f"{out.failed} searches failed (the AI did not answer): tried again "
+                     "next time.")
+    if out.stopped:
+        lines.append(f"Stopped early: {out.stopped}. What is done is kept; run it again "
+                     "later.")
     if out.left:
         lines.append("May have left (the search shows another company):")
         lines += [f"- {name}" for name in out.left[:10]]
@@ -287,8 +380,15 @@ def mark_day(state: Any, today: date) -> None:
 
 def place(llm: Any, name: str, company: str, title: str, country: str) -> Seen | None:
     """A contact a provider found without a location (finder.py, strict rule): their
-    LinkedIn result places them in the job's country, or None."""
-    seen = search(llm, name, company, title)
+    LinkedIn result places them in the job's country, or None (also when the AI failed:
+    the contact search goes on without it)."""
+    from jobengine.llm import LLMError
+
+    try:
+        seen = search(llm, name, company, title)
+    except LLMError as exc:
+        log.info("contact location search failed at %s: %s", company, exc)
+        return None
     if seen is None or seen.other_company or seen.country.casefold() != country.casefold():
         return None
     return seen

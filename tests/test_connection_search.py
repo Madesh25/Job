@@ -81,7 +81,7 @@ def test_no_profile_link_no_search_and_a_failed_search_is_nothing():
     store = FakeConnections([NO_LINK])
     assert cs.run(store, llm, store.rows(), FakeBotState(), TODAY, limit=5).searched == 0
     assert llm.asked == []
-    assert find(Search(fail=True), ANNA) is None
+    assert cs.search_row(Search(fail=True), stored(ANNA)) is cs.FAILED
 
 
 def test_a_run_fills_only_an_empty_country_and_waits_30_days():
@@ -245,3 +245,78 @@ def test_the_finder_places_hunter_people_by_google_search():
     assert search.asked and len(search.asked) <= cs.MAX_CONTACTS
     assert any("location from Google search" in (c.notes or "") for c in result.contacts)
     assert "Google search: looked for where" in result.message
+
+
+def test_enrich_takes_everyone_but_juniors_target_companies_first():
+    bob = Connection("Bob", "Sales", "https://www.linkedin.com/in/bob", "", "Elsewhere Ltd",
+                     "Sales Director")
+    store = FakeConnections([OTHER, bob, JUNIOR, NO_LINK, ANNA])
+    picks = cs.enrich_picks(store.rows(), FakeBotState(), TODAY, ["Vistula Cloud"])
+    assert [r.person.name for r in picks] == ["Anna Test", "Ola Far", "Bob Sales"]
+
+
+def test_enrich_saves_after_each_step_and_stop_keeps_what_is_done():
+    from jobengine.jobctl import Stopped
+
+    people = [Connection(f"P{i}", "X", f"https://www.linkedin.com/in/p{i}", "", "Vistula Cloud",
+                         "SRE") for i in range(45)]
+    store = FakeConnections(people)
+    llm = Search({f"P{i} X": ({"url": f"https://pl.linkedin.com/in/p{i}"},
+                              [f"https://pl.linkedin.com/in/p{i}"]) for i in range(45)})
+    state = FakeBotState()
+    steps = []
+
+    def step(out, total):
+        steps.append((out.searched, total))
+        if len(steps) == 2:
+            raise Stopped("/enrich")  # /end after the second step
+
+    picks = cs.enrich_picks(store.rows(), state, TODAY)
+    try:
+        cs.enrich(store, llm, picks, state, TODAY, step=step)
+    except Stopped:
+        pass
+    assert steps == [(20, 45), (40, 45)]
+    placed = [r for r in store.rows() if r.info.get("Country") == "Poland"]
+    assert len(placed) == 40
+    # The next /enrich goes on with the 5 left.
+    assert len(cs.enrich_picks(store.rows(), state, TODAY)) == 5
+
+
+def test_the_enrich_command_uses_only_the_google_search():
+    d = live_desk()
+    own = "https://pl.linkedin.com/in/anna-test"
+    llm = Search({"Anna Test": ({"url": own}, [own])})
+    d.deps = replace(d.deps, llm=lambda config: llm)
+    paid = []
+    d.contacts.request = lambda provider: paid.append(provider)
+    lines = []
+    [reply] = d.enrich_command("", lines.append)
+    assert reply.text.startswith("🔎 Google search: 2 of your connections in the 🤝 LinkedIn "
+                                 "Connections table looked up: 1 now have a country")
+    assert "Still without a country: 1; without a work email: 2" in reply.text
+    assert reply.buttons == [] and paid == []  # never Hunter or Prospeo
+    assert lines[-1] == "2 of 2 connections looked up: 1 countries, 0 work emails found"
+    [again] = d.enrich_command("")
+    assert again.text.startswith("Every connection worth a search")
+
+
+def test_a_paused_ai_stops_the_run_and_marks_nobody_searched():
+    from jobengine.llm import LLMPausedError
+
+    class Paused:
+        def complete_json_with_search(self, *args, **kwargs):
+            raise LLMPausedError("AI paused: the month's cap is reached")
+
+    store = FakeConnections([ANNA, OTHER])
+    state = FakeBotState()
+    out = cs.enrich(store, Paused(), cs.enrich_picks(store.rows(), state, TODAY), state, TODAY)
+    assert out.stopped.startswith("AI paused") and out.searched == 0
+    assert "Stopped early: AI paused" in cs.summary(out, "here")
+    assert len(cs.enrich_picks(store.rows(), state, TODAY)) == 2  # nobody marked searched
+    # One failed call is tried again next time, the others go on.
+    flaky = Search(fail=True)
+    out = cs.enrich(store, flaky, cs.enrich_picks(store.rows(), state, TODAY), state, TODAY)
+    assert (out.searched, out.failed) == (2, 2)
+    assert len(cs.enrich_picks(store.rows(), state, TODAY)) == 2
+    assert cs.place(flaky, "Piet Smit", "Dune Data", "SRE", "Netherlands") is None
