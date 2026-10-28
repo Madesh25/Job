@@ -60,7 +60,7 @@ def test_resume_match_line_from_the_final_pdf():
     text = cover.pdf_text(pdf)
     line = cover.cover_line(["Kubernetes", "Terraform", "Ansible", "Go"], text)
     assert line == ("Resume match: shows 2 of 4 job keywords you have (not on it: Ansible, "
-                    "Go; Rebuild to add them).")
+                    "Go; tap Add keywords).")
     assert cover.cover_line(["Kubernetes"], text) == \
         "Resume match: shows 1 of 1 job keywords you have."
     assert cover.cover_line([], text) is None and cover.pdf_text(b"not a pdf") == ""

@@ -69,6 +69,11 @@ Not applying -> "Why?" [the job is closed or expired] [not a fit after all] [ano
   revision with all of them (the same forced skills as below). The picked skills are also
   added to Skills Inventory as Hands-on (your choice of 23 Oct; Notes "Added from a resume
   preview on <date>"), so screening and the next resumes count them. `Cancel` adds nothing.
+- "Add N keywords" (#13, 28 Oct): the caption's "Resume match" line names the job's keywords
+  you have (in Skills Inventory) that the resume leaves out. The `Add N keywords` button (at
+  most 8) builds one new revision that shows them. A keyword no longer in your Skills
+  Inventory at the tap is dropped, so it never adds a skill you do not have. Bot State
+  `resume.missing_keywords` keeps the newest preview's list.
 - "Add anyway": a preview with one gap has an `Add <skill>` button, and a refused instruction
   ("add PowerShell") has `Add anyway (I'll learn it)`. The next revision lists that skill in
   the Technical Skills tables only (never in the experience bullets), the caption says

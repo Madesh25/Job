@@ -81,6 +81,10 @@ REBUILD_ASK_MINUTES = 30
 FORCE_KEY = "resume.force_ask"  # bot_state: {"job": <page id>, "text": <refused instruction>}
 MAX_GAP_BUTTONS = 2
 PICK_KEY = "resume.gap_pick"  # bot_state: {"job": <page id>, "gaps": [...], "picked": [...]}
+# #13 (28 Oct): the job's keywords you have that the built resume leaves out, for the
+# "Add N keywords" button under the preview. bot_state: {"job": <page id>, "terms": [...]}
+MISSING_KEY = "resume.missing_keywords"
+MAX_MISSING_TERMS = 8
 MAX_PICK = 8  # gap names offered in the picker
 REBUILD_ASK = (
     "What should change? Send your instructions as your next message, for example:\n"
@@ -583,7 +587,7 @@ class Desk:
             self.choose_country(None if arg == "all" else arg)
             return self.pending(0)
         if action in ("ra", "rb", "cl", "rq", "ia", "na", "nr", "fg", "fc", "gp", "gt", "gr",
-                      "gx") and arg:
+                      "gx", "mk") and arg:
             return self.resume_tap(action, arg)
         if action in ("rc", "lk", "rd") and arg:
             return self.track_tap(action, data)
@@ -744,7 +748,12 @@ class Desk:
             if len(data.encode()) <= 64:  # Telegram's limit for button data
                 buttons.append((f"Add {gap}", data))
         text = outcome.caption or ""
-        line = self.resume_cover_line(outcome)
+        line, left = self.resume_match(outcome)
+        if left:  # #13: one tap adds the job's keywords you have that the resume leaves out
+            terms = left[:MAX_MISSING_TERMS]
+            self.state.set(MISSING_KEY, {"job": outcome.job_id, "terms": terms})
+            buttons.append((f"Add {len(terms)} keyword{'s' if len(terms) > 1 else ''}",
+                            f"mk:{short_id(outcome.job_id)}"))
         if line and len(text) + len(line) + 1 <= resume_builder.CAPTION_MAX:
             first, _, rest = text.partition("\n")
             text = f"{first}\n{line}\n{rest}" if rest else f"{first}\n{line}"
@@ -831,16 +840,44 @@ class Desk:
 
     def resume_cover_line(self, outcome: BuildOutcome) -> str | None:
         """Feature 11: how many of the job's keywords you have the final resume shows."""
+        return self.resume_match(outcome)[0]
+
+    def resume_match(self, outcome: BuildOutcome) -> tuple[str | None, list[str]]:
+        """(the match line, the job's keywords you have that the resume leaves out). Only
+        skills in your Skills Inventory count (sweep/rank.py `have`), never one you lack."""
         if self.repo is None or not outcome.pdf:
-            return None
+            return None, []
         jd, _kind = description(self.repo.read_body(outcome.job_id))
         if not jd:
-            return None
+            return None, []
         terms = list(self.ranker().keywords(jd).have)
         resume_text = cover.pdf_text(outcome.pdf)
+        left: list[str] = []
         if terms and resume_text:
-            day_ledger.add_match(len(cover.cover(terms, resume_text)[0]), len(terms))
-        return cover.cover_line(terms, resume_text)
+            shown, left = cover.cover(terms, resume_text)
+            day_ledger.add_match(len(shown), len(terms))
+        return cover.cover_line(terms, resume_text), left
+
+    def missing_keywords_tap(self, arg: str) -> list[Reply]:
+        """#13: "Add N keywords" under a preview rebuilds the resume with them."""
+        from jobengine.resume.builder import notion_id
+
+        job_id = notion_id(arg)
+        ask = self.state.get(MISSING_KEY) or {}
+        terms = [str(t) for t in ask.get("terms") or []]
+        if not terms or not same_page(str(ask.get("job")), job_id):
+            return [Reply("That list is no longer open: the newest preview has the button.")]
+        have = self.reference()
+        terms = [t for t in terms if have.lookup(t) is not None]  # still yours
+        self.state.delete(MISSING_KEY)
+        if not terms:
+            return [Reply("None of those keywords is in your Skills Inventory now.")]
+        values = (self.repo.get_values(job_id) if self.repo else None) or {}
+        rebuilt = self.on_job_approved(job_id, values,
+                                       correction=f"show {', '.join(terms)} in the resume",
+                                       force=True, force_terms=terms)
+        return [Reply(f"Rebuilding with {', '.join(terms)} (all in your Skills Inventory)."),
+                *rebuilt]
 
     def resume_tap(self, action: str, arg: str) -> list[Reply]:
         if self.resume is None:
@@ -849,6 +886,8 @@ class Desk:
             self.state.delete(REBUILD_KEY)
             values = (self.repo.get_values(arg) if self.repo else None) or {}
             return self.on_job_approved(arg, values, force=True, claude=action == "cl")
+        if action == "mk":  # #13: the job's keywords you have, left out of the resume
+            return self.missing_keywords_tap(arg)
         if action in ("gp", "gt", "gr", "gx"):  # FR-1: pick several gaps, rebuild once
             return self.gap_pick_tap(action, arg)
         if action == "fg":  # "Add <gap>" under a preview

@@ -80,7 +80,7 @@ def cover_line(terms: list[str], resume_text: str, limit: int = 6) -> str | None
     line = f"Resume match: shows {len(shown)} of {len(terms)} job keywords you have"
     if left:
         more = f" and {len(left) - limit} more" if len(left) > limit else ""
-        line += f" (not on it: {', '.join(left[:limit])}{more}; Rebuild to add them)"
+        line += f" (not on it: {', '.join(left[:limit])}{more}; tap Add keywords)"
     return line + "."
 
 
