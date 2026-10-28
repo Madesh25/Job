@@ -141,7 +141,9 @@ def real_deps(s: Settings) -> SweepDeps:
         adzuna=lambda: adzuna.fetch(s),
         ats=lambda companies, keep, state=None: ats.fetch(s, companies, keep, state=state),
         reference=lambda: Reference.load(client, s),
-        page=lambda url: http.get_page(url, s=s, blocked=fulltext.blocked_hosts(s)),
+        # JSON only for Oracle's job details call (sweep/fulltext.py from_api).
+        page=lambda url: http.get_page(url, s=s, blocked=fulltext.blocked_hosts(s),
+                                       accept_json=fulltext.API_PATH in url),
         jooble=lambda: jooble.fetch(s),
         nofluffjobs=lambda: nofluffjobs.fetch(s),
         iamexpat=lambda: iamexpat.fetch(s),

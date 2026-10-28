@@ -350,7 +350,13 @@ jobs near the top of today's list (`daily_new_limit` minus what was already adde
 `sweep.fulltext.lookahead` more), the sweep reads the job page when the source gave a snippet,
 nothing, or less than `screening.full_min_chars`:
 
-1. the schema.org `JobPosting` in the page's JSON-LD, which most job boards and ATS pages have
+0. Oracle Cloud HCM jobs (28 Oct, P9-17): the site's own public detail call
+   (`recruitingCEJobRequisitionDetails`, the call its JavaScript page makes): description,
+   responsibilities, qualifications and the company text. The page itself has no text, and
+   the search gave only a short summary.
+1. the schema.org `JobPosting` in the page's JSON-LD, which most job boards and ATS pages
+   have, or the job in the site's page data: Next.js `__NEXT_DATA__`, and Phenom's
+   `jobDetail` (28 Oct; the Phenom search gave only a teaser, which is not added twice)
 2. otherwise the largest block that looks like a job description (`main`, `article`, or an
    element whose id or class names a description), with menus, headers, footers, forms and
    scripts removed
@@ -362,6 +368,10 @@ and the best are saved. The page body starts with
 from. A page that cannot be read, or gives less text than the snippet, keeps the snippet
 (`Description source: adzuna (snippet only)`), and screening then asks for `/jd` as before.
 The summary has one line, for example `Full descriptions: read 24 of 27 job pages`.
+
+Nothing is lost (28 Oct): a text replaces the one the job has only when it is longer, and a
+company site's own summary that the full text does not hold is kept in front of it (an
+Adzuna or Jooble snippet is cut short, so it is not kept).
 
 The page reader (`http.get_page`) is separate from the API client:
 
