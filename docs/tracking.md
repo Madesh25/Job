@@ -305,7 +305,15 @@ The report, counted from your own data with no AI:
    sent and no reply; 8 or more follow-ups unanswered; a source with 20 or more jobs and none
    Apply high or normal.
 4. **What works**: the reply rate per group with at least 5 settled applications.
-5. **Fetch and filters: jobs a filter may have got wrong** (28 Oct). Every `/fetch` keeps,
+5. **Fast rejections** (#12, 28 Oct, `track/rejections.py`). A rejection within 3 days of
+   applying is usually an automatic filter. The fast rejections of the last 8 weeks are
+   compared with the other applications of that time; a cause is named (🔴, with what to
+   try) when 3 or more fast rejections exist, at least half share it and it is 20 points
+   more common than in the other applications: 4+ years asked, 2+ missing skills, Polish or
+   Dutch needed, no sponsorship sign, a Senior title, a weak screening verdict, one country
+   or one job board. Up to 8 of the jobs are listed with their years, country, verdict and
+   gaps.
+6. **Fetch and filters: jobs a filter may have got wrong** (28 Oct). Every `/fetch` keeps,
    for its week, what it read and dropped (`sweep/filter_watch.py`, Bot State
    `sweep.filter_weeks`). The audit lists: postings read and saved per source; the drop
    reasons; 🟠 titles in your countries that are not one of your titles but have a near word
@@ -315,10 +323,10 @@ The report, counted from your own data with no AI:
    skills; and 🟠 the other way round, saved jobs that were not your profile (screening said
    Skip, or you declined them), with their titles. The bot never changes the filters: Opus may
    suggest a title to add or a word to leave out, and you decide.
-6. **Job boards (weekly check)**: the result of the Sunday board check above.
-7. **Last week's actions**: the reply rate and applications before and after, and the
+7. **Job boards (weekly check)**: the result of the Sunday board check above.
+8. **Last week's actions**: the reply rate and applications before and after, and the
    Actions you wrote on last week's row.
-8. **For Opus**: a ready prompt. Open the page, give it to Opus, then set the row's Status
+9. **For Opus**: a ready prompt. Open the page, give it to Opus, then set the row's Status
    (New, Reviewed, Actions set) and write the Actions you decide. The next audit reports on
    them.
 

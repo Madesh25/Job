@@ -26,6 +26,7 @@ from datetime import date, datetime, time, timedelta
 from typing import Any
 
 from jobengine.sweep import board_watch
+from jobengine.track import rejections
 from jobengine.track.stats import CONTACTED, Funnel, pct
 
 DONE_KEY = "audit.done"  # bot_state: {"week": <iso Monday of the last audited week>}
@@ -57,7 +58,9 @@ OPUS_PROMPT = (
     "to test next week, with the number that would show it worked; 3) what to stop doing "
     "because it keeps failing; 4) what is working and should get more effort; 5) from the "
     "filter section: which dropped titles fit my profile (a title to add to my title list) "
-    "and which saved jobs did not (a word to leave out). Never suggest loosening the "
+    "and which saved jobs did not (a word to leave out); 6) from the fast rejections: what "
+    "the automatic filters reject and the smallest change to the resume or to where I "
+    "apply. Never suggest loosening the "
     "seniority, country, language, sponsorship or office-only rules. Say when the data is "
     "too small to judge. Do not invent numbers.")
 
@@ -545,6 +548,8 @@ def build(data: AuditInput, monday: date) -> Audit:
          [f.line() for f in stale] or ["- Nothing yet (needs "
                                        f"{REPEAT_MIN}+ tries in one group with 0 replies)."]),
         ("What works (settled applications)", what_works(data, sunday)),
+        ("Fast rejections: what the automatic filters reject (last 8 weeks)",
+         rejections.audit_lines(data.jobs, sunday)),
         ("Fetch and filters: jobs a filter may have got wrong",
          [*fetch_lines(data.fetch), *wrong_in(data, monday, sunday),
           "- The bot never changes the filters. Opus may suggest a title to add or a word to "

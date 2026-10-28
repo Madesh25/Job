@@ -214,6 +214,7 @@ def test_the_bot_writes_the_audit_to_notion_on_sunday_evening():
     assert heads == ["Scorecard", "Where it went wrong this week",
                      "Done again and again without results (last 4 weeks)",
                      "What works (settled applications)",
+                     "Fast rejections: what the automatic filters reject (last 8 weeks)",
                      "Fetch and filters: jobs a filter may have got wrong",
                      "Job boards (weekly check)", "Last week's actions", "For Opus"]
     assert d.weekly_audit_tick() == []
