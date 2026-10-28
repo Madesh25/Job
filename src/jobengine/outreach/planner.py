@@ -3,6 +3,7 @@ bot_state["outreach.week"] = {"week": "2026-W39", "allowance": 5, "jobs": [...]}
 
 from __future__ import annotations
 
+from collections.abc import Collection
 from dataclasses import dataclass
 from datetime import date
 from typing import Any
@@ -42,19 +43,26 @@ class Budget:
         return len(self.jobs)
 
 
-def counters(config: ConfigStore, today: date) -> dict[str, Any]:
+def counters(config: ConfigStore, today: date,
+             usable: Collection[str] | None = None) -> dict[str, Any]:
+    """Each provider's credits this month. `usable`: the providers that can be asked now
+    (a key set, not refused this month); the others count as not set (Phase 12 P12-11,
+    28 Oct: Apollo without a key and Snov's free plan made "95 more jobs")."""
     out = {}
     for provider in PROVIDERS:
         key = f"credits.{provider}"
         counter = parse_counter(config.get(key), config.updated(key))
+        if usable is not None and provider not in usable:
+            counter = None
         out[provider] = monthly_reset(counter, today) if counter else None
     return out
 
 
-def load_budget(state: BotState, config: ConfigStore, today: date) -> Budget:
+def load_budget(state: BotState, config: ConfigStore, today: date,
+                usable: Collection[str] | None = None) -> Budget:
     """This week's budget; a new week starts with a fresh allowance from the credits left."""
     costs = parse_costs(config.get(COST_KEY))
-    current = counters(config, today)
+    current = counters(config, today, usable)
     capacity = month_capacity(current, costs)
     week = week_key(today)
     saved = state.get(STATE_KEY) or {}
@@ -82,10 +90,10 @@ def facts(values: dict[str, Any], reference: Reference) -> JobFacts:
 
 
 def plan(state: BotState, config: ConfigStore, reference: Reference, values: dict[str, Any],
-         job_id: str, today: date) -> Decision:
+         job_id: str, today: date, usable: Collection[str] | None = None) -> Decision:
     """Decide for one job and, for outreach, count it against this week's allowance. A job
     already counted this week keeps outreach (a retry never spends a second slot)."""
-    budget = load_budget(state, config, today)
+    budget = load_budget(state, config, today, usable)
     if job_id in budget.jobs:
         return Decision(True, "-", budget.allowance - budget.used, budget.allowance,
                         "already counted this week")
@@ -95,17 +103,21 @@ def plan(state: BotState, config: ConfigStore, reference: Reference, values: dic
     return decision
 
 
-def force(state: BotState, config: ConfigStore, job_id: str, today: date) -> Budget:
+def force(state: BotState, config: ConfigStore, job_id: str, today: date,
+          usable: Collection[str] | None = None) -> Budget:
     """Your tap or /contacts: outreach regardless of priority; still counted."""
-    budget = load_budget(state, config, today)
+    budget = load_budget(state, config, today, usable)
     record(state, budget, job_id)
     return budget
 
 
-def status_text(state: BotState, config: ConfigStore, today: date) -> str:
-    budget = load_budget(state, config, today)
+def status_text(state: BotState, config: ConfigStore, today: date,
+                usable: Collection[str] | None = None) -> str:
+    budget = load_budget(state, config, today, usable)
     credits = ", ".join(
         f"{p.capitalize()} {c.left} left" if (c := budget.counters.get(p)) else
+        f"{p.capitalize()} not used (no key or no API this month)"
+        if usable is not None and p not in usable else
         f"{p.capitalize()} not set" for p in PROVIDERS)
     costs = ", ".join(f"{p} {budget.costs[p]}" for p in PROVIDERS)
     left = max(min(budget.allowance - budget.used, budget.capacity), 0)

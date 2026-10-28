@@ -219,7 +219,8 @@ def _prepare(desk: Desk, row: JobRow) -> JobReport:
 
     c = desk.contacts
     values = (desk.repo.get_values(row.page_id) if desk.repo else None) or {}
-    decision = planner.plan(c.state, c.config(), c.reference(), values, row.page_id, c.today())
+    decision = planner.plan(c.state, c.config(), c.reference(), values, row.page_id, c.today(),
+                            desk.usable_providers())
     found = contact_finder.find_contacts(c, row.page_id, paid=decision.outreach)
     ids: list[str] = []
     if found.status == "waiting_domain":

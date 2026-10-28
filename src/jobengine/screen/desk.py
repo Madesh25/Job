@@ -10,7 +10,7 @@ from __future__ import annotations
 import logging
 import re
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
@@ -104,6 +104,14 @@ ADD_USAGE = ("Send /add <job link>: the job's page on the company site (the page
              "another app sends you to). The bot reads it, saves and screens the job, adds the "
              "company to Target Companies and builds your resume.")
 ADD_PASTE = "Paste the description instead: send /jd {url}, paste the text, then /done."
+CONTACTS_USAGE = ("Send /contacts <job link or id>. A job not in Notion yet is saved first. "
+                  "For a LinkedIn job (never opened by the bot) add the company and country: "
+                  "/contacts <link> <company>, <country>, <role>")
+CONTACTS_LINKEDIN = ("The bot never opens {host} pages, so it needs the company and the "
+                     "country from you. Send:\n/contacts {url} <company>, <country>, <role>\n"
+                     "for example: /contacts {url} Acme Cloud, Poland, DevOps Engineer\n"
+                     "It saves the job, finds 2 contacts and shows your LinkedIn connections "
+                     "there with the referral messages.")
 ADD_TIMEOUT = 30.0  # seconds for the /add page (a /fetch page gets http.PAGE_TIMEOUT_SECONDS)
 ADD_COMPANIES_KEY = "apply.add_companies"  # Autopilot A2: "true" turns it on
 AUTO_PREP_KEY = "autoprep.done"  # bot_state: {"jobs": {page id: iso date}} (D)
@@ -1421,7 +1429,8 @@ class Desk:
 
         values = (self.repo.get_values(job_id) if self.repo else None) or {}
         c = self.contacts
-        decision = planner.plan(c.state, c.config(), c.reference(), values, job_id, c.today())
+        decision = planner.plan(c.state, c.config(), c.reference(), values, job_id, c.today(),
+                                self.usable_providers())
         company = values.get("Company") or "this job"
         if decision.outreach:
             line = Reply(f"Outreach for {company}: yes ({decision.reason}; "
@@ -1444,8 +1453,28 @@ class Desk:
 
         job_id = notion_id(arg)
         c = self.contacts
-        planner.force(c.state, c.config(), job_id, c.today())
+        planner.force(c.state, c.config(), job_id, c.today(), self.usable_providers())
         return self.find_contacts(job_id)
+
+    def usable_providers(self) -> set[str] | None:
+        """The contact providers that can be asked now: a key set (first or second
+        account) and not refused for this month (Snov's free plan, Phase 12 P12-11). None
+        when look-ups answer from test files (every provider counts there)."""
+        from jobengine.contacts.finder import OFF_KEY
+
+        s = self.s
+        if not paid_api_allowed("hunter", s):
+            return None
+        keys = {"apollo": s.apollo_api_key or s.apollo_api_key_2,
+                "hunter": s.hunter_api_key or s.hunter_api_key_2,
+                "snov": (s.snov_client_id and s.snov_client_secret)
+                or (s.snov_client_id_2 and s.snov_client_secret_2),
+                "prospeo": s.prospeo_api_key or s.prospeo_api_key_2,
+                "tomba": (s.tomba_api_key and s.tomba_api_secret)
+                or (s.tomba_api_key_2 and s.tomba_api_secret_2)}
+        month = self.today().strftime("%Y-%m")
+        return {p for p, key in keys.items()
+                if key and (self.state.get(OFF_KEY + p) or {}).get("month") != month}
 
     def outreach_command(self) -> list[Reply]:
         if self.contacts is None:
@@ -1453,7 +1482,8 @@ class Desk:
         from jobengine.outreach import planner
 
         c = self.contacts
-        return [Reply(planner.status_text(c.state, c.config(), c.today()))]
+        return [Reply(planner.status_text(c.state, c.config(), c.today(),
+                                          self.usable_providers()))]
 
     # ------------------------------------------------------------ contacts (Module 05)
 
@@ -1552,7 +1582,7 @@ class Desk:
             asked = m.asked_on(today)
             note = linkedin_notes.note(template, name=p.name, role=values.get("Role") or "",
                                        company=company, link=values.get("URL") or "",
-                                       me=str(me or ""))
+                                       me=str(me or ""), status=values.get("Status"))
             head = f"{p.name} ({p.position or m.kind}, {m.country or 'location unknown'})"
             if asked:
                 head += f": asked on {asked:%d %b}, wait before asking again"
@@ -1722,7 +1752,7 @@ class Desk:
             rows, role=values.get("Role") or "",
             company=without_region(values.get("Company") or ""),
             link=values.get("URL") or "", me=str(me or ""),
-            templates={k: v for k, v in templates.items() if v})
+            templates={k: v for k, v in templates.items() if v}, status=values.get("Status"))
         return [Reply(text[:MAX_TEXT])]
 
     # ------------------------------------------------------------ /fetchcontacts
@@ -1854,7 +1884,8 @@ class Desk:
                 agency.append(job)
                 continue
             if not values.get("Contacts"):
-                planner.force(c.state, c.config(), job_id, c.today())  # still counted
+                planner.force(c.state, c.config(), job_id, c.today(),
+                              self.usable_providers())  # still counted
                 found = contact_finder.find_contacts(c, job_id)
                 if found.status == "waiting_domain":
                     emit(_contacts_reply(found))  # answer it; then tap Write Gmail drafts
@@ -1892,14 +1923,105 @@ class Desk:
         return [*out, Reply("\n".join(lines))]
 
     def contacts_command(self, args: str) -> list[Reply]:
+        """/contacts <url or id>: the job's contacts and your LinkedIn connections there. A
+        job link not in Job Opportunities is saved first (Phase 12 request 1, 28 Oct): a
+        company page is read; a LinkedIn link (never opened) needs the company and country
+        after it (request 2)."""
         if self.contacts is None or self.repo is None:
             return [Reply("Contact lookup is not available in this bot.")]
         if not args.strip():
-            return [Reply("Send /contacts <job URL or page id>.")]
-        row = find_row(self.repo, args.strip())
+            return [Reply(f"{self.contacts_overview()}\n\n{CONTACTS_USAGE}")]
+        url, rest = jd_capture.parse_jd_command(args.strip())
+        row = find_row(self.repo, url or args.strip())
+        if row is None and url is not None:
+            saved, replies = self._save_job_for_contacts(url, rest)
+            if saved is None:
+                return replies
+            return [*replies, *self.outreach_tap(saved)]
         if row is None:
-            return [Reply(f"No Job Opportunities row found for {args.strip()}")]
+            return [Reply(f"No Job Opportunities row found for {args.strip()}\n"
+                          f"{CONTACTS_USAGE}")]
         return self.outreach_tap(row.page_id)  # your explicit ask: paid lookup, counted
+
+    def contacts_overview(self) -> str:
+        """/contacts with no job (Phase 12 P12-11, 28 Oct): the Contacts table in numbers."""
+        from jobengine.track.status import CONTACT_FINAL, CONTACT_ORDER
+
+        c = self.contacts
+        table = c.contacts if c is not None else None
+        if table is None:
+            return "Contacts: the table is not available here."
+        rows = [v for _, v in table.all_rows()]
+        counts = {s: sum(1 for v in rows if v.get("Status") == s)
+                  for s in (*CONTACT_ORDER, *CONTACT_FINAL)}
+        monday = self.today() - timedelta(days=self.today().weekday())
+
+        def this_week(key: str) -> int:
+            return sum(1 for v in rows if str(v.get(key) or "")[:10] >= monday.isoformat())
+
+        parts = [f"{n} {s}" for s, n in counts.items() if n]
+        return (f"Contacts: {len(rows)} in Notion" + (f" ({', '.join(parts)})" if parts else "")
+                + f".\nThis week (from Monday {monday:%d %b}): {this_week('Date found')} found, "
+                f"{this_week('Last contacted')} mailed.")
+
+    def _save_job_for_contacts(self, url: str, rest: str) -> tuple[str | None, list[Reply]]:
+        """A new Job Opportunities row (Status New, not screened) for /contacts, or None and
+        why not. LinkedIn and sites that block the bot are never opened: their company and
+        country come from your message ("<company>, <country>[, <role>]")."""
+        assert self.repo is not None
+        host = (urlsplit(url).hostname or "").lower()
+        typed = add_link.parse_company_country(rest, Rules.from_config(self.s.sweep))
+        if "linkedin" in host or http.host_in(host, blocked_hosts(self.s)):
+            if typed is None:
+                return None, [Reply(CONTACTS_LINKEDIN.format(host=host, url=url))]
+            company, country, role = typed
+            board = "LinkedIn" if "linkedin" in host else "Company site"
+            page_id = self._add_row(add_link.PageJob(url, title=role, company=company,
+                                                     location=country),
+                                    url, country, None, board=board)
+            return page_id, [Reply(f"Saved {company}, {role} ({country}) as a new job (not "
+                                   "screened; the bot never opens that site). Finding "
+                                   "contacts and your LinkedIn connections there...")]
+        self.say(Reply("Reading the job page..."))
+        try:
+            final, page = self._read_add_page(url)
+        except http.HttpError as exc:
+            if typed is not None:
+                company, country, role = typed
+                page_id = self._add_row(add_link.PageJob(url, title=role, company=company,
+                                                         location=country),
+                                        url, country, None)
+                return page_id, [Reply(f"The page did not open ({exc}); saved {company}, "
+                                       f"{role} ({country}) from your message.")]
+            return None, [Reply(f"Could not open the job page ({exc}). Send /contacts {url} "
+                                "<company>, <country> to find contacts without it.")]
+        job = add_link.read_page(final, page)
+        rules = Rules.from_config(self.s.sweep)
+        country, city = place(job.location, rules)
+        if country is None and job.description:
+            country, city = place(job.description[:ADD_PLACE_CHARS], rules)
+        if typed is not None:  # what you typed wins over the page
+            job = replace(job, company=typed[0], title=job.title or typed[2])
+            country, city = typed[1], city if country == typed[1] else None
+        if not job.company or country not in add_link.COUNTRIES:
+            missing = "company" if not job.company else "country (Poland, Netherlands or Ireland)"
+            return None, [Reply(f"The page does not show the job's {missing}. Send /contacts "
+                                f"{url} <company>, <country> instead.")]
+        row = self._find(final)
+        if row is not None:
+            return row.page_id, []
+        page_id = self._add_row(replace(job, title=job.title or "the role"), final, country,
+                                city)
+        size = int(self.s.screening.get("block_chars", 2000))
+        if job.description:
+            text = job.description
+            self.repo.append_body(page_id, ["Description source: /contacts (full)",
+                                            *[text[i:i + size]
+                                              for i in range(0, len(text), size)][:90]])
+        where = ", ".join(p for p in (city, country) if p)
+        return page_id, [Reply(f"Saved {job.company}, {job.title or 'the role'} ({where}) as "
+                               "a new job (not screened: /add <link> screens it and builds "
+                               "the resume). Finding contacts...")]
 
     def credits(self) -> list[Reply]:
         """/credits: each provider's counter, when it was updated, and whether its key is set."""
@@ -1986,10 +2108,13 @@ class Desk:
         """Mail mode "send" (/mailmode): drafts that pass every check are sent."""
         return mail_sender.mode(self.state) == mail_sender.SEND
 
-    def drafts(self, job_id: str, ids: list[str] | None = None) -> list[Reply]:
+    def drafts(self, job_id: str, ids: list[str] | None = None,
+               send: bool = True) -> list[Reply]:
+        """Write the job's Gmail drafts; in mail mode send they are checked and sent, unless
+        `send` is False (/drafts only writes drafts, Phase 12 P12-04, 28 Oct)."""
         assert self.mail is not None
         result = mail_drafter.create_drafts(self.mail, job_id, ids)
-        if self.sending() and result.ok and result.drafted:
+        if send and self.sending() and result.ok and result.drafted:
             sent = mail_sender.send_checked(self.mail, self.state, result)
             return [Reply(sent.message[:MAX_TEXT])]
         message = result.message
@@ -2033,7 +2158,8 @@ class Desk:
         return [Reply(mail_sender.mode_command(self.state, args, self.mail))]
 
     def drafts_command(self, args: str) -> list[Reply]:
-        """/drafts <job>: retry drafting for a job (drafts already made are skipped)."""
+        """/drafts <job>: retry drafting for a job (drafts already made are skipped). It never
+        sends, also in mail mode send."""
         if self.mail is None or self.repo is None:
             return [Reply("Gmail drafts are not available in this bot.")]
         if not args.strip():
@@ -2041,7 +2167,12 @@ class Desk:
         row = find_row(self.repo, args.strip())
         if row is None:
             return [Reply(f"No Job Opportunities row found for {args.strip()}")]
-        return self.drafts(row.page_id)
+        replies = self.drafts(row.page_id, send=False)
+        if self.sending():
+            replies.append(Reply("Mail mode is send, but /drafts only writes drafts: check "
+                                 "them in Gmail and send them yourself. Mails go out by "
+                                 "themselves only after Find contacts and Check and send mails."))
+        return replies
 
     def fetchreport_command(self, args: str = "") -> list[Reply]:
         """/fetchreport [word]: where the postings of the last /fetch went, per source, and
@@ -3404,11 +3535,11 @@ class Desk:
         return replies
 
     def _add_row(self, job: add_link.PageJob, url: str, country: str | None,
-                 city: str | None) -> str:
+                 city: str | None, board: str = "Company site") -> str:
         assert self.repo is not None
         today = self.today()
         plan: dict[str, Any] = {
-            "Company": job.company, "Role": job.title, "URL": url, "Board": "Company site",
+            "Company": job.company, "Role": job.title, "URL": url, "Board": board,
             "Status": "New", "Screen verdict": "Unscreened", "First seen": today,
             "Swept date": today, "Times seen": 1,
             "Dedupe key": dedupe_key(job.company, job.title, city, country or ""),

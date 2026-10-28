@@ -14,7 +14,7 @@ def test_notes_per_type_within_300_characters():
                     link="https://jobs.example.com/pl-clean", me="Madeshwaran", templates={})
     assert text.startswith("LinkedIn notes for Vistula Cloud, DevOps Engineer")
     assert 'Kasia Example (Peer engineer), search "Kasia Example Vistula Cloud" on LinkedIn:\n'\
-        "Hi Kasia, I applied for the DevOps Engineer role at Vistula Cloud" in text
+        "Hi Kasia, I am applying for the DevOps Engineer role at Vistula Cloud" in text
     assert "Would you be open to referring me" in text and "Hi Ola," in text
     assert "info@x.example" not in text  # no note for a mailbox
 
@@ -41,3 +41,18 @@ def test_button_under_the_contacts(desk):  # noqa: F811
     fake = talk(desk, tap(2, "ln:pl-clean"))
     assert fake.sent[-1][1].startswith("[LOCAL] LinkedIn notes for Vistula Cloud, DevOps Engineer")
     assert "Hi Kasia," in fake.sent[-1][1]
+
+
+def test_applied_only_when_the_job_is_applied_and_links_are_clean():
+    """Phase 12 P12-03 and P12-09 (28 Oct): "I applied" was said for jobs only Approved, and
+    an Adzuna link with utm parts went into the note."""
+    applied = ln.note(ln.DEFAULTS["peer"], name="Kasia", role="SRE", company="Vistula",
+                      link="https://careers.vistula.example/jobs/1?utm_source=x&id=7",
+                      me="M", status="Applied")
+    assert applied.startswith("Hi Kasia, I applied for the SRE role at Vistula "
+                              "(https://careers.vistula.example/jobs/1?id=7).")
+    approved = ln.note(ln.DEFAULTS["peer"], name="Kasia", role="SRE", company="Vistula",
+                       link="https://www.adzuna.pl/details/123?utm_medium=api", me="M",
+                       status="Approved")
+    assert approved.startswith("Hi Kasia, I am applying for the SRE role at Vistula "
+                               "(on your careers page).")

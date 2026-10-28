@@ -179,6 +179,10 @@ evening.
   `mail.send_window` = `off` sends at once, as before.
 - DRY RUN: the summary says `Would wait for the recipient's morning` and nothing is queued.
 
+`/drafts <job>` only writes drafts, also in mail mode send (Phase 12, 28 Oct: it sent 4
+mails at once): mails go out by themselves only after Find contacts and Check and send
+mails, or from the autopilot.
+
 ### Safe sending (Phase 12, 28 Oct)
 
 While a new sender warms up, a few bounces can hurt the Gmail account, so in send mode the

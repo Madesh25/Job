@@ -26,6 +26,7 @@ stored as a work email.
 from __future__ import annotations
 
 import logging
+import re
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from datetime import date, timedelta
@@ -51,7 +52,12 @@ class Outcome:
     filled: int = 0
     credits: int = 0
     asked: int = 0
+    no_match: int = 0  # people the provider has no match for (no credit, skipped)
     notes: list[str] = field(default_factory=list)
+
+
+# A provider's "nobody found" answers: one person skipped, never the run stopped.
+NO_MATCH = re.compile(r"NO_MATCH|NO_RESULTS|HTTP 404\b")
 
 
 Request = Callable[..., Any]
@@ -136,7 +142,8 @@ def hunter_picks(rows: Iterable[conn.StoredRow], targets: list[Any],
 def run(store: conn.ConnectionsStore, picks: list[Any], lookup: Callable[[Any], tuple],
         pause: Callable[[], None] = lambda: None) -> Outcome:
     """Look each pick up, write what was found. A refusal stops the run (HTTP 429 after the
-    waits, or no credits left)."""
+    waits, or no credits left); "no match" for one person only skips that person (Phase 12
+    P12-03, 28 Oct: one NO_MATCH stopped the whole batch after 0 people)."""
     out = Outcome()
     for i, pick in enumerate(picks):
         row = pick[0] if isinstance(pick, tuple) else pick
@@ -145,6 +152,10 @@ def run(store: conn.ConnectionsStore, picks: list[Any], lookup: Callable[[Any], 
         try:
             props, spent = lookup(pick)
         except http.HttpError as exc:
+            if NO_MATCH.search(str(exc)):
+                out.asked += 1
+                out.no_match += 1
+                continue
             out.notes.append(f"stopped after {out.asked}: {exc}")
             break
         out.asked += 1
@@ -212,4 +223,6 @@ def renewal_from_day(day: Any, today: date) -> date | None:
 def summary(provider: str, out: Outcome, why: str) -> str:
     text = (f"{provider}: {out.asked} of your LinkedIn connections looked up ({why}), "
             f"{out.filled} filled in 🤝 LinkedIn Connections, {out.credits} credit(s) used.")
+    if out.no_match:
+        text += f" {out.no_match} not known to {provider} (skipped, no credit)."
     return text + "".join(f"\n- {note}" for note in out.notes)

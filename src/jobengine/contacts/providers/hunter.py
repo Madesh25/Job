@@ -116,9 +116,10 @@ def search(
     placed = country if _filtered(found) else None
     result = ProviderResult(credits_used=1, candidates=_candidates(data, seen, placed))
     if location_body(country) and placed is None:
-        result.notes.append(f"hunter: its answer did not confirm the {country} filter "
-                            f"(it answered with: {_what_meta_says(found)}), so its people "
-                            "count as location unknown")
+        result.notes.append(f"hunter: Hunter gives no location per person (its answer did "
+                            f"not confirm the {country} filter; it answered with: "
+                            f"{_what_meta_says(found)}), so under your strict location rule "
+                            "its people count only once another source confirms the country")
 
     # 16 Oct: one page of 10 left the recruiter and a peer open at State Street. When slots
     # stay open: the HR department for the recruiter, and the next page for engineers. Each

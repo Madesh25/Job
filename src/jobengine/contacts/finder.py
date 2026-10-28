@@ -399,7 +399,9 @@ def _summary(result: ContactsResult, generic: list[Chosen], credits: str,
     found = len(result.contacts)
     if found == 0 and not generic:
         lines.append(NONE_FOUND)
-        lines.append(credits)
+        missing = _missing_words(result.missing, flexible) if result.missing else ""
+        lines.append(f"0 of {result.target} found." + (f" Missing: {missing}." if missing else "")
+                     + f" {credits}")
     elif result.missing:
         missing = _missing_words(result.missing, flexible)
         lines.append(f"{found} of {result.target} found. Missing: {missing}. {credits}")
@@ -407,6 +409,45 @@ def _summary(result: ContactsResult, generic: list[Chosen], credits: str,
         lines.append(f"{found} of {result.target} found. {credits}")
     lines.extend(result.notes)
     return "\n".join(lines)
+
+
+def job_country(values: dict[str, Any], reference: Reference, s: Settings) -> str | None:
+    """A job row without a Country: its City, else its company's Region in Target Companies
+    (Phase 12 P12-02, 28 Oct: the Comarch row had none, so the strict location rule was
+    skipped and people of unknown location were kept)."""
+    from jobengine.sweep.normalize import Rules, place
+
+    found, _city = place(str(values.get("City") or ""), Rules.from_config(s.sweep))
+    if found in CHECKED_COUNTRIES:
+        return found
+    target = reference.company(values.get("Company") or "")
+    region = (target.region if target else None) or ""
+    return region if region in CHECKED_COUNTRIES else None
+
+
+# "Nothing found" is remembered (Phase 12 P12-02, 28 Oct: asking again for Zowie spent
+# Prospeo credits again): the same company and domain skip the paid look-ups for NONE_DAYS.
+NONE_KEY = "contacts.none:{company}"  # bot_state: {"date", "domain"}
+NONE_DAYS = 7
+
+
+def recent_none(state: Any, company: str, domain: str, today: date) -> date | None:
+    """The day nothing was found for this company and domain, when within NONE_DAYS."""
+    value = (state.get(NONE_KEY.format(company=canon_company(company)))
+             if state is not None else None) or {}
+    try:
+        day = date.fromisoformat(str(value.get("date") or ""))
+    except ValueError:
+        return None
+    if value.get("domain") != domain or (today - day).days >= NONE_DAYS:
+        return None
+    return day
+
+
+def remember_none(state: Any, company: str, domain: str, today: date) -> None:
+    if state is not None:
+        state.set(NONE_KEY.format(company=canon_company(company)),
+                  {"date": today.isoformat(), "domain": domain})
 
 
 APPLY_ONLY_NOTE = ("Apply only: no paid lookup for this job (outreach budget). Tap Find "
@@ -423,7 +464,7 @@ def find_contacts(deps: ContactDeps, job_id: str, paid: bool = True) -> Contacts
         return ContactsResult(job_id=job_id, company="", role="", country="", target=0,
                               status="failed", message=f"No Job Opportunities row {job_id}.")
     company, role = values.get("Company") or "", values.get("Role") or ""
-    country = values.get("Country") or "Other"
+    country = values.get("Country") or job_country(values, deps.reference(), deps.s) or "Other"
     config = deps.config()
     mix = parse_mix(config.get("contacts.mix"), config.get("contacts.per_job"))
     result = ContactsResult(job_id=job_id, company=company, role=role, country=country,
@@ -503,8 +544,16 @@ def find_contacts(deps: ContactDeps, job_id: str, paid: bool = True) -> Contacts
             _github_step(deps, config, company, domain, country, result, chosen, seen,
                          by_email, open_slots, patterns, personal)
         unplaced: list[Candidate] = []
+        asked_before = len(deps.calls)
+        nothing_on = recent_none(deps.state, company, domain, today)
+        if nothing_on is not None and open_slots():
+            again = nothing_on.toordinal() + NONE_DAYS
+            result.notes.append(
+                f"Nothing was found for {company} ({domain}) on {nothing_on:%d %b}: the paid "
+                f"look-ups are skipped until {date.fromordinal(again):%d %b} so no credits are "
+                "spent again. Another domain (answer the domain question) searches again.")
         for name, provider in WATERFALL:
-            if not open_slots():
+            if not open_slots() or nothing_on is not None:
                 break
             if deps.s.app_env == "prod" and not paid_api_allowed(name, deps.s):
                 result.notes.append(f"{name}: paid calls are off (DRY_RUN), skipped")
@@ -514,15 +563,18 @@ def find_contacts(deps: ContactDeps, job_id: str, paid: bool = True) -> Contacts
                 continue  # a free plan you have not set up (no Config credits.<name>)
             _provider_step(deps, book, name, provider, company, domain, country, result,
                            chosen, seen, by_email, open_slots, patterns, personal, unplaced)
-        if unplaced and open_slots() and strict_location(deps.s, country):
+        if unplaced and open_slots() and strict_location(deps.s, country) and nothing_on is None:
             _confirm_step(deps, book, unplaced, company, domain, country, result, chosen, seen,
                           by_email, open_slots, patterns, personal)
-        if open_slots() and (config.get(ai_search.SWITCH) or "").strip().lower() == "on":
+        if open_slots() and nothing_on is None and \
+                (config.get(ai_search.SWITCH) or "").strip().lower() == "on":
             _ai_step(deps, config, book, company, domain, country, result, chosen, seen,
                      by_email, open_slots, patterns, personal)
         if deps.calls and not paid_api_allowed("apollo", deps.s):
             # 16 Oct: "No contacts found" for every real company hid that no provider was asked.
             result.notes.append(f"Contact lookups: {contact_lookups(deps.s)}.")
+        if not chosen and not generic and nothing_on is None and len(deps.calls) > asked_before:
+            remember_none(deps.state, company, domain, today)
 
     result.contacts = chosen
     result.missing = open_slots()

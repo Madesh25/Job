@@ -113,6 +113,35 @@ HOST_WORDS = {"www", "careers", "career", "kariera", "jobs", "job", "praca", "we
 SECOND_LEVEL = {"co", "com", "org", "net", "gov", "ac"}  # "company.com.pl", "firm.co.uk"
 
 
+def parse_company_country(text: str | None, rules: Any) -> tuple[str, str, str] | None:
+    """"<company>, <country>[, <role>]" typed after a job link (Phase 12, 28 Oct: LinkedIn
+    jobs, which the bot never opens): (company, country, role) or None. The country may be a
+    city of one ("Acme, Warsaw, SRE")."""
+    from jobengine.sweep.normalize import place
+
+    parts = [p.strip() for p in (text or "").split(",") if p.strip()]
+    if len(parts) < 2:
+        return None
+    country = None
+    role: list[str] = []
+    for part in parts[1:]:
+        found = None
+        if country is None:
+            word = part.strip().casefold()
+            found = next((c for c in COUNTRIES if c.casefold() == word),
+                         COUNTRY_CODES.get(part.strip().upper()))
+            if found is None:
+                place_country, _city = place(part, rules)
+                found = place_country if place_country in COUNTRIES else None
+        if found:
+            country = found
+        else:
+            role.append(part)
+    if not parts[0] or country is None:
+        return None
+    return parts[0], country, ", ".join(role) or "the role"
+
+
 def company_from_host(url: str) -> str:
     """The company's name read from its own site's address, "" when unclear:
     https://kariera.comarch.pl/praca/... -> "Comarch", https://sii.pl/en/job-ads/... -> "Sii"."""

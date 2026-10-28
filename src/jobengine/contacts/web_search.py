@@ -320,5 +320,8 @@ def search(llm: Any, company: str, domain: str, country: str,
     where = "public pages and LinkedIn results" if linkedin else "public pages"
     line = (f"AI search: {len(people)} names on {where}, {len(kept)} checked, {found} with "
             "an email from Hunter or Prospeo")
+    if kept and not found:  # Phase 12 P12-02 (Zowie): say why none was used
+        line += (f" (none of the {len(kept[:lookups])} names looked up had a work email Hunter "
+                 "or Prospeo knows; the bot never guesses one)")
     result.notes.append(line + (f" (dropped: {'; '.join(notes)})" if notes else ""))
     return result, spent
