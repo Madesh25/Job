@@ -44,7 +44,9 @@ COLUMNS = {  # Connection field -> (Notion column, Notion type); the CSV's own n
     "connected_on": ("Connected On", "rich_text"),
 }
 INFO_COLUMNS = {"Country": "rich_text", "Location source": "select", "Work email": "email",
-                "Referral": "select", "Last asked": "date"}
+                "Referral": "select", "Last asked": "date",
+                # Yours; the Google search fills it only when empty (connection_search.py).
+                "Notes": "rich_text"}
 # A change in these is written; a name or date change alone is not worth a Notion write.
 WATCHED = ("company", "position", "email")
 STAMP_KEY = "connections.imported"  # bot_state: {"date": <iso>, "count": <people>}
