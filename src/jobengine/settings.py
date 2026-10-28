@@ -32,6 +32,8 @@ SECRET_VARS = {
     "TELEGRAM_CHAT_ID": "telegram_chat_id",
     "ANTHROPIC_API_KEY": "anthropic_api_key",
     "GEMINI_API_KEY": "gemini_api_key",  # optional: only for Config models named gemini-...
+    # optional (28 Oct): Gemini on Google Cloud Vertex AI, paid by the Google Cloud credit
+    "VERTEX_API_KEY": "vertex_api_key",
     "DEEPSEEK_API_KEY": "deepseek_api_key",  # optional: model.score = deepseek-... only
     "GMAIL_ALERTS_TOKEN_JSON": "gmail_alerts_token_json",  # old name, read as the m02 mailbox
     # The two job-alert mailboxes (6 Oct): madeshwaranm02 and madeshwaran.manikam.
@@ -82,6 +84,9 @@ class Settings(BaseModel):
     prod_sender: str
     dev_sender: str
     force_model: str | None
+    # Gemini on Vertex AI (llm.py): the Google Cloud project and location of the calls.
+    vertex_project: str = ""
+    vertex_location: str = "global"
     sweep: dict[str, Any] = Field(default_factory=dict)
     screening: dict[str, Any] = Field(default_factory=dict)
     resume: dict[str, Any] = Field(default_factory=dict)
@@ -104,6 +109,7 @@ class Settings(BaseModel):
     telegram_chat_id: str | None = None
     anthropic_api_key: str | None = None
     gemini_api_key: str | None = None
+    vertex_api_key: str | None = None
     deepseek_api_key: str | None = None
     gmail_alerts_token_json: str | None = None
     gmail_alerts_token_json_m02: str | None = None
@@ -210,6 +216,8 @@ def load_settings(env: str | None = None, environ: Mapping[str, str] | None = No
         prod_sender=safety["prod_sender"],
         dev_sender=safety["dev_sender"],
         force_model=cfg.get("llm", {}).get("force_model"),
+        vertex_project=str(cfg.get("llm", {}).get("vertex_project") or ""),
+        vertex_location=str(cfg.get("llm", {}).get("vertex_location") or "global"),
         sweep=dict(cfg.get("sweep") or {}),
         screening=dict(cfg.get("screening") or {}),
         resume=dict(cfg.get("resume") or {}),

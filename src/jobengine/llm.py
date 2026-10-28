@@ -1,11 +1,13 @@
 """The only way to call an LLM. This is the only file under src/ that imports `anthropic`.
 
 The model for a stage comes from Config `model.<stage>` and goes through
-safety.resolve_model, so local and dev always use haiku. Prompts are never logged (they hold
-the job description and profile data); only stage, model and token counts are.
+safety.resolve_model, so local and dev use llm.force_model (Gemini on the PC since 28 Oct).
+Prompts are never logged (they hold the job description and profile data); only stage, model
+and token counts are.
 
 make_llm gives the bot its client: a `claude-...` model goes to Anthropic, a `gemini-...`
-model to Google (GEMINI_API_KEY), a `deepseek-...` model to DeepSeek (DEEPSEEK_API_KEY). A
+model to Google (Vertex AI with VERTEX_API_KEY, paid by the Google Cloud credit; else the
+Gemini API with GEMINI_API_KEY), a `deepseek-...` model to DeepSeek (DEEPSEEK_API_KEY). A
 call that fails there is answered by Haiku, so an outage or a wrong key never stops the bot.
 DeepSeek may run every stage except the web searches (your plan C of 25 Oct: you accepted
 that your resume, your name and your contacts' names then go to DeepSeek); a DeepSeek model
@@ -318,7 +320,7 @@ def model_setting(stage: str, config: ConfigStore) -> str:
 
 def model_for(stage: str, config: ConfigStore, s: Settings) -> str:
     """Config model.<stage> (first word only, e.g. "claude-sonnet-5 + web search"),
-    then safety.resolve_model, which forces haiku outside prod."""
+    then safety.resolve_model, which applies llm.force_model outside prod."""
     return resolve_model(model_setting(stage, config).split()[0], s)
 
 
@@ -579,6 +581,11 @@ class AnthropicLLM:
 
 
 GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+# Gemini on Google Cloud Vertex AI (28 Oct): the Google Cloud credit pays for these calls, not
+# for the Gemini API. The key is an API key bound to a service account with the Vertex AI
+# User role, restricted to the Agent Platform (Vertex AI) API.
+VERTEX_URL = ("https://{host}/v1/projects/{project}/locations/{location}/publishers/google/"
+              "models/{model}:generateContent")
 # Gemini counts its thinking inside maxOutputTokens: without room a short answer (the mail
 # detail pick allows 50 tokens) would be cut off. Only the tokens used are billed.
 THINKING_ROOM = 2000
@@ -610,26 +617,49 @@ def gemini_usage(meta: Any) -> GeminiUsage:
                        cache_read_input_tokens=cached)
 
 
+def vertex_host(location: str) -> str:
+    return ("aiplatform.googleapis.com" if location in ("", "global")
+            else f"{location}-aiplatform.googleapis.com")
+
+
+def gemini_route(s: Settings) -> str | None:
+    """Where gemini-... calls go: "vertex" (VERTEX_API_KEY, the Google Cloud credit),
+    "gemini api" (GEMINI_API_KEY), or None without a key."""
+    if s.vertex_api_key and s.vertex_project:
+        return "vertex"
+    return "gemini api" if s.gemini_api_key else None
+
+
 class GeminiLLM:
-    """Google's Gemini API (generateContent, JSON mode) through jobengine.http, so the host
-    must be on safety.allowed_hosts and a 429 waits and tries again."""
+    """Gemini (generateContent, JSON mode) on Vertex AI or the Gemini API, through
+    jobengine.http, so the host must be on safety.allowed_hosts and a 429 waits and tries
+    again. Both answer in the same format."""
 
     def __init__(self, s: Settings, usage: Usage | None = None):
-        if not s.gemini_api_key:
-            raise LLMError("GEMINI_API_KEY is not set")
+        self.route = gemini_route(s)
+        if self.route is None:
+            raise LLMError("VERTEX_API_KEY and GEMINI_API_KEY are not set")
         self.s = s
         self.usage = usage if usage is not None else Usage()
+
+    def _url(self, model: str) -> str:
+        if self.route == "vertex":
+            location = self.s.vertex_location or "global"
+            return VERTEX_URL.format(host=vertex_host(location), project=self.s.vertex_project,
+                                     location=location, model=model)
+        return GEMINI_URL.format(model=model)
 
     def _post(self, model: str, body: dict[str, Any]) -> dict[str, Any]:
         from jobengine import http
 
+        key = self.s.vertex_api_key if self.route == "vertex" else self.s.gemini_api_key
         try:
-            data = http.post_json(GEMINI_URL.format(model=model), json=body, s=self.s,
-                                  headers={"x-goog-api-key": self.s.gemini_api_key or ""},
+            data = http.post_json(self._url(model), json=body, s=self.s,
+                                  headers={"x-goog-api-key": key or ""},
                                   timeout=GEMINI_TIMEOUT)
         except http.HttpError as exc:
-            log.warning("gemini call refused: %s", exc)
-            raise LLMError(f"Gemini call failed: {exc}") from None
+            log.warning("gemini call refused (%s): %s", self.route, exc)
+            raise LLMError(f"Gemini call failed ({self.route}): {exc}") from None
         return data if isinstance(data, dict) else {}
 
     def complete_json(
@@ -684,7 +714,8 @@ class GeminiLLM:
             config["thinkingConfig"] = {"thinkingLevel": thinking}
         data = self._post(model, {"systemInstruction": {"parts": [{"text": system}]},
                                   "contents": [{"role": "user", "parts": [{"text": user}]}],
-                                  "tools": [{"google_search": {}}],
+                                  "tools": [{"googleSearch" if self.route == "vertex"
+                                             else "google_search": {}}],
                                   "generationConfig": config})
         meta = data.get("usageMetadata") or {}
         candidates = data.get("candidates") or [{}]
@@ -808,6 +839,39 @@ def anthropic_key_problem(s: Settings, client: Any = None) -> str | None:
     return None
 
 
+GEMINI_CHECK_MODEL = "gemini-3.5-flash-lite"
+
+
+def gemini_key_problem(s: Settings, post: Callable[..., Any] | None = None) -> str | None:
+    """/health (28 Oct): None when Google answers a tiny Gemini call (a few tokens, paid by
+    the Google Cloud credit on Vertex AI), else why not."""
+    from jobengine import http
+
+    route = gemini_route(s)
+    if route is None:
+        return "no key (VERTEX_API_KEY or GEMINI_API_KEY): Haiku answers instead"
+    model = s.force_model if s.force_model and is_gemini(s.force_model) else GEMINI_CHECK_MODEL
+    client = GeminiLLM(s)
+    try:
+        (post or http.post_json)(
+            client._url(model), json={"contents": [{"role": "user", "parts": [{"text": "OK"}]}],
+                                      "generationConfig": {"maxOutputTokens": 50}},
+            s=s, headers={"x-goog-api-key": (s.vertex_api_key if route == "vertex"
+                                             else s.gemini_api_key) or ""}, timeout=30)
+    except http.HttpError as exc:
+        if exc.status in (401, 403):
+            return (f"refused by Google ({exc.status}): the key must be bound to the "
+                    "job-engine-ai service account with the Vertex AI User role and allow the "
+                    "Agent Platform API (a new role can take 10 minutes)" if route == "vertex"
+                    else f"refused by Google ({exc.status}): check GEMINI_API_KEY")
+        if exc.status == 404:
+            return f"{model} not found ({route}): check llm.force_model or the Config model"
+        return f"not checked ({exc.status or type(exc).__name__})"
+    except Exception as exc:  # /health never fails over this check
+        return f"not checked ({type(exc).__name__})"
+    return None
+
+
 class DeepSeekLLM:
     """DeepSeek's chat API (OpenAI style, JSON mode) through jobengine.http. Only the stages
     in DEEPSEEK_STAGES (all but the web searches) may call it."""
@@ -880,7 +944,13 @@ class ModelRouter:
         self.overrides: dict[str, str] = {}  # stage -> model, e.g. "Rebuild with Claude"
 
     def _fallback(self) -> str:
-        return resolve_model(DEFAULT_MODEL, self.s)
+        return self._claude(DEFAULT_MODEL)
+
+    def _claude(self, model: str) -> str:
+        """A Claude model stays Claude: llm.force_model may name Gemini (the PC since 28
+        Oct), and then the safety net and "Rebuild with Claude" use Haiku."""
+        forced = resolve_model(model, self.s)
+        return forced if forced.startswith("claude-") else DEFAULT_MODEL
 
     def gemini(self) -> GeminiLLM:
         if self._gemini is None:
@@ -893,11 +963,14 @@ class ModelRouter:
         return self._deepseek
 
     def model(self, stage: str) -> str:
-        """The model this stage uses now: an override, else Config (haiku outside prod).
+        """The model this stage uses now: an override, else Config (llm.force_model outside prod).
         DeepSeek outside its stages becomes haiku."""
         override = self.overrides.get(stage)
-        model = resolve_model(override, self.s) if override else model_for(
-            stage, self.config, self.s)
+        if override:
+            model = (self._claude(override) if override.startswith("claude-")
+                     else resolve_model(override, self.s))
+        else:
+            model = model_for(stage, self.config, self.s)
         if is_deepseek(model) and stage not in DEEPSEEK_STAGES:
             log.warning("model.%s is %s, but DeepSeek has no web search: %s answers",
                         stage, model, self._fallback())

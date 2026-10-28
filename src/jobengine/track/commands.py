@@ -139,6 +139,23 @@ def strategy_line(config: ConfigStore, today: date) -> str:
     return f"Strategy gate: /fetch stays open for {left} more days (then run /update)."
 
 
+def gemini_line(s: Settings, check: Any) -> str:
+    """Where the bot's Gemini calls go and whether Google answers (28 Oct)."""
+    from jobengine.llm import gemini_route
+
+    route = gemini_route(s)
+    where = {"vertex": "Vertex AI, paid by your Google Cloud credit",
+             "gemini api": "Gemini API"}.get(route or "", "")
+    try:
+        problem = check()
+    except Exception as exc:  # report, never raise
+        problem = f"not checked ({type(exc).__name__})"
+    model = s.force_model if s.force_model and s.force_model.startswith("gemini-") else ""
+    head = ", ".join(x for x in (model, where) if x)
+    return f"{head}: {'OK' if problem is None else problem}" if head else (
+        "OK" if problem is None else problem)
+
+
 def health_text(deps: TrackDeps) -> str:
     s = deps.s
     try:
@@ -158,6 +175,8 @@ def health_text(deps: TrackDeps) -> str:
         except Exception as exc:  # report, never raise
             problem = f"not checked ({type(exc).__name__})"
         lines.append(f"Anthropic key: {'OK' if problem is None else problem}")
+    if (s.force_model or "").startswith("gemini-") or s.vertex_api_key:
+        lines.append(f"Google AI: {gemini_line(s, deps.gemini_check)}")
     lines.append(f"Last daily check: {(deps.state.get(MARKER) or {}).get('at') or 'never'}")
     lines.append(f"Last sweep: {(deps.state.get(SWEEP_SUMMARY) or {}).get('at') or 'never'}")
     lines.append(f"Environment: {s.app_env}, DRY_RUN {'on' if s.dry_run else 'off'}")

@@ -119,7 +119,7 @@ def test_blocked_answer_is_a_decline(google):
 
 
 def test_no_key_no_gemini():
-    with pytest.raises(LLMError, match="GEMINI_API_KEY is not set"):
+    with pytest.raises(LLMError, match="VERTEX_API_KEY and GEMINI_API_KEY are not set"):
         GeminiLLM(load_settings("prod", {"ANTHROPIC_API_KEY": "a"}))
 
 

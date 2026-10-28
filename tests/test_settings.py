@@ -63,8 +63,9 @@ def test_missing_secrets_are_none_and_present_ones_are_read():
     assert s.gmail_sender_token_json is None
 
 
-def test_dev_and_local_force_haiku():
-    for env in ("local", "dev"):
+def test_dev_forces_haiku_and_local_gemini():
+    for env, model in (("local", "gemini-3.5-flash-lite"), ("dev", "claude-haiku-4-5")):
         s = load_settings(env, {})
-        assert s.force_model == "claude-haiku-4-5"
+        assert s.force_model == model  # local: Gemini on Vertex AI since 28 Oct
         assert s.gmail_sender == "madeshwaranm02@gmail.com"
+        assert (s.vertex_project, s.vertex_location) == ("job-search-engine-509510", "global")

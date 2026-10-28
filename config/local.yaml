@@ -14,4 +14,7 @@ notion:
 gmail:
   sender: "madeshwaranm02@gmail.com"
 llm:
-  force_model: "claude-haiku-4-5"
+  # 28 Oct: Gemini on Vertex AI (your Google Cloud credit, VERTEX_API_KEY in .env) for every
+  # AI job on the PC; Haiku answers only when a Gemini call fails (Config ai.claude_cap).
+  # Without VERTEX_API_KEY or GEMINI_API_KEY Haiku answers and the AI watch says so.
+  force_model: "gemini-3.5-flash-lite"
