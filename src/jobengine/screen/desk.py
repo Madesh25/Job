@@ -1671,6 +1671,59 @@ class Desk:
         except Exception:  # no domain only means no email check
             return None
 
+    def enrich_command(self, args: str = "",
+                       progress: Callable[[str], None] | None = None) -> list[Reply]:
+        """/enrich (28 Oct, your request): a Google search (Gemini) for the location and work
+        email of every LinkedIn connection that still misses one; never Hunter or Prospeo.
+        Juniors are left out (your rule of 22 Oct). "/enrich 200": at most 200. Target
+        Companies first. /end stops it after the current 20 people; the next /enrich goes
+        on from there (a person is not searched again for 30 days)."""
+        from jobengine.contacts import connection_search as cs
+        from jobengine.jobctl import CONTROL
+
+        if self.connections is None:
+            return [Reply("The 🤝 LinkedIn Connections table is not available in this bot.")]
+        config = self.deps.config()
+        llm = self.deps.llm(config)
+        if llm is None:
+            return [Reply("No AI key here: /enrich needs the AI's Google search.")]
+        words = args.lower().split()
+        limit = next((int(w) for w in words if w.isdigit()), None)
+        today = self.today()
+        companies = list(self.reference().companies)
+        domains = {c.name: str(c.domain) for c in companies if getattr(c, "domain", None)}
+
+        def domain_of(company: str) -> str | None:
+            return next((d for n, d in domains.items()
+                         if connections.same_company(n, company)), None)
+
+        picks = cs.enrich_picks(self.connections.rows(), self.state, today,
+                                [c.name for c in companies])
+        if limit:
+            picks = picks[:limit]
+        if not picks:
+            return [Reply("Every connection worth a search already has a country and a work "
+                          "email, or was searched in the last 30 days.")]
+
+        def step(out: Any, total: int) -> None:
+            if progress is not None:
+                progress(f"{out.searched} of {total} connections looked up: "
+                         f"{len(out.placed)} countries, {len(out.emails)} work emails found")
+            CONTROL.check()
+
+        if progress is not None:
+            progress(f"0 of {len(picks)} connections looked up (/end stops it; the next "
+                     "/enrich goes on from there)")
+        out = cs.enrich(self.connections, llm, picks, self.state, today, domain_of,
+                        self.page_reader, step)
+        no_email = sum(1 for r in picks if not r.info.get("Work email")) - len(out.emails)
+        no_country = sum(1 for r in picks if not r.info.get("Country")) - len(out.placed)
+        text = cs.summary(out, "in the 🤝 LinkedIn Connections table")
+        text += (f"\n\nStill without a country: {no_country}; without a work email: "
+                 f"{no_email} (most people never put their email on a public page). They are "
+                 "searched again after 30 days.")
+        return [Reply(text[:MAX_TEXT])]
+
     def connection_search_tick(self) -> list[Reply]:
         """Once a day from connection_search.DAILY_HOUR (your clock): a Google search for
         where your connections at the companies of your approved jobs work (28 Oct)."""

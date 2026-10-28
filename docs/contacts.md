@@ -537,6 +537,15 @@ work emails) and once a day from 13:00 your time for the companies of your Appro
 built and Applied jobs (20 people). A person is searched again after 30 days while their
 country or work email is still missing.
 
+**/enrich (all of them at once, 28 Oct):** the same Google search (Gemini only, never Hunter
+or Prospeo) for every connection with a profile link that misses a country or a work email,
+juniors left out: Target Companies first, then engineers, managers, HR and the rest. Four
+searches run at the same time; after every 20 people the rows are written to Notion and the
+progress message shows "N of M connections looked up". /end stops it there; the next
+/enrich goes on with the rest. `/enrich 200` does at most 200. A person is searched again
+after 30 days, so after a new LinkedIn export /enrich looks up the new people. About
+4,500 people cost about $7 (₹650) of the Google Cloud credit and take about an hour.
+
 Contacts (the finder, strict rule): people a provider found without a location (Hunter) and
 Prospeo did not place get the same search, at most 3 per job; those placed in the job's
 country fill the open slots, with "location from Google search (<profile link>)" in Notes.

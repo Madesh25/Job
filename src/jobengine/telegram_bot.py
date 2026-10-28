@@ -77,21 +77,22 @@ HELP_TEXT = (
     "/dryrun <url or id> - fill the job's form in a browser, never submit\n"
     "/autoapply - fill forms of jobs with a resume; submit when it is on (50 a day)\n"
     "/gaps - skills jobs ask for that you lack, and which certificate covers most\n"
-    "/keywords - the tools your best jobs name most, and which to add to your LinkedIn profile\n"
+    "/keywords - the tools your best jobs name most, to add to your LinkedIn\n"
     "\n🟠 Contacts and mails\n"
-    "/fetchcontacts - contacts and Gmail drafts (resume attached) for today's applied jobs\n"
+    "/fetchcontacts - contacts and Gmail drafts for today's applied jobs\n"
     "/contacts <url or id> - contacts for a job, and your LinkedIn connections there\n"
     "/drafts <url or id> - write Gmail drafts for a job's contacts again\n"
     "/connections - your LinkedIn connections; send the export zip to update\n"
+    "/enrich - all connections' location and work email (Google)\n"
     "/credits - contact credits left, asked from each provider\n"
     "/outreach - this week's budget: which approved jobs get contacts and cold mails\n"
-    "/mailmode - draft (only write Gmail drafts) or send (check every mail, then send it)\n"
+    "/mailmode - draft (only Gmail drafts) or send (check every mail, then send)\n"
     "/mailqueue - mails waiting for the recipient's morning (Mon to Fri, 8 to 10)\n"
-    "/agencies - recruitment agencies by country; /agencies <name> gives the intro mail\n"
+    "/agencies - recruitment agencies; /agencies <name> gives the intro mail\n"
     "\n🔴 Replies and interviews\n"
     "/today - run the daily check now (sent mails, replies, bounces, follow-ups)\n"
     "/followups - follow-up drafts waiting to be sent, and follow-ups due soon\n"
-    "/prep <url or id> - interview prep: likely questions, your gaps, questions to ask them\n"
+    "/prep <url or id> - interview prep: likely questions, gaps, questions to ask\n"
     "/thanks <url or id> <name> - the thank-you mail after an interview\n"
     "/stats - applied, replies, interviews and reply rates (30 days and all time)\n"
     "/digest - the weekly digest now\n"
@@ -616,7 +617,7 @@ def handle_update(
 # Commands that run for minutes or cost money. Telegram delivers a message again when the bot
 # stopped before confirming it (Ctrl+C in the middle of /fetch), so one sent before this bot
 # started is not run again by itself.
-STALE_COMMANDS = ("fetch", "screen", "update", "autopilot", "restart")
+STALE_COMMANDS = ("fetch", "screen", "update", "autopilot", "restart", "enrich")
 
 
 def _stale_command(update: dict[str, Any], started: float | None) -> str | None:
@@ -770,6 +771,10 @@ def handle_one(
         else:
             with Typing(client, chat):
                 run_autopilot(client, s, chat, desk, fetch)
+        return
+    if desk is not None and parse_command(text) == "enrich":
+        with Typing(client, chat):
+            run_enrich(client, s, chat, desk, text.split(maxsplit=1)[1:])
         return
     if desk is not None and parse_command(text) == "screen" and len(text.split()) == 1:
         choice = _guarded("/screen", lambda: [r for r in [desk.screen_choice()] if r])
@@ -1110,6 +1115,27 @@ def run_screen(
         return
     progress.finish(ok=True)
     send_replies(client, s, chat_id, with_next_step("/screen", replies))
+
+
+def run_enrich(client: TelegramClient, s: Settings, chat_id: str, desk: Desk,
+               args: list[str]) -> None:
+    """/enrich: every LinkedIn connection's location and work email from a Google search; it
+    can take an hour for thousands of people, so one progress message like /fetch."""
+    progress = ProgressMessage(client, chat_id, s, name="Connections",
+                               first="Looking up your LinkedIn connections")
+    try:
+        with CONTROL.job("/enrich"):
+            replies = desk.enrich_command(args[0] if args else "", progress.update)
+    except Stopped:
+        _stopped(client, s, chat_id, "/enrich", progress)
+        return
+    except Exception as exc:  # report the failure instead of stopping the bot
+        log.exception("/enrich failed")
+        progress.finish(ok=False)
+        client.send_message(chat_id, telegram_text(f"/enrich failed: {exc}", s))
+        return
+    progress.finish(ok=True)
+    send_replies(client, s, chat_id, replies)
 
 
 def with_next_step(text: str, replies: list[Reply]) -> list[Reply]:
