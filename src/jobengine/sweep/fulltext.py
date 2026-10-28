@@ -5,12 +5,16 @@ budget come with no description at all. For the new jobs that may be saved today
 reads the posting page (http.get_page: plain GET, public https hosts only, never linkedin,
 size limit) and keeps the whole description:
 
+0. Oracle Cloud HCM jobs: the site's own public detail call (the page is a JavaScript app)
 1. a schema.org JobPosting in the page's JSON-LD (most job boards and ATS pages have one)
+   or the job in a site's page data (Next.js `__NEXT_DATA__`, Phenom `jobDetail`)
 2. otherwise the largest block that looks like a job description (main, article, or an
    element whose id or class names a description)
 3. otherwise the whole visible page text
 
-A page that cannot be read keeps the snippet. Job links in alert emails are tracking links:
+A page that cannot be read keeps the snippet. Nothing is lost: a longer text replaces a
+shorter one only, and a company site's own summary that the full text does not hold is kept
+in front of it. Job links in alert emails are tracking links:
 following one ends on the job's real page, whose link replaces the tracking link. LinkedIn
 is never read at all.
 """
@@ -205,6 +209,37 @@ def from_next_data(soup: BeautifulSoup) -> str | None:
     return joined[:MAX_CHARS] if len(joined) >= MIN_BLOCK else None
 
 
+# Career sites that are JavaScript apps keep the job in data on the page (28 Oct): Phenom
+# writes it under "jobDetail" in its page data (phApp.ddo). The search results gave only a
+# teaser, and the visible HTML has no text.
+APP_DATA_MARKERS = ('"jobDetail":',)
+
+
+def from_app_data(page: str) -> str | None:
+    """The job text in a career site app's page data, or None."""
+    for marker in APP_DATA_MARKERS:
+        start = page.find(marker)
+        if start < 0:
+            continue
+        try:
+            data, _ = json.JSONDecoder().raw_decode(page, start + len(marker))
+        except ValueError:
+            continue
+        pieces: list[str] = []
+        for raw in _texts(data):
+            text = _html_text(raw) if "<" in raw else _clean(raw)
+            if len(text) >= MIN_PIECE and text not in pieces:
+                pieces.append(text)
+        # A teaser repeats the start of the full text: keep only pieces not inside another.
+        pieces = [p for p in pieces
+                  if not any(len(q) > len(p) and _flat(p)[:INTRO_CHARS] in _flat(q)
+                             for q in pieces)]
+        joined = "\n".join(pieces)
+        if len(joined) >= MIN_BLOCK:
+            return joined[:MAX_CHARS]
+    return None
+
+
 def _blocks(soup: BeautifulSoup) -> Iterator[Tag]:
     yield from soup.find_all(["main", "article"])
     for tag in soup.find_all(True):
@@ -239,7 +274,7 @@ def extract(page: str) -> str | None:
         if len(text) < SHORT_JSON_LD:
             return _visible_around(page, text) or text
         return text
-    data_text = from_next_data(soup)
+    data_text = from_next_data(soup) or from_app_data(page)
     if data_text:
         return data_text
     for tag in soup.find_all(DROP_TAGS):
@@ -295,6 +330,56 @@ def _open(job: Job, get_page: PageGetter) -> tuple[str, str] | None:
         return None
 
 
+# Oracle Cloud HCM job pages are a JavaScript app: the page holds no text. Its own public
+# REST call gives the whole job (P9-17, 28 Oct: the search gave only a short summary).
+API_PATH = "/hcmRestApi/"  # the detail call answers JSON (the page reader asks for it)
+ORACLE_JOB = re.compile(r"^https://([^/]+)/hcmUI/CandidateExperience/[a-zA-Z-]+/sites/"
+                        r"([^/?#]+)/job/(\d+)")
+ORACLE_PARTS = (("ExternalDescriptionStr", ""),
+                ("ExternalResponsibilitiesStr", "Responsibilities"),
+                ("ExternalQualificationsStr", "Qualifications"),
+                ("CorporateDescriptionStr", "About the company"))
+
+
+def oracle_detail_url(url: str) -> str | None:
+    match = ORACLE_JOB.match(url)
+    if not match:
+        return None
+    host, site, job_id = match.groups()
+    return (f"https://{host}/hcmRestApi/resources/latest/recruitingCEJobRequisitionDetails"
+            f"?expand=all&onlyData=true&finder=ById;Id=%22{job_id}%22,siteNumber={site}")
+
+
+def from_api(job: Job, get_page: PageGetter) -> str | None:
+    """The whole job from the site's own public detail call (Oracle), or None."""
+    api = oracle_detail_url(job.url)
+    if api is None:
+        return None
+    try:
+        _url, body = get_page(api)
+        data = json.loads(body)
+    except (http.HttpError, ValueError) as exc:
+        log.info("Oracle job details not read for %s: %s", job.company, exc)
+        return None
+    items = data.get("items") if isinstance(data, dict) else None
+    item = items[0] if isinstance(items, list) and items and isinstance(items[0], dict) else {}
+    parts = []
+    for key, heading in ORACLE_PARTS:
+        text = _html_text(str(item.get(key) or ""))
+        if text:
+            parts.append(f"{heading}\n{text}" if heading else text)
+    joined = "\n\n".join(parts)
+    return joined[:MAX_CHARS] if joined else None
+
+
+def keep_old(old: str | None, new: str) -> str:
+    """The new text, with the old one in front when the new text does not hold it: nothing
+    the bot already had is lost (a summary written apart from the full text)."""
+    if not old or _flat(old)[:INTRO_CHARS] in _flat(new):
+        return new
+    return f"{old}\n\n{new}"[:MAX_CHARS]
+
+
 def _title(page: str) -> str:
     match = re.search(r"<title[^>]*>(.*?)</title>", page, re.I | re.S)
     return " ".join(match.group(1).split())[:80] if match else ""
@@ -303,6 +388,13 @@ def _title(page: str) -> str:
 def read(job: Job, get_page: PageGetter) -> Job | None:
     """The job with its full description (and, for Adzuna, the employer's own link), or
     None when the pages gave nothing better."""
+    api_text = from_api(job, get_page)
+    if api_text and len(api_text) > len(job.description or ""):
+        host = (urlsplit(job.url).hostname or "").lower()
+        text = keep_old(job.description, api_text)
+        log.info("full text read for %s: %s job details, %d characters", job.company, host,
+                 len(text))
+        return _with_text(job, text, f"job details, {host}", job.url)
     opened = _open(job, get_page)
     if opened is None:
         return None
@@ -318,15 +410,20 @@ def read(job: Job, get_page: PageGetter) -> Job | None:
                  "title %r", job.company, host, len(page), _title(page))
         return replace(job, url=final_url) if moved else None
     log.info("full text read for %s: %s, %d characters", job.company, host, len(text))
+    if job.source == "ats":  # a company site's own summary is kept (Adzuna's snippet is cut)
+        text = keep_old(job.description, text)
+    return _with_text(job, text, f"full page, {host}", final_url if moved else job.url)
+
+
+def _with_text(job: Job, text: str, origin: str, url: str) -> Job:
     # The full text states every requirement; the snippet may show only the smaller one.
     years = years_required(text)
     posted = experience(text)
     if years is None:
         years, posted = job.years_required, job.experience
     return replace(job, description=text, description_is_snippet=False,
-                   description_origin=f"full page, {host}", years_required=years,
-                   experience=posted,
-                   url=final_url if moved else job.url)
+                   description_origin=origin, years_required=years, experience=posted,
+                   url=url)
 
 
 @dataclass
