@@ -500,9 +500,8 @@ The export has no location and LinkedIn is never opened. `contacts/connection_lo
 Only empty fields are written, and a personal address is never a work email. Paid calls
 follow `safety.paid_api_allowed` (prod with DRY_RUN off, or CONTACTS_LIVE on your PC).
 
-1. **On demand:** the "Location and email" button (`rl:`) under a job's connections first
-   runs the Google search below for at most 6 people there without a country, then asks
-   Prospeo for at most 3 people without a work email (engineers, managers, HR).
+1. **On demand:** the "Location and email" button (`rl:`) under a job's connections asks
+   Prospeo for at most 3 people there without a country.
 2. **Leftover credits (your idea):** once a day the bot asks Prospeo and Hunter how many
    credits are left and when new ones come (Prospeo: days left; Hunter: its reset date, else
    `contacts.hunter_renewal_day`, 23). On the last day before a renewal it spends what is
@@ -510,46 +509,6 @@ follow `safety.paid_api_allowed` (prod with DRY_RUN off, or CONTACTS_LIVE on you
    Companies first (Prospeo: then anyone without a country; Hunter: only Target Companies
    with a Domain). Once per renewal (Bot State `connections.leftover`); the answer says how
    many were looked up and filled.
-
-### More about them from a Google search (28 Oct, your request)
-
-The export has no location and no work email, so most connections are "location unknown"
-and the strict location rule cannot use them; Hunter's people have no location either.
-`contacts/connection_search.py` asks the AI (Config `model.people`: Gemini with Google Search
-on Vertex AI, or Claude with web search) about the person. LinkedIn is never opened, and the
-bot checks every answer:
-
-- The person: a LinkedIn result the search really returned. For a connection it must be
-  their own profile link from your export (a connection without one is never searched); for
-  a contact the result's title must start with their name and name the company.
-- Country: the result's country site (nl., pl. or ie.linkedin.com), else the place it shows
-  when it names Poland, the Netherlands or Ireland or one of their cities.
-- Current job: the result's title. Another company there shows "may have left: the search
-  shows X" under the job (Bot State `connections.searched`).
-- Work email: only an address the bot itself read on a public page the search returned (a
-  team page, a talk, GitHub; never LinkedIn), on the company's email domain (Target Companies
-  Domain, else the company's own site) and not a personal one. Never guessed.
-
-Connections: an empty Country (Location source "AI search"), an empty Work email and an
-empty Notes ("Google search 28 Oct: title; place; email seen on <page>") are filled; your own
-notes are never changed. When: the "Location and email" button (6 people, then Prospeo for
-work emails) and once a day from 13:00 your time for the companies of your Approved, Resume
-built and Applied jobs (20 people). A person is searched again after 30 days while their
-country or work email is still missing.
-
-**/enrich (all of them at once, 28 Oct):** the same Google search (Gemini only, never Hunter
-or Prospeo) for every connection with a profile link that misses a country or a work email,
-juniors left out: Target Companies first, then engineers, managers, HR and the rest. Four
-searches run at the same time; after every 20 people the rows are written to Notion and the
-progress message shows "N of M connections looked up". /end stops it there; the next
-/enrich goes on with the rest. `/enrich 200` does at most 200. A person is searched again
-after 30 days, so after a new LinkedIn export /enrich looks up the new people. About
-4,500 people cost about $7 (₹650) of the Google Cloud credit and take about an hour.
-
-Contacts (the finder, strict rule): people a provider found without a location (Hunter) and
-Prospeo did not place get the same search, at most 3 per job; those placed in the job's
-country fill the open slots, with "location from Google search (<profile link>)" in Notes.
-About $0.0015 per person, paid by the Google Cloud credit now.
 
 ## Recruitment agencies (flow feature 7, /agencies)
 

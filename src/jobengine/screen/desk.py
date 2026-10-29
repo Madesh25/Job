@@ -361,9 +361,6 @@ class Desk:
         # Visa sponsor companies (sweep/sponsors.py): (candidate, today, fits) -> Checked;
         # None where job boards cannot be read.
         self.sponsor_reader: Callable[[Any, date, Any], Any] | None = None
-        # Reads one public page (url -> (final url, html)) for the connection search's email
-        # check; None in tests and the fake bot.
-        self.page_reader: Callable[[str], tuple[str, str]] | None = None
         # The outside heartbeat (heartbeat.py, H4): True pings the check, False its /fail.
         self.heartbeat: Callable[[bool], bool] = lambda ok: heartbeat.ping(self.s, ok)
         # Set by the bot for each update: sends a reply at once (before a long build).
@@ -1550,21 +1547,13 @@ class Desk:
             except Exception as exc:
                 log.warning("LinkedIn connections not updated from contacts: %s", exc)
         company = without_region(values.get("Company") or "")
-        reply.text += "\n\n" + self._connections_block(matches, company, values)
+        reply.text += "\n\n" + connections.block(matches, company,
+                                                  values.get("Country") or "", self.today())
         reply.buttons = [*reply.buttons, ("Referral asks", f"rf:{short_id(job_id)}")]
-        if self.contacts is not None and any(
-                m.row.person.url and not (m.country and m.row.info.get("Work email"))
-                for m in matches):
+        if self.contacts is not None and any(m.row.person.url and not m.country
+                                             for m in matches):
             reply.buttons = [*reply.buttons, ("Location and email",
                                               f"rl:{short_id(job_id)}")]
-
-    def _connections_block(self, matches: list[Any], company: str,
-                           values: dict[str, Any]) -> str:
-        from jobengine.contacts import connection_search
-
-        today = self.today()
-        return connections.block(matches, company, values.get("Country") or "", today,
-                                 connection_search.may_have_left(self.state, today))
 
     def referral_tap(self, job_id: str) -> list[Reply]:
         """A LinkedIn message per connection at the company (the peer note: they are already
@@ -1618,142 +1607,33 @@ class Desk:
         return "\n\n".join(blocks)
 
     def connection_lookup_tap(self, job_id: str) -> list[Reply]:
-        """1. A Google search for where the connections at the company work (at most
-        connection_search.MAX_ON_DEMAND without a country; no LinkedIn page opened).
-        2. Prospeo by the LinkedIn profile link for at most MAX_ON_DEMAND of them without a
-        work email (1 credit each when found). An email is never guessed."""
+        """Prospeo by the LinkedIn profile link for at most MAX_ON_DEMAND connections at the
+        company without a country (1 credit each when found)."""
         from jobengine.contacts import connection_lookup as lookup
-        from jobengine.contacts import connection_search
         from jobengine.resume.builder import notion_id
 
         c = self.contacts
         if self.repo is None or c is None or self.connections is None:
             return [Reply("Contacts are not available in this bot.")]
+        if not paid_api_allowed("prospeo", self.s) or not self.s.prospeo_api_key:
+            return [Reply("Prospeo is not asked here: " + contact_lookups(self.s))]
         job_id = notion_id(job_id)
         values = self.repo.get_values(job_id) or {}
-        company = without_region(values.get("Company") or "")
-        today = self.today()
-        texts = []
-        llm = self.deps.llm(self.deps.config())
-        if llm is not None:
-            out = connection_search.run(self.connections, llm,
-                                        [m.row for m in self._connections_at(values)],
-                                        self.state, today, connection_search.MAX_ON_DEMAND,
-                                        self._email_domain, self.page_reader)
-            if out.searched:
-                texts.append(connection_search.summary(out, f"at {company}"))
-        if paid_api_allowed("prospeo", self.s) and self.s.prospeo_api_key:
-            picks = [m.row for m in self._connections_at(values)
-                     if m.row.person.url and not m.row.info.get("Work email")
-                     and m.kind != connections.OTHER_KIND][:lookup.MAX_ON_DEMAND]
-            if picks:
-                request = c.request("prospeo")
-                key = str(self.s.prospeo_api_key)
-                found = lookup.run(self.connections, picks,
-                                   lambda row: lookup.prospeo_lookup(row, request, key),
-                                   pause=lambda: c.sleep(lookup.PROSPEO_PAUSE))
-                texts.append(lookup.summary("Prospeo", found, f"at {company}"))
-        else:
-            texts.append("Prospeo (work emails) is not asked here: " + contact_lookups(self.s))
-        if not texts:
-            texts.append("Every connection there already has a country and a work email.")
-        matches = self._connections_at(values)
-        texts.append(self._connections_block(matches, company, values))
-        return [Reply("\n\n".join(texts)[:MAX_TEXT],
-                      [("Referral asks", f"rf:{short_id(job_id)}")])]
-
-    def _email_domain(self, company: str) -> str | None:
-        """The company's email domain from Target Companies (Domain), for the email check."""
-        try:
-            return next((str(c.domain) for c in self.reference().companies
-                         if getattr(c, "domain", None)
-                         and connections.same_company(c.name, company)), None)
-        except Exception:  # no domain only means no email check
-            return None
-
-    def enrich_command(self, args: str = "",
-                       progress: Callable[[str], None] | None = None) -> list[Reply]:
-        """/enrich (28 Oct, your request): a Google search (Gemini) for the location and work
-        email of every LinkedIn connection that still misses one; never Hunter or Prospeo.
-        Juniors are left out (your rule of 22 Oct). "/enrich 200": at most 200. Target
-        Companies first. /end stops it after the current 20 people; the next /enrich goes
-        on from there (a person is not searched again for 30 days)."""
-        from jobengine.contacts import connection_search as cs
-        from jobengine.jobctl import CONTROL
-
-        if self.connections is None:
-            return [Reply("The 🤝 LinkedIn Connections table is not available in this bot.")]
-        config = self.deps.config()
-        llm = self.deps.llm(config)
-        if llm is None:
-            return [Reply("No AI key here: /enrich needs the AI's Google search.")]
-        words = args.lower().split()
-        limit = next((int(w) for w in words if w.isdigit()), None)
-        today = self.today()
-        companies = list(self.reference().companies)
-        domains = {c.name: str(c.domain) for c in companies if getattr(c, "domain", None)}
-
-        def domain_of(company: str) -> str | None:
-            return next((d for n, d in domains.items()
-                         if connections.same_company(n, company)), None)
-
-        picks = cs.enrich_picks(self.connections.rows(), self.state, today,
-                                [c.name for c in companies])
-        if limit:
-            picks = picks[:limit]
+        picks = [m.row for m in self._connections_at(values)
+                 if m.row.person.url and not m.country][:lookup.MAX_ON_DEMAND]
         if not picks:
-            return [Reply("Every connection worth a search already has a country and a work "
-                          "email, or was searched in the last 30 days.")]
-
-        def step(out: Any, total: int) -> None:
-            if progress is not None:
-                progress(f"{out.searched} of {total} connections looked up: "
-                         f"{len(out.placed)} countries, {len(out.emails)} work emails found")
-            CONTROL.check()
-
-        if progress is not None:
-            progress(f"0 of {len(picks)} connections looked up (/end stops it; the next "
-                     "/enrich goes on from there)")
-        out = cs.enrich(self.connections, llm, picks, self.state, today, domain_of,
-                        self.page_reader, step)
-        no_email = sum(1 for r in picks if not r.info.get("Work email")) - len(out.emails)
-        no_country = sum(1 for r in picks if not r.info.get("Country")) - len(out.placed)
-        text = cs.summary(out, "in the 🤝 LinkedIn Connections table")
-        text += (f"\n\nStill without a country: {no_country}; without a work email: "
-                 f"{no_email} (most people never put their email on a public page). They are "
-                 "searched again after 30 days.")
-        return [Reply(text[:MAX_TEXT])]
-
-    def connection_search_tick(self) -> list[Reply]:
-        """Once a day from connection_search.DAILY_HOUR (your clock): a Google search for
-        where your connections at the companies of your approved jobs work (28 Oct)."""
-        from jobengine.contacts import connection_search
-        from jobengine.notion_repo import select_filter
-        from jobengine.track import daily_report
-
-        if self.repo is None or self.connections is None or self.state is None:
-            return []
-        config = self.deps.config()
-        now = daily_report.local(self.tracking_now(), config)
-        if not connection_search.daily_due(self.state, now):
-            return []
-        connection_search.mark_day(self.state, now.date())
-        llm = self.deps.llm(config)
-        if llm is None:
-            return []
-        rows = self.repo.query_rows(select_filter("Status", *connection_search.JOB_STATUSES))
-        companies = list(dict.fromkeys(without_region(v.get("Company") or "")
-                                       for _, v in rows if v.get("Company")))
-        people = []
-        for company in companies:
-            people += [m.row for m in connections.at_company(
-                self.connections.rows_like(company), company, "")]
-        out = connection_search.run(self.connections, llm, people, self.state, now.date(),
-                                    connection_search.MAX_DAILY, self._email_domain,
-                                    self.page_reader)
-        if not out.placed and not out.emails and not out.left:
-            return []
-        return [Reply(connection_search.summary(out, "at your approved jobs' companies"))]
+            return [Reply("Every connection there already has a country.")]
+        request = c.request("prospeo")
+        key = str(self.s.prospeo_api_key)
+        out = lookup.run(self.connections, picks,
+                         lambda row: lookup.prospeo_lookup(row, request, key),
+                         pause=lambda: c.sleep(lookup.PROSPEO_PAUSE))
+        company = without_region(values.get("Company") or "")
+        text = lookup.summary("Prospeo", out, f"at {company}")
+        matches = self._connections_at(values)
+        text += "\n\n" + connections.block(matches, company, values.get("Country") or "",
+                                            self.today())
+        return [Reply(text[:MAX_TEXT], [("Referral asks", f"rf:{short_id(job_id)}")])]
 
     def leftover_tick(self) -> list[Reply]:
         """Your idea of 23 Oct: on the last day before Prospeo or Hunter renews, the credits
@@ -3959,8 +3839,5 @@ def real_desk(s: Settings) -> Desk | None:
 
     desk.sponsor_reader = lambda candidate, today, fits: sponsors.check(
         s, candidate, board_get, board_post, board_page, today, fits)
-    from jobengine.sweep.fulltext import blocked_hosts
-
-    desk.page_reader = lambda url: http.get_page(url, s=s, blocked=blocked_hosts(s))
     issue_log.install()  # the warnings and errors of the week, for the weekly audit
     return desk
