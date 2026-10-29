@@ -154,11 +154,8 @@ def test_location_and_email_button_asks_prospeo_for_that_company():
     d.contacts.request = request
     [reply] = d.connection_lookup_tap("pl-clean")
     assert asked == [("prospeo", "https://www.linkedin.com/in/anna-test")]
-    # Since 28 Oct a Google search for the country comes first (contacts/connection_search.py;
-    # the fake AI has no answer here), then Prospeo for the work email.
-    assert reply.text.startswith("🔎 Google search: 1 of your connections at Vistula Cloud")
-    assert ("Prospeo: 1 of your LinkedIn connections looked up (at Vistula Cloud), 1 filled"
-            in reply.text)
+    assert reply.text.startswith("Prospeo: 1 of your LinkedIn connections looked up (at "
+                                 "Vistula Cloud), 1 filled")
     assert "- Anna Test: DevOps Engineer [Engineer, Poland]" in reply.text
 
 
