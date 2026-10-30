@@ -60,6 +60,9 @@ from jobengine.track import day_ledger
 log = logging.getLogger("jobengine.sweep")
 
 SOURCES = ("gmail", "adzuna", "jooble", "nofluffjobs", "iamexpat", "ats")
+# A source still running after this is left out of the /fetch (sweep.source_minutes): one
+# slow source no longer holds up the others (30 Oct: /fetch hung until /end).
+DEFAULT_SOURCE_MINUTES = 10
 Prefilter = Callable[[str, str], bool]
 Progress = Callable[[str], None]
 
@@ -538,8 +541,22 @@ def run_sweep(
         if finished < total:
             say(f"Searching: {finished} of {total} sources done")
 
+    def waiting(names: list[str], seconds: float) -> None:
+        still = ", ".join(SOURCE_LABELS[name] for name in names)
+        log.info("still waiting for: %s (%d min)", still, seconds // 60)
+        say(f"Searching: waiting for {still} ({int(seconds // 60)} min)")
+
+    minutes = float(s.sweep.get("source_minutes", DEFAULT_SOURCE_MINUTES))
+
+    def late(name: str) -> SourceResult:
+        log.warning("%s took longer than %g min: left out of this /fetch", name, minutes)
+        return SourceResult(name=name, skipped_reason=(
+            f"{SOURCE_LABELS[name]} took longer than {minutes:g} min: left out of this "
+            "/fetch (the next /fetch reads it again)"))
+
     workers = max(1, int(s.sweep.get("workers", 8)))
-    results: list[SourceResult] = run_all(collect, sources, workers, source_done)
+    results: list[SourceResult] = run_all(collect, sources, workers, source_done,
+                                          limit=minutes * 60, late=late, waiting=waiting)
     for name, result in zip(sources, results, strict=True):
         summary.sources[name] = len(result.postings)
         log.info("%s: %d postings collected", name, len(result.postings))
@@ -555,7 +572,9 @@ def run_sweep(
         if result.skipped_reason:
             log.warning("%s", result.skipped_reason)
             summary.notes.append(result.skipped_reason)
-            problem = "not set up yet" if "missing" in result.skipped_reason else "failed this time"
+            problem = ("not set up yet" if "missing" in result.skipped_reason
+                       else "too slow this time" if "took longer" in result.skipped_reason
+                       else "failed this time")
             summary.not_checked.append(f"{SOURCE_LABELS[name]}: {problem}")
         summary.notes.extend(result.notes)
 

@@ -299,6 +299,12 @@ updated on the main thread. Notion writes cannot go faster: the Notion client ke
 requests per second in total, whatever the number of threads. `sweep.workers: 1` runs
 everything one at a time again.
 
+A source still running after `sweep.source_minutes` (10) is left out of that /fetch: the
+others go on, the summary lists it under what was not checked ("too slow this time") and the
+next /fetch reads it again (30 Oct: /fetch hung after a Lever timeout until /end). While it
+waits, the log and the progress message say every minute which sources are still running
+("still waiting for: Email alerts (3 min)").
+
 ## One row per job
 
 A company often lists one opening in several cities (the same "Senior DevOps Engineer" in

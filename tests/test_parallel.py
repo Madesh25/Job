@@ -84,3 +84,26 @@ def test_the_default_tick_is_the_end_check():
         with pytest.raises(Stopped):
             run_all(str, [1, 2], 1)
     assert run_all(str, [1, 2], 2) == ["1", "2"]  # the next run starts clean
+
+
+def test_an_item_past_the_time_limit_is_not_waited_for(monkeypatch):
+    """30 Oct: /fetch hung on one source until /end; now it goes on without that source."""
+    from jobengine import parallel
+
+    monkeypatch.setattr(parallel, "TICK_SECONDS", 0.02)
+    monkeypatch.setattr(parallel, "WAITING_SECONDS", 0.05)
+    release = threading.Event()
+    told = []
+
+    def work(name):
+        if name == "slow":
+            release.wait(5)
+        return name.upper()
+
+    started = time.monotonic()
+    out = run_all(work, ["a", "slow", "b"], 3, limit=0.3, late=lambda n: f"late {n}",
+                  waiting=lambda items, seconds: told.append(items))
+    assert out == ["A", "late slow", "B"]
+    assert time.monotonic() - started < 2
+    assert told and told[0] == ["slow"]
+    release.set()
