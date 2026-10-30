@@ -67,3 +67,27 @@ def test_more_cities_are_known():
                            ("Cracow (Hybrid)", ("Poland", "Kraków")),
                            ("County Wicklow, Ireland (Hybrid)", ("Ireland", "Wicklow"))]:
         assert place(text, RULES) == expected
+
+
+def test_linkedin_title_extras_after_a_pipe_are_not_the_company():
+    """30 Oct: "DevOps Engineer | Hybrid | Dublin | Up to EUR 65K" at Ingenio Global was saved
+    with the company "Hybrid", "System Engineer / Site Reliability Engineer | 1." at Inetum
+    with the company "1"."""
+    html = ('<a href="https://www.linkedin.com/comm/jobs/view/4300000011/?t=1"><p>DevOps Engineer'
+            ' | Hybrid | Dublin | Up to €65K</p><p>Ingenio Global · Dublin (Hybrid)</p>'
+            '<p>Easy Apply</p></a>'
+            '<a href="https://www.linkedin.com/comm/jobs/view/4300000012/?t=1"><p>System Engineer'
+            ' / Site Reliability Engineer | 1.</p><p>Inetum · Warsaw</p></a>')
+    first, second = parse("LinkedIn <jobalerts-noreply@linkedin.com>", html)
+    assert (first.title, first.company, first.location_text) == (
+        "DevOps Engineer", "Ingenio Global", "Dublin (Hybrid)")
+    assert (second.title, second.company, second.location_text) == (
+        "System Engineer / Site Reliability Engineer", "Inetum", "Warsaw")
+
+
+def test_a_title_link_alone_keeps_its_card_but_not_the_pipe_extras():
+    html = ('<table><tr><td><a href="https://www.linkedin.com/comm/jobs/view/4300000013/?t=1">'
+            'Platform Engineer | Remote-first</a></td></tr><tr><td>Acme · Dublin</td></tr>'
+            '</table>')
+    [job] = parse("LinkedIn <jobalerts-noreply@linkedin.com>", html)
+    assert (job.title, job.company) == ("Platform Engineer", "Acme")
