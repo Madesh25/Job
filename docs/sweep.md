@@ -438,7 +438,7 @@ site (`src/jobengine/sweep/job_links.py`), newest first:
    links to ("Careers", "Vacancies", "Jobs", ...), up to two clicks from the page found and
    10 pages per job. A recruitment agency's own page counts: it is where that job is
    published. A careers page that shows its jobs only with JavaScript is opened in a
-   headless browser when Playwright is installed (`docker build --build-arg FORM_BOT=true`,
+   headless browser when Playwright is installed (every Docker build since 30 Oct,
    the browser /dryrun uses; at most `max_rendered` (15) pages per sweep; plain GETs only,
    never a site that refuses the bot). A Workday link without its server part
    (`armacell.myworkdayjobs.com`, an address that does not exist) is repaired by asking each

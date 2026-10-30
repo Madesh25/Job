@@ -406,7 +406,7 @@ sweep:
     # AI web searches per sweep: a company's careers page (remembered 60 days) or one job.
     max_searches: 40
     # Careers pages built by JavaScript are opened in a browser, at most this many per
-    # sweep, when Playwright is installed (docker build --build-arg FORM_BOT=true).
+    # sweep, when Playwright is installed (in every Docker build since 30 Oct).
     browser: true
     max_rendered: 15
     # Companies looked up at the same time (your idea of 30 Oct): searches and page reads

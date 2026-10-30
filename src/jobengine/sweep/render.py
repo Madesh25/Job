@@ -2,7 +2,7 @@
 
 Many careers pages (Cognizant, Emerging Travel Group, ...) send an empty page and fill in
 the jobs with JavaScript: your browser shows the jobs, a plain page read gets none. When
-Playwright is installed (docker build --build-arg FORM_BOT=true, the same browser /dryrun
+Playwright is installed (every Docker build since 30 Oct; the same browser /dryrun
 uses), the direct job link search opens such a page in a headless browser instead.
 
 The browser is guarded like the form bot's: plain GETs to public https hosts only, never

@@ -130,6 +130,7 @@ class Deps:
     today: date = field(default_factory=date.today)
     careers: dict[str, str] = field(default_factory=dict)  # company key -> Careers URL
     render: fulltext.PageGetter | None = None  # a browser for JavaScript pages (render.py)
+    feed: fulltext.PageGetter | None = None  # job feeds (RSS, XML): SuccessFactors, Personio
 
 
 @dataclass
@@ -258,7 +259,8 @@ def _board_postings(deps: Deps, name: str, board: Any, role: str) -> list[Any]:
             postings, _, _ = ats.workday(target, board, deps.get, deps.post, _keep_all,
                                          Budget(WORKDAY_DETAILS), deps.today, (role,), 1)
             return postings
-        return read_board(deps.s, target, board, get, deps.post, deps.page, deps.today)
+        return read_board(deps.s, target, board, get, deps.post, deps.page, deps.today,
+                          feed=deps.feed)
     except http.HttpError as exc:
         log.info("job board of %s not read: %s", name, exc)
         return []
@@ -342,6 +344,17 @@ def _page_text(deps: Deps, url: str) -> str | None:
 
 
 # ---------------------------------------------------------------- step 2: careers page
+
+
+# Words an alert card shows where the company should be (30 Oct: rows with the company "1"
+# and "Hybrid" from LinkedIn alerts). Such a row is not looked up: there is no company.
+NOT_COMPANIES = {"hybrid", "remote", "on site", "onsite", "full time", "part time",
+                 "unknown", "confidential", "company", "employer"}
+
+
+def real_company(company: str) -> bool:
+    name = canon(without_region(company))
+    return len(name) >= 2 and not name.isdigit() and name not in NOT_COMPANIES
 
 
 def company_key(company: str) -> str:
@@ -498,10 +511,17 @@ def from_site(deps: Deps, careers: str, company: str, role: str, city: str | Non
     MAX_DEPTH clicks and MAX_SITE_PAGES pages. A careers page that shows its jobs only with
     JavaScript is opened in the browser when one is installed (render.py)."""
     from jobengine import http
+    from jobengine.sweep.sources import ats
 
     if SHARDLESS_WORKDAY.match(careers):
         return _from_workday(deps, careers, company, role, city, country, boards,
                              "careers page")
+    board = ats.board_from_url(careers)
+    if board is not None:  # a job system's link (HCLTech's job feed, 30 Oct: HTTP 406)
+        key = f"{board.ats}:{board.token}:{board.host}"
+        if key not in boards:
+            boards[key] = _board_postings(deps, without_region(company), board, role)
+        return _pick(deps, boards[key], role, city, country, "company job board")
     reads = [MAX_SITE_PAGES]
     queue: list[tuple[str, str, int]] = [(careers, "careers page", 0)]
     seen: set[str] = set()
@@ -678,6 +698,10 @@ def run(deps: Deps, boards: tuple[str, ...], with_body: set[str] | None = None,
                                          select_filter("Status", *OPEN_STATUSES)]})
     rows = [(pid, v) for pid, v in rows if v.get("Screen verdict") != "Skip"
             and link_rank(v.get("URL")) < 3 and v.get("Company") and v.get("Role")]
+    for _pid, v in [r for r in rows if not real_company(str(r[1]["Company"]))]:
+        log.info("not looked up: the company of %s is %r (the alert did not show it)",
+                 v.get("Role"), v.get("Company"))
+    rows = [r for r in rows if real_company(str(r[1]["Company"]))]
     rows.sort(key=lambda r: str(r[1].get("Posted date") or ""), reverse=True)
     tried = _remembered(deps.state, deps.today, "tried")
     no_board = _remembered(deps.state, deps.today, "no_board")

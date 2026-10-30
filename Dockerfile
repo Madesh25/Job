@@ -20,9 +20,10 @@ RUN pip install --no-cache-dir . \
     && mkdir -p /app/out \
     && chown -R app:app /app/out
 
-# The auto-apply dry run (/dryrun) needs a browser: build with --build-arg FORM_BOT=true
-# (about 400 MB more). Without it /dryrun says Playwright is missing.
-ARG FORM_BOT=false
+# The browser (about 400 MB): /dryrun, the autopilot's forms and careers pages built by
+# JavaScript (direct job links) need it. Since 30 Oct it is in every build; build with
+# --build-arg FORM_BOT=false for a smaller image without it.
+ARG FORM_BOT=true
 ENV PLAYWRIGHT_BROWSERS_PATH=/opt/playwright
 RUN if [ "$FORM_BOT" = "true" ]; then \
         pip install --no-cache-dir ".[formbot]" \
