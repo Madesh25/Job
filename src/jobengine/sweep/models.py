@@ -242,6 +242,7 @@ class SweepSummary:
     linkedin_filled: list[str] = field(default_factory=list)  # sweep/crossmatch.py
     direct_links: list[str] = field(default_factory=list)  # sweep/job_links.py
     direct_links_tried: int = 0
+    direct_links_again: int = 0  # searches or browser pages ran out: next sweep
     backfilled: list[str] = field(default_factory=list)  # sweep/backfill.py
     alert_emails: int | None = None  # email alerts read (None: the source did not run)
     site_missed: list[str] = field(default_factory=list)  # sweep/discover.py
@@ -330,6 +331,9 @@ class SweepSummary:
                          f"it, the autopilot can apply): {len(self.direct_links)} of "
                          f"{self.direct_links_tried} alert jobs looked up")
             lines.extend(f"- {job}" for job in self.direct_links[:10])
+            if self.direct_links_again:
+                lines.append(f"- {self.direct_links_again} not finished (this /fetch's searches "
+                             "or browser pages were used up): looked up again next /fetch")
         if self.backfilled:
             lines.append(f"\U0001F4DD Saved jobs that waited for a description, now filled "
                          f"(/screen can screen them): {len(self.backfilled)}")

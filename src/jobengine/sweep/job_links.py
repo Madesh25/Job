@@ -24,7 +24,9 @@ A found job gets its own link in URL and its description in the page body, so sc
 it and the autopilot can open its form. The old link stays on the page ("Earlier link"). The
 dedupe keeps an employer link: a later alert for the same job never puts LinkedIn back.
 Only an exact title counts: "Senior DevOps Engineer" is never used for "DevOps Engineer".
-A row that found nothing is tried again after RETRY_DAYS; it waits for /jd until then.
+A row that found nothing is tried again after RETRY_DAYS; it waits for /jd until then. A row
+that stopped because this sweep's searches or browser pages were used up is tried again at
+the next sweep.
 A form behind a login or a captcha is still yours to send: the autopilot stops there.
 """
 
@@ -53,7 +55,11 @@ log = logging.getLogger("jobengine.sweep")
 # bot_state: {"tried": {page_id: date}, "no_board": {company: date},
 #             "sites": {company: {"url": careers page or "", "date": date}}}
 KEY = "sweep.job_links"
-RETRY_DAYS = 14
+RETRY_DAYS = 3  # a job not found is looked up again after this (14 until 30 Oct)
+NO_BOARD_DAYS = 14  # a company without a job board or careers page is asked again after
+MAX_RENDERS_PER_JOB = 2  # browser pages for one job: one site never uses the whole budget
+THIN_PAGE_CHARS = 3000  # a page with less text than this may fill itself with JavaScript
+THIN_PAGE_LINKS = 30
 SITE_DAYS = 60  # a careers page found is used this long before it is looked up again
 DEFAULT_MAX_ROWS = 40  # rows looked at in one sweep (sweep.job_links.max_rows)
 DEFAULT_MAX_SEARCHES = 40  # AI web searches in one sweep (sweep.job_links.max_searches)
@@ -139,6 +145,7 @@ class Result:
     tried: int = 0
     searches: int = 0
     sites: int = 0  # careers pages found by an AI search this sweep
+    again: int = 0  # jobs tried again next sweep: this sweep's searches or browser ran out
 
 
 @dataclass
@@ -308,7 +315,7 @@ def _pick(deps: Deps, postings: list[Any], role: str, city: str | None,
 def from_board(deps: Deps, company: str, role: str, city: str | None, country: str | None,
                boards: dict[str, Any], no_board: dict[str, str] | None = None) -> Found | None:
     """The job on the company's job board found by its name. `no_board` (company -> date):
-    companies without one, not asked again for RETRY_DAYS (each guess asks 7 job systems)."""
+    companies without one, not asked again for NO_BOARD_DAYS (each guess asks 7 job systems)."""
     from jobengine.sweep.models import TargetCompany
     from jobengine.sweep.sources import ats
     from jobengine.sweep.sponsors import short_name
@@ -355,6 +362,25 @@ NOT_COMPANIES = {"hybrid", "remote", "on site", "onsite", "full time", "part tim
 def real_company(company: str) -> bool:
     name = canon(without_region(company))
     return len(name) >= 2 and not name.isdigit() and name not in NOT_COMPANIES
+
+
+# Set on the worker's thread when a job could not be looked up fully because this sweep's
+# searches or browser pages were used up: the job is then tried again at the next sweep.
+_SHORT = threading.local()
+
+
+def _short() -> None:
+    _SHORT.hit = True
+
+
+def thin_page(html: str) -> bool:
+    """A page that may show its jobs only with JavaScript: little text or few links (30 Oct:
+    CGI's long werken-bij pages used 5 browser pages and found nothing)."""
+    soup = BeautifulSoup(html, "html.parser")
+    for tag in soup(["script", "style", "noscript"]):
+        tag.decompose()
+    return (len(soup.get_text(" ", strip=True)) < THIN_PAGE_CHARS
+            or len(soup.find_all("a", href=True)) < THIN_PAGE_LINKS)
 
 
 def company_key(company: str) -> str:
@@ -523,6 +549,7 @@ def from_site(deps: Deps, careers: str, company: str, role: str, city: str | Non
             boards[key] = _board_postings(deps, without_region(company), board, role)
         return _pick(deps, boards[key], role, city, country, "company job board")
     reads = [MAX_SITE_PAGES]
+    renders = [MAX_RENDERS_PER_JOB]
     queue: list[tuple[str, str, int]] = [(careers, "careers page", 0)]
     seen: set[str] = set()
     while queue and reads[0] > 0:
@@ -540,7 +567,16 @@ def from_site(deps: Deps, careers: str, company: str, role: str, city: str | Non
                          careers)
         if found is not None:
             return found
-        if deps.render is not None and (depth or _careers_url(final)):
+        if (deps.render is not None and (depth or _careers_url(final))
+                and ats.board_in_page(final, html) is None and thin_page(html)):
+            if renders[0] <= 0 or getattr(deps.render, "left", 1) <= 0:
+                log.info("careers page not opened in the browser %s: no browser pages left "
+                         "(this job: %d, this /fetch: %s)", urlsplit(url).hostname,
+                         renders[0], getattr(deps.render, "left", "?"))
+                if getattr(deps.render, "left", 1) <= 0:
+                    _short()  # the sweep's budget, not this job's: try it again next sweep
+                continue
+            renders[0] -= 1
             try:
                 final, html = deps.render(url)
             except http.HttpError as exc:
@@ -647,20 +683,21 @@ def from_search(deps: Deps, company: str, role: str, city: str | None,
 
 
 def _remembered(state: Any, today: date, part: str) -> dict[str, str]:
-    """The rows ("tried") or companies ("no_board") of the last RETRY_DAYS."""
+    """The rows ("tried", RETRY_DAYS) or companies ("no_board", NO_BOARD_DAYS) still kept."""
     value = (state.get(KEY) if state is not None else None) or {}
-    cutoff = (today - timedelta(days=RETRY_DAYS)).isoformat()
+    days = RETRY_DAYS if part == "tried" else NO_BOARD_DAYS
+    cutoff = (today - timedelta(days=days)).isoformat()
     return {k: v for k, v in (value.get(part) or {}).items() if str(v) > cutoff}
 
 
 def _sites(state: Any, today: date) -> dict[str, dict[str, str]]:
-    """Careers pages found (kept SITE_DAYS) and companies without one (RETRY_DAYS)."""
+    """Careers pages found (kept SITE_DAYS) and companies without one (NO_BOARD_DAYS)."""
     value = (state.get(KEY) if state is not None else None) or {}
     out = {}
     for key, item in (value.get("sites") or {}).items():
         if not isinstance(item, dict):
             continue
-        days = SITE_DAYS if item.get("url") else RETRY_DAYS
+        days = SITE_DAYS if item.get("url") else NO_BOARD_DAYS
         if str(item.get("date") or "") > (today - timedelta(days=days)).isoformat():
             out[key] = item
     return out
@@ -707,7 +744,8 @@ def run(deps: Deps, boards: tuple[str, ...], with_body: set[str] | None = None,
     no_board = _remembered(deps.state, deps.today, "no_board")
     sites = _sites(deps.state, deps.today)
     job_boards: dict[str, Any] = {}
-    searches = Budget(int(cfg.get("max_searches", DEFAULT_MAX_SEARCHES)) if deps.llm else 0)
+    allowed = int(cfg.get("max_searches", DEFAULT_MAX_SEARCHES)) if deps.llm else 0
+    searches = Budget(allowed)
     lock = threading.Lock()  # counters and Notion writes
 
     groups: dict[str, list[tuple[str, dict[str, Any]]]] = {}
@@ -722,6 +760,8 @@ def run(deps: Deps, boards: tuple[str, ...], with_body: set[str] | None = None,
 
     def search() -> bool:
         if not searches.take():
+            if allowed > 0:
+                _short()  # the searches ran out: try this job again next sweep
             return False
         with lock:
             result.searches += 1
@@ -754,7 +794,8 @@ def run(deps: Deps, boards: tuple[str, ...], with_body: set[str] | None = None,
         if found is None and not careers and search():
             found = from_search(deps, company, role, city, country, page_id)
         if found is None:
-            log.info("no direct link for %s, %s: it waits for /jd", company, role)
+            again = " (looked up again next /fetch)" if getattr(_SHORT, "hit", False) else ""
+            log.info("no direct link for %s, %s: it waits for /jd%s", company, role, again)
             return None
         board = str(values.get("Board") or "alert")
         with lock:
@@ -769,6 +810,7 @@ def run(deps: Deps, boards: tuple[str, ...], with_body: set[str] | None = None,
         labels = []
         for page_id, values in group:
             CONTROL.check()  # after /end a worker stops before its next job
+            _SHORT.hit = False
             try:
                 label = lookup(page_id, values)
             except Exception:  # one job never stops the others
@@ -776,6 +818,10 @@ def run(deps: Deps, boards: tuple[str, ...], with_body: set[str] | None = None,
                 continue
             if label:
                 labels.append(label)
+            elif _SHORT.hit:
+                with lock:
+                    tried.pop(page_id, None)
+                    result.again += 1
         return labels
 
     def done(finished: int, total: int) -> None:
