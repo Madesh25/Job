@@ -254,10 +254,11 @@ def test_the_careers_page_is_found_once_by_a_search_and_remembered():
     assert (result.searches, result.sites) == (1, 1)
     assert search.calls[0][1] == "Company: Dune Data\nCountry: Netherlands"
     assert state.get(job_links.KEY)["sites"]["dune data"]["url"] == CAREERS
-    # a second job of the same company: no new search for the careers page
+    # a second job of the same company: no new search for the careers page, and with the
+    # careers page read no search for the exact job either (30 Oct: it found 0 of 20)
     d2 = deps([row(), row(role="Platform Engineer")], pages=pages, llm=search, state=state)
-    job_links.run(d2, BOARDS)
-    assert len(search.calls) == 2 and search.calls[1][1].startswith("Company: Dune Data\nJob")
+    result = job_links.run(d2, BOARDS)
+    assert len(search.calls) == 1 and result.searches == 0
 
 
 def test_a_careers_page_answer_of_another_company_is_not_used():
@@ -333,3 +334,132 @@ def test_target_companies_give_their_careers_links():
                                True, "PL"),
                  TargetCompany("Acme", "", "Unknown", True, None)]
     assert job_links.careers_of(companies) == {"dune data": CAREERS}
+
+
+HOME = "https://www.dunedata.com/"
+
+
+def home_page(*links):
+    anchors = "".join(f"<a href='{href}'>{text}</a>" for href, text in links)
+    return f"<html><body><nav>{anchors}</nav><p>Dune Data builds data tools.</p></body></html>"
+
+
+def test_from_the_home_page_two_clicks_to_the_job():
+    """30 Oct: the search gave home pages (ASTEK, Sii, CGI); the jobs were two clicks away."""
+    careers = "https://www.dunedata.com/werken-bij"
+    listing = "https://www.dunedata.com/werken-bij/vacatures"
+    pages = {HOME: home_page(("/werken-bij", "Werken bij")),
+             careers: home_page(("/werken-bij/vacatures", "Alle vacatures")),
+             listing: careers_page(("/careers/devops-engineer-amsterdam", "DevOps Engineer")),
+             JOB: job_page("DevOps Engineer")}
+    d = deps([row()], pages=pages, careers={"dune data": HOME})
+    assert job_links.run(d, BOARDS).labels == ["Dune Data, DevOps Engineer (careers page)"]
+    assert d.page.opened == [HOME, careers, listing, JOB]
+
+
+def test_links_to_other_sites_are_not_followed():
+    pages = {HOME: home_page(("https://www.irishjobs.ie/jobs", "Our jobs"),
+                             ("https://www.other.com/careers", "Careers at Other"))}
+    d = deps([row()], pages=pages, careers={"dune data": HOME})
+    job_links.run(d, BOARDS)
+    assert d.page.opened == [HOME]
+
+
+def test_a_javascript_careers_page_is_opened_in_the_browser():
+    """Cognizant, Emerging Travel Group (30 Oct): the jobs list comes from JavaScript."""
+    shell = "<html><body><div id='app'>Loading jobs...</div></body></html>"
+    rendered = careers_page(("/careers/devops-engineer-amsterdam", "DevOps Engineer"))
+    d = deps([row()], pages={CAREERS: shell, JOB: job_page("DevOps Engineer")},
+             careers={"dune data": CAREERS})
+    browser = Pages({CAREERS: rendered})
+    d.render = browser
+    assert job_links.run(d, BOARDS).labels == ["Dune Data, DevOps Engineer (careers page)"]
+    assert browser.opened == [CAREERS]
+
+
+def test_a_home_page_is_not_opened_in_the_browser():
+    d = deps([row()], pages={HOME: home_page()}, careers={"dune data": HOME})
+    browser = Pages({})
+    d.render = browser
+    job_links.run(d, BOARDS)
+    assert browser.opened == []
+
+
+def workday_api(tenant, shard, site, jobs):
+    """A Workday site on one server: the job list answers, every other server fails."""
+    posted = []
+
+    def post(url, body):
+        posted.append((url, body))
+        if url == f"https://{tenant}.{shard}.myworkdayjobs.com/wday/cxs/{tenant}/{site}/jobs":
+            return {"total": len(jobs), "facets": [], "jobPostings": [
+                {"title": title, "externalPath": f"/job/{place}/{path}",
+                 "locationsText": place, "postedOn": "Posted Today"}
+                for title, place, path in jobs]}
+        raise http.HttpError("POST failed: ConnectError")
+
+    return post, posted
+
+
+def test_a_workday_link_without_its_server_is_repaired():
+    """Armacell, Coca-Cola (30 Oct): the AI gave armacell.myworkdayjobs.com, which does
+    not exist; the real site is armacell.wd3.myworkdayjobs.com."""
+    post, posted = workday_api("armacell", "wd3", "Armacell",
+                               [("Systems Engineer", "Wroclaw, Poland", "Systems-Engineer_JR-1")])
+    shardless = "https://armacell.myworkdayjobs.com/Armacell/job/Wroclaw/Systems-Engineer_JR-2"
+    real = "https://armacell.wd3.myworkdayjobs.com/en-US/Armacell/job/Systems-Engineer_JR-1"
+
+    def get(url, params):  # the job's detail: its own link and the full description
+        if url.endswith("/Systems-Engineer_JR-1"):
+            return {"jobPostingInfo": {"title": "Systems Engineer", "externalUrl": real,
+                                       "location": "Wroclaw, Poland",
+                                       "jobDescription": f"<p>{TEXT}</p>"}}
+        raise http.HttpError("GET failed: HTTP 404", status=404)
+
+    d = deps([row(company="Armacell", role="Systems Engineer", city="Wroclaw", country="Poland")],
+             get=get, llm=Search(shardless))
+    d.post = post
+    assert job_links.workday_board(d, shardless).host == "armacell.wd3.myworkdayjobs.com"
+    result = job_links.run(d, BOARDS)
+    assert d.repo.rows["p0"]["URL"] == real
+    assert result.labels == ["Armacell, Systems Engineer (web search)"]
+    searched = [b["searchText"] for u, b in posted if "wd3" in u and b.get("searchText")]
+    assert "Systems Engineer" in searched  # the site's own search, for this title
+
+
+def test_companies_are_looked_up_at_the_same_time():
+    """30 Oct, your idea: three companies at once; one company's jobs stay together."""
+    import threading
+    import time
+
+    running, peak, lock = [0], [0], threading.Lock()
+    by_company: dict[str, list[str]] = {}
+
+    class SlowSearch(Search):
+        def complete_json_with_search(self, stage, system, user, **kwargs):
+            company = user.split("\n")[0]
+            with lock:
+                running[0] += 1
+                peak[0] = max(peak[0], running[0])
+                by_company.setdefault(company, []).append(threading.current_thread().name)
+            time.sleep(0.05)
+            with lock:
+                running[0] -= 1
+            return super().complete_json_with_search(stage, system, user, **kwargs)
+
+    rows = [row(company=f"Co {i}", role=role) for i in range(6)
+            for role in ("DevOps Engineer", "Cloud Engineer")]
+    d = deps(rows, llm=SlowSearch())
+    result = job_links.run(d, BOARDS)
+    assert result.tried == 12 and peak[0] == 3
+    # one careers page search per company, never two at once for the same company
+    assert all(len(set(threads)) == 1 for threads in by_company.values())
+    assert sum(1 for c in d.llm.calls if "Job title" not in c[1]) == 6
+
+
+def test_workers_one_keeps_the_old_order():
+    d = deps([row(company=f"Co {i}") for i in range(3)], llm=Search())
+    d.s.sweep["job_links"] = {"workers": 1}
+    job_links.run(d, BOARDS)
+    assert [c[1].split("\n")[0] for c in d.llm.calls][::2] == [
+        "Company: Co 0", "Company: Co 1", "Company: Co 2"]

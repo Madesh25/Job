@@ -434,10 +434,17 @@ site (`src/jobengine/sweep/job_links.py`), newest first:
    AI web search for the company's website and careers page (Config `model.fetch`, else
    `model.people`; on the PC Gemini on Vertex AI, paid by the Google Cloud credit). The bot
    opens that page and reads the job board it uses, the job links on it, its own search box
-   (a plain search for the title: never a login or a form that sends data) and up to two job
-   list pages it links to ("Vacancies", "Jobs", ...). A recruitment agency's own page counts:
-   it is where that job is published.
-3. Otherwise one AI web search for the job itself.
+   (a plain search for the title: never a login or a form that sends data) and the pages it
+   links to ("Careers", "Vacancies", "Jobs", ...), up to two clicks from the page found and
+   10 pages per job. A recruitment agency's own page counts: it is where that job is
+   published. A careers page that shows its jobs only with JavaScript is opened in a
+   headless browser when Playwright is installed (`docker build --build-arg FORM_BOT=true`,
+   the browser /dryrun uses; at most `max_rendered` (15) pages per sweep; plain GETs only,
+   never a site that refuses the bot). A Workday link without its server part
+   (`armacell.myworkdayjobs.com`, an address that does not exist) is repaired by asking each
+   Workday server, and a Workday site is searched for the exact title.
+3. Only when no careers page was found: one AI web search for the job itself (on 30 Oct it
+   found nothing the careers page had missed, so the searches go to more companies).
 
 Every answer is used only after the bot read the page itself: an employer page (never
 LinkedIn, a job board or an aggregator), on the company's own site or a job system page
@@ -454,6 +461,9 @@ you (the autopilot stops there and says so).
   few fetches. A company without a job board found by its name, or without a careers page
   found, is not asked again for 14 days.
 - A row with no result waits for /jd; the log says "no direct link for Company, Role".
+- `sweep.job_links.workers` (3): companies looked up at the same time. All jobs of one
+  company stay on one worker (its careers page is searched for once); Notion writes go one
+  at a time; the browser opens one page at a time on its own thread.
 - `sweep.job_links.enabled: false` turns it off.
 - The /fetch summary says "Own job link found on the company's site: N of M" and lists them.
 
