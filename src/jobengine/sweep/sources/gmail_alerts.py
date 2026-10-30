@@ -38,6 +38,15 @@ CARD_BADGES = {"", "new", "promoted", "najlepiej dopasowana", "nowosc", "hit", "
 _SALARY = re.compile(r"\d.*(?:z\u0142|pln|eur|\u20ac|/\s*(?:mies|godz|month|hour|h)\b)",
                      re.IGNORECASE)
 DEFAULT_LAYOUT = ["title", "company"]
+# LinkedIn titles can carry extras after " | " ("DevOps Engineer | Hybrid | Dublin | Up to
+# EUR 65K", "System Engineer / Site Reliability Engineer | 1."): the title is the first part,
+# never split into the company (30 Oct: rows with the company "Hybrid" and "1").
+_TITLE_EXTRAS = re.compile(r"\s+\|\s+")
+
+
+def title_only(text: str) -> str:
+    """A title line without what follows " | "."""
+    return _TITLE_EXTRAS.split(text.strip())[0].strip(" -|,") or text.strip()
 
 
 def board_for_sender(sender: str, sender_boards: Mapping[str, str]) -> str:
@@ -98,7 +107,12 @@ def anchor_fields(lines: list[str], layout: list[str]) -> tuple[str, str, str, t
     split. Lines after the layout are kept as other card lines."""
     parts: list[str] = []
     for line in lines:
-        parts.extend(_JOINED.split(line) if len(parts) < len(layout) else [line])
+        if len(parts) >= len(layout):
+            parts.append(line)
+        elif layout[len(parts)] == "title":  # the title line is never split into fields
+            parts.append(title_only(line))
+        else:
+            parts.extend(_JOINED.split(line))
     fields = dict(zip(layout, parts, strict=False))
     others = tuple(p for p in parts[len(layout):] if canon(p) not in CARD_BUTTONS)
     title = fields.get("title", "")
@@ -168,8 +182,8 @@ def parse_alert(message: GmailMessage, gmail_cfg: Mapping[str, Any]) -> list[Raw
             if not title:
                 continue
         else:
-            title = lines[0]
-            company, location, others, salary = card_fields(anchor, title)
+            company, location, others, salary = card_fields(anchor, lines[0])
+            title = title_only(lines[0])
         postings.append(
             RawPosting(
                 source=SOURCE,
