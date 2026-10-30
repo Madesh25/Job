@@ -541,3 +541,30 @@ def test_a_job_cut_short_by_the_budget_is_looked_up_next_sweep():
 def test_the_summary_says_how_many_wait_for_the_next_fetch():
     summary = SweepSummary(direct_links=[], direct_links_tried=40, direct_links_again=12)
     assert "12 not finished" in summary.friendly_text()
+
+
+def test_a_slow_source_is_left_out_and_the_fetch_goes_on(monkeypatch):
+    import threading
+    from dataclasses import replace
+
+    from test_telegram_bot import settings
+
+    from jobengine import parallel
+    from jobengine.sweep.fakes import FAKE_TODAY
+    from jobengine.sweep.models import SourceResult
+    from jobengine.sweep.runner import fake_deps, run_sweep
+
+    monkeypatch.setattr(parallel, "TICK_SECONDS", 0.02)
+    release = threading.Event()
+
+    def stuck():
+        release.wait(5)
+        return SourceResult(name="jooble")
+
+    s = settings()
+    s.sweep["source_minutes"] = 0.005  # 0.3 seconds
+    summary = run_sweep(s, replace(fake_deps(s), jooble=stuck, links=None), FAKE_TODAY,
+                        sources=("gmail", "jooble"))
+    release.set()
+    assert "Jooble: too slow this time" in summary.not_checked
+    assert summary.sources["gmail"] > 0  # the other source was used

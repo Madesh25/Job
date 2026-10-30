@@ -416,6 +416,9 @@ sweep:
   # Network work done at the same time: the sources, careers pages, job boards and job
   # pages. Notion writes stay at about 3 per second whatever this is.
   workers: 8
+  # A source still running after this many minutes is left out of that /fetch (the summary
+  # says so; the next /fetch reads it again), so one slow source never holds up the rest.
+  source_minutes: 10
   # At most this many NEW jobs are saved per day (all sweeps together); 0 = no limit.
   # Your decision of 30 Sep: every job that passes the rules is saved (none is lost to a
   # daily limit). New postings are ranked by a free match score (sweep/rank.py, no LLM) and
