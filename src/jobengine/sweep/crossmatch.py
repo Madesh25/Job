@@ -27,6 +27,7 @@ used for a "DevOps Engineer" alert.
 from __future__ import annotations
 
 import logging
+import re
 from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 
@@ -48,9 +49,20 @@ NOISE_PAIRS = (("on", "site"), ("full", "time"))
 DEFAULT_MAX_PAGES = 10
 
 
+# Adzuna Poland ends titles with the company: "DevOps Engineer @ Scalo" (69 rows on 30 Oct).
+# The company's own page says "DevOps Engineer", so the part from " @ " on is left out.
+_AT_COMPANY = re.compile(r"\s+@\s+.*$")
+
+
+def plain_title(title: str | None) -> str:
+    """The title without an "@ Company" ending (for searches and the site's search box)."""
+    return _AT_COMPANY.sub("", title or "").strip()
+
+
 def title_key(title: str | None, city: str | None = None, country: str | None = None) -> str:
-    """The canonical title without work-mode words and the job's own city or country."""
-    words = canon_title(title).split()
+    """The canonical title without work-mode words, the job's own city or country, and an
+    "@ Company" ending."""
+    words = canon_title(plain_title(title)).split()
     place = set(canon_city(city).split()) | set(canon(city).split()) | set(canon(country).split())
     out: list[str] = []
     i = 0

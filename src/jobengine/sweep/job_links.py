@@ -46,7 +46,7 @@ from bs4 import BeautifulSoup
 
 from jobengine.notion_repo import JobsRepo, select_filter
 from jobengine.sweep import fulltext
-from jobengine.sweep.crossmatch import DESCRIPTION_HEADER, title_key
+from jobengine.sweep.crossmatch import DESCRIPTION_HEADER, plain_title, title_key
 from jobengine.sweep.dedupe import DESCRIPTION_BLOCK_CHARS, DESCRIPTION_MAX_BLOCKS, link_rank
 from jobengine.sweep.normalize import canon, canon_city, canon_company, without_region
 
@@ -781,7 +781,8 @@ def run(deps: Deps, boards: tuple[str, ...], with_body: set[str] | None = None,
 
     def lookup(page_id: str, values: dict[str, Any]) -> str | None:
         """One job: its link on the company's site, written to Notion. The label or None."""
-        company, role = str(values["Company"]), str(values["Role"])
+        # "DevOps Engineer @ Scalo" (Adzuna) is searched for as "DevOps Engineer"
+        company, role = str(values["Company"]), plain_title(str(values["Role"]))
         city, country = values.get("City"), values.get("Country")
         careers = ""
         found = from_board(deps, company, role, city, country, job_boards, no_board)
