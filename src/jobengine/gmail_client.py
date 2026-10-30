@@ -152,10 +152,11 @@ class GmailClient:
     def from_settings(cls, s: Settings) -> GmailClient:
         info = check_sender_token(s.gmail_sender_token_json)
         from google.oauth2.credentials import Credentials
-        from googleapiclient.discovery import build
+
+        from jobengine.google_api import service
 
         creds = Credentials.from_authorized_user_info(info, [GMAIL_MODIFY])
-        return cls(build("gmail", "v1", credentials=creds, cache_discovery=False))
+        return cls(service("gmail", "v1", creds))
 
     def _drafts(self) -> Any:
         return self.service.users().drafts()

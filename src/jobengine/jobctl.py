@@ -9,9 +9,18 @@ stopping a run do not swallow it.
 from __future__ import annotations
 
 import threading
-import time
 from collections.abc import Iterator
 from contextlib import contextmanager
+from datetime import datetime
+from zoneinfo import ZoneInfo
+
+HOME_ZONE = "Asia/Kolkata"
+
+
+def home_time() -> str:
+    """The time in India, "13:02": the bot runs on UTC in Docker (30 Oct: "started 07:24"
+    was shown for 12:54 India time)."""
+    return datetime.now(ZoneInfo(HOME_ZONE)).strftime("%H:%M")
 
 
 class Stopped(BaseException):
@@ -28,7 +37,7 @@ class Control:
     @contextmanager
     def job(self, name: str) -> Iterator[None]:
         with self._lock:
-            self.running, self.started = name, time.strftime("%H:%M")
+            self.running, self.started = name, home_time()
             self._stop.clear()
         try:
             yield

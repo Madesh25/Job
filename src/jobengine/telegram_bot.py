@@ -31,7 +31,7 @@ from pathlib import Path
 from typing import Any, TextIO
 
 from jobengine import gmail_renew, next_steps
-from jobengine.jobctl import CONTROL, Stopped, end_text
+from jobengine.jobctl import CONTROL, Stopped, end_text, home_time
 from jobengine.main import banner
 from jobengine.resume import builder as resume_builder
 from jobengine.safety import SafetyError, check_startup, telegram_text
@@ -522,7 +522,7 @@ class ProgressMessage:
         self.clock = clock
         self.name = name
         self.status = "Starting..."
-        self.started = time.strftime("%H:%M")
+        self.started = home_time()
         self.started_at = clock()
         self.message_id = client.send_message(
             chat_id,

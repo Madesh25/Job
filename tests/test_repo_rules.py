@@ -151,6 +151,7 @@ GOOGLE_CLIENT_ALLOWED = {
     "src/jobengine/drive_client.py",
     "src/jobengine/gmail_client.py",
     "src/jobengine/gmail_auth.py",
+    "src/jobengine/google_api.py",  # builds those clients with a time limit, calls nothing
 }
 # Module 06: drafts. Never remove, trash, edit a draft or create labels. The one send is a
 # draft the bot wrote and checked (mail mode "send", mail/sender.py): _drafts().send, once.
