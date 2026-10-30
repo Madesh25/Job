@@ -159,19 +159,32 @@ def real_deps(s: Settings) -> SweepDeps:
 def _find_links(s: Settings, repo: JobsRepo, config: ConfigStore, state: Any, today: date,
                 boards: tuple[str, ...], with_body: set[str], progress: Progress,
                 companies: list[TargetCompany]) -> Any:
-    """The direct job links pass with the real network and AI (sweep/job_links.py)."""
+    """The direct job links pass with the real network and AI (sweep/job_links.py). Careers
+    pages built by JavaScript are opened in a browser when Playwright is installed."""
     from jobengine.llm import make_llm
     from jobengine.safety import llm_allowed
+    from jobengine.sweep import render
 
-    return job_links.run(
-        job_links.Deps(
-            s=s, repo=repo,
-            page=lambda url: http.get_page(url, s=s, blocked=fulltext.blocked_hosts(s)),
-            get=lambda url, params: http.get_json(url, params=params or None, s=s),
-            post=lambda url, body: http.post_json(url, json=body, s=s),
-            llm=make_llm(s, config) if llm_allowed(s) else None, state=state, today=today,
-            careers=job_links.careers_of(companies)),
-        boards, with_body, progress)
+    cfg = job_links.settings(s)
+    browser = None
+    if cfg.get("browser", True) and render.available():
+        browser = render.Renderer(s, int(cfg.get("max_rendered", render.DEFAULT_MAX_PAGES)))
+    else:
+        log.info("direct job links: no browser (Playwright not installed), careers pages "
+                 "built by JavaScript are not read")
+    try:
+        return job_links.run(
+            job_links.Deps(
+                s=s, repo=repo,
+                page=lambda url: http.get_page(url, s=s, blocked=fulltext.blocked_hosts(s)),
+                get=lambda url, params: http.get_json(url, params=params or None, s=s),
+                post=lambda url, body: http.post_json(url, json=body, s=s),
+                llm=make_llm(s, config) if llm_allowed(s) else None, state=state, today=today,
+                careers=job_links.careers_of(companies), render=browser),
+            boards, with_body, progress)
+    finally:
+        if browser is not None:
+            browser.close()
 
 
 def _may_lack_body(row: IndexRow) -> bool:

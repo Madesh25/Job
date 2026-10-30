@@ -343,11 +343,23 @@ FORM_BOT_FORBIDDEN = re.compile(r"\.click\(|\.dblclick\(|\.tap\(|\.press\(|\.sub
                                 r"\.type\(", re.I)
 
 
+# Careers pages built by JavaScript are read in the browser (30 Oct): reading only.
+PAGE_READER = "src/jobengine/sweep/render.py"
+
+
 def test_only_the_form_bot_drives_a_browser():
     offenders = [p.relative_to(ROOT).as_posix() for p in src_files()
                  if PLAYWRIGHT_IMPORT.search(p.read_text(encoding="utf-8"))
-                 and p.relative_to(ROOT).as_posix() != FORM_BOT]
+                 and p.relative_to(ROOT).as_posix() not in (FORM_BOT, PAGE_READER)]
     assert offenders == []
+
+
+def test_the_page_reader_only_reads():
+    text = (ROOT / PAGE_READER).read_text(encoding="utf-8")
+    assert FORM_BOT_FORBIDDEN.findall(text) == []
+    assert re.findall(r"\.(?:fill|check|select_option|set_input_files)\(", text) == []
+    assert 'page.route("**/*", form_bot._guard(self.s, refused))' in text  # no Sending
+    assert "assert_page_fetch_allowed(url" in text
 
 
 def test_the_form_bot_never_presses_a_button_or_submits():

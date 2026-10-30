@@ -57,7 +57,8 @@ SITE_DAYS = 60  # a careers page found is used this long before it is looked up 
 DEFAULT_MAX_ROWS = 40  # rows looked at in one sweep (sweep.job_links.max_rows)
 DEFAULT_MAX_SEARCHES = 40  # AI web searches in one sweep (sweep.job_links.max_searches)
 MAX_CANDIDATES = 4  # pages read for one AI answer
-MAX_SITE_PAGES = 8  # pages of one company's site read for one row
+MAX_SITE_PAGES = 10  # pages of one company's site read for one row
+MAX_DEPTH = 2  # clicks from the page found: website -> careers page -> job list
 MAX_JOB_LINKS = 3  # job links with the row's title opened on one page
 MAX_LIST_PAGES = 2  # job list pages followed from a careers page
 STAGE = "fetch"  # llm.py: a web search stage, model.fetch else model.people
@@ -81,11 +82,18 @@ COUNTRY_WORDS = {"poland": ("poland", "polska", "pl"),
                  "netherlands": ("netherlands", "nederland", "the netherlands", "nl", "holland"),
                  "ireland": ("ireland", "ie", "eire")}
 # Links to a careers page or a job list, in the languages of your countries.
-CAREER_WORDS = ("career", "jobs", "job-openings", "vacanc", "vacature", "werken-bij",
+CAREER_WORDS = ("career", "jobs", "job-openings", "job-ads", "joboffer", "job-offer",
+                "vacanc", "vacature", "werken-bij",
                 "werkenbij", "kariera", "praca", "oferty", "join-us", "joinus", "work-with-us",
                 "openings", "open-positions", "positions", "opportunities")
 SEARCH_FIELDS = ("q", "query", "search", "keyword", "keywords", "s", "term", "text", "k",
                  "searchtext", "search_query", "zoeken", "szukaj")
+# A Workday link without its server part ("wd5"): the AI often gives these, and the address
+# does not exist (Armacell, Coca-Cola, Kyndryl on 30 Oct: ConnectError). The site is asked on
+# each Workday server until one answers.
+SHARDLESS_WORKDAY = re.compile(
+    r"^https://([a-z0-9-]+)\.myworkdayjobs\.com/(?:[a-z]{2}-[a-z]{2}/)?([\w-]+)", re.I)
+WORKDAY_SHARDS = ("wd1", "wd3", "wd5", "wd12", "wd103", "wd105")
 TITLE_SPLIT = re.compile(r"\s+(?:[|\u2013\u2014\-\u00b7:]|at)\s+")  # | - and long dashes
 
 SYSTEM = """You find the official page of one job advert on the web.
@@ -119,6 +127,7 @@ class Deps:
     state: Any = None
     today: date = field(default_factory=date.today)
     careers: dict[str, str] = field(default_factory=dict)  # company key -> Careers URL
+    render: fulltext.PageGetter | None = None  # a browser for JavaScript pages (render.py)
 
 
 @dataclass
@@ -225,8 +234,10 @@ def _board_postings(deps: Deps, name: str, board: Any, role: str) -> list[Any]:
     company in pages: it is asked for the title instead, as its own search box would be
     (ALTEN, 30 Oct: the board was found, the Polish job was not on its first pages)."""
     from jobengine import http
-    from jobengine.sweep.boards import read_board
+    from jobengine.parallel import Budget
+    from jobengine.sweep.boards import WORKDAY_DETAILS, _keep_all, read_board
     from jobengine.sweep.models import TargetCompany
+    from jobengine.sweep.sources import ats
 
     get = deps.get
     if get is not None and board.ats == "smartrecruiters":
@@ -240,10 +251,37 @@ def _board_postings(deps: Deps, name: str, board: Any, role: str) -> list[Any]:
 
     target = TargetCompany(name, "", "Unknown", True, None)
     try:
+        if board.ats == "workday" and deps.post is not None:
+            # The site's own search, for this title (not the usual DevOps words).
+            postings, _, _ = ats.workday(target, board, deps.get, deps.post, _keep_all,
+                                         Budget(WORKDAY_DETAILS), deps.today, (role,), 1)
+            return postings
         return read_board(deps.s, target, board, get, deps.post, deps.page, deps.today)
     except http.HttpError as exc:
         log.info("job board of %s not read: %s", name, exc)
         return []
+
+
+def workday_board(deps: Deps, url: str) -> Any:
+    """The Workday site of a link without its server part, or None."""
+    from jobengine import http
+    from jobengine.sweep.sources import ats
+
+    match = SHARDLESS_WORKDAY.match(url)
+    if match is None or deps.post is None:
+        return None
+    tenant, site = match.group(1).lower(), match.group(2)
+    for shard in WORKDAY_SHARDS:
+        host = f"{tenant}.{shard}.myworkdayjobs.com"
+        try:
+            data = deps.post(f"https://{host}/wday/cxs/{tenant}/{site}/jobs",
+                             {"appliedFacets": {}, "limit": 1, "offset": 0, "searchText": ""})
+        except http.HttpError:
+            continue
+        if isinstance(data, dict) and "total" in data:
+            log.info("Workday site for %s: %s/%s", url.split("/")[2], host, site)
+            return ats.Board("workday", tenant, host=host, site=site)
+    return None
 
 
 def _pick(deps: Deps, postings: list[Any], role: str, city: str | None,
@@ -422,44 +460,83 @@ def _on_page(deps: Deps, final: str, html: str, company: str, role: str, city: s
     return None
 
 
+def _careers_url(url: str) -> bool:
+    """A link that is itself a careers page or a job list (not a home page)."""
+    parts = urlsplit(url)
+    host, path = (parts.hostname or "").lower(), parts.path.lower()
+    return host.startswith(("careers.", "career.", "jobs.", "werkenbij.", "kariera.")) or any(
+        w in path for w in CAREER_WORDS) or any(a in host for a in ATS_HOSTS)
+
+
+def _ours(link: str, careers: str, company: str) -> bool:
+    """A link the company's careers page may lead to: its own site, a job system, or a
+    site named after it (werkenbijcgi.nl). Never another company's careers page."""
+    host = (urlsplit(link).hostname or "").lower()
+    name = canon_company(without_region(company))
+    first = name.split()[0] if name else ""
+    return (same_site(link, careers) or any(a in host for a in ATS_HOSTS)
+            or (len(first) >= 3 and first in host))
+
+
+def _from_workday(deps: Deps, url: str, company: str, role: str, city: str | None,
+                  country: str | None, boards: dict[str, Any], how: str) -> Found | None:
+    board = workday_board(deps, url)
+    if board is None:
+        return None
+    key = f"workday:{board.host}:{board.site}"
+    if key not in boards:
+        boards[key] = _board_postings(deps, without_region(company), board, role)
+    return _pick(deps, boards[key], role, city, country, how)
+
+
 def from_site(deps: Deps, careers: str, company: str, role: str, city: str | None,
               country: str | None, boards: dict[str, Any]) -> Found | None:
-    """Open the careers page and look for the job: its job board, its job links, its
-    search box, then the job list pages it links to (at most MAX_SITE_PAGES reads)."""
+    """Open the careers page and look for the job like you would: its job board, its job
+    links, its search box, then the pages it links to ("Careers", "Vacancies", ...), up to
+    MAX_DEPTH clicks and MAX_SITE_PAGES pages. A careers page that shows its jobs only with
+    JavaScript is opened in the browser when one is installed (render.py)."""
     from jobengine import http
 
+    if SHARDLESS_WORKDAY.match(careers):
+        return _from_workday(deps, careers, company, role, city, country, boards,
+                             "careers page")
     reads = [MAX_SITE_PAGES]
-
-    def read(url: str) -> tuple[str, str] | None:
-        if reads[0] <= 0:
-            return None
+    queue: list[tuple[str, str, int]] = [(careers, "careers page", 0)]
+    seen: set[str] = set()
+    while queue and reads[0] > 0:
+        url, how, depth = queue.pop(0)
+        if url in seen:
+            continue
+        seen.add(url)
         reads[0] -= 1
         try:
-            return deps.page(url)
+            final, html = deps.page(url)
         except http.HttpError as exc:
             log.info("careers page not read %s: %s", urlsplit(url).hostname, exc)
-            return None
-
-    first = read(careers)
-    if first is None:
-        return None
-    final, html = first
-    found = _on_page(deps, final, html, company, role, city, country, "careers page", boards,
-                     reads, final)
-    if found is not None:
-        return found
-    pages = []
-    ask = search_url(final, html, role)
-    if ask:
-        pages.append((ask, "careers page search"))
-    pages += [(u, "careers page") for u in careers_links(final, html)[:MAX_LIST_PAGES]]
-    for url, how in pages:
-        got = read(url)
-        if got is None:
             continue
-        found = _on_page(deps, *got, company, role, city, country, how, boards, reads, final)
+        found = _on_page(deps, final, html, company, role, city, country, how, boards, reads,
+                         careers)
         if found is not None:
             return found
+        if deps.render is not None and (depth or _careers_url(final)):
+            try:
+                final, html = deps.render(url)
+            except http.HttpError as exc:
+                log.info("careers page not opened in the browser %s: %s",
+                         urlsplit(url).hostname, exc)
+            else:
+                found = _on_page(deps, final, html, company, role, city, country, how, boards,
+                                 reads, careers)
+                if found is not None:
+                    return found
+        if depth >= MAX_DEPTH:
+            continue
+        ask = search_url(final, html, role)
+        if ask:
+            queue.append((ask, "careers page search", MAX_DEPTH))
+        for link in careers_links(final, html)[:MAX_LIST_PAGES + 1]:
+            if employer_page(link, company) and _ours(link, careers, company):
+                queue.append((link, "careers page", depth + 1))
     return None
 
 
@@ -492,6 +569,11 @@ def find_site(deps: Deps, company: str, country: str | None, key: str) -> str:
     raw = raw or {}
     answers = [str(raw.get("careers") or "").strip(), str(raw.get("website") or "").strip()]
     for url in list(dict.fromkeys(u for u in [*answers, *sources] if u))[:MAX_CANDIDATES]:
+        board = workday_board(deps, url)
+        if board is not None:
+            url = f"https://{board.host}/{board.site}"
+            log.info("careers page for %s: %s", company, url)
+            return url
         if _site_ok(deps, url, company):
             log.info("careers page for %s: %s", company, url)
             return url
@@ -519,6 +601,11 @@ def from_search(deps: Deps, company: str, role: str, city: str | None,
     candidates = list(dict.fromkeys(u for u in [answer, *sources] if u))
     full_min = _full_min(deps)
     for url in [u for u in candidates if employer_page(u, company)][:MAX_CANDIDATES]:
+        if SHARDLESS_WORKDAY.match(url):
+            found = _from_workday(deps, url, company, role, city, country, {}, "web search")
+            if found is not None:
+                return found
+            continue
         try:
             final, html = deps.page(url)
         except http.HttpError as exc:
@@ -617,13 +704,16 @@ def run(deps: Deps, boards: tuple[str, ...], with_body: set[str] | None = None,
         tried[page_id] = deps.today.isoformat()
         if progress is not None:
             progress(f"Direct job links: looking for {company}, {role}")
+        careers = ""
         try:
             found = from_board(deps, company, role, city, country, job_boards, no_board)
             if found is None:
                 careers = careers_page(company, country, page_id)
                 if careers:
                     found = from_site(deps, careers, company, role, city, country, job_boards)
-            if found is None and search():
+            # With a careers page read, a search for the exact job finds no more (30 Oct:
+            # 0 of 20), so the searches go to the next companies instead.
+            if found is None and not careers and search():
                 found = from_search(deps, company, role, city, country, page_id)
         except Exception:  # one row never stops the others
             log.exception("direct link for %s not looked up", company)
