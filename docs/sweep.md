@@ -428,11 +428,20 @@ site (`src/jobengine/sweep/job_links.py`), newest first:
 
 1. The company's job board by its name (Greenhouse, Lever, SmartRecruiters, Ashby, Workable,
    Recruitee): free, no AI. A posting with the same title in the row's city or country.
-2. Otherwise one AI web search (Config `model.fetch`, else `model.people`; on the PC Gemini on
-   Vertex AI, paid by the Google Cloud credit). Its answer is used only after the bot read the
-   page itself: an employer page (never LinkedIn, a job board or an aggregator), on the
-   company's own domain or a job system page naming the company, whose job title is the
-   row's title, with a full description.
+   SmartRecruiters is asked for the title (a big company lists hundreds of jobs there).
+2. The company's careers page, the way you would look by hand (30 Oct, your request): its
+   Careers URL in Target Companies, else the page found before (remembered 60 days), else one
+   AI web search for the company's website and careers page (Config `model.fetch`, else
+   `model.people`; on the PC Gemini on Vertex AI, paid by the Google Cloud credit). The bot
+   opens that page and reads the job board it uses, the job links on it, its own search box
+   (a plain search for the title: never a login or a form that sends data) and up to two job
+   list pages it links to ("Vacancies", "Jobs", ...). A recruitment agency's own page counts:
+   it is where that job is published.
+3. Otherwise one AI web search for the job itself.
+
+Every answer is used only after the bot read the page itself: an employer page (never
+LinkedIn, a job board or an aggregator), on the company's own site or a job system page
+naming the company, whose job title is the row's title, with a full description.
 
 A found job gets that link in URL, and its page body gets "Earlier link (LinkedIn): ..." and
 the description (screening reads it). The dedupe keeps an employer link, so tomorrow's alert
@@ -440,9 +449,11 @@ for the same job never puts the LinkedIn link back. Only the exact title counts.
 no result is tried again after 14 days; a form behind a login or a captcha is still sent by
 you (the autopilot stops there and says so).
 
-- `sweep.job_links.max_rows` (40): rows looked at per sweep; `max_searches` (20): AI web
-  searches per sweep. The 267 rows waiting on 28 Oct are worked through over a few fetches.
-  A company without a job board found by its name is not asked again for 14 days.
+- `sweep.job_links.max_rows` (40): rows looked at per sweep; `max_searches` (40): AI web
+  searches per sweep (a careers page or a job). The rows waiting are worked through over a
+  few fetches. A company without a job board found by its name, or without a careers page
+  found, is not asked again for 14 days.
+- A row with no result waits for /jd; the log says "no direct link for Company, Role".
 - `sweep.job_links.enabled: false` turns it off.
 - The /fetch summary says "Own job link found on the company's site: N of M" and lists them.
 

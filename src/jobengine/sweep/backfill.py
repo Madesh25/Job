@@ -103,7 +103,9 @@ def fill_waiting(
                  len(full.description))
     if today is not None and state is not None:
         if failed:
-            log.info("%d saved jobs still have no description: listed in /jd", len(failed))
+            # Only the pages read in this pass: /screen counts every job waiting for /jd.
+            log.info("%d saved jobs read in this pass still have no description (all jobs "
+                     "waiting: /jd)", len(failed))
             waiting.note(state, failed, today, tried=True)
         waiting.forget(state, (pid for pid in with_body if pid in known))
     return filled

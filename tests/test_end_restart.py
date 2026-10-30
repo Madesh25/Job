@@ -101,3 +101,13 @@ def test_the_webhook_answers_end_before_the_queue():
     assert not tb.end_now(client, S, update(2, "/fetch"))
     other = {"update_id": 3, "message": {"chat": {"id": 5}, "text": "/end"}}
     assert not tb.end_now(client, S, other)
+
+
+def test_start_times_are_india_time():
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    from jobengine.jobctl import home_time
+
+    india = datetime.now(ZoneInfo("Asia/Kolkata")).strftime("%H:%M")
+    assert home_time() in (india, datetime.now(ZoneInfo("Asia/Kolkata")).strftime("%H:%M"))

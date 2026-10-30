@@ -102,8 +102,9 @@ class SweepDeps:
     jooble: Callable[[], SourceResult] = lambda: SourceResult(name="jooble")
     nofluffjobs: Callable[[], SourceResult] = lambda: SourceResult(name="nofluffjobs")
     iamexpat: Callable[[], SourceResult] = lambda: SourceResult(name="iamexpat")
-    # (repo, config, state, today, boards, with_body, progress) -> job_links.Result: the
-    # alert rows' own links on the company's site (28 Oct). None: not looked up.
+    # (repo, config, state, today, boards, with_body, progress, companies) ->
+    # job_links.Result: the alert rows' own links on the company's site (28 Oct). None: not
+    # looked up. `companies`: Target Companies, whose Careers URL is used first (30 Oct).
     links: Callable[..., Any] | None = None
 
 
@@ -156,7 +157,8 @@ def real_deps(s: Settings) -> SweepDeps:
 
 
 def _find_links(s: Settings, repo: JobsRepo, config: ConfigStore, state: Any, today: date,
-                boards: tuple[str, ...], with_body: set[str], progress: Progress) -> Any:
+                boards: tuple[str, ...], with_body: set[str], progress: Progress,
+                companies: list[TargetCompany]) -> Any:
     """The direct job links pass with the real network and AI (sweep/job_links.py)."""
     from jobengine.llm import make_llm
     from jobengine.safety import llm_allowed
@@ -167,7 +169,8 @@ def _find_links(s: Settings, repo: JobsRepo, config: ConfigStore, state: Any, to
             page=lambda url: http.get_page(url, s=s, blocked=fulltext.blocked_hosts(s)),
             get=lambda url, params: http.get_json(url, params=params or None, s=s),
             post=lambda url, body: http.post_json(url, json=body, s=s),
-            llm=make_llm(s, config) if llm_allowed(s) else None, state=state, today=today),
+            llm=make_llm(s, config) if llm_allowed(s) else None, state=state, today=today,
+            careers=job_links.careers_of(companies)),
         boards, with_body, progress)
 
 
@@ -735,7 +738,8 @@ def run_sweep(
             boards = crossmatch.waiting_boards(
                 (s.sweep.get("gmail") or {}).get("sender_boards") or {},
                 fulltext.blocked_hosts(s)) + crossmatch.SNIPPET_BOARDS
-            found = deps.links(repo, config, state, today, boards, with_body, say)
+            found = deps.links(repo, config, state, today, boards, with_body, say,
+                               companies or deps.companies())
             summary.direct_links = found.labels
             summary.direct_links_tried = found.tried
         except Exception:  # never fail a sweep over the link search

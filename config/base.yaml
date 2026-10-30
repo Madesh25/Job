@@ -403,7 +403,8 @@ sweep:
   job_links:
     enabled: true
     max_rows: 40
-    max_searches: 20
+    # AI web searches per sweep: a company's careers page (remembered 60 days) or one job.
+    max_searches: 40
   # Network work done at the same time: the sources, careers pages, job boards and job
   # pages. Notion writes stay at about 3 per second whatever this is.
   workers: 8

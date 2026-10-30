@@ -43,15 +43,19 @@ class Pages:
 
 
 class Search:
-    """Stands in for the AI web search."""
+    """Stands in for the AI web search: the job search answers `url`, the careers page
+    search answers `careers`."""
 
-    def __init__(self, url="", sources=()):
+    def __init__(self, url="", sources=(), careers=""):
         self.answer = {"url": url}
         self.sources = list(sources)
+        self.careers = careers
         self.calls = []
 
     def complete_json_with_search(self, stage, system, user, **kwargs):
         self.calls.append((stage, user))
+        if system == job_links.SITE_SYSTEM:
+            return {"careers": self.careers, "website": ""}, []
         return self.answer, self.sources
 
 
@@ -69,10 +73,11 @@ def board_api(postings):
     return get
 
 
-def deps(rows, pages=None, get=None, llm=None, state=None):
+def deps(rows, pages=None, get=None, llm=None, state=None, careers=None):
     repo = FakeJobsRepo([{"page_id": f"p{i}", **r} for i, r in enumerate(rows)])
     return job_links.Deps(s=load_settings("local", {}), repo=repo, page=Pages(pages or {}),
-                          get=get, llm=llm, state=state or FakeBotState(), today=TODAY)
+                          get=get, llm=llm, state=state or FakeBotState(), today=TODAY,
+                          careers=careers or {})
 
 
 def test_titles_and_places_must_match_exactly():
@@ -108,7 +113,7 @@ def test_web_search_result_is_read_and_checked_before_it_is_used():
     assert body[1].startswith("Description source: company site (direct link for this LinkedIn "
                               "job, found by web search")
     assert "Terraform" in body[2]
-    assert search.calls[0][0] == "fetch" and "Dune Data" in search.calls[0][1]
+    assert search.calls[-1][0] == "fetch" and "Dune Data" in search.calls[-1][1]
     assert d.page.opened == [url]  # indeed is never opened, LinkedIn neither
 
 
@@ -171,8 +176,9 @@ def test_a_fetch_runs_the_link_search_for_the_alert_boards():
     s = settings()
     calls = []
 
-    def links(repo, config, state, today, boards, with_body, progress):
+    def links(repo, config, state, today, boards, with_body, progress, companies):
         calls.append(boards)
+        assert companies  # Target Companies: their Careers URL comes first
         return job_links.Result(labels=["Dune Data, DevOps Engineer (web search)"], tried=2)
 
     summary = run_sweep(s, replace(fake_deps(s), links=links), FAKE_TODAY, state=FakeBotState())
@@ -209,3 +215,121 @@ def test_a_company_without_a_job_board_is_not_asked_again():
     d2 = deps([row(role="Cloud Engineer")], get=get, state=state)
     job_links.run(d2, BOARDS)
     assert len(asked) == first  # remembered: no new job board questions
+
+
+CAREERS = "https://www.dunedata.com/careers"
+JOB = "https://www.dunedata.com/careers/devops-engineer-amsterdam"
+
+
+def careers_page(*links, form=""):
+    items = "".join(f"<li><a href='{href}'><h3>{text}</h3><span>Amsterdam</span></a></li>"
+                    for href, text in links)
+    return (f"<html><head><title>Careers | Dune Data</title></head><body>"
+            f"<nav><a href='/about'>About</a><a href='/vacancies'>All vacancies</a></nav>"
+            f"{form}<ul>{items}</ul></body></html>")
+
+
+def test_the_careers_page_of_target_companies_is_read_first_and_costs_no_search():
+    """30 Oct, your request 2: open the company's careers page and take the job there."""
+    search = Search()
+    page = careers_page(("/careers/senior-devops-engineer", "Senior DevOps Engineer"),
+                        ("/careers/devops-engineer-amsterdam", "DevOps Engineer"))
+    d = deps([row()], pages={CAREERS: page, JOB: job_page("DevOps Engineer")}, llm=search,
+             careers={"dune data": CAREERS})
+    result = job_links.run(d, BOARDS)
+    assert result.labels == ["Dune Data, DevOps Engineer (careers page)"]
+    assert d.repo.rows["p0"]["URL"] == JOB
+    assert search.calls == [] and result.searches == 0
+    assert "https://www.dunedata.com/careers/senior-devops-engineer" not in d.page.opened
+
+
+def test_the_careers_page_is_found_once_by_a_search_and_remembered():
+    state = FakeBotState()
+    search = Search(careers=CAREERS)
+    page = careers_page(("/careers/devops-engineer-amsterdam", "DevOps Engineer"))
+    pages = {CAREERS: page, JOB: job_page("DevOps Engineer")}
+    d = deps([row()], pages=pages, llm=search, state=state)
+    result = job_links.run(d, BOARDS)
+    assert result.labels == ["Dune Data, DevOps Engineer (careers page)"]
+    assert (result.searches, result.sites) == (1, 1)
+    assert search.calls[0][1] == "Company: Dune Data\nCountry: Netherlands"
+    assert state.get(job_links.KEY)["sites"]["dune data"]["url"] == CAREERS
+    # a second job of the same company: no new search for the careers page
+    d2 = deps([row(), row(role="Platform Engineer")], pages=pages, llm=search, state=state)
+    job_links.run(d2, BOARDS)
+    assert len(search.calls) == 2 and search.calls[1][1].startswith("Company: Dune Data\nJob")
+
+
+def test_a_careers_page_answer_of_another_company_is_not_used():
+    other = "https://www.otherco.com/careers"
+    d = deps([row()], pages={other: careers_page()}, llm=Search(careers=other))
+    job_links.run(d, BOARDS)
+    assert d.state.get(job_links.KEY)["sites"]["dune data"]["url"] == ""
+
+
+def test_the_careers_page_search_box_is_used_like_by_hand():
+    form = ("<form action='/careers/search' method='get'><input type='hidden' name='lang' "
+            "value='en'><input type='text' name='q'><button>Search</button></form>")
+    found = careers_page(("/careers/devops-engineer-amsterdam", "DevOps Engineer"))
+    asked = "https://www.dunedata.com/careers/search?lang=en&q=DevOps+Engineer"
+    d = deps([row()], pages={CAREERS: careers_page(form=form), asked: found,
+                             JOB: job_page("DevOps Engineer")}, careers={"dune data": CAREERS})
+    assert job_links.run(d, BOARDS).labels == ["Dune Data, DevOps Engineer (careers page search)"]
+    assert d.page.opened[:2] == [CAREERS, asked]
+
+
+def test_forms_that_send_or_log_in_are_never_used():
+    post = "<form action='/apply' method='post'><input type='text' name='q'></form>"
+    login = ("<form action='/login'><input type='text' name='q'>"
+             "<input type='password' name='p'></form>")
+    for form in (post, login):
+        assert job_links.search_url(CAREERS, careers_page(form=form), "DevOps") is None
+
+
+def test_a_job_list_page_linked_from_the_careers_page_is_read():
+    listing = "https://www.dunedata.com/vacancies"
+    found = careers_page(("/careers/devops-engineer-amsterdam", "DevOps Engineer"))
+    d = deps([row()], pages={CAREERS: careers_page(), listing: found,
+                             JOB: job_page("DevOps Engineer")}, careers={"dune data": CAREERS})
+    assert job_links.run(d, BOARDS).labels == ["Dune Data, DevOps Engineer (careers page)"]
+
+
+def test_a_careers_page_that_uses_a_job_board_is_read_through_it():
+    url = "https://boards.greenhouse.io/dunedata/jobs/7"
+    page = ("<html><body><a href='https://boards.greenhouse.io/dunedata'>Open roles</a>"
+            "<iframe src='https://boards.greenhouse.io/embed/job_board?for=dunedata'>"
+            "</iframe></body></html>")
+    get = board_api([("DevOps Engineer", "Amsterdam", url)])
+    d = deps([row(company="Dune Data BV")], pages={CAREERS: page, url: job_page("DevOps Engineer")},
+             get=get, careers={"dune data": CAREERS})
+    assert job_links.run(d, BOARDS).labels == ["Dune Data BV, DevOps Engineer (company job board)"]
+
+
+def test_smartrecruiters_is_asked_for_the_title():
+    """ALTEN, 30 Oct: a big company's board lists hundreds of jobs; ask for the title."""
+    asked = []
+    url = "https://jobs.smartrecruiters.com/alten/7"
+
+    def get(u, params):
+        asked.append((u, dict(params or {})))
+        if u == "https://api.smartrecruiters.com/v1/companies/alten/postings":
+            return {"totalFound": 1, "content": [{
+                "id": "7", "name": "DevOps Engineer", "releasedDate": "2026-10-27T10:00:00Z",
+                "location": {"city": "Warsaw", "country": "pl"}}]}
+        raise http.HttpError("GET failed: HTTP 404", status=404)
+
+    d = deps([row(company="ALTEN Polska", city="Warsaw", country="Poland")],
+             pages={url: job_page("DevOps Engineer", company="ALTEN")}, get=get)
+    assert job_links.run(d, BOARDS).labels == ["ALTEN Polska, DevOps Engineer (company job board)"]
+    reads = [p for u, p in asked if u.endswith("/alten/postings") and "offset" in p]
+    assert reads and all(p["q"] == "DevOps Engineer" for p in reads)
+
+
+def test_target_companies_give_their_careers_links():
+    from jobengine.sweep.models import TargetCompany
+
+    companies = [TargetCompany("Dune Data (NL)", CAREERS, "Custom", True, "NL"),
+                 TargetCompany("Dune Data (PL)", "https://www.dunedata.pl/kariera", "Custom",
+                               True, "PL"),
+                 TargetCompany("Acme", "", "Unknown", True, None)]
+    assert job_links.careers_of(companies) == {"dune data": CAREERS}

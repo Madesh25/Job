@@ -99,7 +99,8 @@ class GoogleDrive:
         if not s.gmail_sender_token_json:
             raise DriveError(NO_TOKEN)
         from google.oauth2.credentials import Credentials
-        from googleapiclient.discovery import build
+
+        from jobengine.google_api import service as google_service
 
         info = json.loads(s.gmail_sender_token_json)
         scopes = info.get("scopes") or info.get("scope") or []
@@ -108,8 +109,7 @@ class GoogleDrive:
         if DRIVE_FILE_SCOPE not in scopes:
             raise DriveError(NO_SCOPE)
         creds = Credentials.from_authorized_user_info(info, [DRIVE_FILE_SCOPE])
-        service = build("drive", "v3", credentials=creds, cache_discovery=False)
-        return cls(service, folder_name(s, configured_folder))
+        return cls(google_service("drive", "v3", creds), folder_name(s, configured_folder))
 
     def _list(self, query: str) -> list[dict[str, Any]]:
         result = self.service.files().list(

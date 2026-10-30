@@ -51,3 +51,36 @@ def test_budget_is_shared_between_threads():
 
 def test_chunks():
     assert list(chunks([1, 2, 3, 4, 5], 2)) == [[1, 2], [3, 4], [5]]
+
+
+def test_end_stops_a_parallel_run_while_an_item_hangs(monkeypatch):
+    """30 Oct: one source hung after Adzuna page 6 and /end could not stop /fetch."""
+    from jobengine import parallel
+    from jobengine.jobctl import Control, Stopped
+
+    monkeypatch.setattr(parallel, "TICK_SECONDS", 0.02)
+    control = Control()
+    release = threading.Event()
+
+    def work(n):
+        if n == 0:
+            release.wait(5)  # a hanging network call
+        return n
+
+    started = time.monotonic()
+    with control.job("/fetch"):
+        control.request_stop()
+        with pytest.raises(Stopped):
+            run_all(work, range(4), 4, tick=control.check)
+    assert time.monotonic() - started < 1  # not the 5 s of the hanging item
+    release.set()
+
+
+def test_the_default_tick_is_the_end_check():
+    from jobengine.jobctl import CONTROL, Stopped
+
+    with CONTROL.job("/fetch"):
+        CONTROL.request_stop()
+        with pytest.raises(Stopped):
+            run_all(str, [1, 2], 1)
+    assert run_all(str, [1, 2], 2) == ["1", "2"]  # the next run starts clean

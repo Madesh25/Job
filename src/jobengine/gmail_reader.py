@@ -44,7 +44,8 @@ class GmailMessage:
 def build_service(token_json: str) -> Any:
     """Gmail API service from an authorized-user token JSON (GMAIL_ALERTS_TOKEN_JSON)."""
     from google.oauth2.credentials import Credentials
-    from googleapiclient.discovery import build
+
+    from jobengine.google_api import service
 
     info = json.loads(token_json)
     granted = token_scopes(info)
@@ -53,7 +54,7 @@ def build_service(token_json: str) -> Any:
                               + "); make it with gmail.readonly or gmail.modify")
     # No scopes passed: the refresh keeps what the token was granted.
     creds = Credentials.from_authorized_user_info(info)
-    return build("gmail", "v1", credentials=creds, cache_discovery=False, static_discovery=True)
+    return service("gmail", "v1", creds, static_discovery=True)
 
 
 def _header(payload: dict[str, Any], name: str) -> str:
