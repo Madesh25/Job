@@ -587,3 +587,26 @@ def test_an_at_company_ending_does_not_stop_the_match():
     result = job_links.run(d, BOARDS)
     assert result.labels == ["Dune Data, DevOps Engineer (careers page search)"]
     assert asked in d.page.opened  # the search box gets the title without "@ Dune Data"
+
+
+def test_the_log_names_the_closest_titles_seen(caplog):
+    """30 Oct: 14 of 40 careers pages were read without the exact title; the log now says
+    which titles came close, so a missing job and a renamed one can be told apart."""
+    import logging
+
+    page = careers_page(("/careers/1", "Senior DevOps Engineer"),
+                        ("/careers/2", "Junior/Mid DevOps Engineer"),
+                        ("/careers/3", "Office Manager"))
+    d = deps([row()], pages={CAREERS: page}, careers={"dune data": CAREERS})
+    with caplog.at_level(logging.INFO, logger="jobengine.sweep"):
+        job_links.run(d, BOARDS)
+    line = next(r.getMessage() for r in caplog.records if "no direct link" in r.getMessage())
+    assert "closest titles seen: " in line
+    assert "'Senior DevOps Engineer'" in line and "'Junior/Mid DevOps Engineer'" in line
+    assert "Office Manager" not in line
+
+
+def test_seniority_words_and_job_boards_are_not_companies():
+    for name in ("Mid/Senior", "Junior", "SOLID.Jobs", "GamblingCareers.com"):
+        assert not job_links.real_company(name), name
+    assert job_links.real_company("Seniorita Foods")
