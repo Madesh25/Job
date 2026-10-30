@@ -130,8 +130,8 @@ a later step may submit.
 
 Setup on the machine that runs it (once): `pip install -e ".[formbot]"` then
 `python -m playwright install chromium`. In Docker, build with
-`docker build --build-arg FORM_BOT=true -t jobengine .` (about 400 MB more). Without it
-`/dryrun` answers that Playwright is missing. `JOBENGINE_CHROMIUM` may point to a Chromium the
+`docker build -t jobengine .` (the browser adds about 400 MB; since 30 Oct in every build,
+`--build-arg FORM_BOT=false` leaves it out). Without it `/dryrun` answers that Playwright is missing. `JOBENGINE_CHROMIUM` may point to a Chromium the
 machine already has.
 
 ### The queue: laptop first, 3 forms at a time (step 4, `apply/queue.py`)
@@ -146,9 +146,9 @@ machine already has.
   the laptop for 15 minutes; **No**, no answer, or a laptop that has not taken them in 15
   minutes: Cloud Run fills them, also 3 at a time. A job taken by a worker that stopped is
   free again after 20 minutes. Cloud Run: Scheduler job `je-apply-prod` calls
-  `POST /tasks/apply` ([deploy.md](deploy.md)); Cloud Run needs the image built with
-  `FORM_BOT=true` (until then it answers that Playwright is missing and only the laptop
-  fills).
+  `POST /tasks/apply` ([deploy.md](deploy.md)); Cloud Run needs the browser in the image
+  (every build since 30 Oct; built with `FORM_BOT=false` it answers that Playwright is
+  missing and only the laptop fills).
 - Every result is a normal dry run report with Answers OK and Something is wrong.
 - **Auto-submit** (step 5 below) is closed until its gate opens; `/autoapply status` shows
   where it stands. Until then every form is a dry run.

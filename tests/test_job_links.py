@@ -463,3 +463,24 @@ def test_workers_one_keeps_the_old_order():
     job_links.run(d, BOARDS)
     assert [c[1].split("\n")[0] for c in d.llm.calls][::2] == [
         "Company: Co 0", "Company: Co 1", "Company: Co 2"]
+
+
+def test_a_job_system_link_in_target_companies_is_read_as_a_job_board():
+    """HCLTech (30 Oct): its Careers URL is a job feed; it is read as one, not as a page."""
+    url = "https://boards.greenhouse.io/dunedata/jobs/7"
+    get = board_api([("DevOps Engineer", "Amsterdam", url)])
+    # its name is not the board's name, so only the Careers URL leads there
+    d = deps([row(company="DD Group")], pages={url: job_page("DevOps Engineer")}, get=get,
+             careers={job_links.company_key("DD Group"): "https://boards.greenhouse.io/dunedata"})
+    assert job_links.run(d, BOARDS).labels == ["DD Group, DevOps Engineer (company job board)"]
+    assert d.page.opened == [url]  # the job itself, never the board link as a page
+
+
+def test_rows_without_a_real_company_are_not_looked_up():
+    """30 Oct: LinkedIn alert rows with the company "1" and "Hybrid"."""
+    search = Search()
+    d = deps([row(company="1"), row(company="Hybrid"), row(company="Dune Data")], llm=search)
+    assert job_links.run(d, BOARDS).tried == 1
+    assert all("Dune Data" in c[1] for c in search.calls)
+    assert job_links.real_company("ING") and job_links.real_company("3M")
+    assert not job_links.real_company("Remote") and not job_links.real_company("42")

@@ -177,6 +177,8 @@ def _find_links(s: Settings, repo: JobsRepo, config: ConfigStore, state: Any, to
             job_links.Deps(
                 s=s, repo=repo,
                 page=lambda url: http.get_page(url, s=s, blocked=fulltext.blocked_hosts(s)),
+                feed=lambda url: http.get_page(url, s=s, accept_feed=True,
+                                               blocked=fulltext.blocked_hosts(s)),
                 get=lambda url, params: http.get_json(url, params=params or None, s=s),
                 post=lambda url, body: http.post_json(url, json=body, s=s),
                 llm=make_llm(s, config) if llm_allowed(s) else None, state=state, today=today,

@@ -249,7 +249,8 @@ job je-nudge-prod "*/30 22-23,0 * * *" "$PROD_URL" /tasks/nudge
 - [ ] `je-replies-prod`: `*/15 7-23 * * *` in Asia/Kolkata; reads Gmail only and pings new
       replies in Telegram (no Notion write).
 - [ ] `je-apply-prod`: `*/15 7-23 * * *` in Asia/Kolkata; nothing while the queue is empty
-      or the laptop takes it. Filling on Cloud Run needs the image built with `FORM_BOT=true`.
+      or the laptop takes it. Filling on Cloud Run needs the browser in the image (every
+      build since 30 Oct; not with `--build-arg FORM_BOT=false`).
 - [ ] `je-nudge-prod`: `*/30 22-23,0 * * *` in Asia/Kolkata; nothing when no job is ready
       or Config `schedule.nudge` is `false`.
 - [ ] `je-report-prod`: `45 21 * * *` in Asia/Kolkata; the daily report in Telegram and by
