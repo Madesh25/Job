@@ -568,3 +568,22 @@ def test_a_slow_source_is_left_out_and_the_fetch_goes_on(monkeypatch):
     release.set()
     assert "Jooble: too slow this time" in summary.not_checked
     assert summary.sources["gmail"] > 0  # the other source was used
+
+
+def test_an_at_company_ending_does_not_stop_the_match():
+    """30 Oct: Adzuna titles end with the company ("Senior DevOps Consultant @ GFT Poland",
+    69 rows); the company's own page has the title without it."""
+    from jobengine.sweep.crossmatch import plain_title, title_key
+
+    assert title_key("DevOps Engineer @ Scalo") == title_key("DevOps Engineer")
+    assert plain_title("Junior DevOps Engineer @ AVENGA (Agencja Pracy, nr KRAZ: 8448)") == (
+        "Junior DevOps Engineer")
+    form = ("<form action='/careers/search' method='get'><input type='text' name='q'></form>")
+    found = careers_page(("/careers/devops-engineer-amsterdam", "DevOps Engineer"))
+    asked = "https://www.dunedata.com/careers/search?q=DevOps+Engineer"
+    d = deps([row(role="DevOps Engineer @ Dune Data")],
+             pages={CAREERS: careers_page(form=form), asked: found,
+                    JOB: job_page("DevOps Engineer")}, careers={"dune data": CAREERS})
+    result = job_links.run(d, BOARDS)
+    assert result.labels == ["Dune Data, DevOps Engineer (careers page search)"]
+    assert asked in d.page.opened  # the search box gets the title without "@ Dune Data"
