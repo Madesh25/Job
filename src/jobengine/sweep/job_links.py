@@ -33,6 +33,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+import threading
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import date, timedelta
@@ -56,6 +57,7 @@ RETRY_DAYS = 14
 SITE_DAYS = 60  # a careers page found is used this long before it is looked up again
 DEFAULT_MAX_ROWS = 40  # rows looked at in one sweep (sweep.job_links.max_rows)
 DEFAULT_MAX_SEARCHES = 40  # AI web searches in one sweep (sweep.job_links.max_searches)
+DEFAULT_WORKERS = 3  # companies looked up at the same time (sweep.job_links.workers)
 MAX_CANDIDATES = 4  # pages read for one AI answer
 MAX_SITE_PAGES = 10  # pages of one company's site read for one row
 MAX_DEPTH = 2  # clicks from the page found: website -> careers page -> job list
@@ -658,10 +660,17 @@ def blocks(found: Found, board: str, old_url: str | None) -> list[str]:
 
 def run(deps: Deps, boards: tuple[str, ...], with_body: set[str] | None = None,
         progress: Callable[[str], None] | None = None) -> Result:
-    """Give each open alert row of `boards` its own link on the company's site."""
+    """Give each open alert row of `boards` its own link on the company's site.
+
+    Companies are looked up `workers` at a time (30 Oct, your idea: the searches and page
+    reads are mostly waiting). All jobs of one company go to the same worker, one after the
+    other, so its careers page is searched for once; the Notion writes go one at a time."""
+    from jobengine.jobctl import CONTROL
+    from jobengine.parallel import Budget, run_all
+
     cfg = settings(deps.s)
     max_rows = int(cfg.get("max_rows", DEFAULT_MAX_ROWS))
-    searches_left = int(cfg.get("max_searches", DEFAULT_MAX_SEARCHES)) if deps.llm else 0
+    workers = max(1, int(cfg.get("workers", DEFAULT_WORKERS)))
     result = Result()
     if max_rows <= 0 or not boards:
         return result
@@ -674,13 +683,24 @@ def run(deps: Deps, boards: tuple[str, ...], with_body: set[str] | None = None,
     no_board = _remembered(deps.state, deps.today, "no_board")
     sites = _sites(deps.state, deps.today)
     job_boards: dict[str, Any] = {}
-    searches = [searches_left]
+    searches = Budget(int(cfg.get("max_searches", DEFAULT_MAX_SEARCHES)) if deps.llm else 0)
+    lock = threading.Lock()  # counters and Notion writes
+
+    groups: dict[str, list[tuple[str, dict[str, Any]]]] = {}
+    for page_id, values in rows:
+        if result.tried >= max_rows:
+            break
+        if page_id in tried:
+            continue
+        result.tried += 1
+        tried[page_id] = deps.today.isoformat()
+        groups.setdefault(company_key(str(values["Company"])), []).append((page_id, values))
 
     def search() -> bool:
-        if searches[0] <= 0:
+        if not searches.take():
             return False
-        searches[0] -= 1
-        result.searches += 1
+        with lock:
+            result.searches += 1
         return True
 
     def careers_page(company: str, country: str | None, page_id: str) -> str:
@@ -690,44 +710,59 @@ def run(deps: Deps, boards: tuple[str, ...], with_body: set[str] | None = None,
             return url
         url = find_site(deps, company, country, page_id)
         sites[key] = {"url": url, "date": deps.today.isoformat()}
-        result.sites += bool(url)
+        if url:
+            with lock:
+                result.sites += 1
         return url
 
-    for page_id, values in rows:
-        if result.tried >= max_rows:
-            break
-        if page_id in tried:
-            continue
+    def lookup(page_id: str, values: dict[str, Any]) -> str | None:
+        """One job: its link on the company's site, written to Notion. The label or None."""
         company, role = str(values["Company"]), str(values["Role"])
         city, country = values.get("City"), values.get("Country")
-        result.tried += 1
-        tried[page_id] = deps.today.isoformat()
-        if progress is not None:
-            progress(f"Direct job links: looking for {company}, {role}")
         careers = ""
-        try:
-            found = from_board(deps, company, role, city, country, job_boards, no_board)
-            if found is None:
-                careers = careers_page(company, country, page_id)
-                if careers:
-                    found = from_site(deps, careers, company, role, city, country, job_boards)
-            # With a careers page read, a search for the exact job finds no more (30 Oct:
-            # 0 of 20), so the searches go to the next companies instead.
-            if found is None and not careers and search():
-                found = from_search(deps, company, role, city, country, page_id)
-        except Exception:  # one row never stops the others
-            log.exception("direct link for %s not looked up", company)
-            continue
+        found = from_board(deps, company, role, city, country, job_boards, no_board)
+        if found is None:
+            careers = careers_page(company, country, page_id)
+            if careers:
+                found = from_site(deps, careers, company, role, city, country, job_boards)
+        # With a careers page read, a search for the exact job finds no more (30 Oct:
+        # 0 of 20), so the searches go to the next companies instead.
+        if found is None and not careers and search():
+            found = from_search(deps, company, role, city, country, page_id)
         if found is None:
             log.info("no direct link for %s, %s: it waits for /jd", company, role)
-            continue
+            return None
         board = str(values.get("Board") or "alert")
-        deps.repo.update(page_id, {"URL": found.url})
-        deps.repo.append_body(page_id, blocks(found, board, values.get("URL")))
-        if with_body is not None:
-            with_body.add(page_id)
-        result.labels.append(f"{company}, {role} ({found.how})")
+        with lock:
+            deps.repo.update(page_id, {"URL": found.url})
+            deps.repo.append_body(page_id, blocks(found, board, values.get("URL")))
+            if with_body is not None:
+                with_body.add(page_id)
         log.info("%s row %s: direct link %s (%s)", board, page_id, found.url, found.how)
+        return f"{company}, {role} ({found.how})"
+
+    def company_jobs(group: list[tuple[str, dict[str, Any]]]) -> list[str]:
+        labels = []
+        for page_id, values in group:
+            CONTROL.check()  # after /end a worker stops before its next job
+            try:
+                label = lookup(page_id, values)
+            except Exception:  # one job never stops the others
+                log.exception("direct link for %s not looked up", values.get("Company"))
+                continue
+            if label:
+                labels.append(label)
+        return labels
+
+    def done(finished: int, total: int) -> None:
+        if progress is not None:
+            progress(f"Direct job links: {finished} of {total} companies looked up")
+
+    if progress is not None and groups:
+        progress(f"Direct job links: looking up {result.tried} jobs at {len(groups)} "
+                 f"companies, {min(workers, len(groups))} at a time")
+    for labels in run_all(company_jobs, list(groups.values()), workers, done):
+        result.labels.extend(labels)
     if deps.state is not None:
         deps.state.set(KEY, {"tried": tried, "no_board": no_board, "sites": sites})
     return result

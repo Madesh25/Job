@@ -425,3 +425,41 @@ def test_a_workday_link_without_its_server_is_repaired():
     assert result.labels == ["Armacell, Systems Engineer (web search)"]
     searched = [b["searchText"] for u, b in posted if "wd3" in u and b.get("searchText")]
     assert "Systems Engineer" in searched  # the site's own search, for this title
+
+
+def test_companies_are_looked_up_at_the_same_time():
+    """30 Oct, your idea: three companies at once; one company's jobs stay together."""
+    import threading
+    import time
+
+    running, peak, lock = [0], [0], threading.Lock()
+    by_company: dict[str, list[str]] = {}
+
+    class SlowSearch(Search):
+        def complete_json_with_search(self, stage, system, user, **kwargs):
+            company = user.split("\n")[0]
+            with lock:
+                running[0] += 1
+                peak[0] = max(peak[0], running[0])
+                by_company.setdefault(company, []).append(threading.current_thread().name)
+            time.sleep(0.05)
+            with lock:
+                running[0] -= 1
+            return super().complete_json_with_search(stage, system, user, **kwargs)
+
+    rows = [row(company=f"Co {i}", role=role) for i in range(6)
+            for role in ("DevOps Engineer", "Cloud Engineer")]
+    d = deps(rows, llm=SlowSearch())
+    result = job_links.run(d, BOARDS)
+    assert result.tried == 12 and peak[0] == 3
+    # one careers page search per company, never two at once for the same company
+    assert all(len(set(threads)) == 1 for threads in by_company.values())
+    assert sum(1 for c in d.llm.calls if "Job title" not in c[1]) == 6
+
+
+def test_workers_one_keeps_the_old_order():
+    d = deps([row(company=f"Co {i}") for i in range(3)], llm=Search())
+    d.s.sweep["job_links"] = {"workers": 1}
+    job_links.run(d, BOARDS)
+    assert [c[1].split("\n")[0] for c in d.llm.calls][::2] == [
+        "Company: Co 0", "Company: Co 1", "Company: Co 2"]

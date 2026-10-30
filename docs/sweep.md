@@ -461,6 +461,9 @@ you (the autopilot stops there and says so).
   few fetches. A company without a job board found by its name, or without a careers page
   found, is not asked again for 14 days.
 - A row with no result waits for /jd; the log says "no direct link for Company, Role".
+- `sweep.job_links.workers` (3): companies looked up at the same time. All jobs of one
+  company stay on one worker (its careers page is searched for once); Notion writes go one
+  at a time; the browser opens one page at a time on its own thread.
 - `sweep.job_links.enabled: false` turns it off.
 - The /fetch summary says "Own job link found on the company's site: N of M" and lists them.
 

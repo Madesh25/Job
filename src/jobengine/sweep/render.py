@@ -14,6 +14,8 @@ from __future__ import annotations
 
 import importlib.util
 import logging
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 from jobengine import http, safety
@@ -32,24 +34,34 @@ def available() -> bool:
 
 class Renderer:
     """url -> (final url, html after JavaScript ran). Opens one browser for the whole sweep,
-    on first use; close() ends it."""
+    on first use; close() ends it. The browser lives on its own thread: Playwright works
+    only on the thread that started it, and the link search runs on several (one page
+    at a time is opened, the other workers go on reading plain pages meanwhile)."""
 
     def __init__(self, s: Settings, left: int = DEFAULT_MAX_PAGES):
         self.s = s
         self.left = left
         self._playwright: Any = None
         self._browser: Any = None
+        self._thread = ThreadPoolExecutor(max_workers=1, thread_name_prefix="browser")
+        self._lock = threading.Lock()
 
     def __call__(self, url: str) -> tuple[str, str]:
-        from jobengine.apply import form_bot
-
-        if self.left <= 0:
-            raise http.HttpError("page not rendered: the browser budget of this sweep is used")
+        with self._lock:
+            if self.left <= 0:
+                raise http.HttpError("page not rendered: the browser budget of this sweep is "
+                                     "used")
+            self.left -= 1
         try:
             safety.assert_page_fetch_allowed(url, self.s)
         except safety.SafetyError as exc:
             raise http.HttpError(f"page not rendered: {exc}") from None
-        self.left -= 1
+        return self._thread.submit(self._open, url).result()
+
+    def _open(self, url: str) -> tuple[str, str]:
+        """On the browser thread."""
+        from jobengine.apply import form_bot
+
         if self._browser is None:
             from playwright.sync_api import sync_playwright
 
@@ -75,6 +87,13 @@ class Renderer:
             page.close()
 
     def close(self) -> None:
+        try:
+            self._thread.submit(self._close).result()
+        finally:
+            self._thread.shutdown(wait=False)
+
+    def _close(self) -> None:
+        """On the browser thread."""
         try:
             if self._browser is not None:
                 self._browser.close()

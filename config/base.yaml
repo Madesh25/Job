@@ -409,6 +409,9 @@ sweep:
     # sweep, when Playwright is installed (docker build --build-arg FORM_BOT=true).
     browser: true
     max_rendered: 15
+    # Companies looked up at the same time (your idea of 30 Oct): searches and page reads
+    # are mostly waiting. All jobs of one company stay on one worker.
+    workers: 3
   # Network work done at the same time: the sources, careers pages, job boards and job
   # pages. Notion writes stay at about 3 per second whatever this is.
   workers: 8

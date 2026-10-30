@@ -355,7 +355,8 @@ def test_only_the_form_bot_drives_a_browser():
 
 
 def test_the_page_reader_only_reads():
-    text = (ROOT / PAGE_READER).read_text(encoding="utf-8")
+    # self._thread.submit( hands a page to the browser thread; it is not a form submit.
+    text = (ROOT / PAGE_READER).read_text(encoding="utf-8").replace("self._thread.submit(", "")
     assert FORM_BOT_FORBIDDEN.findall(text) == []
     assert re.findall(r"\.(?:fill|check|select_option|set_input_files)\(", text) == []
     assert 'page.route("**/*", form_bot._guard(self.s, refused))' in text  # no Sending
