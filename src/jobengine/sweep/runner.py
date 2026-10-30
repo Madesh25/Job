@@ -757,6 +757,7 @@ def run_sweep(
                                companies or deps.companies())
             summary.direct_links = found.labels
             summary.direct_links_tried = found.tried
+            summary.direct_links_again = getattr(found, "again", 0)
         except Exception:  # never fail a sweep over the link search
             log.exception("direct job links failed")
 

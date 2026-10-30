@@ -137,7 +137,7 @@ def test_the_company_job_board_comes_first_and_costs_no_search():
     assert search.calls == [] and result.searches == 0
 
 
-def test_rows_are_not_tried_again_for_two_weeks_and_closed_rows_never():
+def test_rows_are_tried_again_after_three_days_and_closed_rows_never():
     state = FakeBotState()
     search = Search()
     rows = [row(), row(company="Old Co", Status="Applied"), row(company="Skip Co",
@@ -145,7 +145,9 @@ def test_rows_are_not_tried_again_for_two_weeks_and_closed_rows_never():
     d = deps(rows, llm=search, state=state)
     assert job_links.run(d, BOARDS).tried == 1
     assert job_links.run(d, BOARDS).tried == 0  # remembered
-    later = job_links.Deps(**{**vars(d), "today": date(2026, 11, 12)})
+    next_day = job_links.Deps(**{**vars(d), "today": date(2026, 10, 29)})
+    assert job_links.run(next_day, BOARDS).tried == 0
+    later = job_links.Deps(**{**vars(d), "today": date(2026, 10, 31)})
     assert job_links.run(later, BOARDS).tried == 1
 
 
@@ -484,3 +486,58 @@ def test_rows_without_a_real_company_are_not_looked_up():
     assert all("Dune Data" in c[1] for c in search.calls)
     assert job_links.real_company("ING") and job_links.real_company("3M")
     assert not job_links.real_company("Remote") and not job_links.real_company("42")
+
+
+def long_page(*links):
+    """A long careers page full of text and links (CGI's werken-bij pages, 30 Oct)."""
+    nav = "".join(f"<a href='/info/{i}'>Info {i}</a>" for i in range(40))
+    return (f"<html><body><nav>{nav}</nav><p>{TEXT * 3}</p>"
+            f"{careers_page(*links)}</body></html>")
+
+
+def test_a_long_page_is_not_opened_in_the_browser():
+    """30 Oct: CGI's long pages used 5 of the 15 browser pages and found nothing."""
+    d = deps([row()], pages={CAREERS: long_page()}, careers={"dune data": CAREERS})
+    browser = Pages({})
+    d.render = browser
+    job_links.run(d, BOARDS)
+    assert browser.opened == []
+
+
+def test_one_job_opens_at_most_two_pages_in_the_browser():
+    shell = "<html><body><div id='app'></div><a href='/careers/list'>Jobs</a></body></html>"
+    listing = "https://www.dunedata.com/careers/list"
+    d = deps([row()], pages={CAREERS: shell, listing: shell}, careers={"dune data": CAREERS})
+    browser = Pages({CAREERS: shell, listing: shell})
+    browser.left = 40
+    d.render = browser
+    job_links.run(d, BOARDS)
+    assert len(browser.opened) == 2
+
+
+def test_a_job_cut_short_by_the_budget_is_looked_up_next_sweep():
+    """30 Oct: the browser pages ran out at 10:52; Sii, ANWB, Randstad and others then
+    waited 14 days although they were never really looked up."""
+    shell = "<html><body><div id='app'>Loading...</div></body></html>"
+    state = FakeBotState()
+    d = deps([row()], pages={CAREERS: shell}, careers={"dune data": CAREERS}, state=state)
+    browser = Pages({})
+    browser.left = 0  # this /fetch's browser pages are used up
+    d.render = browser
+    result = job_links.run(d, BOARDS)
+    assert result.again == 1 and "p0" not in state.get(job_links.KEY)["tried"]
+    # the same when the searches ran out: one search for two companies, so the first
+    # misses its job search and the second its careers page search
+    d2 = deps([row(company="Other Co"), row(company="Third Co")], llm=Search(),
+              state=FakeBotState())
+    d2.s.sweep["job_links"] = {"max_searches": 1, "workers": 1}
+    result = job_links.run(d2, BOARDS)
+    assert result.again == 2 and result.tried == 2 and result.searches == 1
+    # without the AI nothing "runs out": the jobs are remembered as usual
+    d3 = deps([row(company="Other Co")], llm=None, state=FakeBotState())
+    assert job_links.run(d3, BOARDS).again == 0
+
+
+def test_the_summary_says_how_many_wait_for_the_next_fetch():
+    summary = SweepSummary(direct_links=[], direct_links_tried=40, direct_links_again=12)
+    assert "12 not finished" in summary.friendly_text()

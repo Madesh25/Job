@@ -23,7 +23,7 @@ from jobengine.settings import Settings
 
 log = logging.getLogger("jobengine.sweep")
 
-DEFAULT_MAX_PAGES = 15  # pages opened in the browser per sweep (sweep.job_links.max_rendered)
+DEFAULT_MAX_PAGES = 40  # pages opened in the browser per sweep (sweep.job_links.max_rendered)
 LOAD_MS = 20_000
 SETTLE_MS = 8_000  # time for the jobs list to appear after the page loaded
 
