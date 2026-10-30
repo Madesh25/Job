@@ -60,6 +60,7 @@ NO_BOARD_DAYS = 14  # a company without a job board or careers page is asked aga
 MAX_RENDERS_PER_JOB = 2  # browser pages for one job: one site never uses the whole budget
 THIN_PAGE_CHARS = 3000  # a page with less text than this may fill itself with JavaScript
 THIN_PAGE_LINKS = 30
+MAX_LINE = 160  # longer link texts are whole cards or menus, not titles
 SITE_DAYS = 60  # a careers page found is used this long before it is looked up again
 DEFAULT_MAX_ROWS = 40  # rows looked at in one sweep (sweep.job_links.max_rows)
 DEFAULT_MAX_SEARCHES = 40  # AI web searches in one sweep (sweep.job_links.max_searches)
@@ -300,6 +301,8 @@ def _pick(deps: Deps, postings: list[Any], role: str, city: str | None,
     """The posting with the row's title in the row's place, with its full description."""
     full_min = _full_min(deps)
     for p in postings:
+        if p.title:
+            _note(p.title, role, city, country, p.location_text or "")
         if not p.url or not same_title(p.title, role, city, country):
             continue
         if not in_place(p.location_text, city, country):
@@ -356,7 +359,12 @@ def _page_text(deps: Deps, url: str) -> str | None:
 # Words an alert card shows where the company should be (30 Oct: rows with the company "1"
 # and "Hybrid" from LinkedIn alerts). Such a row is not looked up: there is no company.
 NOT_COMPANIES = {"hybrid", "remote", "on site", "onsite", "full time", "part time",
-                 "unknown", "confidential", "company", "employer"}
+                 "unknown", "confidential", "company", "employer",
+                 # a seniority word where the company should be (30 Oct: "Mid/Senior")
+                 "junior", "mid", "regular", "medior", "senior", "mid senior", "junior mid",
+                 "lead", "principal",
+                 # job boards, not employers: the real company is not named
+                 "solid jobs", "gamblingcareers com"}
 
 
 def real_company(company: str) -> bool:
@@ -371,6 +379,34 @@ _SHORT = threading.local()
 
 def _short() -> None:
     _SHORT.hit = True
+
+
+# The job titles a worker saw for its current job that come close to the row's title, for
+# the log ("closest titles seen"): shows whether a job was missing or named a little
+# differently (30 Oct: 14 of 40 careers pages read without the exact title).
+_SEEN = threading.local()
+NEAR = 0.4  # share of title words in common to count as close
+MAX_NEAR = 3
+
+
+def _note(seen: str, role: str, city: str | None, country: str | None,
+          where: str = "") -> None:
+    want = set(title_key(role, city, country).split())
+    got = set(title_key(seen, city, country).split())
+    if not want or not got or len(seen) > MAX_LINE:
+        return
+    score = len(want & got) / len(want | got)
+    if score >= NEAR:
+        near = getattr(_SEEN, "titles", None)
+        if near is not None:
+            label = f"{seen.strip()}{f' ({where})' if where else ''}"
+            near[label] = max(score, near.get(label, 0.0))
+
+
+def closest() -> str:
+    near = getattr(_SEEN, "titles", None) or {}
+    best = sorted(near, key=lambda k: -near[k])[:MAX_NEAR]
+    return "; ".join(f"'{t}'" for t in best) if best else "none"
 
 
 def thin_page(html: str) -> bool:
@@ -424,6 +460,10 @@ def title_links(base: str, html: str, role: str, city: str | None,
                  str(a.get("aria-label") or "")]
         texts += [h.get_text(" ", strip=True)
                   for h in a.find_all(["h1", "h2", "h3", "h4", "h5", "strong", "span"])]
+        heading = a.find(["h1", "h2", "h3", "h4", "h5"])
+        shown = heading.get_text(" ", strip=True) if heading is not None else texts[0]
+        if shown:
+            _note(TITLE_SPLIT.split(shown)[0], role, city, country)
         if any(same_title(TITLE_SPLIT.split(x)[0], role, city, country)
                or same_title(x, role, city, country) for x in texts if x):
             url = urljoin(base, str(a["href"]).strip()).split("#")[0]
@@ -796,7 +836,8 @@ def run(deps: Deps, boards: tuple[str, ...], with_body: set[str] | None = None,
             found = from_search(deps, company, role, city, country, page_id)
         if found is None:
             again = " (looked up again next /fetch)" if getattr(_SHORT, "hit", False) else ""
-            log.info("no direct link for %s, %s: it waits for /jd%s", company, role, again)
+            log.info("no direct link for %s, %s: it waits for /jd%s; closest titles seen: %s",
+                     company, role, again, closest())
             return None
         board = str(values.get("Board") or "alert")
         with lock:
@@ -812,6 +853,7 @@ def run(deps: Deps, boards: tuple[str, ...], with_body: set[str] | None = None,
         for page_id, values in group:
             CONTROL.check()  # after /end a worker stops before its next job
             _SHORT.hit = False
+            _SEEN.titles = {}
             try:
                 label = lookup(page_id, values)
             except Exception:  # one job never stops the others
