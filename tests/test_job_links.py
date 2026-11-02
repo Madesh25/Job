@@ -2,7 +2,7 @@
 the company's site, from the company's job board or one AI web search, never from LinkedIn. Only
 the exact title on an employer page with a full description counts."""
 
-from datetime import date
+from datetime import date, timedelta
 
 from jobengine import http
 from jobengine.bot_state import FakeBotState
@@ -256,11 +256,12 @@ def test_the_careers_page_is_found_once_by_a_search_and_remembered():
     assert (result.searches, result.sites) == (1, 1)
     assert search.calls[0][1] == "Company: Dune Data\nCountry: Netherlands"
     assert state.get(job_links.KEY)["sites"]["dune data"]["url"] == CAREERS
-    # a second job of the same company: no new search for the careers page, and with the
-    # careers page read no search for the exact job either (30 Oct: it found 0 of 20)
+    # a second job of the same company: no new search for the careers page; the job is not
+    # on it, so one search for the job itself (2 Nov: a copy on another job site counts)
     d2 = deps([row(), row(role="Platform Engineer")], pages=pages, llm=search, state=state)
     result = job_links.run(d2, BOARDS)
-    assert len(search.calls) == 1 and result.searches == 0
+    assert [c[1].split("\n")[1] for c in search.calls[1:]] == ["Job title: Platform Engineer"]
+    assert result.searches == 1
 
 
 def test_a_careers_page_answer_of_another_company_is_not_used():
@@ -610,3 +611,63 @@ def test_seniority_words_and_job_boards_are_not_companies():
     for name in ("Mid/Senior", "Junior", "SOLID.Jobs", "GamblingCareers.com"):
         assert not job_links.real_company(name), name
     assert job_links.real_company("Seniorita Foods")
+
+
+COPY = "https://www.ziprecruiter.ie/jobs/584018144-devops-engineer-at-dune-data"
+
+
+def copy_page(title="DevOps Engineer at Dune Data B.V.", text=TEXT):
+    return (f"<html><head><title>{title} | ZipRecruiter</title></head><body><h1>{title}</h1>"
+            f"<p>Dune Data B.V. - Amsterdam</p><div class='description'><p>{text}</p></div>"
+            "</body></html>")
+
+
+def test_a_job_not_on_the_company_site_gets_its_description_from_another_job_site():
+    """2 Nov: agency jobs and reposts are on public job sites, not on an employer site."""
+    state = FakeBotState()
+    search = Search(url="", sources=[COPY, "https://www.linkedin.com/jobs/view/1"])
+    d = deps([row(company="Dune Data B.V.")], pages={COPY: copy_page()}, llm=search,
+             state=state)
+    result = job_links.run(d, BOARDS)
+    assert result.labels == []
+    assert result.copies == ["Dune Data B.V., DevOps Engineer (www.ziprecruiter.ie)"]
+    page = d.repo.rows["p0"]
+    assert page["URL"] == LINKEDIN  # the link stays: not the employer's form
+    assert page["body"][0].startswith("Description source: www.ziprecruiter.ie (the same "
+                                      "LinkedIn job on another job site")
+    assert TEXT[:40] in page["body"][1]
+    assert "https://www.linkedin.com/jobs/view/1" not in d.page.opened
+    # done: not looked up again at the next /fetch, even after RETRY_DAYS
+    later = deps([row(company="Dune Data B.V.")], pages={COPY: copy_page()}, llm=search,
+                 state=state)
+    later.today = TODAY + timedelta(days=10)
+    later.repo = d.repo
+    assert job_links.run(later, BOARDS).tried == 0
+
+
+def test_a_copy_must_be_the_same_job_at_the_same_company():
+    other_title = deps([row()], pages={COPY: copy_page("Senior DevOps Engineer at Dune Data")},
+                       llm=Search(sources=[COPY]))
+    other_company = deps([row()], pages={COPY: copy_page("DevOps Engineer at Acme").replace(
+        "Dune Data B.V.", "Acme")}, llm=Search(sources=[COPY]))
+    short = deps([row()], pages={COPY: copy_page(text="Short.")}, llm=Search(sources=[COPY]))
+    for d in (other_title, other_company, short):
+        result = job_links.run(d, BOARDS)
+        assert result.copies == [] and "body" not in d.repo.rows["p0"]
+
+
+def test_a_row_with_a_full_description_gets_no_second_one():
+    filled = ["Description source: nofluffjobs (same job)", TEXT]
+    d = deps([row(body=filled)], pages={COPY: copy_page()}, llm=Search(sources=[COPY]))
+    result = job_links.run(d, BOARDS)
+    assert result.copies == [] and d.repo.rows["p0"]["body"] == filled
+    assert "p0" in d.state.get(job_links.KEY)["described"]
+
+
+def test_the_summary_lists_descriptions_from_other_job_sites():
+    text = SweepSummary(direct_links_tried=80,
+                        described_elsewhere=["Medtronic, Cloud Engineer (www.ziprecruiter.ie)"]
+                        ).friendly_text()
+    assert ("Description read from the same job on another job site (not on the company's "
+            "site; the link stays): 1") in text
+    assert "- Medtronic, Cloud Engineer (www.ziprecruiter.ie)" in text

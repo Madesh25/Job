@@ -243,6 +243,7 @@ class SweepSummary:
     direct_links: list[str] = field(default_factory=list)  # sweep/job_links.py
     direct_links_tried: int = 0
     direct_links_again: int = 0  # searches or browser pages ran out: next sweep
+    described_elsewhere: list[str] = field(default_factory=list)  # a copy on another site
     tidied: tuple[int, int, int] | None = None  # old descriptions: checked, rewritten, left
     backfilled: list[str] = field(default_factory=list)  # sweep/backfill.py
     alert_emails: int | None = None  # email alerts read (None: the source did not run)
@@ -335,6 +336,11 @@ class SweepSummary:
             if self.direct_links_again:
                 lines.append(f"- {self.direct_links_again} not finished (this /fetch's searches "
                              "or browser pages were used up): looked up again next /fetch")
+        if self.described_elsewhere:
+            lines.append(f"\U0001F4C4 Description read from the same job on another job site "
+                         f"(not on the company's site; the link stays): "
+                         f"{len(self.described_elsewhere)}")
+            lines.extend(f"- {job}" for job in self.described_elsewhere[:10])
         if self.tidied is not None:
             checked, rewritten, left = self.tidied
             line = (f"\U0001F9F9 Old descriptions tidied (DEV): {checked} pages checked, "
