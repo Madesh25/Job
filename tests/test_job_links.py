@@ -868,3 +868,24 @@ def test_a_guessed_board_whose_jobs_have_no_place_is_no_check():
 
     result = job_links.run(deps([row()], get=get), BOARDS)
     assert (result.unchecked, result.not_yet) == (1, 0)
+
+
+def test_a_row_without_a_company_is_noted_once_and_skipped():
+    """2 Nov: the same 7 rows ("Hybrid", "1", "Mid/Senior", "(unknown)") came back in every
+    /fetch log: their company's site can never be checked."""
+    state = FakeBotState()
+    screened = row(company="(unknown)", **{"Screen verdict": "Needs review",
+                                           "Status": "Screened"})
+    d = deps([row(company="Hybrid"), screened], state=state)
+    result = job_links.run(d, BOARDS)
+    assert result.no_company == ["DevOps Engineer ('Hybrid')", "DevOps Engineer ('(unknown)')"]
+    assert result.tried == 0
+    hybrid, unknown = d.repo.rows["p0"], d.repo.rows["p1"]
+    assert hybrid["Screen verdict"] == "Skip" and "showed 'Hybrid'" in hybrid["body"][-1]
+    assert unknown["Screen verdict"] == "Needs review" and len(unknown["body"]) == 1
+    again = deps([row(company="Hybrid"), screened], state=state)
+    again.repo = d.repo
+    assert job_links.run(again, BOARDS).no_company == []  # noted once
+    assert len(unknown["body"]) == 1
+    text = SweepSummary(direct_links_tried=1, no_company=result.no_company).friendly_text()
+    assert "Alert jobs without a company name (noted on each page" in text

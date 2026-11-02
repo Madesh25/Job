@@ -244,6 +244,7 @@ class SweepSummary:
     direct_links_tried: int = 0
     direct_links_again: int = 0  # searches or browser pages ran out: next sweep
     ghost_jobs: list[str] = field(default_factory=list)  # not on the company's site: skipped
+    no_company: list[str] = field(default_factory=list)  # the alert showed no company
     not_on_site_yet: int = 0  # not on the company's site at the first check
     site_unchecked: int = 0  # the company's site could not be checked
     tidied: tuple[int, int, int] | None = None  # old descriptions: checked, rewritten, left
@@ -344,6 +345,10 @@ class SweepSummary:
             if self.site_unchecked:
                 lines.append(f"- {self.site_unchecked} whose company site could not be checked "
                              "(no careers page found, or no answer): they wait for /jd")
+        if self.no_company:
+            lines.append(f"\u2753 Alert jobs without a company name (noted on each page; the "
+                         f"Unscreened ones skipped): {len(self.no_company)}")
+            lines.extend(f"- {job}" for job in self.no_company[:10])
         if self.ghost_jobs:
             lines.append(f"\U0001F47B Not on the company's own site at two checks, skipped as "
                          f"likely ghost jobs (noted on each page): {len(self.ghost_jobs)}")
