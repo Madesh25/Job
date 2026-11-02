@@ -786,3 +786,72 @@ def test_a_board_guessed_by_name_without_jobs_in_the_country_is_no_check():
 
     result = job_links.run(deps([row()], get=get), BOARDS)
     assert (result.unchecked, result.not_yet) == (1, 0)
+
+
+def list_page(*titles):
+    """A careers page that lists jobs (links with job titles)."""
+    return careers_page(*[(f"/careers/{i}", t) for i, t in enumerate(titles)])
+
+
+def test_a_homepage_or_a_missing_careers_page_is_no_job_list():
+    """2 Nov: Grape Up's homepage and Natek's 404 careers pages counted as a job list."""
+    home = "<html><body><a href='/about'>About us</a><a href='/blog'>Blog</a></body></html>"
+    d = deps([row()], pages={CAREERS: home}, careers={"dune data": CAREERS})
+    result = job_links.run(d, BOARDS)
+    assert (result.unchecked, result.not_yet) == (1, 0)
+    lists = deps([row()], pages={CAREERS: list_page("Data Engineer", "QA Engineer",
+                                                     "Product Manager")},
+                 careers={"dune data": CAREERS})
+    result = job_links.run(lists, BOARDS)
+    assert (result.unchecked, result.not_yet) == (0, 1)
+    assert job_links.job_list_page(list_page("Data Engineer", "QA Engineer", "Analyst"))
+    assert not job_links.job_list_page(home)
+
+
+def test_a_job_on_the_list_whose_page_cannot_be_read_is_never_a_ghost():
+    """2 Nov: Technopride lists "Microsoft Azure Cloud Engineer", but its job page needs the
+    browser, and the browser pages had run out."""
+    page = list_page("DevOps Engineer", "Data Engineer", "QA Engineer")
+    d = deps([row()], pages={CAREERS: page}, careers={"dune data": CAREERS})
+    result = job_links.run(d, BOARDS)
+    assert (result.unchecked, result.not_yet, result.ghosts) == (1, 0, [])
+    assert "the job is on its job list, but its page could not be read" in (
+        d.repo.rows["p0"]["body"][-1])
+
+
+def test_a_job_page_built_by_javascript_is_opened_in_the_browser():
+    job_url = "https://www.dunedata.com/careers/0"
+    empty = "<html><head><title>DevOps Engineer | Dune Data</title></head><body></body></html>"
+    page = list_page("DevOps Engineer", "Data Engineer", "QA Engineer")
+    d = deps([row()], pages={CAREERS: page, job_url: empty}, careers={"dune data": CAREERS})
+
+    class Browser:
+        left = 5
+
+        def __call__(self, url):
+            self.left -= 1
+            return url, job_page("DevOps Engineer")
+
+    d.render = Browser()
+    result = job_links.run(d, BOARDS)
+    assert result.labels == ["Dune Data, DevOps Engineer (careers page)"]
+
+
+def test_a_city_name_or_a_job_number_on_the_title_is_not_part_of_it():
+    """2 Nov: Netcompany "Junior Cloud DevOps Engineer (Azure) (f/m) Warsaw" for a row in
+    Warszawa; AgileEngine's alert title "GCP Cloud Engineer ID89421"."""
+    assert job_links.same_title("Junior Cloud DevOps Engineer (Azure) (f/m) Warsaw",
+                                "Junior Cloud DevOps Engineer (Azure)", "Warszawa", "Poland")
+    assert job_links.same_title("GCP Cloud Engineer", "GCP Cloud Engineer ID89421", None,
+                                "Poland")
+    assert not job_links.same_title("Junior Cloud DevOps Engineer (Azure) Athens",
+                                    "Junior Cloud DevOps Engineer (Azure)", "Warszawa", "Poland")
+
+
+def test_the_checks_of_the_first_run_are_not_counted():
+    """The 2 Nov run counted homepages as job lists: its misses are dropped."""
+    state = FakeBotState()
+    state.set(job_links.KEY, {"misses": {"p0": ["2026-10-27"]}})
+    d = deps([row()], get=board_get(["Data Engineer"]), state=state)
+    result = job_links.run(d, BOARDS)
+    assert result.ghosts == [] and result.not_yet == 1
