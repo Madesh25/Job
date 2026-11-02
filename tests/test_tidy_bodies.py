@@ -71,3 +71,19 @@ def test_the_summary_says_how_far_it_is():
     assert ("Old descriptions tidied (DEV): 60 pages checked, 41 rewritten, 520 still to check"
             in text)
     assert "all old pages done" in SweepSummary(tidied=(12, 3, 0)).friendly_text()
+
+
+def test_pages_checked_by_the_older_tidy_are_checked_again():
+    """Version 2 (2 Nov) mends sentences cut over many lines, also on checked pages."""
+    cut = ["Description source: ats",
+           "At Accenture\n, we're seeking\nDevOps\nEngineers\nwho bring.\nI\nmplement CI.\nH\n"
+           "ands-on work."]
+    repo = FakeJobsRepo([{"page_id": "p-1", "Swept date": "2026-10-08", "body": cut}])
+    state = FakeBotState()
+    state.set(tidy_bodies.KEY, {"checked": ["p1"]})  # checked by version 1
+    result = tidy_bodies.run(S, repo, state)
+    assert (result.checked, result.rewritten) == (1, 1)
+    assert repo.rows["p-1"]["body"][1] == (
+        "At Accenture, we're seeking DevOps Engineers who bring.\nImplement CI.\nHands-on work.")
+    assert state.get(tidy_bodies.KEY) == {"version": tidy_bodies.VERSION, "checked": ["p1"]}
+    assert tidy_bodies.run(S, repo, state).checked == 0

@@ -32,7 +32,7 @@ from urllib.parse import urlsplit
 
 from bs4 import BeautifulSoup, Tag
 
-from jobengine import http
+from jobengine import http, textblocks
 from jobengine.parallel import run_all
 from jobengine.settings import Settings
 from jobengine.sweep.models import Job
@@ -133,7 +133,7 @@ def _clean(text: str) -> str:
 
 
 def _html_text(value: str) -> str:
-    return _clean(BeautifulSoup(value, "html.parser").get_text("\n"))
+    return _clean(textblocks.text_of(value))
 
 
 def _walk(node: Any) -> Iterator[dict[str, Any]]:
@@ -259,9 +259,9 @@ def _visible_around(page: str, intro: str) -> str | None:
     for tag in soup.find_all(DROP_TAGS):
         tag.decompose()
     start = _flat(intro)[:INTRO_CHARS]
-    texts = [_clean(tag.get_text("\n")) for tag in _blocks(soup)]
+    texts = [_clean(textblocks.text_of(tag)) for tag in _blocks(soup)]
     if soup.body is not None:
-        texts.append(_clean(soup.body.get_text("\n")))
+        texts.append(_clean(textblocks.text_of(soup.body)))
     found = [t for t in texts if len(t) >= 2 * len(intro) and start in _flat(t)]
     return min(found, key=len) if found else None
 
@@ -279,10 +279,10 @@ def extract(page: str) -> str | None:
         return data_text
     for tag in soup.find_all(DROP_TAGS):
         tag.decompose()
-    best = max((_clean(tag.get_text("\n")) for tag in _blocks(soup)), key=len, default="")
+    best = max((_clean(textblocks.text_of(tag)) for tag in _blocks(soup)), key=len, default="")
     if len(best) >= MIN_BLOCK:
         return best
-    whole = _clean(soup.body.get_text("\n")) if soup.body is not None else ""
+    whole = _clean(textblocks.text_of(soup.body)) if soup.body is not None else ""
     if len(whole) >= MIN_PAGE:
         return whole
     return text or None

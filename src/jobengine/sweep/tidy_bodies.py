@@ -6,6 +6,8 @@ first, and rewrites each description that tidy() would write differently, in the
 place on the page: the new text right after its "Description source:" line, then the old
 blocks removed. Screening notes, links and the other lines stay as they are. A page is
 checked once (Bot State `sweep.tidy_bodies`), so the pass ends when all old pages are done.
+A better tidy() (VERSION) checks every page again: version 2 mends sentences cut over
+many lines (Accenture, 2 Nov).
 It runs only with `sweep.tidy_bodies.enabled` (local and dev): at go-live every page is
 written tidy from the start, so prod never needs it.
 """
@@ -24,7 +26,8 @@ from jobengine.sweep.dedupe import DESCRIPTION_BLOCK_CHARS, DESCRIPTION_MAX_BLOC
 
 log = logging.getLogger("jobengine.sweep")
 
-KEY = "sweep.tidy_bodies"  # bot_state: {"checked": [page ids without dashes]}
+KEY = "sweep.tidy_bodies"  # bot_state: {"version": n, "checked": [page ids without dashes]}
+VERSION = 2  # pages checked by an older tidy() are checked again
 DEFAULT_MAX_PAGES = 60
 PROGRESS_EVERY = 20  # a progress line every this many pages
 # Lines that end a description: the next section of the page.
@@ -97,7 +100,8 @@ def run(s: Any, repo: JobsRepo, state: Any,
     result = Result()
     max_pages = int(settings(s).get("max_pages", DEFAULT_MAX_PAGES))
     saved = (state.get(KEY) if state is not None else None) or {}
-    checked = set(saved.get("checked") or [])
+    same = saved.get("version", 1) == VERSION
+    checked = set(saved.get("checked") or []) if same else set()
     rows = repo.query_rows(None)
     rows.sort(key=lambda r: str(r[1].get("Swept date") or ""), reverse=True)
     todo = [pid for pid, _ in rows if _short(pid) not in checked]
@@ -115,7 +119,7 @@ def run(s: Any, repo: JobsRepo, state: Any,
         result.checked += 1
     result.left = len(todo) - result.checked
     if state is not None:
-        state.set(KEY, {"checked": sorted(checked)})
+        state.set(KEY, {"version": VERSION, "checked": sorted(checked)})
     log.info("old descriptions: %d pages checked, %d rewritten, %d still to check",
              result.checked, result.rewritten, result.left)
     return result
