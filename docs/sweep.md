@@ -502,6 +502,10 @@ you (the autopilot stops there and says so).
   the one in Careers URL (2 Nov, fresh /fetch: Capgemini's board showed Milan, Singapore and
   Atlanta for a Dutch job). A job whose description from the company's job board is on the
   page already (the cross-match read it) gets only its link, not the same text again.
+- Never a ghost job by mistake (2 Nov, second clean /fetch): a company whose job board
+  missed jobs (the summary's "Jobs another source found that the company's own job board did
+  not list", kept 14 days) and a job list that needs the browser when no browser page is
+  left are no check. Such a job is "could not be checked", with the reason on its page.
 - The summary says how many jobs were not on the job list yet, how many sites could not be
   checked, and lists the jobs skipped as likely ghost jobs.
 - A row whose alert showed no company ("Hybrid", "1", "Mid/Senior", a job site's name,

@@ -917,3 +917,34 @@ def test_a_row_without_a_company_is_noted_once_and_skipped():
     assert len(unknown["body"]) == 1
     text = SweepSummary(direct_links_tried=1, no_company=result.no_company).friendly_text()
     assert "Alert jobs without a company name (noted on each page" in text
+
+
+def test_a_board_known_to_miss_jobs_is_no_check():
+    """2 Nov: Capgemini's board did not list its Dutch jobs (the summary's 'job board did not
+    list' line); those jobs must not become ghost jobs."""
+    state = FakeBotState()
+    job_links.note_incomplete(state, ["Dune Data"], TODAY - timedelta(days=5))
+    d = deps([row()], get=board_get(["Data Engineer"]), state=state)
+    result = job_links.run(d, BOARDS)
+    assert (result.unchecked, result.not_yet) == (1, 0)
+    assert "does not list all its jobs" in d.repo.rows["p0"]["body"][-1]
+    job_links.note_incomplete(state, [], TODAY + timedelta(days=job_links.INCOMPLETE_DAYS))
+    assert job_links._incomplete(state, TODAY + timedelta(days=job_links.INCOMPLETE_DAYS)) == set()
+
+
+def test_a_job_list_that_needs_the_browser_with_no_page_left_is_no_check():
+    """2 Nov: Infor's job list (Pinpoint) needs the browser; this job's pages had run out."""
+    thin = ("<html><body><a href='/careers/jobs'>Jobs</a>"
+            + "".join(f"<a href='/p{i}'>Senior Engineer {i}</a>" for i in range(5))
+            + "</body></html>")
+    d = deps([row()], pages={CAREERS: thin}, careers={"dune data": CAREERS})
+
+    class NoPages:
+        left = 0
+
+        def __call__(self, url):
+            raise AssertionError("not opened")
+
+    d.render = NoPages()
+    result = job_links.run(d, BOARDS)
+    assert result.not_yet == 0

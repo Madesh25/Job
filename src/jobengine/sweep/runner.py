@@ -747,6 +747,7 @@ def run_sweep(
             found = discover.find(seen, companies or deps.companies(), read, config,
                                   discover.skipped(state), today)
             summary.site_missed = found.missed[:discover.MAX_MISSED]
+            job_links.note_incomplete(state, found.missed_companies, today)
             summary.new_companies = discover.record(state, found, today)
         except Exception:  # never fail a sweep over the suggestions
             log.exception("company discovery failed")
