@@ -504,6 +504,10 @@ you (the autopilot stops there and says so).
   page already (the cross-match read it) gets only its link, not the same text again.
 - The summary says how many jobs were not on the job list yet, how many sites could not be
   checked, and lists the jobs skipped as likely ghost jobs.
+- A row whose alert showed no company ("Hybrid", "1", "Mid/Senior", a job site's name,
+  Adzuna's "(unknown)") gets a note once: its company's site cannot be checked. An
+  Unscreened row is skipped; a screened row keeps its verdict. The summary lists them the
+  first time ("Alert jobs without a company name"); /add brings one back with its link.
 
 ## Tidy job descriptions (2 Nov)
 

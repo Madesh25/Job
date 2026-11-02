@@ -158,6 +158,7 @@ class Result:
     sites: int = 0  # careers pages found by an AI search this sweep
     again: int = 0  # jobs tried again next sweep: this sweep's searches or browser ran out
     ghosts: list[str] = field(default_factory=list)  # not on the company's site twice: skipped
+    no_company: list[str] = field(default_factory=list)  # the alert showed no company: noted
     not_yet: int = 0  # not on the company's site at the first check: looked up again
     unchecked: int = 0  # the company's site could not be checked: waits for /jd
 
@@ -913,6 +914,23 @@ def _sites(state: Any, today: date) -> dict[str, dict[str, str]]:
     return out
 
 
+def no_company_note(deps: Deps, page_id: str, values: dict[str, Any]) -> None:
+    """A row whose alert showed no company ("Hybrid", "1", a job site's name): its company's
+    site cannot be checked. Noted once; an Unscreened row is skipped (2 Nov: the same 7 rows
+    came back in every /fetch log)."""
+    company = values.get("Company")
+    text = (f"{NOTE} ({deps.today.isoformat()}): the alert showed no company (it showed "
+            f"'{company}'), so the company's own site cannot be checked")
+    if str(values.get("Screen verdict") or "Unscreened") == "Unscreened":
+        deps.repo.update(page_id, {"Screen verdict": "Skip"})
+        text += ": skipped (Screen verdict Skip). /add the job's company link to bring it back."
+    else:
+        text += "."
+    deps.repo.append_body(page_id, [text])
+    log.info("no company for %s (%r): noted%s", values.get("Role"), company,
+             " and skipped" if "Skip" in text else "")
+
+
 def blocks(found: Found, board: str, old_url: str | None) -> list[str]:
     """The earlier link, then the description as screening reads it (newest last)."""
     out = [f"{EARLIER} ({board}): {old_url}"] if old_url else []
@@ -943,15 +961,18 @@ def run(deps: Deps, boards: tuple[str, ...], with_body: set[str] | None = None,
                                          select_filter("Status", *OPEN_STATUSES)]})
     rows = [(pid, v) for pid, v in rows if v.get("Screen verdict") != "Skip"
             and link_rank(v.get("URL")) < 3 and v.get("Company") and v.get("Role")]
-    for _pid, v in [r for r in rows if not real_company(str(r[1]["Company"]))]:
-        log.info("not looked up: the company of %s is %r (the alert did not show it)",
-                 v.get("Role"), v.get("Company"))
+    saved = (deps.state.get(KEY) if deps.state is not None else None) or {}
+    no_company: dict[str, str] = dict(saved.get("no_company") or {})
+    for pid, v in [r for r in rows if not real_company(str(r[1]["Company"]))]:
+        if pid not in no_company:
+            no_company_note(deps, pid, v)
+            no_company[pid] = deps.today.isoformat()
+            result.no_company.append(f"{v.get('Role')} ('{v.get('Company')}')")
     rows = [r for r in rows if real_company(str(r[1]["Company"]))]
     rows.sort(key=lambda r: str(r[1].get("Posted date") or ""), reverse=True)
     tried = _remembered(deps.state, deps.today, "tried")
     no_board = _remembered(deps.state, deps.today, "no_board")
     sites = _sites(deps.state, deps.today)
-    saved = (deps.state.get(KEY) if deps.state is not None else None) or {}
     cutoff = (deps.today - timedelta(days=MISSES_KEEP_DAYS)).isoformat()
     misses: dict[str, list[str]] = {
         k: [d for d in v if str(d) > cutoff] for k, v in (saved.get(MISSES) or {}).items()
@@ -1106,5 +1127,5 @@ def run(deps: Deps, boards: tuple[str, ...], with_body: set[str] | None = None,
         result.labels.extend(labels)
     if deps.state is not None:
         deps.state.set(KEY, {"tried": tried, "no_board": no_board, "sites": sites,
-                             MISSES: misses, "noted": noted})
+                             MISSES: misses, "noted": noted, "no_company": no_company})
     return result
