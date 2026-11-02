@@ -44,6 +44,7 @@ from urllib.parse import urlencode, urljoin, urlsplit
 
 from bs4 import BeautifulSoup
 
+from jobengine import textblocks
 from jobengine.notion_repo import JobsRepo, select_filter
 from jobengine.sweep import fulltext
 from jobengine.sweep.crossmatch import DESCRIPTION_HEADER, plain_title, title_key
@@ -748,10 +749,8 @@ def blocks(found: Found, board: str, old_url: str | None) -> list[str]:
     out = [f"{EARLIER} ({board}): {old_url}"] if old_url else []
     out.append(f"{DESCRIPTION_HEADER} company site (direct link for this {board} job, found "
                f"by {found.how}: {found.url})")
-    text = found.text.strip()
-    while text and len(out) < DESCRIPTION_MAX_BLOCKS:
-        out.append(text[:DESCRIPTION_BLOCK_CHARS])
-        text = text[DESCRIPTION_BLOCK_CHARS:]
+    out += textblocks.chunks(textblocks.tidy(found.text), DESCRIPTION_BLOCK_CHARS,
+                             DESCRIPTION_MAX_BLOCKS - len(out))
     return out
 
 

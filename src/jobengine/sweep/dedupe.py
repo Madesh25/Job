@@ -12,6 +12,7 @@ from datetime import date
 from typing import Any
 from urllib.parse import urlsplit
 
+from jobengine import textblocks
 from jobengine.sweep.ghost import ghost_risk
 from jobengine.sweep.models import Job
 from jobengine.sweep.normalize import years_text
@@ -158,7 +159,8 @@ def update_plan(row: IndexRow, job: Job, today: date) -> UpdatePlan:
 
 
 def description_blocks(job: Job) -> list[str]:
-    """Paragraph texts for the page body: a source line, then chunks of the description."""
+    """Paragraph texts for the page body: a source line, then the description in tidy
+    paragraphs (textblocks.py: no HTML tags, cut at line ends)."""
     if not job.description:
         return []
     header = f"Description source: {job.source}"
@@ -166,9 +168,5 @@ def description_blocks(job: Job) -> list[str]:
         header += f" ({job.description_origin})"
     elif job.description_is_snippet:
         header += " (snippet only)"
-    chunks = [header]
-    text = job.description.strip()
-    while text and len(chunks) < DESCRIPTION_MAX_BLOCKS:
-        chunks.append(text[:DESCRIPTION_BLOCK_CHARS])
-        text = text[DESCRIPTION_BLOCK_CHARS:]
-    return chunks
+    text = textblocks.tidy(job.description)
+    return [header, *textblocks.chunks(text, DESCRIPTION_BLOCK_CHARS, DESCRIPTION_MAX_BLOCKS - 1)]

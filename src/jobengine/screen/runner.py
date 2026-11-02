@@ -10,7 +10,7 @@ from datetime import date
 from pathlib import Path
 from typing import Any
 
-from jobengine import http
+from jobengine import http, textblocks
 from jobengine.bot_state import BotState, FakeBotState, bot_state_for
 from jobengine.config_store import ConfigStore
 from jobengine.ind_register import IndRegister, load_register
@@ -126,7 +126,7 @@ def real_deps(s: Settings, write: bool = True) -> ScreenDeps:
 
 
 def _chunks(text: str, size: int, limit: int) -> list[str]:
-    return [text[i:i + size] for i in range(0, len(text), size)][:limit]
+    return textblocks.chunks(textblocks.tidy(text), size, limit)
 
 
 def job_row(page_id: str, values: dict[str, Any]) -> JobRow:
@@ -173,7 +173,9 @@ def description(blocks: list[str], full_min: int = FULL_MIN_CHARS) -> tuple[str,
         if text.startswith(DESCRIPTION_HEADER) or text.startswith(SECTION_PREFIX):
             break
         parts.append(text)
-    body = "".join(parts).strip()
+    # Blocks end at a line end since 2 Nov (textblocks.py); older pages were cut every 2000
+    # characters, where a line break in the middle of a word does no harm to screening.
+    body = "\n".join(parts).strip()
     if not body:
         return "", "none"
     if SNIPPET_MARK in blocks[start] or len(body) < full_min:

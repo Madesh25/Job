@@ -266,10 +266,12 @@ def test_description_kinds():
     assert description(["Description source: ats", long], 600) == (long, "full")
     assert description(["Description source: ats", "short"], 600)[1] == "snippet"
     assert description(["Description source: adzuna (snippet only)", long], 600)[1] == "snippet"
+    # The blocks of one description are lines since 2 Nov (textblocks.chunks): joined by a
+    # line break, never glued into one word.
     blocks = ["Description source: adzuna (snippet only)", "short",
               "Screening (V16, 2026-09-01)", "Gap | x | none",
-              "Description source: pasted (full)", long[:400], long[400:]]
-    assert description(blocks, 600) == (long, "full")
+              "Description source: pasted (full)", "Requirements:", long]
+    assert description(blocks, 600) == (f"Requirements:\n{long}", "full")
 
 
 def test_find_row_by_id_url_and_posting_id(s, deps):

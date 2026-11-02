@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 
-from jobengine import alerts, heartbeat, http
+from jobengine import alerts, heartbeat, http, textblocks
 from jobengine.apply import answers, autofill, cover, interview
 from jobengine.apply import facts as apply_facts
 from jobengine.bot_state import BotState, FakeBotState
@@ -2032,8 +2032,7 @@ class Desk:
         if job.description:
             text = job.description
             self.repo.append_body(page_id, ["Description source: /contacts (full)",
-                                            *[text[i:i + size]
-                                              for i in range(0, len(text), size)][:90]])
+                                            *textblocks.chunks(textblocks.tidy(text), size)])
         where = ", ".join(p for p in (city, country) if p)
         return page_id, [Reply(f"Saved {job.company}, {job.title or 'the role'} ({where}) as "
                                "a new job (not screened: /add <link> screens it and builds "
@@ -3455,7 +3454,7 @@ class Desk:
             return [Reply("No description collected yet. Paste it, then send /done.")]
         size = int(self.s.screening.get("block_chars", 2000))
         limit = int(self.s.screening.get("max_blocks", 90))
-        chunks = [text[i:i + size] for i in range(0, len(text), size)][:limit]
+        chunks = textblocks.chunks(textblocks.tidy(text), size, limit)
         assert capture.page_id is not None
         self.repo.append_body(capture.page_id, ["Description source: pasted (full)", *chunks])
         self.captures.clear()
@@ -3525,8 +3524,8 @@ class Desk:
         if text.strip() != old.strip() and (
                 kind != "full" or len(text) > len(old) + ADD_LONGER_CHARS):
             self.repo.append_body(page_id, ["Description source: /add (full)",
-                                            *[text[i:i + size] for i in range(0, len(text),
-                                                                               size)][:limit]])
+                                            *textblocks.chunks(textblocks.tidy(text), size,
+                                                               limit)])
         where = ", ".join(p for p in (city, country) if p) or job.location or "place not given"
         replies = [Reply(f"{'Found' if row else 'Saved'}: {job.company}, {job.title} ({where})."
                          " Screening it now...")]
