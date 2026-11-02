@@ -467,11 +467,16 @@ you (the autopilot stops there and says so).
   searches per sweep (a careers page or a job). The rows waiting are worked through over a
   few fetches. A company without a job board found by its name, or without a careers page
   found, is not asked again for 14 days.
+- A careers page's job number and button text are not part of the title (2 Nov): "DevOps /
+  Platform Engineer (ID:4116)" and "Platform / DevOps Engineer Explore this vacancy" are
+  those jobs. A job board the bot may not open (Eightfold, safety.allowed_hosts) is skipped
+  and the job goes on to the next step.
 - A row with no result waits for /jd; the log says "no direct link for Company, Role". It
   is looked up again after 3 days (14 until 30 Oct). A row cut short because this sweep's
   searches or browser pages ran out is looked up again at the next /fetch; the summary says
   how many ("N not finished").
-- `sweep.job_links.workers` (3): companies looked up at the same time. All jobs of one
+- `sweep.job_links.workers` (3; local and dev 5 until go-live, 2 Nov): companies looked up
+  at the same time. All jobs of one
   company stay on one worker (its careers page is searched for once); Notion writes go one
   at a time; the browser opens one page at a time on its own thread.
 - `sweep.job_links.enabled: false` turns it off.

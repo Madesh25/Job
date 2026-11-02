@@ -52,6 +52,7 @@ from bs4 import BeautifulSoup
 
 from jobengine import textblocks
 from jobengine.notion_repo import JobsRepo, select_filter
+from jobengine.safety import SafetyError
 from jobengine.sweep import fulltext
 from jobengine.sweep.crossmatch import DESCRIPTION_HEADER, plain_title, title_key
 from jobengine.sweep.dedupe import DESCRIPTION_BLOCK_CHARS, DESCRIPTION_MAX_BLOCKS, link_rank
@@ -178,11 +179,30 @@ def enabled(s: Any) -> bool:
 # ---------------------------------------------------------------- matching
 
 
+# What a careers page adds to a job title that is not part of it (2 Nov log): a job number
+# ("DevOps / Platform Engineer (ID:4116)", STAFIDE) and the button text of a job card
+# ("Platform / DevOps Engineer Explore this vacancy", wolk). The title itself must still be
+# the same: "Senior DevOps Engineer" is never "DevOps Engineer".
+_JOB_NUMBER = re.compile(r"\s*[(\[]\s*(?:id|ref|req|job id|job no|nr)\.?\s*[:#.]?\s*[\w-]+\s*[)\]]",
+                         re.I)
+_BUTTON = re.compile(
+    r"\s*(?:explore this vacancy|bekijk deze vacature|bekijk vacature|view (?:this )?"
+    r"(?:job|vacancy|position|role)|see (?:the )?(?:job|vacancy)|apply now|apply|read more"
+    r"|lees meer|more info|meer info|learn more|zobacz ofert[eę]|aplikuj)\s*[>\u2192\u203a]*\s*$",
+    re.I)
+
+
+def card_title(text: str | None) -> str:
+    """A job title as a careers page shows it, without its job number and button text."""
+    value = _JOB_NUMBER.sub("", text or "")
+    return _BUTTON.sub("", value).strip()
+
+
 def same_title(found: str | None, role: str | None, city: str | None = None,
                country: str | None = None) -> bool:
     """The exact job title, as crossmatch counts it ("Remote" and the place left out)."""
     want = title_key(role, city, country)
-    return bool(want) and title_key(found, city, country) == want
+    return bool(want) and title_key(card_title(found), city, country) == want
 
 
 def page_titles(html: str) -> list[str]:
@@ -281,6 +301,9 @@ def _board_postings(deps: Deps, name: str, board: Any, role: str) -> list[Any]:
         return read_board(deps.s, target, board, get, deps.post, deps.page, deps.today,
                           feed=deps.feed)
     except http.HttpError as exc:
+        log.info("job board of %s not read: %s", name, exc)
+        return []
+    except SafetyError as exc:  # 2 Nov: HSBC and Qualcomm (Eightfold) stopped the whole job
         log.info("job board of %s not read: %s", name, exc)
         return []
 
