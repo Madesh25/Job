@@ -243,6 +243,7 @@ class SweepSummary:
     direct_links: list[str] = field(default_factory=list)  # sweep/job_links.py
     direct_links_tried: int = 0
     direct_links_again: int = 0  # searches or browser pages ran out: next sweep
+    tidied: tuple[int, int, int] | None = None  # old descriptions: checked, rewritten, left
     backfilled: list[str] = field(default_factory=list)  # sweep/backfill.py
     alert_emails: int | None = None  # email alerts read (None: the source did not run)
     site_missed: list[str] = field(default_factory=list)  # sweep/discover.py
@@ -334,6 +335,12 @@ class SweepSummary:
             if self.direct_links_again:
                 lines.append(f"- {self.direct_links_again} not finished (this /fetch's searches "
                              "or browser pages were used up): looked up again next /fetch")
+        if self.tidied is not None:
+            checked, rewritten, left = self.tidied
+            line = (f"\U0001F9F9 Old descriptions tidied (DEV): {rewritten} of {checked} pages "
+                    "checked")
+            lines.append(line + (f", {left} still to check at the next /fetch" if left
+                                 else ", all old pages done"))
         if self.backfilled:
             lines.append(f"\U0001F4DD Saved jobs that waited for a description, now filled "
                          f"(/screen can screen them): {len(self.backfilled)}")

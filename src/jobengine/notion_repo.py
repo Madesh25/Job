@@ -178,6 +178,11 @@ class JobsRepo(Protocol):
 
     def read_body(self, page_id: str) -> list[str]: ...
 
+    def body_blocks(self, page_id: str) -> list[tuple[str, str]]: ...
+
+    def replace_blocks(self, page_id: str, after_id: str, old_ids: list[str],
+                       texts: list[str]) -> None: ...
+
 
 # ---------------------------------------------------------------- short page refs
 
@@ -592,6 +597,33 @@ class NotionJobsRepo:
                 return texts
             cursor = data.get("next_cursor")
 
+    def body_blocks(self, page_id: str) -> list[tuple[str, str]]:
+        """(block id, text) of the page body's text blocks, in order."""
+        out: list[tuple[str, str]] = []
+        cursor = None
+        while True:
+            params: list[tuple[str, Any]] = [("page_size", 100)]
+            if cursor:
+                params.append(("start_cursor", cursor))
+            data = self.client.request("GET", f"/blocks/{page_id}/children", params=params)
+            for block in data.get("results") or []:
+                text = block_text(block)
+                if text is not None:
+                    out.append((str(block["id"]), text))
+            if not data.get("has_more"):
+                return out
+            cursor = data.get("next_cursor")
+
+    def replace_blocks(self, page_id: str, after_id: str, old_ids: list[str],
+                       texts: list[str]) -> None:
+        """Put `texts` right after block `after_id`, then remove the blocks `old_ids` (the same
+        place on the page; the new text is written first, so nothing is lost if a step
+        fails)."""
+        self.client.request("PATCH", f"/blocks/{page_id}/children",
+                            {"children": paragraph_blocks(texts), "after": after_id})
+        for block_id in old_ids:
+            self.client.request("DELETE", f"/blocks/{block_id}")
+
 
 class NotionReader:
     """Read-only access to the reference data sources (notion_read)."""
@@ -695,6 +727,22 @@ class FakeJobsRepo:
 
     def read_body(self, page_id: str) -> list[str]:
         return list(self.rows[page_id].get("body") or [])
+
+    def body_blocks(self, page_id: str) -> list[tuple[str, str]]:
+        return [(str(i), text) for i, text in enumerate(self.rows[page_id].get("body") or [])]
+
+    def replace_blocks(self, page_id: str, after_id: str, old_ids: list[str],
+                       texts: list[str]) -> None:
+        body = list(self.rows[page_id].get("body") or [])
+        gone = {int(i) for i in old_ids}
+        out: list[str] = []
+        for i, text in enumerate(body):
+            if i not in gone:
+                out.append(text)
+            if i == int(after_id):
+                out.extend(texts)
+        self.rows[page_id]["body"] = out
+        self.writes.append(("replace_blocks", page_id, list(texts)))
 
 
 # ---------------------------------------------------------------- Resume Log

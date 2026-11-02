@@ -27,6 +27,7 @@ from jobengine.sweep import (
     fulltext,
     inbox_tidy,
     job_links,
+    tidy_bodies,
 )
 from jobengine.sweep.dedupe import IndexRow, create_plan, description_blocks, update_plan
 from jobengine.sweep.gate import strategy_gate
@@ -791,6 +792,14 @@ def run_sweep(
                 blocked=fulltext.blocked_hosts(s))
         except Exception:  # never fail a sweep over the backfill
             log.exception("descriptions for saved jobs failed")
+
+    # Pass 5 (DEV only, 2 Nov): old descriptions rewritten tidy, a batch per /fetch.
+    if repo and tidy_bodies.enabled(s):
+        try:
+            tidied = tidy_bodies.run(s, repo, state, progress=say)
+            summary.tidied = (tidied.checked, tidied.rewritten, tidied.left)
+        except Exception:  # never fail a sweep over the clean-up
+            log.exception("tidying old descriptions failed")
 
     high = sorted(label for label, risk in touched.values() if risk == "High")
     summary.high_ghost = len(high)
