@@ -278,6 +278,8 @@ def test_progress_lines_are_plain_language():
         # saved rows still waiting for a description (sweep/backfill.py); Odra Systems is a
         # JustJoin IT row, whose page is never opened since 10 Oct (its terms)
         "Descriptions for saved jobs: reading Liffey Analytics Ltd",
+        # old descriptions tidied, DEV only (2 Nov)
+        "Tidying old descriptions: 1 of 13",
     ]
 
 

@@ -15,3 +15,7 @@ gmail:
   sender: "madeshwaranm02@gmail.com"
 llm:
   force_model: "claude-haiku-4-5"
+sweep:
+  # 2 Nov: old DEV job pages get their descriptions tidied during /fetch.
+  tidy_bodies:
+    enabled: true

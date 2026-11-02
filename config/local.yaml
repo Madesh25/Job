@@ -18,3 +18,7 @@ llm:
   # AI job on the PC; Haiku answers only when a Gemini call fails (Config ai.claude_cap).
   # Without VERTEX_API_KEY or GEMINI_API_KEY Haiku answers and the AI watch says so.
   force_model: "gemini-3.5-flash-lite"
+sweep:
+  # 2 Nov: old DEV job pages get their descriptions tidied during /fetch.
+  tidy_bodies:
+    enabled: true

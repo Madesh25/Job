@@ -477,6 +477,21 @@ you (the autopilot stops there and says so).
 - `sweep.job_links.enabled: false` turns it off.
 - The /fetch summary says "Own job link found on the company's site: N of M" and lists them.
 
+## Tidy job descriptions (2 Nov)
+
+Every description is written as tidy paragraphs (`src/jobengine/textblocks.py`): HTML left
+as text ("<br />") becomes lines and "• " bullets, a description in one long line gets breaks
+before its headings ("Requirements:", "Nice to have:"), and the text is cut at line ends,
+never inside a word. Screening joins the blocks of a description with a line break.
+
+Pages written before that are tidied during /fetch, in local and dev only
+(`sweep.tidy_bodies.enabled`; off in prod, where every page is written tidy from the
+start): up to `max_pages` (60) pages a /fetch, newest first, each checked once (Bot State
+`sweep.tidy_bodies`). A description that would be written differently is rewritten in the
+same place: the new text right after its "Description source:" line, then the old blocks
+removed. Screening notes and links stay. The summary says "Old descriptions tidied (DEV): N
+of M pages checked, K still to check" until all old pages are done.
+
 ## New companies and jobs a company site missed (C1, 26 Oct)
 
 After each sweep, `sweep/discover.py` looks at the jobs that passed the scope filters:
