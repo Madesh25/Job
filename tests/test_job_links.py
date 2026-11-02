@@ -709,3 +709,24 @@ def test_dev_looks_up_five_companies_at_a_time_and_prod_three():
     assert load_settings("local", {}).sweep["job_links"]["workers"] == 5
     assert load_settings("dev", {}).sweep["job_links"]["workers"] == 5
     assert load_settings("prod", {}).sweep["job_links"]["workers"] == 3
+
+
+def test_a_team_code_or_running_number_is_not_part_of_the_title():
+    """2 Nov, second log: Software Mind "[WBG] DevOps Engineer", Infolet "Platform Engineer
+    (18/22)"."""
+    assert job_links.same_title("[WBG] DevOps Engineer", "DevOps Engineer")
+    assert job_links.same_title("Platform Engineer (18/22)", "Platform Engineer (Remote)")
+    assert not job_links.same_title("[8BE] Senior DevOps Engineer (AWS)", "DevOps Engineer")
+
+
+def test_a_job_link_with_http_is_opened_with_https():
+    """2 Nov: Xccelerated links its jobs with http://, which the bot never opens."""
+    html = '<a href="http://www.xccelerated.io/jobs/cloud-engineer">Cloud Engineer</a>'
+    assert job_links.title_links("https://www.xccelerated.io/careers", html,
+                                 "Cloud Engineer", None, "Netherlands") == [
+        "https://www.xccelerated.io/jobs/cloud-engineer"]
+
+
+def test_dev_opens_a_browser_page_per_job_looked_up():
+    assert load_settings("local", {}).sweep["job_links"]["max_rendered"] == 80
+    assert load_settings("prod", {}).sweep["job_links"]["max_rendered"] == 40
