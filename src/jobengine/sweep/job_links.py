@@ -14,7 +14,13 @@ job on the company's own site, never on LinkedIn, the way you would do it by han
    that page and reads it: the job board it links to, the job links on it, the page's own
    search box (a plain search for the title, never a login or a form that sends anything)
    and up to two job list pages it links to ("Jobs", "Vacancies", ...).
-3. Otherwise one AI web search for the job itself.
+3. Otherwise one AI web search for the job itself (also after a careers page without it).
+
+A job that is not on the company's own site (a recruitment agency's job, a repost) still
+gets its description (2 Nov, your request: no empty descriptions): the web search may give
+a public page with the whole advert on another job site. Its text goes to the page body,
+the job's link stays as it is (it is not the employer's form), and the row is not looked up
+again. LinkedIn and the sites in sweep.fulltext.blocked_hosts are never opened for it.
 
 Every answer counts only after the bot read the page itself: an employer page (no job board
 or aggregator), whose job title is the row's title, with a full description. A recruitment
@@ -67,6 +73,7 @@ DEFAULT_MAX_ROWS = 40  # rows looked at in one sweep (sweep.job_links.max_rows)
 DEFAULT_MAX_SEARCHES = 40  # AI web searches in one sweep (sweep.job_links.max_searches)
 DEFAULT_WORKERS = 3  # companies looked up at the same time (sweep.job_links.workers)
 MAX_CANDIDATES = 4  # pages read for one AI answer
+MAX_COPIES = 3  # pages of other job sites read for one AI answer (a copy of the advert)
 MAX_SITE_PAGES = 10  # pages of one company's site read for one row
 MAX_DEPTH = 2  # clicks from the page found: website -> careers page -> job list
 MAX_JOB_LINKS = 3  # job links with the row's title opened on one page
@@ -106,13 +113,14 @@ SHARDLESS_WORKDAY = re.compile(
 WORKDAY_SHARDS = ("wd1", "wd3", "wd5", "wd12", "wd103", "wd105")
 TITLE_SPLIT = re.compile(r"\s+(?:[|\u2013\u2014\-\u00b7:]|at)\s+")  # | - and long dashes
 
-SYSTEM = """You find the official page of one job advert on the web.
+SYSTEM = """You find one job advert on the web.
 Search the web, then answer with JSON only: {"url": "<link>"}.
-The link must be the job's own page on the employer's careers site or on its applicant
-tracking system (Workday, Greenhouse, Lever, SmartRecruiters, Ashby, Recruitee, Teamtailor,
-Personio, Workable, SuccessFactors, Oracle and similar). Never a LinkedIn, Indeed, Glassdoor,
-job board or aggregator page. It must be this exact job: the same title at the same company in
-the same city or country. When you are not sure, answer {"url": ""}."""
+Best is the job's own page on the employer's careers site or on its applicant tracking
+system (Workday, Greenhouse, Lever, SmartRecruiters, Ashby, Recruitee, Teamtailor, Personio,
+Workable, SuccessFactors, Oracle and similar). When the employer does not publish it there
+(a recruitment agency's job, for example), give a public page that shows this job's whole
+advert on another job site. Never a LinkedIn page. It must be this exact job: the same title
+at the same company in the same city or country. When you are not sure, answer {"url": ""}."""
 
 SITE_SYSTEM = """You find the official website and careers page of one company.
 Search the web, then answer with JSON only: {"website": "<link>", "careers": "<link>"}.
@@ -148,6 +156,7 @@ class Result:
     searches: int = 0
     sites: int = 0  # careers pages found by an AI search this sweep
     again: int = 0  # jobs tried again next sweep: this sweep's searches or browser ran out
+    copies: list[str] = field(default_factory=list)  # description from another job site
 
 
 @dataclass
@@ -155,6 +164,7 @@ class Found:
     url: str
     text: str
     how: str  # "company job board", "careers page", "careers page search" or "web search"
+    own: bool = True  # False: a copy of the advert on another job site (description only)
 
 
 def settings(s: Any) -> dict[str, Any]:
@@ -717,7 +727,64 @@ def from_search(deps: Deps, company: str, role: str, city: str | None,
         text = fulltext.extract(html) or ""
         if len(text) >= full_min:
             return Found(final, text, "web search")
+    copies = [u for u in candidates if not employer_page(u, company) and copy_site(u)]
+    for url in copies[:MAX_COPIES]:
+        found = _copy(deps, url, company, role, city, country, full_min)
+        if found is not None:
+            return found
     return None
+
+
+def has_full_text(repo: JobsRepo, page_id: str, full_min: int) -> bool:
+    """The page body holds a description of at least `full_min` characters that is not a
+    snippet (a row filled from the same job on another source)."""
+    blocks = repo.body_blocks(page_id)
+    for i, (_id, text) in enumerate(blocks):
+        if not text.startswith(DESCRIPTION_HEADER) or "snippet" in text.lower():
+            continue
+        size = 0
+        for _other, part in blocks[i + 1:]:
+            if part.startswith((DESCRIPTION_HEADER, EARLIER, "Screening (")):
+                break
+            size += len(part)
+        if size >= full_min:
+            return True
+    return False
+
+
+def copy_site(url: str) -> bool:
+    """A public https page that may show a copy of the advert: never LinkedIn (the page
+    reader also refuses the sites in sweep.fulltext.blocked_hosts)."""
+    parts = urlsplit(url)
+    host = (parts.hostname or "").lower()
+    return parts.scheme == "https" and bool(host) and "linkedin." not in host
+
+
+def mentions(html: str, company: str) -> bool:
+    """The page names the company (its name without "sp. z o.o.", "B.V." and the like)."""
+    name = canon_company(without_region(company))
+    text = f" {canon(BeautifulSoup(html, 'html.parser').get_text(' '))} "
+    return bool(name) and f" {name} " in text
+
+
+def _copy(deps: Deps, url: str, company: str, role: str, city: str | None,
+          country: str | None, full_min: int) -> Found | None:
+    """This job's advert on another job site: same title, names the company, full text."""
+    from jobengine import http
+
+    try:
+        final, html = deps.page(url)
+    except http.HttpError as exc:
+        log.info("copy of the advert not read %s: %s", urlsplit(url).hostname, exc)
+        return None
+    if not copy_site(final) or not mentions(html, company):
+        return None
+    if not any(same_title(t, role, city, country) for t in page_titles(html)):
+        return None
+    text = fulltext.extract(html) or ""
+    if len(text) < full_min:
+        return None
+    return Found(final, text, urlsplit(final).hostname or "another job site", own=False)
 
 
 # ---------------------------------------------------------------- the pass
@@ -746,6 +813,11 @@ def _sites(state: Any, today: date) -> dict[str, dict[str, str]]:
 
 def blocks(found: Found, board: str, old_url: str | None) -> list[str]:
     """The earlier link, then the description as screening reads it (newest last)."""
+    if not found.own:  # the link stays: only the description, and where it was read
+        out = [f"{DESCRIPTION_HEADER} {found.how} (the same {board} job on another job site, "
+               f"found by web search: {found.url})"]
+        return out + textblocks.chunks(textblocks.tidy(found.text), DESCRIPTION_BLOCK_CHARS,
+                                       DESCRIPTION_MAX_BLOCKS - len(out))
     out = [f"{EARLIER} ({board}): {old_url}"] if old_url else []
     out.append(f"{DESCRIPTION_HEADER} company site (direct link for this {board} job, found "
                f"by {found.how}: {found.url})")
@@ -780,6 +852,8 @@ def run(deps: Deps, boards: tuple[str, ...], with_body: set[str] | None = None,
     rows = [r for r in rows if real_company(str(r[1]["Company"]))]
     rows.sort(key=lambda r: str(r[1].get("Posted date") or ""), reverse=True)
     tried = _remembered(deps.state, deps.today, "tried")
+    saved = (deps.state.get(KEY) if deps.state is not None else None) or {}
+    described = dict(saved.get("described") or {})  # rows with a copy's description: done
     no_board = _remembered(deps.state, deps.today, "no_board")
     sites = _sites(deps.state, deps.today)
     job_boards: dict[str, Any] = {}
@@ -791,7 +865,7 @@ def run(deps: Deps, boards: tuple[str, ...], with_body: set[str] | None = None,
     for page_id, values in rows:
         if result.tried >= max_rows:
             break
-        if page_id in tried:
+        if page_id in tried or page_id in described:
             continue
         result.tried += 1
         tried[page_id] = deps.today.isoformat()
@@ -829,9 +903,9 @@ def run(deps: Deps, boards: tuple[str, ...], with_body: set[str] | None = None,
             careers = careers_page(company, country, page_id)
             if careers:
                 found = from_site(deps, careers, company, role, city, country, job_boards)
-        # With a careers page read, a search for the exact job finds no more (30 Oct:
-        # 0 of 20), so the searches go to the next companies instead.
-        if found is None and not careers and search():
+        # Also after a careers page without the job (2 Nov): its own page is seldom found
+        # that way (30 Oct: 0 of 20), but a copy of the advert on another job site is.
+        if found is None and search():
             found = from_search(deps, company, role, city, country, page_id)
         if found is None:
             again = " (looked up again next /fetch)" if getattr(_SHORT, "hit", False) else ""
@@ -839,6 +913,22 @@ def run(deps: Deps, boards: tuple[str, ...], with_body: set[str] | None = None,
                      company, role, again, closest())
             return None
         board = str(values.get("Board") or "alert")
+        if not found.own:
+            if has_full_text(deps.repo, page_id, _full_min(deps)):
+                log.info("%s row %s: has its description already, copy not added", board,
+                         page_id)
+                with lock:
+                    described[page_id] = deps.today.isoformat()
+                return ""
+            with lock:
+                deps.repo.append_body(page_id, blocks(found, board, values.get("URL")))
+                if with_body is not None:
+                    with_body.add(page_id)
+                described[page_id] = deps.today.isoformat()
+                result.copies.append(f"{company}, {role} ({found.how})")
+            log.info("%s row %s: description from %s (the link stays)", board, page_id,
+                     found.url)
+            return ""
         with lock:
             deps.repo.update(page_id, {"URL": found.url})
             deps.repo.append_body(page_id, blocks(found, board, values.get("URL")))
@@ -860,7 +950,7 @@ def run(deps: Deps, boards: tuple[str, ...], with_body: set[str] | None = None,
                 continue
             if label:
                 labels.append(label)
-            elif _SHORT.hit:
+            elif label is None and _SHORT.hit:
                 with lock:
                     tried.pop(page_id, None)
                     result.again += 1
@@ -876,5 +966,6 @@ def run(deps: Deps, boards: tuple[str, ...], with_body: set[str] | None = None,
     for labels in run_all(company_jobs, list(groups.values()), workers, done):
         result.labels.extend(labels)
     if deps.state is not None:
-        deps.state.set(KEY, {"tried": tried, "no_board": no_board, "sites": sites})
+        deps.state.set(KEY, {"tried": tried, "no_board": no_board, "sites": sites,
+                             "described": described})
     return result
