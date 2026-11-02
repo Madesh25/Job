@@ -484,10 +484,18 @@ as text ("<br />") becomes lines and "• " bullets, a description in one long l
 before its headings ("Requirements:", "Nice to have:"), and the text is cut at line ends,
 never inside a word. Screening joins the blocks of a description with a line break.
 
+Job pages and ATS feeds are read as a browser shows them (`textblocks.text_of`): a new line
+only at <br>, paragraphs, list items, headings and table rows, never inside a sentence at a
+<span> or <b>. Workday texts read before that showed "I" / "mplement" and "DevOps" /
+"Engineers" on lines of their own (Accenture, 2 Nov); tidy() joins such cut pieces back into
+their sentences. Only a text with clear signs of cut pieces (lines that start with "," or
+":", a lone letter before the rest of its word) is mended, so plain lists stay as they are.
+
 Pages written before that are tidied during /fetch, in local and dev only
 (`sweep.tidy_bodies.enabled`; off in prod, where every page is written tidy from the
 start): up to `max_pages` (60) pages a /fetch, newest first, each checked once (Bot State
-`sweep.tidy_bodies`). A description that would be written differently is rewritten in the
+`sweep.tidy_bodies`; a better tidy() raises its version, and then every page is checked
+again: version 2 mends the cut sentences). A description that would be written differently is rewritten in the
 same place: the new text right after its "Description source:" line, then the old blocks
 removed. Screening notes and links stay. The summary says "Old descriptions tidied (DEV): M
 pages checked, N rewritten, K still to check" until all old pages are done. Local and dev
