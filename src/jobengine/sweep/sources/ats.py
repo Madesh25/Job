@@ -25,7 +25,7 @@ from xml.etree import ElementTree
 
 from bs4 import BeautifulSoup
 
-from jobengine import http
+from jobengine import http, textblocks
 from jobengine.parallel import Budget, run_all
 from jobengine.settings import Settings
 from jobengine.sweep.models import RawPosting, SourceResult, TargetCompany
@@ -207,9 +207,8 @@ def html_to_text(value: str | None, escaped: bool = False) -> str | None:
         return None
     if escaped:
         value = html.unescape(value)
-    text = BeautifulSoup(value, "html.parser").get_text("\n")
-    text = "\n".join(line.strip() for line in text.splitlines() if line.strip())
-    return text or None
+    # Lines as the page shows them: no break inside a sentence at <span> or <b> (2 Nov).
+    return textblocks.text_of(value) or None
 
 
 def _iso_date(value: str | None) -> date | None:

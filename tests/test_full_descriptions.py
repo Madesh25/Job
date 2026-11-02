@@ -51,8 +51,8 @@ def test_an_oracle_job_gets_its_whole_text_and_keeps_its_summary():
     get_page = pages({"recruitingCEJobRequisitionDetails": json.dumps(DETAIL)})
     full = fulltext.read(ORACLE_JOB, get_page)
     assert full.description.startswith("Join our cloud platform team in Warsaw.\n\n")
-    assert "Responsibilities\nRun the Kubernetes platform" in full.description
-    assert "Qualifications\n3+ years with Terraform" in full.description
+    assert "Responsibilities\n• Run the Kubernetes platform" in full.description
+    assert "Qualifications\n• 3+ years with Terraform" in full.description
     assert full.description_origin == "job details, jpmc.fa.oraclecloud.com"
     assert full.years_required == 3
     assert len(get_page.seen) == 1  # the JavaScript page itself is not opened
