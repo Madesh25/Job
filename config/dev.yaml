@@ -26,8 +26,7 @@ sweep:
   # /fetch; the AI searches stay at 40, careers pages found before cost none).
   job_links:
     max_rows: 80
-    # One search a job, also after a careers page without it (2 Nov): its description
-    # may be on another job site.
+    # AI searches: a company's careers page, or the job when no careers page is found.
     max_searches: 80
     # Browser pages for careers pages built by JavaScript: one per job looked up (2 Nov:
     # 40 ran out halfway through the 80 jobs).

@@ -14,13 +14,15 @@ job on the company's own site, never on LinkedIn, the way you would do it by han
    that page and reads it: the job board it links to, the job links on it, the page's own
    search box (a plain search for the title, never a login or a form that sends anything)
    and up to two job list pages it links to ("Jobs", "Vacancies", ...).
-3. Otherwise one AI web search for the job itself (also after a careers page without it).
+3. Otherwise one AI web search for the job itself.
 
-A job that is not on the company's own site (a recruitment agency's job, a repost) still
-gets its description (2 Nov, your request: no empty descriptions): the web search may give
-a public page with the whole advert on another job site. Its text goes to the page body,
-the job's link stays as it is (it is not the employer's form), and the row is not looked up
-again. LinkedIn and the sites in sweep.fulltext.blocked_hosts are never opened for it.
+Only the company's own site counts (2 Nov, your rule): a job that a company does not put on
+its own site is likely a ghost job. When the bot read the company's job list and the job is
+not on it, the page gets a "Company site check" note and the job is looked up again after
+RETRY_DAYS; still missing then, the note says so and the row is skipped (Screen verdict
+Skip, only while it is Unscreened). When the company's site could not be checked (no careers
+page found, the site did not answer), the note says that and the job waits for /jd. Job
+boards (JustJoin IT, Pracuj.pl, theprotocol.it, IrishJobs, LinkedIn) are never opened.
 
 Every answer counts only after the bot read the page itself: an employer page (no job board
 or aggregator), whose job title is the row's title, with a full description. A recruitment
@@ -74,7 +76,6 @@ DEFAULT_MAX_ROWS = 40  # rows looked at in one sweep (sweep.job_links.max_rows)
 DEFAULT_MAX_SEARCHES = 40  # AI web searches in one sweep (sweep.job_links.max_searches)
 DEFAULT_WORKERS = 3  # companies looked up at the same time (sweep.job_links.workers)
 MAX_CANDIDATES = 4  # pages read for one AI answer
-MAX_COPIES = 3  # pages of other job sites read for one AI answer (a copy of the advert)
 MAX_SITE_PAGES = 10  # pages of one company's site read for one row
 MAX_DEPTH = 2  # clicks from the page found: website -> careers page -> job list
 MAX_JOB_LINKS = 3  # job links with the row's title opened on one page
@@ -114,14 +115,13 @@ SHARDLESS_WORKDAY = re.compile(
 WORKDAY_SHARDS = ("wd1", "wd3", "wd5", "wd12", "wd103", "wd105")
 TITLE_SPLIT = re.compile(r"\s+(?:[|\u2013\u2014\-\u00b7:]|at)\s+")  # | - and long dashes
 
-SYSTEM = """You find one job advert on the web.
+SYSTEM = """You find the official page of one job advert on the web.
 Search the web, then answer with JSON only: {"url": "<link>"}.
-Best is the job's own page on the employer's careers site or on its applicant tracking
-system (Workday, Greenhouse, Lever, SmartRecruiters, Ashby, Recruitee, Teamtailor, Personio,
-Workable, SuccessFactors, Oracle and similar). When the employer does not publish it there
-(a recruitment agency's job, for example), give a public page that shows this job's whole
-advert on another job site. Never a LinkedIn page. It must be this exact job: the same title
-at the same company in the same city or country. When you are not sure, answer {"url": ""}."""
+The link must be the job's own page on the employer's careers site or on its applicant
+tracking system (Workday, Greenhouse, Lever, SmartRecruiters, Ashby, Recruitee, Teamtailor,
+Personio, Workable, SuccessFactors, Oracle and similar). Never a LinkedIn, Indeed, Glassdoor,
+job board or aggregator page. It must be this exact job: the same title at the same company in
+the same city or country. When you are not sure, answer {"url": ""}."""
 
 SITE_SYSTEM = """You find the official website and careers page of one company.
 Search the web, then answer with JSON only: {"website": "<link>", "careers": "<link>"}.
@@ -157,7 +157,9 @@ class Result:
     searches: int = 0
     sites: int = 0  # careers pages found by an AI search this sweep
     again: int = 0  # jobs tried again next sweep: this sweep's searches or browser ran out
-    copies: list[str] = field(default_factory=list)  # description from another job site
+    ghosts: list[str] = field(default_factory=list)  # not on the company's site twice: skipped
+    not_yet: int = 0  # not on the company's site at the first check: looked up again
+    unchecked: int = 0  # the company's site could not be checked: waits for /jd
 
 
 @dataclass
@@ -165,7 +167,6 @@ class Found:
     url: str
     text: str
     how: str  # "company job board", "careers page", "careers page search" or "web search"
-    own: bool = True  # False: a copy of the advert on another job site (description only)
 
 
 def settings(s: Any) -> dict[str, Any]:
@@ -376,6 +377,10 @@ def from_board(deps: Deps, company: str, role: str, city: str | None, country: s
         if board is None and no_board is not None:
             no_board[key] = deps.today.isoformat()
         boards[key] = _board_postings(deps, name, board, role) if board is not None else []
+    # A board guessed by the name counts as the company's job list only with jobs in the
+    # row's country: another company may have the same name.
+    if any(in_place(p.location_text, city, country) for p in boards[key]):
+        _listed()
     return _pick(deps, boards[key], role, city, country, "company job board")
 
 
@@ -416,6 +421,17 @@ def real_company(company: str) -> bool:
 # Set on the worker's thread when a job could not be looked up fully because this sweep's
 # searches or browser pages were used up: the job is then tried again at the next sweep.
 _SHORT = threading.local()
+
+
+_CHECK = threading.local()  # .read: this job's company job list was read (2 Nov)
+MISSES_TO_SKIP = 2  # checks of the company's job list without the job before it is skipped
+MISSES_KEEP_DAYS = 30
+NOTE = "Company site check"  # page body line; screening reads no description past it
+
+
+def _listed() -> None:
+    """This job's company job list was read: a miss means the job is not on it."""
+    _CHECK.read = True
 
 
 def _short() -> None:
@@ -559,8 +575,54 @@ def _job_page(deps: Deps, url: str, company: str, role: str, city: str | None,
         return None
     if not any(same_title(t, role, city, country) for t in page_titles(html)):
         return None
+    if other_country(final, html, country):
+        log.info("job page %s is in another country than %s", final, country)
+        return None
     text = fulltext.extract(html) or ""
     return Found(final, text, how) if len(text) >= _full_min(deps) else None
+
+
+# Countries a job link names in its address (2 Nov: AgileEngine's "devops-engineer-kobie-
+# india-id98058" was taken for a Poland job).
+OTHER_COUNTRIES = ("india", "usa", "united-states", "canada", "mexico", "brazil",
+                   "argentina", "colombia", "chile", "peru", "ukraine", "moldova", "serbia",
+                   "romania", "bulgaria", "philippines", "pakistan", "egypt", "morocco",
+                   "united-kingdom", "germany", "spain", "portugal", "france", "italy",
+                   "czech", "hungary", "georgia", "armenia", "turkey", "vietnam", "china",
+                   "singapore", "australia", "south-africa", "nigeria", "kenya", "uae")
+
+
+def other_country(url: str, html: str, country: str | None) -> bool:
+    """The job page is for another country than the row's: its JobPosting's country, or a
+    country named in its link."""
+    if not country:
+        return False
+    mine = {w.lower() for w in COUNTRY_WORDS.get(canon(country), (canon(country),))}
+    found: set[str] = set()
+    soup = BeautifulSoup(html, "html.parser")
+    for script in soup.find_all("script", type="application/ld+json"):
+        try:
+            data = json.loads(script.string or "")
+        except ValueError:
+            continue
+        for node in data if isinstance(data, list) else [data]:
+            if not isinstance(node, dict) or node.get("@type") != "JobPosting":
+                continue
+            places = node.get("jobLocation") or []
+            for place in places if isinstance(places, list) else [places]:
+                address = place.get("address") if isinstance(place, dict) else None
+                value = address.get("addressCountry") if isinstance(address, dict) else None
+                if isinstance(value, dict):
+                    value = value.get("name")
+                if isinstance(value, str) and value.strip():
+                    found.add(canon(value))
+    if found:
+        return not any(f in mine for f in found)
+    words = set(re.split(r"[^a-z0-9]+", urlsplit(url).path.lower()))
+    joined = urlsplit(url).path.lower()
+    named = {c for c in OTHER_COUNTRIES
+             if (c in words if "-" not in c else f"-{c}-" in f"-{joined}-")}
+    return bool(named) and not named & mine
 
 
 def _on_page(deps: Deps, final: str, html: str, company: str, role: str, city: str | None,
@@ -574,6 +636,8 @@ def _on_page(deps: Deps, final: str, html: str, company: str, role: str, city: s
         key = f"{board.ats}:{board.token}:{board.host}"
         if key not in boards:
             boards[key] = _board_postings(deps, without_region(company), board, role)
+        if boards[key]:
+            _listed()
         found = _pick(deps, boards[key], role, city, country, how)
         if found is not None:
             return found
@@ -610,6 +674,8 @@ def _from_workday(deps: Deps, url: str, company: str, role: str, city: str | Non
     key = f"workday:{board.host}:{board.site}"
     if key not in boards:
         boards[key] = _board_postings(deps, without_region(company), board, role)
+    if boards[key]:
+        _listed()
     return _pick(deps, boards[key], role, city, country, how)
 
 
@@ -630,6 +696,8 @@ def from_site(deps: Deps, careers: str, company: str, role: str, city: str | Non
         key = f"{board.ats}:{board.token}:{board.host}"
         if key not in boards:
             boards[key] = _board_postings(deps, without_region(company), board, role)
+        if boards[key]:
+            _listed()
         return _pick(deps, boards[key], role, city, country, "company job board")
     reads = [MAX_SITE_PAGES]
     renders = [MAX_RENDERS_PER_JOB]
@@ -646,6 +714,8 @@ def from_site(deps: Deps, careers: str, company: str, role: str, city: str | Non
         except http.HttpError as exc:
             log.info("careers page not read %s: %s", urlsplit(url).hostname, exc)
             continue
+        if not thin_page(html):
+            _listed()
         found = _on_page(deps, final, html, company, role, city, country, how, boards, reads,
                          careers)
         if found is not None:
@@ -666,6 +736,7 @@ def from_site(deps: Deps, careers: str, company: str, role: str, city: str | Non
                 log.info("careers page not opened in the browser %s: %s",
                          urlsplit(url).hostname, exc)
             else:
+                _listed()
                 found = _on_page(deps, final, html, company, role, city, country, how, boards,
                                  reads, careers)
                 if found is not None:
@@ -759,64 +830,7 @@ def from_search(deps: Deps, company: str, role: str, city: str | None,
         text = fulltext.extract(html) or ""
         if len(text) >= full_min:
             return Found(final, text, "web search")
-    copies = [u for u in candidates if not employer_page(u, company) and copy_site(u)]
-    for url in copies[:MAX_COPIES]:
-        found = _copy(deps, url, company, role, city, country, full_min)
-        if found is not None:
-            return found
     return None
-
-
-def has_full_text(repo: JobsRepo, page_id: str, full_min: int) -> bool:
-    """The page body holds a description of at least `full_min` characters that is not a
-    snippet (a row filled from the same job on another source)."""
-    blocks = repo.body_blocks(page_id)
-    for i, (_id, text) in enumerate(blocks):
-        if not text.startswith(DESCRIPTION_HEADER) or "snippet" in text.lower():
-            continue
-        size = 0
-        for _other, part in blocks[i + 1:]:
-            if part.startswith((DESCRIPTION_HEADER, EARLIER, "Screening (")):
-                break
-            size += len(part)
-        if size >= full_min:
-            return True
-    return False
-
-
-def copy_site(url: str) -> bool:
-    """A public https page that may show a copy of the advert: never LinkedIn (the page
-    reader also refuses the sites in sweep.fulltext.blocked_hosts)."""
-    parts = urlsplit(url)
-    host = (parts.hostname or "").lower()
-    return parts.scheme == "https" and bool(host) and "linkedin." not in host
-
-
-def mentions(html: str, company: str) -> bool:
-    """The page names the company (its name without "sp. z o.o.", "B.V." and the like)."""
-    name = canon_company(without_region(company))
-    text = f" {canon(BeautifulSoup(html, 'html.parser').get_text(' '))} "
-    return bool(name) and f" {name} " in text
-
-
-def _copy(deps: Deps, url: str, company: str, role: str, city: str | None,
-          country: str | None, full_min: int) -> Found | None:
-    """This job's advert on another job site: same title, names the company, full text."""
-    from jobengine import http
-
-    try:
-        final, html = deps.page(url)
-    except http.HttpError as exc:
-        log.info("copy of the advert not read %s: %s", urlsplit(url).hostname, exc)
-        return None
-    if not copy_site(final) or not mentions(html, company):
-        return None
-    if not any(same_title(t, role, city, country) for t in page_titles(html)):
-        return None
-    text = fulltext.extract(html) or ""
-    if len(text) < full_min:
-        return None
-    return Found(final, text, urlsplit(final).hostname or "another job site", own=False)
 
 
 # ---------------------------------------------------------------- the pass
@@ -845,11 +859,6 @@ def _sites(state: Any, today: date) -> dict[str, dict[str, str]]:
 
 def blocks(found: Found, board: str, old_url: str | None) -> list[str]:
     """The earlier link, then the description as screening reads it (newest last)."""
-    if not found.own:  # the link stays: only the description, and where it was read
-        out = [f"{DESCRIPTION_HEADER} {found.how} (the same {board} job on another job site, "
-               f"found by web search: {found.url})"]
-        return out + textblocks.chunks(textblocks.tidy(found.text), DESCRIPTION_BLOCK_CHARS,
-                                       DESCRIPTION_MAX_BLOCKS - len(out))
     out = [f"{EARLIER} ({board}): {old_url}"] if old_url else []
     out.append(f"{DESCRIPTION_HEADER} company site (direct link for this {board} job, found "
                f"by {found.how}: {found.url})")
@@ -884,10 +893,16 @@ def run(deps: Deps, boards: tuple[str, ...], with_body: set[str] | None = None,
     rows = [r for r in rows if real_company(str(r[1]["Company"]))]
     rows.sort(key=lambda r: str(r[1].get("Posted date") or ""), reverse=True)
     tried = _remembered(deps.state, deps.today, "tried")
-    saved = (deps.state.get(KEY) if deps.state is not None else None) or {}
-    described = dict(saved.get("described") or {})  # rows with a copy's description: done
     no_board = _remembered(deps.state, deps.today, "no_board")
     sites = _sites(deps.state, deps.today)
+    saved = (deps.state.get(KEY) if deps.state is not None else None) or {}
+    cutoff = (deps.today - timedelta(days=MISSES_KEEP_DAYS)).isoformat()
+    misses: dict[str, list[str]] = {
+        k: [d for d in v if str(d) > cutoff] for k, v in (saved.get("misses") or {}).items()
+        if isinstance(v, list)}
+    misses = {k: v for k, v in misses.items() if v}
+    noted: dict[str, str] = {k: v for k, v in (saved.get("noted") or {}).items()
+                             if str(v) > cutoff}
     job_boards: dict[str, Any] = {}
     allowed = int(cfg.get("max_searches", DEFAULT_MAX_SEARCHES)) if deps.llm else 0
     searches = Budget(allowed)
@@ -897,7 +912,7 @@ def run(deps: Deps, boards: tuple[str, ...], with_body: set[str] | None = None,
     for page_id, values in rows:
         if result.tried >= max_rows:
             break
-        if page_id in tried or page_id in described:
+        if page_id in tried:
             continue
         result.tried += 1
         tried[page_id] = deps.today.isoformat()
@@ -935,32 +950,21 @@ def run(deps: Deps, boards: tuple[str, ...], with_body: set[str] | None = None,
             careers = careers_page(company, country, page_id)
             if careers:
                 found = from_site(deps, careers, company, role, city, country, job_boards)
-        # Also after a careers page without the job (2 Nov): its own page is seldom found
-        # that way (30 Oct: 0 of 20), but a copy of the advert on another job site is.
-        if found is None and search():
+        # With a careers page read, a search for the exact job finds no more (30 Oct:
+        # 0 of 20), so the searches go to the next companies instead.
+        if found is None and not careers and search():
             found = from_search(deps, company, role, city, country, page_id)
-        if found is None:
-            again = " (looked up again next /fetch)" if getattr(_SHORT, "hit", False) else ""
-            log.info("no direct link for %s, %s: it waits for /jd%s; closest titles seen: %s",
-                     company, role, again, closest())
-            return None
         board = str(values.get("Board") or "alert")
-        if not found.own:
-            if has_full_text(deps.repo, page_id, _full_min(deps)):
-                log.info("%s row %s: has its description already, copy not added", board,
-                         page_id)
-                with lock:
-                    described[page_id] = deps.today.isoformat()
-                return ""
-            with lock:
-                deps.repo.append_body(page_id, blocks(found, board, values.get("URL")))
-                if with_body is not None:
-                    with_body.add(page_id)
-                described[page_id] = deps.today.isoformat()
-                result.copies.append(f"{company}, {role} ({found.how})")
-            log.info("%s row %s: description from %s (the link stays)", board, page_id,
-                     found.url)
-            return ""
+        if found is None:
+            if getattr(_SHORT, "hit", False):
+                log.info("no direct link for %s, %s yet (looked up again next /fetch); "
+                         "closest titles seen: %s", company, role, closest())
+                return None
+            log.info("no direct link for %s, %s: %s; closest titles seen: %s", company, role,
+                     "not on its job list" if getattr(_CHECK, "read", False)
+                     else "its site could not be checked", closest())
+            missing(page_id, values, company, role, board)
+            return None
         with lock:
             deps.repo.update(page_id, {"URL": found.url})
             deps.repo.append_body(page_id, blocks(found, board, values.get("URL")))
@@ -969,11 +973,49 @@ def run(deps: Deps, boards: tuple[str, ...], with_body: set[str] | None = None,
         log.info("%s row %s: direct link %s (%s)", board, page_id, found.url, found.how)
         return f"{company}, {role} ({found.how})"
 
+    def missing(page_id: str, values: dict[str, Any], company: str, role: str,
+                board: str) -> None:
+        """A note on the page: not on the company's job list (skipped at the second check),
+        or the company's site could not be checked (waits for /jd)."""
+        today = deps.today.isoformat()
+        unscreened = str(values.get("Screen verdict") or "Unscreened") == "Unscreened"
+        if not getattr(_CHECK, "read", False):
+            with lock:
+                result.unchecked += 1
+                if page_id in noted:
+                    return
+                noted[page_id] = today
+                deps.repo.append_body(page_id, [
+                    f"{NOTE} ({today}): {company}'s own site could not be checked (no "
+                    "careers page found, or the site did not answer). The job waits for /jd."])
+            return
+        with lock:
+            days = misses.setdefault(page_id, [])
+            if today not in days:
+                days.append(today)
+            if len(days) < MISSES_TO_SKIP:
+                result.not_yet += 1
+                deps.repo.append_body(page_id, [
+                    f"{NOTE} ({today}): not on {company}'s own job list yet. Looked up again "
+                    f"after {RETRY_DAYS} days; still missing then, it is skipped."])
+                return
+            text = (f"{NOTE} ({today}): not on {company}'s own job list (checked "
+                    f"{', '.join(days)}). It is only on {board}: likely a ghost job or one the "
+                    "company does not publish itself")
+            if unscreened:
+                deps.repo.update(page_id, {"Screen verdict": "Skip"})
+                text += ", so it is skipped (Screen verdict Skip)."
+            else:
+                text += "."
+            deps.repo.append_body(page_id, [text])
+            result.ghosts.append(f"{company}, {role}")
+
     def company_jobs(group: list[tuple[str, dict[str, Any]]]) -> list[str]:
         labels = []
         for page_id, values in group:
             CONTROL.check()  # after /end a worker stops before its next job
             _SHORT.hit = False
+            _CHECK.read = False
             _SEEN.titles = {}
             try:
                 label = lookup(page_id, values)
@@ -982,7 +1024,7 @@ def run(deps: Deps, boards: tuple[str, ...], with_body: set[str] | None = None,
                 continue
             if label:
                 labels.append(label)
-            elif label is None and _SHORT.hit:
+            elif _SHORT.hit:
                 with lock:
                     tried.pop(page_id, None)
                     result.again += 1
@@ -999,5 +1041,5 @@ def run(deps: Deps, boards: tuple[str, ...], with_body: set[str] | None = None,
         result.labels.extend(labels)
     if deps.state is not None:
         deps.state.set(KEY, {"tried": tried, "no_board": no_board, "sites": sites,
-                             "described": described})
+                             "misses": misses, "noted": noted})
     return result

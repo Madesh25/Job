@@ -778,7 +778,9 @@ def run_sweep(
             summary.direct_links = found.labels
             summary.direct_links_tried = found.tried
             summary.direct_links_again = getattr(found, "again", 0)
-            summary.described_elsewhere = list(getattr(found, "copies", []))
+            summary.ghost_jobs = list(getattr(found, "ghosts", []))
+            summary.not_on_site_yet = getattr(found, "not_yet", 0)
+            summary.site_unchecked = getattr(found, "unchecked", 0)
         except Exception:  # never fail a sweep over the link search
             log.exception("direct job links failed")
 

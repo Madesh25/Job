@@ -54,6 +54,7 @@ FAKE_TODAY = date(2026, 10, 1)
 DESCRIPTION_HEADER = "Description source:"
 SNIPPET_MARK = "(snippet only)"
 SECTION_PREFIX = "Screening ("
+SITE_NOTE = "Company site check"  # sweep/job_links.py: a note, never part of a description
 FULL_MIN_CHARS = 600
 REVIEW_VERDICTS = ("Apply high", "Apply normal", "Apply low", "Needs review")
 SPONSORSHIP_LABELS = {
@@ -170,7 +171,7 @@ def description(blocks: list[str], full_min: int = FULL_MIN_CHARS) -> tuple[str,
         return "", "none"
     parts = []
     for text in blocks[start + 1:]:
-        if text.startswith(DESCRIPTION_HEADER) or text.startswith(SECTION_PREFIX):
+        if text.startswith((DESCRIPTION_HEADER, SECTION_PREFIX, SITE_NOTE)):
             break
         parts.append(text)
     # Blocks end at a line end since 2 Nov (textblocks.py); older pages were cut every 2000
