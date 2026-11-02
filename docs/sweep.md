@@ -491,6 +491,13 @@ you (the autopilot stops there and says so).
   no answer), the note says that once and the job waits for /jd. Screening never reads a
   note as a description. A job page for another country (its JobPosting country, or a
   country in its link, such as "...-india-...") is not the row's job.
+- A job list counts as checked only when it is one (2 Nov, second run): the company's job
+  board with jobs in the row's country, or a page with at least 3 links whose text is a job
+  title. A homepage, or a careers page that answers 404, is no check. A job whose title is
+  on the list but whose page cannot be read is never a ghost job: it waits for /jd (a job
+  page with too little text is opened in the browser first). A city name ("... Warsaw" for
+  Warszawa) and a job number in the alert's title ("... ID89421") are not part of the
+  title. The checks of the first run (2 Nov) are not counted.
 - The summary says how many jobs were not on the job list yet, how many sites could not be
   checked, and lists the jobs skipped as likely ghost jobs.
 

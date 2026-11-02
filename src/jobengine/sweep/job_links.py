@@ -197,20 +197,27 @@ _BUTTON = re.compile(
 # running number behind ("Platform Engineer (18/22)", Infolet).
 _TEAM_CODE = re.compile(r"^\s*\[[A-Z0-9]{2,6}\]\s*")
 _RUNNING_NUMBER = re.compile(r"\s*\(\d{1,3}/\d{1,3}\)\s*$")
+# A job number at the end of an alert's title: "GCP Cloud Engineer ID89421" (AgileEngine).
+_ID_SUFFIX = re.compile(r"\s+(?:id|ref|req)\s?[:#]?\s?\d{3,}\s*$", re.I)
 
 
 def card_title(text: str | None) -> str:
     """A job title as a careers page shows it, without its job number and button text."""
     value = _JOB_NUMBER.sub("", text or "")
     value = _BUTTON.sub("", value).strip()
-    return _RUNNING_NUMBER.sub("", _TEAM_CODE.sub("", value)).strip()
+    value = _RUNNING_NUMBER.sub("", _TEAM_CODE.sub("", value)).strip()
+    return _ID_SUFFIX.sub("", value).strip()
 
 
 def same_title(found: str | None, role: str | None, city: str | None = None,
                country: str | None = None) -> bool:
     """The exact job title, as crossmatch counts it ("Remote" and the place left out)."""
-    want = title_key(role, city, country)
-    return bool(want) and title_key(card_title(found), city, country) == want
+    want = title_key(card_title(role), city, country)
+    got = title_key(card_title(found), city, country)
+    if city:  # "... (f/m) Warsaw" for a row in "Warszawa" (Netcompany, 2 Nov)
+        home = canon_city(city)
+        got = " ".join(w for w in got.split() if canon_city(w) != home)
+    return bool(want) and got == want
 
 
 def page_titles(html: str) -> list[str]:
@@ -349,6 +356,7 @@ def _pick(deps: Deps, postings: list[Any], role: str, city: str | None,
             continue
         if not in_place(p.location_text, city, country):
             continue
+        _seen()
         text = (p.description or "").strip()
         if p.description_is_snippet or len(text) < full_min:
             text = _page_text(deps, p.url) or text
@@ -426,12 +434,42 @@ _SHORT = threading.local()
 _CHECK = threading.local()  # .read: this job's company job list was read (2 Nov)
 MISSES_TO_SKIP = 2  # checks of the company's job list without the job before it is skipped
 MISSES_KEEP_DAYS = 30
-NOTE = "Company site check"  # page body line; screening reads no description past it
+NOTE = "Company site check"
+# bot_state part for the checks without the job. "misses" (2 Nov, first run) counted a
+# homepage as a job list; those checks are not used.
+MISSES = "misses_2"  # page body line; screening reads no description past it
 
 
 def _listed() -> None:
     """This job's company job list was read: a miss means the job is not on it."""
     _CHECK.read = True
+
+
+def _seen() -> None:
+    """The job's title is on the company's job list (its page may still be unreadable)."""
+    _CHECK.seen = True
+
+
+# Words of job titles, in the languages of your countries: a page with a few links like that
+# is a job list (2 Nov: a homepage or a careers page that answered 404 was counted as one).
+JOB_WORDS = re.compile(
+    r"\b(?:engineer|developer|administrator|architect|analyst|manager|specialist|consultant|"
+    r"devops|sre|tester|designer|scientist|technician|inżynier|programista|specjalista|"
+    r"administrator|ontwikkelaar|beheerder|medewerker)\b", re.I)
+MIN_JOB_LINKS = 3
+
+
+def job_list_page(html: str) -> bool:
+    """The page lists jobs: at least MIN_JOB_LINKS links whose text is a job title."""
+    soup = BeautifulSoup(html, "html.parser")
+    count = 0
+    for a in soup.find_all("a", href=True):
+        text = a.get_text(" ", strip=True)
+        if text and len(text) <= MAX_LINE and JOB_WORDS.search(text):
+            count += 1
+            if count >= MIN_JOB_LINKS:
+                return True
+    return False
 
 
 def _short() -> None:
@@ -523,6 +561,7 @@ def title_links(base: str, html: str, role: str, city: str | None,
             _note(TITLE_SPLIT.split(shown)[0], role, city, country)
         if any(same_title(TITLE_SPLIT.split(x)[0], role, city, country)
                or same_title(x, role, city, country) for x in texts if x):
+            _seen()
             url = urljoin(base, str(a["href"]).strip()).split("#")[0]
             if url.startswith("http://"):  # 2 Nov: Xccelerated links its jobs with http://
                 url = "https://" + url[len("http://"):]
@@ -579,6 +618,15 @@ def _job_page(deps: Deps, url: str, company: str, role: str, city: str | None,
         log.info("job page %s is in another country than %s", final, country)
         return None
     text = fulltext.extract(html) or ""
+    if len(text) < _full_min(deps) and deps.render is not None and (
+            getattr(deps.render, "left", 1) > 0):
+        # A job page built by JavaScript (Zoho Recruit, 2 Nov: Technopride)
+        try:
+            final, html = deps.render(final)
+        except http.HttpError as exc:
+            log.info("job page not opened in the browser %s: %s", urlsplit(url).hostname, exc)
+        else:
+            text = fulltext.extract(html) or text
     return Found(final, text, how) if len(text) >= _full_min(deps) else None
 
 
@@ -714,7 +762,7 @@ def from_site(deps: Deps, careers: str, company: str, role: str, city: str | Non
         except http.HttpError as exc:
             log.info("careers page not read %s: %s", urlsplit(url).hostname, exc)
             continue
-        if not thin_page(html):
+        if job_list_page(html):
             _listed()
         found = _on_page(deps, final, html, company, role, city, country, how, boards, reads,
                          careers)
@@ -736,7 +784,8 @@ def from_site(deps: Deps, careers: str, company: str, role: str, city: str | Non
                 log.info("careers page not opened in the browser %s: %s",
                          urlsplit(url).hostname, exc)
             else:
-                _listed()
+                if job_list_page(html):
+                    _listed()
                 found = _on_page(deps, final, html, company, role, city, country, how, boards,
                                  reads, careers)
                 if found is not None:
@@ -898,7 +947,7 @@ def run(deps: Deps, boards: tuple[str, ...], with_body: set[str] | None = None,
     saved = (deps.state.get(KEY) if deps.state is not None else None) or {}
     cutoff = (deps.today - timedelta(days=MISSES_KEEP_DAYS)).isoformat()
     misses: dict[str, list[str]] = {
-        k: [d for d in v if str(d) > cutoff] for k, v in (saved.get("misses") or {}).items()
+        k: [d for d in v if str(d) > cutoff] for k, v in (saved.get(MISSES) or {}).items()
         if isinstance(v, list)}
     misses = {k: v for k, v in misses.items() if v}
     noted: dict[str, str] = {k: v for k, v in (saved.get("noted") or {}).items()
@@ -979,15 +1028,18 @@ def run(deps: Deps, boards: tuple[str, ...], with_body: set[str] | None = None,
         or the company's site could not be checked (waits for /jd)."""
         today = deps.today.isoformat()
         unscreened = str(values.get("Screen verdict") or "Unscreened") == "Unscreened"
-        if not getattr(_CHECK, "read", False):
+        seen = getattr(_CHECK, "seen", False)
+        if seen or not getattr(_CHECK, "read", False):
             with lock:
                 result.unchecked += 1
                 if page_id in noted:
                     return
                 noted[page_id] = today
+                why = ("the job is on its job list, but its page could not be read" if seen
+                       else "no job list found on its site, or the site did not answer")
                 deps.repo.append_body(page_id, [
-                    f"{NOTE} ({today}): {company}'s own site could not be checked (no "
-                    "careers page found, or the site did not answer). The job waits for /jd."])
+                    f"{NOTE} ({today}): {company}'s own site could not be checked ({why}). "
+                    "The job waits for /jd."])
             return
         with lock:
             days = misses.setdefault(page_id, [])
@@ -1016,6 +1068,7 @@ def run(deps: Deps, boards: tuple[str, ...], with_body: set[str] | None = None,
             CONTROL.check()  # after /end a worker stops before its next job
             _SHORT.hit = False
             _CHECK.read = False
+            _CHECK.seen = False
             _SEEN.titles = {}
             try:
                 label = lookup(page_id, values)
@@ -1041,5 +1094,5 @@ def run(deps: Deps, boards: tuple[str, ...], with_body: set[str] | None = None,
         result.labels.extend(labels)
     if deps.state is not None:
         deps.state.set(KEY, {"tried": tried, "no_board": no_board, "sites": sites,
-                             "misses": misses, "noted": noted})
+                             MISSES: misses, "noted": noted})
     return result
