@@ -27,7 +27,7 @@ from jobengine.sweep.dedupe import DESCRIPTION_BLOCK_CHARS, DESCRIPTION_MAX_BLOC
 log = logging.getLogger("jobengine.sweep")
 
 KEY = "sweep.tidy_bodies"  # bot_state: {"version": n, "checked": [page ids without dashes]}
-VERSION = 2  # pages checked by an older tidy() are checked again
+VERSION = 3  # pages checked by an older tidy() are checked again (3: lone bullets, 2 Nov)
 DEFAULT_MAX_PAGES = 60
 PROGRESS_EVERY = 20  # a progress line every this many pages
 # Lines that end a description: the next section of the page.

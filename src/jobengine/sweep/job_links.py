@@ -387,8 +387,7 @@ def from_board(deps: Deps, company: str, role: str, city: str | None, country: s
         boards[key] = _board_postings(deps, name, board, role) if board is not None else []
     # A board guessed by the name counts as the company's job list only with jobs in the
     # row's country: another company may have the same name.
-    # A job without a place proves nothing (2 Nov: "greenhouse link" was not Link Group's).
-    if any(p.location_text and in_place(p.location_text, city, country) for p in boards[key]):
+    if _in_country(boards[key], city, country):
         _listed()
     return _pick(deps, boards[key], role, city, country, "company job board")
 
@@ -444,6 +443,13 @@ MISSES = "misses_2"  # page body line; screening reads no description past it
 def _listed() -> None:
     """This job's company job list was read: a miss means the job is not on it."""
     _CHECK.read = True
+
+
+def _in_country(postings: list[Any], city: str | None, country: str | None) -> bool:
+    """A job list for the row: jobs that name a place in the row's country. A board without
+    one is not this job's list (2 Nov: Capgemini's and Xebia's boards had no Dutch or
+    Polish jobs; Link Group's guessed board had no places at all)."""
+    return any(p.location_text and in_place(p.location_text, city, country) for p in postings)
 
 
 def _seen() -> None:
@@ -685,7 +691,7 @@ def _on_page(deps: Deps, final: str, html: str, company: str, role: str, city: s
         key = f"{board.ats}:{board.token}:{board.host}"
         if key not in boards:
             boards[key] = _board_postings(deps, without_region(company), board, role)
-        if boards[key]:
+        if _in_country(boards[key], city, country):
             _listed()
         found = _pick(deps, boards[key], role, city, country, how)
         if found is not None:
@@ -723,7 +729,7 @@ def _from_workday(deps: Deps, url: str, company: str, role: str, city: str | Non
     key = f"workday:{board.host}:{board.site}"
     if key not in boards:
         boards[key] = _board_postings(deps, without_region(company), board, role)
-    if boards[key]:
+    if _in_country(boards[key], city, country):
         _listed()
     return _pick(deps, boards[key], role, city, country, how)
 
@@ -745,7 +751,7 @@ def from_site(deps: Deps, careers: str, company: str, role: str, city: str | Non
         key = f"{board.ats}:{board.token}:{board.host}"
         if key not in boards:
             boards[key] = _board_postings(deps, without_region(company), board, role)
-        if boards[key]:
+        if _in_country(boards[key], city, country):
             _listed()
         return _pick(deps, boards[key], role, city, country, "company job board")
     reads = [MAX_SITE_PAGES]
@@ -1015,12 +1021,17 @@ def run(deps: Deps, boards: tuple[str, ...], with_body: set[str] | None = None,
                      else "its site could not be checked", closest())
             missing(page_id, values, company, role, board)
             return None
+        # The same text may be on the page already: the cross-match of this sweep read the
+        # job on the company's job board (2 Nov: Snowflake's description twice).
+        has_it = any(found.url in text for _id, text in deps.repo.body_blocks(page_id))
         with lock:
             deps.repo.update(page_id, {"URL": found.url})
-            deps.repo.append_body(page_id, blocks(found, board, values.get("URL")))
-            if with_body is not None:
-                with_body.add(page_id)
-        log.info("%s row %s: direct link %s (%s)", board, page_id, found.url, found.how)
+            if not has_it:
+                deps.repo.append_body(page_id, blocks(found, board, values.get("URL")))
+                if with_body is not None:
+                    with_body.add(page_id)
+        log.info("%s row %s: direct link %s (%s)%s", board, page_id, found.url, found.how,
+                 ", its description was on the page already" if has_it else "")
         return f"{company}, {role} ({found.how})"
 
     def missing(page_id: str, values: dict[str, Any], company: str, role: str,

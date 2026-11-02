@@ -498,6 +498,10 @@ you (the autopilot stops there and says so).
   page with too little text is opened in the browser first). A city name ("... Warsaw" for
   Warszawa) and a job number in the alert's title ("... ID89421") are not part of the
   title. The checks of the first run (2 Nov) are not counted.
+- Every job board counts as the job's list only with jobs placed in the row's country, also
+  the one in Careers URL (2 Nov, fresh /fetch: Capgemini's board showed Milan, Singapore and
+  Atlanta for a Dutch job). A job whose description from the company's job board is on the
+  page already (the cross-match read it) gets only its link, not the same text again.
 - The summary says how many jobs were not on the job list yet, how many sites could not be
   checked, and lists the jobs skipped as likely ghost jobs.
 
@@ -519,7 +523,8 @@ Pages written before that are tidied during /fetch, in local and dev only
 (`sweep.tidy_bodies.enabled`; off in prod, where every page is written tidy from the
 start): up to `max_pages` (60) pages a /fetch, newest first, each checked once (Bot State
 `sweep.tidy_bodies`; a better tidy() raises its version, and then every page is checked
-again: version 2 mends the cut sentences). A description that would be written differently is rewritten in the
+again: version 2 mends the cut sentences, version 3 joins a "•" on its own line with its
+text). A description that would be written differently is rewritten in the
 same place: the new text right after its "Description source:" line, then the old blocks
 removed. Screening notes and links stay. The summary says "Old descriptions tidied (DEV): M
 pages checked, N rewritten, K still to check" until all old pages are done. Local and dev

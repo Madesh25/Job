@@ -868,3 +868,31 @@ def test_a_guessed_board_whose_jobs_have_no_place_is_no_check():
 
     result = job_links.run(deps([row()], get=get), BOARDS)
     assert (result.unchecked, result.not_yet) == (1, 0)
+
+
+def test_a_description_already_on_the_page_is_not_written_again():
+    """2 Nov: Snowflake's description from its job board was written twice (cross-match,
+    then the direct link of the same job)."""
+    page = list_page("DevOps Engineer", "Data Engineer", "QA Engineer")
+    job_url = "https://www.dunedata.com/careers/0"
+    body = [f"Description source: ats (same job on Company site: {job_url})", TEXT]
+    d = deps([row(body=body)], pages={CAREERS: page, job_url: job_page("DevOps Engineer")},
+             careers={"dune data": CAREERS})
+    result = job_links.run(d, BOARDS)
+    assert result.labels == ["Dune Data, DevOps Engineer (careers page)"]
+    assert d.repo.rows["p0"]["URL"] == job_url and d.repo.rows["p0"]["body"] == body
+
+
+def test_a_board_without_jobs_in_the_country_is_no_check():
+    """2 Nov: Capgemini's board listed Milan, Singapore and Atlanta for a Dutch job."""
+    def get(url, params=None):
+        if "greenhouse" in url and "dunedata" in url:
+            return {"jobs": [{"id": 1, "title": "DevOps Engineer", "content": TEXT,
+                              "absolute_url": "https://boards.greenhouse.io/dunedata/1",
+                              "location": {"name": "Milano, IT"}, "updated_at": "2026-10-27"}]}
+        raise http.HttpError("GET failed: HTTP 404", status=404)
+
+    d = deps([row()], get=get, pages={CAREERS: "<html></html>"},
+             careers={"dune data": "https://boards.greenhouse.io/dunedata"})
+    result = job_links.run(d, BOARDS)
+    assert (result.unchecked, result.not_yet) == (1, 0)
