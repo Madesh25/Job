@@ -192,10 +192,17 @@ _BUTTON = re.compile(
     re.I)
 
 
+# 2 Nov, second log: a team code in front ("[WBG] DevOps Engineer", Software Mind) and a
+# running number behind ("Platform Engineer (18/22)", Infolet).
+_TEAM_CODE = re.compile(r"^\s*\[[A-Z0-9]{2,6}\]\s*")
+_RUNNING_NUMBER = re.compile(r"\s*\(\d{1,3}/\d{1,3}\)\s*$")
+
+
 def card_title(text: str | None) -> str:
     """A job title as a careers page shows it, without its job number and button text."""
     value = _JOB_NUMBER.sub("", text or "")
-    return _BUTTON.sub("", value).strip()
+    value = _BUTTON.sub("", value).strip()
+    return _RUNNING_NUMBER.sub("", _TEAM_CODE.sub("", value)).strip()
 
 
 def same_title(found: str | None, role: str | None, city: str | None = None,
@@ -501,6 +508,8 @@ def title_links(base: str, html: str, role: str, city: str | None,
         if any(same_title(TITLE_SPLIT.split(x)[0], role, city, country)
                or same_title(x, role, city, country) for x in texts if x):
             url = urljoin(base, str(a["href"]).strip()).split("#")[0]
+            if url.startswith("http://"):  # 2 Nov: Xccelerated links its jobs with http://
+                url = "https://" + url[len("http://"):]
             if url.startswith("https://"):
                 out.append(url)
     return list(dict.fromkeys(out))
