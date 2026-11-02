@@ -82,6 +82,7 @@ def site_of(urls: Iterable[str]) -> tuple[str, str]:
 class Found:
     new: dict[str, dict[str, Any]] = field(default_factory=dict)  # key -> item
     missed: list[str] = field(default_factory=list)  # "Company, Role (Board)"
+    missed_companies: list[str] = field(default_factory=list)  # their names, once each
 
 
 def find(seen: list[Job], companies: list[TargetCompany], read: Iterable[str], config: Any,
@@ -105,6 +106,8 @@ def find(seen: list[Job], companies: list[TargetCompany], read: Iterable[str], c
             if (key in read_keys and label not in found.missed
                     and match_key(job.company, job.role, job.country, job.city) not in on_boards):
                 found.missed.append(label)
+                if job.company not in found.missed_companies:
+                    found.missed_companies.append(job.company)
             continue
         if key in turned_down or agency_by_name(job.company, config):
             continue

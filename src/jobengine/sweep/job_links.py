@@ -441,6 +441,36 @@ NOTE = "Company site check"
 MISSES = "misses_2"  # page body line; screening reads no description past it
 
 
+INCOMPLETE_KEY = "sweep.boards_missing"  # bot_state: {"companies": {name: last iso day}}
+INCOMPLETE_DAYS = 14  # a board that missed jobs is no check for this long
+
+
+def note_incomplete(state: Any, companies: list[str], today: date) -> None:
+    """Companies whose own job board missed jobs of this sweep (discover.py, the summary's
+    "Jobs another source found that the company's own job board did not list")."""
+    if state is None:
+        return
+    cutoff = (today - timedelta(days=INCOMPLETE_DAYS)).isoformat()
+    kept = {k: v for k, v in ((state.get(INCOMPLETE_KEY) or {}).get("companies") or {}).items()
+            if isinstance(v, str) and v > cutoff}
+    kept.update({c: today.isoformat() for c in companies})
+    state.set(INCOMPLETE_KEY, {"companies": kept})
+
+
+def _incomplete(state: Any, today: date) -> set[str]:
+    value = (state.get(INCOMPLETE_KEY) if state is not None else None) or {}
+    cutoff = (today - timedelta(days=INCOMPLETE_DAYS)).isoformat()
+    companies = value.get("companies") or {}
+    if not isinstance(companies, dict):
+        return set()
+    return {company_key(str(c)) for c, day in companies.items() if str(day) > cutoff}
+
+
+def _partial() -> None:
+    """The company's job list needed the browser, and no browser page was left for it."""
+    _CHECK.partial = True
+
+
 def _listed() -> None:
     """This job's company job list was read: a miss means the job is not on it."""
     _CHECK.read = True
@@ -779,6 +809,7 @@ def from_site(deps: Deps, careers: str, company: str, role: str, city: str | Non
         if (deps.render is not None and (depth or _careers_url(final))
                 and ats.board_in_page(final, html) is None and thin_page(html)):
             if renders[0] <= 0 or getattr(deps.render, "left", 1) <= 0:
+                _partial()
                 log.info("careers page not opened in the browser %s: no browser pages left "
                          "(this job: %d, this /fetch: %s)", urlsplit(url).hostname,
                          renders[0], getattr(deps.render, "left", "?"))
@@ -980,6 +1011,7 @@ def run(deps: Deps, boards: tuple[str, ...], with_body: set[str] | None = None,
     misses = {k: v for k, v in misses.items() if v}
     noted: dict[str, str] = {k: v for k, v in (saved.get("noted") or {}).items()
                              if str(v) > cutoff}
+    incomplete = _incomplete(deps.state, deps.today)
     job_boards: dict[str, Any] = {}
     allowed = int(cfg.get("max_searches", DEFAULT_MAX_SEARCHES)) if deps.llm else 0
     searches = Budget(allowed)
@@ -1062,14 +1094,22 @@ def run(deps: Deps, boards: tuple[str, ...], with_body: set[str] | None = None,
         today = deps.today.isoformat()
         unscreened = str(values.get("Screen verdict") or "Unscreened") == "Unscreened"
         seen = getattr(_CHECK, "seen", False)
-        if seen or not getattr(_CHECK, "read", False):
+        why = ""
+        if seen:
+            why = "the job is on its job list, but its page could not be read"
+        elif not getattr(_CHECK, "read", False):
+            why = "no job list found on its site, or the site did not answer"
+        elif getattr(_CHECK, "partial", False):  # 2 Nov: Infor's list needs the browser
+            why = "its job list needs the browser, and no browser page was left for it"
+        elif company_key(company) in incomplete:  # 2 Nov: Capgemini's board, Dutch jobs
+            why = ("its job board does not list all its jobs (the summary's 'job board did not "
+                   "list' line): put the right Careers URL in Target Companies")
+        if why:
             with lock:
                 result.unchecked += 1
                 if page_id in noted:
                     return
                 noted[page_id] = today
-                why = ("the job is on its job list, but its page could not be read" if seen
-                       else "no job list found on its site, or the site did not answer")
                 deps.repo.append_body(page_id, [
                     f"{NOTE} ({today}): {company}'s own site could not be checked ({why}). "
                     "The job waits for /jd."])
@@ -1102,6 +1142,7 @@ def run(deps: Deps, boards: tuple[str, ...], with_body: set[str] | None = None,
             _SHORT.hit = False
             _CHECK.read = False
             _CHECK.seen = False
+            _CHECK.partial = False
             _SEEN.titles = {}
             try:
                 label = lookup(page_id, values)
