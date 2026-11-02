@@ -68,5 +68,6 @@ def test_on_in_local_and_dev_off_in_prod():
 
 def test_the_summary_says_how_far_it_is():
     text = SweepSummary(tidied=(60, 41, 520)).friendly_text()
-    assert "Old descriptions tidied (DEV): 41 of 60 pages checked, 520 still to check" in text
+    assert ("Old descriptions tidied (DEV): 60 pages checked, 41 rewritten, 520 still to check"
+            in text)
     assert "all old pages done" in SweepSummary(tidied=(12, 3, 0)).friendly_text()

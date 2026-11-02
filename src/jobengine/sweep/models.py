@@ -337,8 +337,8 @@ class SweepSummary:
                              "or browser pages were used up): looked up again next /fetch")
         if self.tidied is not None:
             checked, rewritten, left = self.tidied
-            line = (f"\U0001F9F9 Old descriptions tidied (DEV): {rewritten} of {checked} pages "
-                    "checked")
+            line = (f"\U0001F9F9 Old descriptions tidied (DEV): {checked} pages checked, "
+                    f"{rewritten} rewritten")
             lines.append(line + (f", {left} still to check at the next /fetch" if left
                                  else ", all old pages done"))
         if self.backfilled:
