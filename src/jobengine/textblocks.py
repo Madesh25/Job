@@ -72,6 +72,7 @@ def tidy(text: str | None) -> str:
     for line in lines:
         if line and (not out or out[-1] != line):
             out.append(line)
+    out = _bullets(out)
     if _cut_signs(out) >= _CUT_SIGNS:
         out = mend(out)
     if len(out) == 1 and len(out[0]) > LONG_LINE:
@@ -111,7 +112,19 @@ def text_of(value: str | Tag | None) -> str:
             text = str(item)
             parts.append(text if keep else re.sub(r"\s+", " ", text))
     lines = (re.sub(r"[ \t\u00a0]+", " ", line).strip() for line in "".join(parts).splitlines())
-    return "\n".join(line for line in lines if line)
+    return "\n".join(_bullets([line for line in lines if line]))
+
+
+def _bullets(lines: list[str]) -> list[str]:
+    """A bullet on a line of its own joined with its text: "•" then "Design ..." becomes
+    "• Design ..." (2 Nov: Roche's list items hold a paragraph)."""
+    out: list[str] = []
+    for line in lines:
+        if out and out[-1] in ("•", "-", "*", "\u2013") and not line.startswith(("•", "- ", "* ")):
+            out[-1] = f"• {line}"
+        else:
+            out.append(line)
+    return out
 
 
 def _cut_signs(lines: list[str]) -> int:

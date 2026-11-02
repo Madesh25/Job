@@ -119,3 +119,11 @@ def test_workday_and_job_pages_are_read_with_the_same_lines():
           '"<p><span>I</span>mplement <b>secure</b> pipelines</p><p>Second</p>"}</script>')
     assert fulltext.from_json_ld(BeautifulSoup(ld, "html.parser")) == (
         "Implement secure pipelines\nSecond")
+
+
+def test_a_bullet_on_its_own_line_is_joined_with_its_text():
+    """2 Nov: Roche's list items hold a paragraph, so "•" stood alone above each item."""
+    assert textblocks.text_of("<ul><li><p>Design AWS</p></li><li><p>Build EKS</p></li></ul>") == (
+        "• Design AWS\n• Build EKS")
+    old = "The opportunity:\n•\nDesign and implement\n•\nBuild EKS"
+    assert textblocks.tidy(old) == "The opportunity:\n• Design and implement\n• Build EKS"
