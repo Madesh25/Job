@@ -122,7 +122,9 @@ def test_a_different_title_or_a_short_page_is_not_used():
     for page in (job_page("Senior DevOps Engineer"), job_page("DevOps Engineer", text="Short.")):
         d = deps([row()], pages={url: page}, llm=Search(url))
         assert job_links.run(d, BOARDS).labels == []
-        assert d.repo.rows["p0"]["URL"] == LINKEDIN and "body" not in d.repo.rows["p0"]
+        assert d.repo.rows["p0"]["URL"] == LINKEDIN
+        # no description: only the note that the company's site could not be checked
+        assert all(b.startswith("Company site check") for b in d.repo.rows["p0"]["body"])
 
 
 def test_the_company_job_board_comes_first_and_costs_no_search():
@@ -256,12 +258,11 @@ def test_the_careers_page_is_found_once_by_a_search_and_remembered():
     assert (result.searches, result.sites) == (1, 1)
     assert search.calls[0][1] == "Company: Dune Data\nCountry: Netherlands"
     assert state.get(job_links.KEY)["sites"]["dune data"]["url"] == CAREERS
-    # a second job of the same company: no new search for the careers page; the job is not
-    # on it, so one search for the job itself (2 Nov: a copy on another job site counts)
+    # a second job of the same company: no new search for the careers page, and with the
+    # careers page read no search for the exact job either (30 Oct: it found 0 of 20)
     d2 = deps([row(), row(role="Platform Engineer")], pages=pages, llm=search, state=state)
     result = job_links.run(d2, BOARDS)
-    assert [c[1].split("\n")[1] for c in search.calls[1:]] == ["Job title: Platform Engineer"]
-    assert result.searches == 1
+    assert len(search.calls) == 1 and result.searches == 0
 
 
 def test_a_careers_page_answer_of_another_company_is_not_used():
@@ -614,64 +615,9 @@ def test_seniority_words_and_job_boards_are_not_companies():
     assert job_links.real_company("Seniorita Foods")
 
 
-COPY = "https://www.ziprecruiter.ie/jobs/584018144-devops-engineer-at-dune-data"
 
 
-def copy_page(title="DevOps Engineer at Dune Data B.V.", text=TEXT):
-    return (f"<html><head><title>{title} | ZipRecruiter</title></head><body><h1>{title}</h1>"
-            f"<p>Dune Data B.V. - Amsterdam</p><div class='description'><p>{text}</p></div>"
-            "</body></html>")
 
-
-def test_a_job_not_on_the_company_site_gets_its_description_from_another_job_site():
-    """2 Nov: agency jobs and reposts are on public job sites, not on an employer site."""
-    state = FakeBotState()
-    search = Search(url="", sources=[COPY, "https://www.linkedin.com/jobs/view/1"])
-    d = deps([row(company="Dune Data B.V.")], pages={COPY: copy_page()}, llm=search,
-             state=state)
-    result = job_links.run(d, BOARDS)
-    assert result.labels == []
-    assert result.copies == ["Dune Data B.V., DevOps Engineer (www.ziprecruiter.ie)"]
-    page = d.repo.rows["p0"]
-    assert page["URL"] == LINKEDIN  # the link stays: not the employer's form
-    assert page["body"][0].startswith("Description source: www.ziprecruiter.ie (the same "
-                                      "LinkedIn job on another job site")
-    assert TEXT[:40] in page["body"][1]
-    assert "https://www.linkedin.com/jobs/view/1" not in d.page.opened
-    # done: not looked up again at the next /fetch, even after RETRY_DAYS
-    later = deps([row(company="Dune Data B.V.")], pages={COPY: copy_page()}, llm=search,
-                 state=state)
-    later.today = TODAY + timedelta(days=10)
-    later.repo = d.repo
-    assert job_links.run(later, BOARDS).tried == 0
-
-
-def test_a_copy_must_be_the_same_job_at_the_same_company():
-    other_title = deps([row()], pages={COPY: copy_page("Senior DevOps Engineer at Dune Data")},
-                       llm=Search(sources=[COPY]))
-    other_company = deps([row()], pages={COPY: copy_page("DevOps Engineer at Acme").replace(
-        "Dune Data B.V.", "Acme")}, llm=Search(sources=[COPY]))
-    short = deps([row()], pages={COPY: copy_page(text="Short.")}, llm=Search(sources=[COPY]))
-    for d in (other_title, other_company, short):
-        result = job_links.run(d, BOARDS)
-        assert result.copies == [] and "body" not in d.repo.rows["p0"]
-
-
-def test_a_row_with_a_full_description_gets_no_second_one():
-    filled = ["Description source: nofluffjobs (same job)", TEXT]
-    d = deps([row(body=filled)], pages={COPY: copy_page()}, llm=Search(sources=[COPY]))
-    result = job_links.run(d, BOARDS)
-    assert result.copies == [] and d.repo.rows["p0"]["body"] == filled
-    assert "p0" in d.state.get(job_links.KEY)["described"]
-
-
-def test_the_summary_lists_descriptions_from_other_job_sites():
-    text = SweepSummary(direct_links_tried=80,
-                        described_elsewhere=["Medtronic, Cloud Engineer (www.ziprecruiter.ie)"]
-                        ).friendly_text()
-    assert ("Description read from the same job on another job site (not on the company's "
-            "site; the link stays): 1") in text
-    assert "- Medtronic, Cloud Engineer (www.ziprecruiter.ie)" in text
 
 
 def test_a_job_number_or_button_text_on_a_careers_page_is_not_part_of_the_title():
@@ -730,3 +676,113 @@ def test_a_job_link_with_http_is_opened_with_https():
 def test_dev_opens_a_browser_page_per_job_looked_up():
     assert load_settings("local", {}).sweep["job_links"]["max_rendered"] == 80
     assert load_settings("prod", {}).sweep["job_links"]["max_rendered"] == 40
+
+
+
+GREENHOUSE_JOBS = "https://boards-api.greenhouse.io/v1/boards/dunedata/jobs"
+
+
+def board_get(titles):
+    """The company's Greenhouse board by its name, listing these jobs."""
+    jobs = [{"id": i, "title": t, "absolute_url": f"https://boards.greenhouse.io/dunedata/{i}",
+             "location": {"name": "Amsterdam"}, "content": TEXT, "updated_at": "2026-10-27"}
+            for i, t in enumerate(titles)]
+
+    def get(url, params=None):
+        if "greenhouse" in url and "dunedata" in url:
+            return {"jobs": jobs}
+        raise http.HttpError("GET failed: HTTP 404", status=404)
+    return get
+
+
+def test_a_job_not_on_the_company_job_list_is_skipped_at_the_second_check():
+    """2 Nov, your rule: a job the company does not put on its own site is likely a ghost
+    job. First miss: a note and a look again after RETRY_DAYS; second miss: skipped."""
+    state = FakeBotState()
+    d = deps([row()], get=board_get(["Data Engineer"]), state=state)
+    result = job_links.run(d, BOARDS)
+    assert (result.not_yet, result.ghosts, result.unchecked) == (1, [], 0)
+    page = d.repo.rows["p0"]
+    assert page["Screen verdict"] == "Unscreened"
+    assert page["body"][-1].startswith("Company site check (2026-10-28): not on Dune Data's "
+                                       "own job list yet")
+    later = deps([row()], get=board_get(["Data Engineer"]), state=state)
+    later.repo, later.today = d.repo, TODAY + timedelta(days=job_links.RETRY_DAYS + 1)
+    result = job_links.run(later, BOARDS)
+    assert result.ghosts == ["Dune Data, DevOps Engineer"]
+    assert page["Screen verdict"] == "Skip"
+    assert "checked 2026-10-28, 2026-11-01" in page["body"][-1]
+    assert "likely a ghost job" in page["body"][-1] and "LinkedIn" in page["body"][-1]
+    # skipped rows are not looked up again
+    again = deps([row()], get=board_get(["Data Engineer"]), state=state)
+    again.repo, again.today = d.repo, TODAY + timedelta(days=10)
+    assert job_links.run(again, BOARDS).tried == 0
+
+
+def test_a_screened_row_is_never_skipped_by_the_check():
+    state = FakeBotState()
+    for day in (0, job_links.RETRY_DAYS + 1):
+        d = deps([row(**{"Screen verdict": "Needs review", "Status": "Screened"})],
+                 get=board_get(["Data Engineer"]), state=state)
+        d.today = TODAY + timedelta(days=day)
+        result = job_links.run(d, BOARDS)
+    assert result.ghosts == ["Dune Data, DevOps Engineer"]
+    assert d.repo.rows["p0"]["Screen verdict"] == "Needs review"
+
+
+def test_a_site_that_could_not_be_checked_is_noted_once_and_waits_for_jd():
+    state = FakeBotState()
+    d = deps([row()], state=state)  # no job board, no careers page, no AI
+    result = job_links.run(d, BOARDS)
+    assert (result.unchecked, result.not_yet, result.ghosts) == (1, 0, [])
+    assert d.repo.rows["p0"]["Screen verdict"] == "Unscreened"
+    assert "could not be checked" in d.repo.rows["p0"]["body"][-1]
+    later = deps([row()], state=state)
+    later.repo, later.today = d.repo, TODAY + timedelta(days=job_links.RETRY_DAYS + 1)
+    job_links.run(later, BOARDS)
+    assert len(d.repo.rows["p0"]["body"]) == 1  # noted once
+
+
+def test_the_note_is_never_read_as_a_description():
+    from jobengine.screen.runner import description
+
+    body = ["Description source: adzuna (snippet only)", "Short snippet.",
+            "Company site check (2026-11-02): not on Acme's own job list yet."]
+    assert description(body, 10) == ("Short snippet.", "snippet")
+
+
+def test_a_job_page_in_another_country_is_not_the_job():
+    """2 Nov: AgileEngine's India job was taken for a Poland row."""
+    assert job_links.other_country(
+        "https://join.agileengine.com/open-positions/devops-engineer-kobie-india-id98058/",
+        "<html></html>", "Poland")
+    assert not job_links.other_country("https://acme.com/jobs/devops-engineer-krakow",
+                                       "<html></html>", "Poland")
+    assert not job_links.other_country("https://acme.com/join-us/devops", "", "Ireland")
+    ld = ('<script type="application/ld+json">{"@type": "JobPosting", "jobLocation": '
+          '{"address": {"addressCountry": "%s"}}}</script>')
+    assert job_links.other_country("https://acme.com/jobs/1", ld % "IN", "Poland")
+    assert not job_links.other_country("https://acme.com/jobs/1", ld % "PL", "Poland")
+
+
+def test_the_summary_says_what_happened_to_the_jobs_not_found():
+    text = SweepSummary(direct_links_tried=80, not_on_site_yet=12, site_unchecked=9,
+                        ghost_jobs=["Acme, DevOps Engineer"]).friendly_text()
+    assert "12 not on the company's own job list yet: looked up again in 3 days" in text
+    assert "9 whose company site could not be checked" in text
+    assert ("Not on the company's own site at two checks, skipped as likely ghost jobs "
+            "(noted on each page): 1") in text
+
+
+def test_a_board_guessed_by_name_without_jobs_in_the_country_is_no_check():
+    """Another company may have the same name: its board is not this company's job list."""
+    def get(url, params=None):
+        if "greenhouse" in url and "dunedata" in url:
+            return {"jobs": [{"id": 1, "title": "Data Engineer", "content": TEXT,
+                              "absolute_url": "https://boards.greenhouse.io/dunedata/1",
+                              "location": {"name": "Austin, Texas"},
+                              "updated_at": "2026-10-27"}]}
+        raise http.HttpError("GET failed: HTTP 404", status=404)
+
+    result = job_links.run(deps([row()], get=get), BOARDS)
+    assert (result.unchecked, result.not_yet) == (1, 0)

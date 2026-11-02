@@ -32,7 +32,7 @@ DEFAULT_MAX_PAGES = 60
 PROGRESS_EVERY = 20  # a progress line every this many pages
 # Lines that end a description: the next section of the page.
 SECTION_STARTS = (DESCRIPTION_HEADER, "Screening (", "Earlier link", "Also posted at:",
-                  "Adzuna link:")
+                  "Adzuna link:", "Company site check")
 
 
 @dataclass

@@ -481,16 +481,18 @@ you (the autopilot stops there and says so).
   at a time; the browser opens one page at a time on its own thread.
 - `sweep.job_links.enabled: false` turns it off.
 - The /fetch summary says "Own job link found on the company's site: N of M" and lists them.
-- A job that is not on the company's own site (a recruitment agency's job, a repost) still
-  gets its description (2 Nov): the job search also runs after a careers page without the
-  job, and may give a public page with the whole advert on another job site (ZipRecruiter,
-  Jobijoba, a recruiter's site, ...). It counts only with the same title, the company named
-  on the page and a full description. Its text goes to the page body ("Description source:
-  <site> (the same <board> job on another job site ...)"), the link stays (it is not the
-  employer's form), and the row is not looked up again. LinkedIn and the sites in
-  `sweep.fulltext.blocked_hosts` are never opened for it. The summary says "Description
-  read from the same job on another job site: N". Local and dev allow 80 searches a /fetch
-  (`max_searches`), one per job looked up.
+- Only the company's own site counts (2 Nov, your rule): a job a company does not put on
+  its own site is likely a ghost job. Job boards are never opened for it. When the bot read
+  the company's job list (its job board, or a careers page with jobs on it) and the job is
+  not there, the page gets a note "Company site check (date): not on Acme's own job list
+  yet", and the job is looked up again after 3 days. Still missing then, the note says so
+  ("likely a ghost job") and an Unscreened row gets Screen verdict Skip; a screened row
+  keeps its verdict. When the company's site could not be checked (no careers page found,
+  no answer), the note says that once and the job waits for /jd. Screening never reads a
+  note as a description. A job page for another country (its JobPosting country, or a
+  country in its link, such as "...-india-...") is not the row's job.
+- The summary says how many jobs were not on the job list yet, how many sites could not be
+  checked, and lists the jobs skipped as likely ghost jobs.
 
 ## Tidy job descriptions (2 Nov)
 

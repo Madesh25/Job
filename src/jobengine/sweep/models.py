@@ -243,7 +243,9 @@ class SweepSummary:
     direct_links: list[str] = field(default_factory=list)  # sweep/job_links.py
     direct_links_tried: int = 0
     direct_links_again: int = 0  # searches or browser pages ran out: next sweep
-    described_elsewhere: list[str] = field(default_factory=list)  # a copy on another site
+    ghost_jobs: list[str] = field(default_factory=list)  # not on the company's site: skipped
+    not_on_site_yet: int = 0  # not on the company's site at the first check
+    site_unchecked: int = 0  # the company's site could not be checked
     tidied: tuple[int, int, int] | None = None  # old descriptions: checked, rewritten, left
     backfilled: list[str] = field(default_factory=list)  # sweep/backfill.py
     alert_emails: int | None = None  # email alerts read (None: the source did not run)
@@ -336,11 +338,16 @@ class SweepSummary:
             if self.direct_links_again:
                 lines.append(f"- {self.direct_links_again} not finished (this /fetch's searches "
                              "or browser pages were used up): looked up again next /fetch")
-        if self.described_elsewhere:
-            lines.append(f"\U0001F4C4 Description read from the same job on another job site "
-                         f"(not on the company's site; the link stays): "
-                         f"{len(self.described_elsewhere)}")
-            lines.extend(f"- {job}" for job in self.described_elsewhere[:10])
+            if self.not_on_site_yet:
+                lines.append(f"- {self.not_on_site_yet} not on the company's own job list yet: "
+                             "looked up again in 3 days, then skipped")
+            if self.site_unchecked:
+                lines.append(f"- {self.site_unchecked} whose company site could not be checked "
+                             "(no careers page found, or no answer): they wait for /jd")
+        if self.ghost_jobs:
+            lines.append(f"\U0001F47B Not on the company's own site at two checks, skipped as "
+                         f"likely ghost jobs (noted on each page): {len(self.ghost_jobs)}")
+            lines.extend(f"- {job}" for job in self.ghost_jobs[:10])
         if self.tidied is not None:
             checked, rewritten, left = self.tidied
             line = (f"\U0001F9F9 Old descriptions tidied (DEV): {checked} pages checked, "
