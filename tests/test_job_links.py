@@ -453,6 +453,7 @@ def test_companies_are_looked_up_at_the_same_time():
     rows = [row(company=f"Co {i}", role=role) for i in range(6)
             for role in ("DevOps Engineer", "Cloud Engineer")]
     d = deps(rows, llm=SlowSearch())
+    d.s.sweep["job_links"]["workers"] = 3  # prod's number (local and dev: 5)
     result = job_links.run(d, BOARDS)
     assert result.tried == 12 and peak[0] == 3
     # one careers page search per company, never two at once for the same company
@@ -671,3 +672,40 @@ def test_the_summary_lists_descriptions_from_other_job_sites():
     assert ("Description read from the same job on another job site (not on the company's "
             "site; the link stays): 1") in text
     assert "- Medtronic, Cloud Engineer (www.ziprecruiter.ie)" in text
+
+
+def test_a_job_number_or_button_text_on_a_careers_page_is_not_part_of_the_title():
+    """2 Nov log: STAFIDE "DevOps / Platform Engineer (ID:4116)" and wolk "Platform / DevOps
+    Engineer Explore this vacancy" were the jobs, but did not count."""
+    assert job_links.same_title("DevOps / Platform Engineer (ID:4116)",
+                                "DevOps / Platform Engineer")
+    assert job_links.same_title("Platform / DevOps Engineer Explore this vacancy",
+                                "Platform/DevOps Engineer")
+    assert job_links.same_title("Cloud Engineer Bekijk deze vacature →", "Cloud Engineer")
+    assert job_links.same_title("DevOps Engineer [Ref: SR-221]", "DevOps Engineer")
+    # still the exact title
+    assert not job_links.same_title("Senior DevOps / Platform Engineer (ID: 4028)",
+                                    "DevOps / Platform Engineer")
+    assert not job_links.same_title("Apply Engineer", "Engineer")
+
+
+def test_a_job_board_the_bot_may_not_open_does_not_stop_the_job():
+    """2 Nov: HSBC and Qualcomm (Eightfold) raised a safety error and were not looked up."""
+    from jobengine.safety import SafetyError
+
+    def refuse(url, params):
+        raise SafetyError("refusing to fetch app.eightfold.ai: host is not on "
+                          "safety.allowed_hosts")
+
+    from jobengine.sweep.sources.ats import Board
+
+    board = Board("eightfold", "qualcomm", host="app.eightfold.ai")
+    d = deps([row()], get=refuse)
+    assert job_links._board_postings(d, "Qualcomm", board, "DevOps Engineer") == []
+
+
+def test_dev_looks_up_five_companies_at_a_time_and_prod_three():
+    """2 Nov, your decision: faster DEV fetches; prod keeps the recommended 3."""
+    assert load_settings("local", {}).sweep["job_links"]["workers"] == 5
+    assert load_settings("dev", {}).sweep["job_links"]["workers"] == 5
+    assert load_settings("prod", {}).sweep["job_links"]["workers"] == 3

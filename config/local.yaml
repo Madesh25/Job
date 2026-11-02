@@ -32,3 +32,6 @@ sweep:
     # One search a job, also after a careers page without it (2 Nov): its description
     # may be on another job site.
     max_searches: 80
+    # 5 companies at a time (2 Nov, your decision: a DEV /fetch took 22 min). Prod keeps the
+    # recommended 3 (base.yaml); back to 3 here at go-live (Job Engine To-do).
+    workers: 5
