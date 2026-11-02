@@ -387,7 +387,8 @@ def from_board(deps: Deps, company: str, role: str, city: str | None, country: s
         boards[key] = _board_postings(deps, name, board, role) if board is not None else []
     # A board guessed by the name counts as the company's job list only with jobs in the
     # row's country: another company may have the same name.
-    if any(in_place(p.location_text, city, country) for p in boards[key]):
+    # A job without a place proves nothing (2 Nov: "greenhouse link" was not Link Group's).
+    if any(p.location_text and in_place(p.location_text, city, country) for p in boards[key]):
         _listed()
     return _pick(deps, boards[key], role, city, country, "company job board")
 

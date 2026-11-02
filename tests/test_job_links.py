@@ -855,3 +855,16 @@ def test_the_checks_of_the_first_run_are_not_counted():
     d = deps([row()], get=board_get(["Data Engineer"]), state=state)
     result = job_links.run(d, BOARDS)
     assert result.ghosts == [] and result.not_yet == 1
+
+
+def test_a_guessed_board_whose_jobs_have_no_place_is_no_check():
+    """2 Nov: "greenhouse link" was taken as Link Group's job list."""
+    def get(url, params=None):
+        if "greenhouse" in url and "dunedata" in url:
+            return {"jobs": [{"id": 1, "title": "Data Engineer", "content": TEXT,
+                              "absolute_url": "https://boards.greenhouse.io/dunedata/1",
+                              "location": {"name": ""}, "updated_at": "2026-10-27"}]}
+        raise http.HttpError("GET failed: HTTP 404", status=404)
+
+    result = job_links.run(deps([row()], get=get), BOARDS)
+    assert (result.unchecked, result.not_yet) == (1, 0)
