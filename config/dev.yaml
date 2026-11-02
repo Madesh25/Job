@@ -16,6 +16,13 @@ gmail:
 llm:
   force_model: "claude-haiku-4-5"
 sweep:
-  # 2 Nov: old DEV job pages get their descriptions tidied during /fetch.
+  # 2 Nov: old DEV job pages get their descriptions tidied during /fetch, 150 a /fetch so
+  # the ~700 old pages are done in about 5 runs (a few minutes each run).
   tidy_bodies:
     enabled: true
+    max_pages: 150
+  # 2 Nov: 100+ alert jobs (LinkedIn, JustJoin IT, Pracuj.pl) still wait for a description;
+  # 80 a /fetch instead of 40 works through them twice as fast (about 6 minutes more per
+  # /fetch; the AI searches stay at 40, careers pages found before cost none).
+  job_links:
+    max_rows: 80

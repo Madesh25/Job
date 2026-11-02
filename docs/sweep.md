@@ -489,8 +489,10 @@ Pages written before that are tidied during /fetch, in local and dev only
 start): up to `max_pages` (60) pages a /fetch, newest first, each checked once (Bot State
 `sweep.tidy_bodies`). A description that would be written differently is rewritten in the
 same place: the new text right after its "Description source:" line, then the old blocks
-removed. Screening notes and links stay. The summary says "Old descriptions tidied (DEV): N
-of M pages checked, K still to check" until all old pages are done.
+removed. Screening notes and links stay. The summary says "Old descriptions tidied (DEV): M
+pages checked, N rewritten, K still to check" until all old pages are done. Local and dev
+check 150 pages a /fetch, and look up 80 alert jobs a /fetch for their own job link (prod:
+40), to work through the old pages and the jobs waiting for a description faster.
 
 ## New companies and jobs a company site missed (C1, 26 Oct)
 
