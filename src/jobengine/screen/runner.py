@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 import threading
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -508,9 +509,22 @@ def screen_pending(
     return summary
 
 
+# A Notion page link: notion.so/..., app.notion.com/p/..., www.notion.so/<title>-<32 hex>.
+NOTION_PAGE = re.compile(r"https?://(?:[\w-]+\.)?notion\.(?:so|site|com)/\S*?"
+                         r"([0-9a-f]{32}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-"
+                         r"[0-9a-f]{12})(?![0-9a-f])", re.I)
+
+
 def find_row(repo: JobsRepo, ref: str) -> JobRow | None:
-    """A row by page ID, URL, or posting ID (for example linkedin:4012345678)."""
+    """A row by page ID, URL, posting ID (for example linkedin:4012345678), or the job's own
+    Notion link."""
     ref = ref.strip()
+    notion = NOTION_PAGE.search(ref) if "notion." in ref else None
+    if notion:  # the job's own Notion link (Phase 19 A-04, 3 Nov)
+        raw = notion.group(1).lower().replace("-", "")
+        page_id = f"{raw[:8]}-{raw[8:12]}-{raw[12:16]}-{raw[16:20]}-{raw[20:]}"
+        values = repo.get_values(page_id)
+        return job_row(page_id, values) if values else None
     if ref.startswith("http"):
         where = {"property": "URL", "url": {"equals": ref}}
     elif ":" in ref:

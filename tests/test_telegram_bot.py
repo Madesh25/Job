@@ -881,6 +881,8 @@ def test_stats_followups_health_sources_digest(desk):
     health = talk(desk, "/health").sent[0][1]
     assert "Notion: OK" in health and "Gmail sender token: OK" in health
     assert "Environment: local, DRY_RUN on" in health
+    # Phase 19 A-00 (3 Nov): the AI money lines, as in the morning check.
+    assert "AI in October" in health and "Credit balancer: off" in health
     tb.make_fetcher(settings(), True, desk)(lambda line: None)  # a fake sweep stores counts
     sources = talk(desk, "/sources").sent[0][1]
     assert "Sweep sources (last sweep: 2026-10-01)" in sources

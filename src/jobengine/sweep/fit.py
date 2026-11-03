@@ -157,6 +157,7 @@ def b2b_only(country: str | None, description: str | None, salary: str | None = 
 
 _WORK_RIGHT = r"(?:right to work|work permit|work authori[sz]ation|work visa|" \
               r"eligib\w* to work|authori[sz]ed to work|permission to work)"
+_EU = r"(?:eu|eea|eu/eea|european\s+union|european\s+economic\s+area)"
 _NO_SPONSORSHIP = re.compile(
     r"\bno\s+(?:visa\s+)?sponsor(?:ship|ing)\b"
     r"|\b(?:visa\s+)?sponsorship\s+(?:is\s+)?(?:not|un)\s*(?:available|provided|offered|possible)"
@@ -169,6 +170,14 @@ _NO_SPONSORSHIP = re.compile(
     rf"|\b{_WORK_RIGHT}\s+(?:in\s+the\s+(?:eu|eea)\s+)?(?:is\s+)?(?:required|mandatory|a must)"
     r"|\brelocation\s+(?:provided|assistance|support|package|offered)\W{0,12}"
     r"(?:none|no|not\s+(?:provided|available|offered))\b"
+    # Only EU nationals or citizens (Phase 19 A-04, 3 Nov: "must be a national of an EU
+    # member state" was screened Apply high with "Sponsorship: Stated yes").
+    rf"|\bnationals?\s+of\s+(?:an?\s+)?{_EU}\s+(?:member\s+)?(?:states?|countr(?:y|ies))"
+    rf"|\b(?:must|need\s+to|have\s+to|required\s+to|requires\s+(?:you|candidates)\s+to)"
+    rf"\s+(?:already\s+)?be\s+(?:an?\s+)?{_EU}\s+(?:nationals?|citizens?)\b"
+    rf"|\b{_EU}\s+(?:citizenship|nationality)\s+(?:is\s+)?(?:required|mandatory|needed|a must)"
+    rf"|\b(?:only\s+(?:open\s+to\s+)?{_EU}\s+(?:citizens|nationals)"
+    rf"|{_EU}\s+(?:citizens|nationals)\s+only)\b"
 )
 
 

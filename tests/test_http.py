@@ -180,6 +180,19 @@ def test_read_timeout_and_gateway_errors_are_retried_for_get_only(waits):
     assert info.value.status == 503 and calls == ["PATCH"]
 
 
+def test_a_notion_query_post_is_retried_like_a_get(waits):
+    """Phase 19 A-01 (3 Nov): one HTTP 502 on a Notion query lost a starter answer. A query
+    or search only reads, so it is retried; a POST that writes still is not."""
+    calls = failing([httpx.Response(502)])
+    assert http.post_json("https://api.notion.com/v1/data_sources/abc/query", json={},
+                          s=S) == {"ok": 1}
+    assert calls == ["POST", "POST"] and waits == [2.0]
+    calls = failing([httpx.Response(502)])
+    with pytest.raises(http.HttpError):
+        http.post_json("https://api.notion.com/v1/pages", json={}, s=S)
+    assert calls == ["POST"]
+
+
 def test_http_library_request_logs_are_silenced():
     """httpx logs full URLs (with the Adzuna key) at INFO; it must stay at WARNING."""
     import logging

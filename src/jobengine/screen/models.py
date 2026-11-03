@@ -132,7 +132,11 @@ class ScreenSummary:
         line += "." if self.waiting_for_jd is None else f", {self.waiting_for_jd} waiting for JD."
         free = sum(1 for r in self.results if not r.llm_used and r.verdict == "Skip")
         if free:
-            line += f" {free} skipped without the AI."
+            # Phase 19 (3 Nov): "72 screened" read as over the limit of 50; the limit counts
+            # only the jobs the AI screened.
+            ai = sum(1 for r in self.results if r.llm_used and r.verdict != "Unscreened")
+            line += (f" {free} skipped without the AI (free, not counted in the daily "
+                     f"limit); {ai} screened by the AI.")
         extra = [self.usage_line] if self.usage_line else []
         return "\n".join([line, *extra, *self.errors])
 

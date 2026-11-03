@@ -4,6 +4,7 @@ from datetime import date
 import pytest
 
 from jobengine.settings import load_settings
+from jobengine.sweep import fit
 from jobengine.sweep.fit import b2b_only, cannot_take, language_block, written_in
 from jobengine.sweep.models import Job, SweepSummary
 from jobengine.sweep.runner import _pick, fake_deps
@@ -154,3 +155,18 @@ def test_too_few_of_your_skills_is_not_saved():
     assert not_a_fit(good, rules) is None
     few = replace(BASE, description="Java and Docker.")  # 2 tools: too few to judge
     assert skill_share(few, rules) is None and not_a_fit(few, rules) is None
+
+
+@pytest.mark.parametrize(("text", "skip"), [
+    ("Candidate must be a national of an EU member state and residing in the EU", True),
+    ("This role requires you to be a national of an EU member state", True),
+    ("EU citizenship is required for this position", True),
+    ("Open to EU citizens only", True),
+    ("You must be an EU citizen", True),
+    ("We sponsor visas for non-EU nationals", False),
+    ("Open to EU nationals and to non-EU candidates: visa sponsorship offered", False),
+])
+def test_only_eu_nationals_is_no_sponsorship(text, skip):
+    """Phase 19 A-04 (3 Nov): the AWS posting said "must be a national of an EU member
+    state" and was screened Apply high with "Sponsorship: Stated yes"."""
+    assert fit.no_sponsorship(text) is skip

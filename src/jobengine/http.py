@@ -39,6 +39,7 @@ NETWORK_WAITS = (2.0, 5.0)  # seconds before the 2nd and 3rd attempt
 CONNECT_ERRORS = (httpx.ConnectError, httpx.ConnectTimeout, httpx.PoolTimeout)
 GET_ERRORS = (httpx.ReadTimeout, httpx.ReadError, httpx.RemoteProtocolError)
 GET_RETRY_STATUS = (502, 503, 504)
+READ_ONLY_POSTS = ("/query", "/search")  # Notion reads sent as POST
 PAGE_TIMEOUT_SECONDS = 12
 PAGE_MAX_BYTES = 3_000_000
 PAGE_MAX_REDIRECTS = 5
@@ -135,6 +136,10 @@ def _send(
     s = s or get_settings()
     assert_fetch_allowed(url, s)
     where = f"{method} {safe_url(url)}"
+    # A Notion query or search is a POST that only reads (Phase 19 A-01, 3 Nov: one HTTP 502
+    # on a query lost a starter answer): retried like a GET.
+    reads = method == "GET" or (method == "POST" and urlsplit(url).path.rstrip("/").endswith(
+        READ_ONLY_POSTS))
     network_tries = 0
     with httpx.Client(transport=_transport, timeout=timeout) as client:
         attempt = 0
@@ -146,7 +151,7 @@ def _send(
                 resp.read()
             except httpx.HTTPError as exc:
                 retryable = isinstance(exc, CONNECT_ERRORS) or (
-                    method == "GET" and isinstance(exc, GET_ERRORS))
+                    reads and isinstance(exc, GET_ERRORS))
                 if retryable and network_tries < len(NETWORK_WAITS):
                     wait = NETWORK_WAITS[network_tries]
                     network_tries += 1
@@ -154,7 +159,7 @@ def _send(
                     _sleep(wait)
                     continue
                 raise HttpError(f"{where} failed: {type(exc).__name__}") from None
-            if (method == "GET" and resp.status_code in GET_RETRY_STATUS
+            if (reads and resp.status_code in GET_RETRY_STATUS
                     and network_tries < len(NETWORK_WAITS)):
                 wait = NETWORK_WAITS[network_tries]
                 network_tries += 1
