@@ -161,7 +161,11 @@ is wrong, so the next form learns).
 
 **The gate** (all of them, checked before every form): the prod bot with `DRY_RUN=false`;
 Notion Config `apply.submit` = `true` (you set it); at least `apply.approvals_needed` (10) dry
-runs approved and none marked wrong in the last 10; today's submits under
+runs approved and none marked wrong in the last 10; since 3 Nov also
+`apply.approvals_per_site` (**3**) approved dry runs of the form's own site type (Workday,
+Greenhouse, Lever ... or the company's own website for a custom form, since each one is
+different; Bot State `dryrun.approved_by_site` keeps the counts, and `/autoapply status`
+shows them, for example "Per site type: Greenhouse 8/3 ✅, Workday 2/3"); today's submits under
 `apply.daily_limit` (**50** a day since 27 Oct, was 30). `/dryrun` never submits; only the
 queue (`/autoapply`, or the autopilot with `apply.auto` = `true`) may.
 

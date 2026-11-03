@@ -12,7 +12,8 @@ browser runs, and how many forms at once.
 - One worker fills PARALLEL (3) forms at a time (one browser each), never more.
 - Each job is a dry run: filled, never submitted, until the auto-submit gate opens
   (`submit_block`, step 5, 27 Oct: prod with DRY_RUN false, Config `apply.submit` = true,
-  `apply.approvals_needed` (10) approved dry runs and none wrong in the last 10, today's
+  `apply.approvals_needed` (10) approved dry runs and none wrong in the last 10 (3 Nov: and
+  `apply.approvals_per_site` (3) of the form's own site type), today's
   submits under the daily limit). Then a complete form is submitted (apply/form_submit.py)
   and the rest come to you as Apply by hand.
 
@@ -175,6 +176,8 @@ def run_parallel(jobs: Sequence[str], fill: Callable[[str], Any],
 
 
 SUBMITTED_KEY = "apply.submitted"  # bot_state: {"date": <iso>, "count": <forms submitted>}
+PER_SITE_KEY = "apply.approvals_per_site"  # Notion Config (3 Nov): approved runs per type
+PER_SITE_NEEDED = 3
 
 
 def _needed(config: Any) -> int:
@@ -194,11 +197,20 @@ def count_submitted(state: Any, today: str) -> None:
         state.set(SUBMITTED_KEY, {"date": today, "count": submitted_today(state, today) + 1})
 
 
+def per_site_needed(config: Any) -> int:
+    try:
+        return int(str(config.get(PER_SITE_KEY) or PER_SITE_NEEDED).strip())
+    except ValueError:
+        return PER_SITE_NEEDED
+
+
 def submit_block(s: Any, config: Any, approved: int, recent_wrong: int,
-                 done_today: int) -> str | None:
+                 done_today: int, site: str | None = None,
+                 site_approved: int = 0) -> str | None:
     """Why auto-submit is closed now (None: open). Step 5, 27 Oct, your OK: prod with
     DRY_RUN false, Config apply.submit = true, enough approved dry runs and none wrong in the
-    last 10, and today's submits under apply.daily_limit."""
+    last 10, and today's submits under apply.daily_limit. 3 Nov: and `site` (the form's
+    site type, form_review.site_key) has its own apply.approvals_per_site approved runs."""
     if getattr(s, "app_env", "") != "prod" or getattr(s, "dry_run", True):
         return "only the prod bot with DRY_RUN false submits"
     if (config.get("apply.submit") or "false").strip().lower() != "true":
@@ -211,7 +223,20 @@ def submit_block(s: Any, config: Any, approved: int, recent_wrong: int,
         return why
     if done_today >= _limit(config):
         return f"today's {_limit(config)} forms are submitted"
+    if site is not None and site_approved < per_site_needed(config):
+        return (f"{site} forms: {site_approved} of {per_site_needed(config)} dry runs "
+                "approved (each site type needs its own)")
     return None
+
+
+def site_line(config: Any, by_site: dict[str, int]) -> str:
+    """Which site types may be submitted by the bot (3 Nov)."""
+    need = per_site_needed(config)
+    if not by_site:
+        return (f"Per site type: none approved yet (each type, like Workday or Greenhouse, "
+                f"needs {need} approved dry runs of its own).")
+    parts = [f"{k} {n}/{need}{' ✅' if n >= need else ''}" for k, n in by_site.items()]
+    return "Per site type: " + ", ".join(parts) + "."
 
 
 def submit_status(config: Any, approved: int, recent_wrong: int, s: Any = None,

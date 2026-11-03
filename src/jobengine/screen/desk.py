@@ -1108,10 +1108,12 @@ class Desk:
         finish = None
         if submit and row is not None:
             runs = (self.state.get(form_review.KEY) or {}).get("items") or []
+            site = form_review.site_key(url)
             closed = queue.submit_block(
                 self.s, config, form_review.approved_count(self.state),
                 sum(1 for r in runs[-10:] if r.get("status") == "wrong"),
-                queue.submitted_today(self.state, now.date().isoformat()))
+                queue.submitted_today(self.state, now.date().isoformat()),
+                site, form_review.approved_for(self.state, site))
             if closed is None:
                 finish = form_submit.finisher(form_submit.tick_privacy(config))
         result = form_bot.dry_run(self.s, url, profile, saved, name=job or "form",
@@ -1198,9 +1200,11 @@ class Desk:
 
         runs = (self.state.get(form_review.KEY) or {}).get("items") or []
         wrong = sum(1 for r in runs[-10:] if r.get("status") == "wrong")
-        return queue.submit_status(
-            self.deps.config(), form_review.approved_count(self.state), wrong, self.s,
+        config = self.deps.config()
+        return (queue.submit_status(
+            config, form_review.approved_count(self.state), wrong, self.s,
             queue.submitted_today(self.state, self.tracking_now().date().isoformat()))
+            + "\n" + queue.site_line(config, form_review.approved_by_site(self.state)))
 
     def autoapply_tick(self) -> list[Reply]:
         """Every few minutes: fill up to 3 queued forms here, or ask where (Cloud Run)."""
