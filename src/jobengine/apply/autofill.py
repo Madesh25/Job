@@ -48,8 +48,12 @@ def fields(s: Settings, config: ConfigStore, values: dict[str, Any], *,
     out: dict[str, str] = {}
     full = " ".join(str(config.get("profile.name") or "").split())
     first, _, last = full.partition(" ")
-    for key, value in (("full_name", full), ("first_name", config.get("apply.first_name") or first),
-                       ("last_name", config.get("apply.last_name") or last)):
+    first = str(config.get("apply.first_name") or first)
+    last = str(config.get("apply.last_name") or last)
+    if config.get("apply.first_name") and config.get("apply.last_name"):
+        # "Madeshwaran Manikam" on a form, not the short "Madeshwaran M" (2 Nov)
+        full = f"{first} {last}"
+    for key, value in (("full_name", full), ("first_name", first), ("last_name", last)):
         if value:
             out[key] = " ".join(str(value).split())
     for key in ANSWERS:
