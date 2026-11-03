@@ -137,6 +137,7 @@ class Result:
     blocked: list[str] = field(default_factory=list)  # requests the page tried to send
     screenshot: Path | None = None
     title: str = ""
+    opened: str = ""  # the Apply link the dry run followed from the job's page (3 Nov)
     # Auto-submit only (apply/form_submit.py): "" not tried, "confirmed", "unclear", or
     # "not submitted: <why>".
     submitted: str = ""
@@ -251,6 +252,8 @@ def filled(answers: Sequence[Answer]) -> list[Answer]:
 def report(result: Result, job: str = "") -> str:
     """The Telegram text: what was filled and from where, what is left for you."""
     head = f"🧪 Dry run{f' ({job})' if job else ''}: nothing was sent.\n{result.url}"
+    if result.opened:
+        head += f"\nOpened its Apply link: {result.opened}"
     if result.stopped:
         return f"{head}\nStopped: {result.stopped}"
     done = filled(result.answers)
@@ -300,7 +303,22 @@ def prune(folder: Path = OUT_DIR, now: float | None = None, keep_days: int = KEE
 # data-je-field, and says whether a captcha or a login is in the way. It reads only.
 READ_JS = r"""
 () => {
-  const shown = el => !!(el.offsetWidth || el.offsetHeight || el.getClientRects().length);
+  // Phase 19 (3 Nov): a field hidden with CSS (class "invisible", visibility, opacity) is not
+  // one you can fill, even when it takes up room on the page.
+  const shown = el => {
+    if (!(el.offsetWidth || el.offsetHeight || el.getClientRects().length)) { return false; }
+    for (let n = el; n && n.nodeType === 1; n = n.parentElement) {
+      const st = getComputedStyle(n);
+      if (st.display === 'none' || st.visibility === 'hidden' || st.visibility === 'collapse' ||
+          st.opacity === '0') { return false; }
+    }
+    return true;
+  };
+  // The site's own job search, menus and header are not the application form.
+  const siteSearch = el => !!el.closest('[role=search], nav, header, footer') ||
+    (el.form && /search|zoek|szukaj/i.test(el.form.getAttribute('action') || '')) ||
+    /search (for )?jobs?|search job|keyword/i.test(el.getAttribute('aria-label') || '') ||
+    /search (for )?jobs?|search job|keyword/i.test(el.getAttribute('placeholder') || '');
   const text = n => (n && (n.innerText || n.textContent) || '').replace(/\s+/g, ' ').trim();
   const labelOf = el => {
     const parts = [];
@@ -325,6 +343,23 @@ READ_JS = r"""
   if ([...document.querySelectorAll('input[type=password]')].some(shown)) {
     blockers.push('login');
   }
+  // A sign-in page that asks for the email first (the password comes on the next step).
+  const heading = text(document.querySelector('h1')) + ' ' + text(document.querySelector('h2'));
+  if (!blockers.includes('login') && /\b(log ?in|sign ?in|create (an |your )?account)\b/i.test(
+      (document.title || '') + ' ' + heading) &&
+      document.querySelectorAll('input:not([type=hidden])').length <= 3) {
+    blockers.push('login');
+  }
+  // "Apply" links (never pressed: the dry run opens the link's address, a plain GET).
+  const applyLinks = [];
+  for (const a of document.querySelectorAll('a[href]')) {
+    const words = text(a) || a.getAttribute('aria-label') || '';
+    const apply = new RegExp('^\\s*(apply( now| for this (job|role|position)| here| online)?|' +
+      'aplikuj( teraz)?|solliciteer( nu| direct)?|bewerben|jetzt bewerben|postuler)\\s*$', 'i');
+    if (shown(a) && apply.test(words) && /^https?:/i.test(a.href)) {
+      applyLinks.push(a.href);
+    }
+  }
   const fields = [];
   const radios = new Map();
   let n = 0;
@@ -334,6 +369,7 @@ READ_JS = r"""
       continue;
     }
     if (type !== 'file' && !shown(el)) { continue; }
+    if (siteSearch(el)) { continue; }
     const required = el.required || el.getAttribute('aria-required') === 'true';
     if (type === 'radio') {
       const key = el.name || ('je-radio-' + n);
@@ -356,7 +392,8 @@ READ_JS = r"""
     const options = kind === 'select' ? [...el.options].map(o => text(o)) : [];
     fields.push({ref: ref, kind: kind, label: labelOf(el), options: options, required: required});
   }
-  return {fields: fields, blockers: blockers, title: document.title || ''};
+  return {fields: fields, blockers: blockers, title: document.title || '',
+          applyLinks: applyLinks};
 }
 """
 
@@ -392,8 +429,22 @@ def _guard(s: Settings, blocked: list[str],
     return handle
 
 
-def _read(page: Any) -> tuple[list[Field], list[str], str]:
-    """The fields of the frame with the most fields (a form inside an iframe counts)."""
+# What only an application form asks (Phase 19, 3 Nov): a page without any of these is a job
+# description, a search page or a menu, not the form.
+APPLICATION_FIELD = re.compile(r"\b(first|last|full|given|family|sur) ?name\b|^name$|\be ?mail\b|"
+                               r"\bphone\b|\bmobile\b|\bresume\b|\bcv\b|\bcover ?letter\b|"
+                               r"\blinked ?in\b|\bimi[eę]\b|\bnazwisko\b|\bvoornaam\b|"
+                               r"\bachternaam\b")
+
+
+def application_form(fields: Sequence[Field]) -> bool:
+    return any(f.kind in ("file", "email", "tel") or APPLICATION_FIELD.search(norm(f.label))
+               for f in fields)
+
+
+def _read(page: Any, links: list[str] | None = None) -> tuple[list[Field], list[str], str]:
+    """The fields of the frame with the most fields (a form inside an iframe counts).
+    `links` gets the page's "Apply" link addresses."""
     best: list[Field] = []
     blockers: set[str] = set()
     title = ""
@@ -404,6 +455,8 @@ def _read(page: Any) -> tuple[list[Field], list[str], str]:
             log.info("dry run: frame %s not read: %s", index, exc)
             continue
         blockers.update(found.get("blockers") or [])
+        if links is not None:
+            links += [str(u) for u in found.get("applyLinks") or [] if u not in links]
         if index == 0:
             title = found.get("title") or ""
         fields = [Field(ref=f["ref"], kind=f["kind"], label=f["label"],
@@ -497,13 +550,32 @@ def _run(s: Settings, url: str, values: Mapping[str, str], saved: Sequence[Mappi
             page = context.new_page()
             page.goto(url, wait_until="domcontentloaded", timeout=LOAD_TIMEOUT_MS)
             page.wait_for_timeout(SETTLE_MS)
-            fields, blockers, result.title = _read(page)
+            links: list[str] = []
+            fields, blockers, result.title = _read(page, links)
+            if not blockers and not application_form(fields) and links:
+                # The job's description page (Phase 19, 3 Nov): open its Apply link (a plain
+                # GET, nothing pressed) and read the form there.
+                target = links[0]
+                try:
+                    safety.assert_page_fetch_allowed(target, s)
+                    page.goto(target, wait_until="domcontentloaded", timeout=LOAD_TIMEOUT_MS)
+                    page.wait_for_timeout(SETTLE_MS)
+                    result.opened = target
+                    fields, blockers, result.title = _read(page)
+                except safety.SafetyError as exc:
+                    log.info("dry run: apply link %s not opened: %s", target, exc)
             if blockers:
                 result.stopped = (f"the page asks for a {' and a '.join(blockers)}. The bot does "
                                   "not go past it: apply on this one yourself.")
             elif not fields:
                 result.stopped = ("no form fields found on this page (the form may be behind an "
                                   "Apply button or on another page: send its own link).")
+            elif not application_form(fields):
+                names = ", ".join(f"\"{_short(f.label, 40)}\"" for f in fields[:3])
+                result.stopped = (f"this page has no application form: its fields ({names}) are "
+                                  "not ones a job form asks (no name, email, phone or resume). "
+                                  "It may be the job description: send the form's own link, "
+                                  "/dryrun <job> <form link>.")
             else:
                 result.answers = plan(fields, values, saved,
                                       resume_path.name if resume_path else None)
