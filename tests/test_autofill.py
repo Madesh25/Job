@@ -39,6 +39,18 @@ def test_config_names_win():
     assert autofill.fields(S, config, JOB)["last_name"] == "Example-Smith"
 
 
+def test_first_and_last_name_make_the_full_name():
+    """2 Nov: profile.name "Madeshwaran M" gave the surname "M"; with apply.first_name and
+    apply.last_name the forms get the whole name."""
+    config = ConfigStore(dict(ConfigStore.fake()._rows) | {
+        "profile.name": ConfigRow(key="profile.name", value="Madeshwaran M"),
+        "apply.first_name": ConfigRow(key="apply.first_name", value="Madeshwaran"),
+        "apply.last_name": ConfigRow(key="apply.last_name", value="Manikam")})
+    f = autofill.fields(S, config, JOB)
+    assert (f["first_name"], f["last_name"], f["full_name"]) == (
+        "Madeshwaran", "Manikam", "Madeshwaran Manikam")
+
+
 def test_code_round_trip_with_saved_answers():
     state = FakeBotState()
     answers.command(state, "Years of Terraform? = 3 years in production")
