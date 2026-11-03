@@ -1113,7 +1113,14 @@ class Desk:
                 sum(1 for r in runs[-10:] if r.get("status") == "wrong"),
                 queue.submitted_today(self.state, now.date().isoformat()))
             if closed is None:
-                finish = form_submit.finisher(form_submit.tick_privacy(config))
+                from jobengine.apply import facts as facts_mod
+                from jobengine.apply import form_check
+
+                verify = form_check.Checker(
+                    self.deps.llm(config), profile=profile,
+                    facts=facts_mod.facts(self.s, config), saved=saved, job=job or url,
+                    state=self.state, day=now.date().isoformat())
+                finish = form_submit.finisher(form_submit.tick_privacy(config), verify)
         result = form_bot.dry_run(self.s, url, profile, saved, name=job or "form",
                                   ai=self._form_ai(values, body, profile, saved),
                                   resume=self._approved_resume(row.page_id) if row else None,
