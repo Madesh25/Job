@@ -293,6 +293,27 @@ def _skill_lines(skills: list[str]) -> list[str]:
     return lines
 
 
+def added_skills(previous: Plan, ctx: Any) -> list[str]:
+    """The skills items the last version added to the master's tables: yours (in Skills
+    Inventory) or forced by your "Add anyway"."""
+    master_items = {gate.item_key(i) for i in ctx.master.all_items()}
+    forced = {gate.item_key(f) for f in previous.forced_skills}
+    return [i for r in previous.skills_main + previous.skills_also for i in r.items
+            if gate.item_key(i) not in master_items
+            and (ctx.reference.lookup(i) or gate.item_key(i) in forced)]
+
+
+def owned_removed(existing: str | None, reference: Any, forced: list[str]) -> str:
+    """The job's Gaps without the skill names that are in your Skills Inventory now (you
+    added CDK with "Add skills": it is no longer a gap). Sentences and forced skills stay."""
+    from jobengine.screen.models import join_gaps, split_gaps
+
+    keep_forced = {f.casefold() for f in forced}
+    return join_gaps([g for g in split_gaps(existing)
+                      if g.casefold() in keep_forced or len(g.split()) > 4
+                      or not reference.lookup(g)])
+
+
 def merge_gaps(existing: str | None, new: list[str]) -> str:
     """The job's Gaps text with the resume's reported gaps added once (case-insensitive)."""
     from jobengine.screen.models import join_gaps, split_gaps
@@ -497,6 +518,9 @@ def preview_existing(deps: ResumeDeps, job_id: str) -> BuildOutcome | None:
     ctx = _context(deps, job_id, values)
     plan = stored_plan(deps, log_id, ctx.master)
     html, pdf, fill = _render_checked(deps, ctx, plan)
+    # A skill in your Skills Inventory is never a gap (Phase 19 A-02: CloudFormation and
+    # Datadog were "added" and "not in your skills" in the same preview).
+    plan.gaps_reported = [g for g in plan.gaps_reported if not ctx.reference.lookup(g)]
     changes = gate.summarise(ctx.master, plan)
     revision = int(row.get("Revision") or 1)
     name = (row.get("Resume name") or "").rsplit(" r", 1)[0]
@@ -564,6 +588,10 @@ def build_resume(
             previous = stored_plan(deps, existing[-1][0], ctx.master)
         except PlanError:
             previous = None
+    if force_terms is not None and previous is not None:
+        # Phase 19 A-03 (3 Nov): "Add skills" after "Add 8 keywords" lost the 8. A rebuild
+        # you asked for keeps what the last version added to your skills tables.
+        force_terms = list(dict.fromkeys([*force_terms, *added_skills(previous, ctx)]))
 
     try:
         llm = deps.llm(ctx.config)
@@ -628,6 +656,9 @@ def build_resume(
     except RenderError as exc:
         return failed(str(exc))
 
+    # A skill in your Skills Inventory is never a gap (Phase 19 A-02: CloudFormation and
+    # Datadog were "added" and "not in your skills" in the same preview).
+    plan.gaps_reported = [g for g in plan.gaps_reported if not ctx.reference.lookup(g)]
     changes = gate.summarise(ctx.master, plan)
     if left_out:
         changes.lines.append("Left out (broke a rule): " + "; ".join(left_out))
@@ -652,7 +683,8 @@ def build_resume(
         }, body_blocks(plan, changes))
         update: dict[str, Any] = {"Resume": [*(values.get("Resume") or []), log_id]}
         # Forced skills are the ones to learn first, so they stay in Gaps too.
-        gaps = merge_gaps(values.get("Gaps"), [*plan.gaps_reported, *plan.forced_skills])
+        gaps = merge_gaps(owned_removed(values.get("Gaps"), ctx.reference, plan.forced_skills),
+                          [*plan.gaps_reported, *plan.forced_skills])
         if gaps != (values.get("Gaps") or ""):
             update["Gaps"] = gaps  # so /gaps can list what to learn next
         if values.get("Status") in BUILDABLE_STATUSES:

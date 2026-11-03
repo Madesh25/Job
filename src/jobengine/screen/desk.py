@@ -892,7 +892,11 @@ class Desk:
         if not terms or not same_page(str(ask.get("job")), job_id):
             return [Reply("That list is no longer open: the newest preview has the button.")]
         have = self.reference()
-        terms = [t for t in terms if have.lookup(t) is not None]  # still yours
+        # Still yours, by the name in your Skills Inventory ("CloudFormation", not the job
+        # keyword "cloudformation", Phase 19 A-03).
+        found = [(t, have.lookup(t)) for t in terms]
+        terms = list(dict.fromkeys(
+            (b.name if b.kind == "skill" and b.name else t) for t, b in found if b is not None))
         self.state.delete(MISSING_KEY)
         if not terms:
             return [Reply("None of those keywords is in your Skills Inventory now.")]
