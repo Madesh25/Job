@@ -53,6 +53,8 @@ SEARCH_STAGES = ("strategy", "people", "fetch")
 # DeepSeek has no web search: it may run every other stage (plan C, 25 Oct; before that
 # only screening, 20 Oct).
 DEEPSEEK_STAGES = tuple(stage for stage in STAGES if stage not in SEARCH_STAGES)
+# Who answers Gemini's non-search work once Config ai.gemini_cap is reached (3 Nov).
+GEMINI_PAUSED_MODEL = "deepseek-v4-flash"
 # Config row naming the model of the "Rebuild with Claude" button under a resume preview.
 REBUILD_MODEL_KEY = "model.resume_rebuild"
 FIXTURES = ROOT_DIR / "fixtures" / "llm"
@@ -146,7 +148,7 @@ WEB_SEARCH_DOLLARS = 0.01  # $10 per 1,000 web searches, billed on top of the to
 # Where every call's estimated cost goes (the month's running total in Bot State, see
 # track/costs.py): (stage, dollars, provider). Set once by the bot; None in tests and scripts.
 CLAUDE, GEMINI, DEEPSEEK = "claude", "gemini", "deepseek"
-CostSink = Callable[[str, float, str], None]
+CostSink = Callable[..., None]  # (stage, dollars, provider[, searches])
 _cost_sink: CostSink | None = None
 
 
@@ -155,11 +157,16 @@ def set_cost_sink(sink: CostSink | None) -> None:
     _cost_sink = sink
 
 
-def record_cost(stage: str, dollars: float, provider: str = CLAUDE) -> None:
-    if _cost_sink is None or dollars <= 0:
+def record_cost(stage: str, dollars: float, provider: str = CLAUDE, searches: int = 0) -> None:
+    """`searches`: Google searches of a Gemini call. The month's total adds their price only
+    past the free ones (track/costs.py), so the call's own dollars leave them out."""
+    if _cost_sink is None or (dollars <= 0 and searches <= 0):
         return
     try:
-        _cost_sink(stage, dollars, provider)
+        if searches > 0:
+            _cost_sink(stage, dollars, provider, searches)
+        else:
+            _cost_sink(stage, dollars, provider)
     except Exception:  # the cost total is a report: never fail a call over it
         log.exception("could not record the LLM cost")
 
@@ -185,7 +192,8 @@ def take_fallbacks() -> list[tuple[datetime, str, str, str]]:
 
 
 # The monthly caps (track/cost_guard.py): (stage, config, provider) -> why the call may not
-# run, or None. provider is "claude" just before a Claude call, "any" before any call. Set
+# run, or None. provider is "claude" just before a Claude call, "gemini" before a Gemini call
+# (Config ai.gemini_cap, 3 Nov), "any" before any call. Set
 # once by the bot; None in tests and scripts.
 CostGuard = Callable[[str, Any, str], "str | None"]
 _cost_guard: CostGuard | None = None
@@ -593,9 +601,12 @@ VERTEX_URL = ("https://{host}/v1/projects/{project}/locations/{location}/publish
 # detail pick allows 50 tokens) would be cut off. Only the tokens used are billed.
 THINKING_ROOM = 2000
 GEMINI_TIMEOUT = 120.0  # seconds: a resume plan takes longer than an API lookup
-# Gemini 3 search grounding: 5,000 prompts a month free, then $14 per 1,000 searches. The
-# paid price is counted so the total is never too low.
+# Gemini 3 search grounding: 5,000 free a month, then $14 per 1,000 searches. Until 3 Nov
+# every search was counted at the paid price; now the month's total (track/costs.py) adds the
+# price only past the free ones. Each search query counts as one, so the free ones are never
+# overcounted even where Google counts a prompt with several queries as one.
 GEMINI_SEARCH_DOLLARS = 0.014
+FREE_SEARCHES = 5000
 GROUNDING_REDIRECT = "https://vertexaisearch.cloud.google.com/grounding-api-redirect/"
 GEMINI_DECLINED = ("SAFETY", "PROHIBITED_CONTENT", "BLOCKLIST", "SPII", "RECITATION")
 
@@ -726,8 +737,8 @@ class GeminiLLM:
         grounding = first.get("groundingMetadata") or {}
         queries = grounding.get("webSearchQueries") or []
         self.usage.others.add(model)
-        record_cost(stage, self.usage.add(model, gemini_usage(meta))
-                    + GEMINI_SEARCH_DOLLARS * len(queries), GEMINI)
+        record_cost(stage, self.usage.add(model, gemini_usage(meta)), GEMINI,
+                    searches=len(queries))
         log.info("llm stage=%s model=%s input_tokens=%s output_tokens=%s searches=%s", stage,
                  model, meta.get("promptTokenCount"), meta.get("candidatesTokenCount"),
                  len(queries))
@@ -980,6 +991,14 @@ class ModelRouter:
             return self._fallback()
         return model
 
+    def _gemini_paused(self, stage: str) -> str | None:
+        """Why Gemini may not run now (Config ai.gemini_cap reached), else None."""
+        try:
+            check_cost(stage, self.config, GEMINI)
+        except LLMPausedError as exc:
+            return str(exc)
+        return None
+
     def _failed(self, stage: str, model: str, exc: Exception) -> str:
         self.usage.fallbacks += 1
         log.warning("%s %s failed, %s answers instead: %s", model, stage, self._fallback(), exc)
@@ -992,6 +1011,15 @@ class ModelRouter:
     ) -> dict[str, Any]:
         check_cost(stage, self.config)
         model = self.model(stage)
+        if is_gemini(model):
+            why = self._gemini_paused(stage)
+            if why:
+                # Config ai.gemini_cap (3 Nov): DeepSeek takes Gemini's work; a stage it
+                # cannot run waits for the 1st.
+                if stage not in DEEPSEEK_STAGES:
+                    raise LLMPausedError(why)
+                log.info("%s: %s answers %s", why, GEMINI_PAUSED_MODEL, stage)
+                model = GEMINI_PAUSED_MODEL
         if is_gemini(model) or is_deepseek(model):
             client: Any = None
             try:
@@ -1014,6 +1042,9 @@ class ModelRouter:
         check_cost(stage, self.config)
         model = self.model(stage)
         if is_gemini(model):
+            why = self._gemini_paused(stage)
+            if why:  # DeepSeek cannot search and Claude would spend its own cap: it waits
+                raise LLMPausedError(why)
             try:
                 return self.gemini().complete_json_with_search(
                     stage, system, user, model=model, max_tokens=max_tokens,

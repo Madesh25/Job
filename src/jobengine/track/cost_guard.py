@@ -15,6 +15,12 @@ net (it answers when DeepSeek or Gemini fails). Notion Config `ai.claude_cap` is
 Claude may cost in a month (you set 5). At 80% the bot warns once; at the cap Claude stops
 until the 1st: DeepSeek keeps working, and a call DeepSeek fails then fails (the job waits)
 instead of going to Claude. Reading your replies still goes to Claude when DeepSeek fails.
+
+Gemini's own cap (3 Nov, your decision): Gemini is paid by the monthly Google Cloud credit
+(₹959.89, about $10). Notion Config `ai.gemini_cap` is the most Gemini may cost in a month, in
+US dollars ($60 while the free trial runs, then 9.50). At 80% the bot warns once; at the cap
+Gemini stops until the 1st: DeepSeek takes its other work, and the Google searches (/update,
+contact search, direct job links) wait.
 """
 
 from __future__ import annotations
@@ -34,6 +40,8 @@ WARN_SHARE = 0.8
 FREE_STAGES = ("reply",)  # never paused: reading replies
 CLAUDE_CAP_KEY = "ai.claude_cap"
 CLAUDE_ALERT_KEY = "ai.claude_alert"  # bot_state: {"month": "2026-10", "level": 80 or 100}
+GEMINI_CAP_KEY = "ai.gemini_cap"
+GEMINI_ALERT_KEY = "ai.gemini_alert"  # bot_state: {"month": "2026-11", "level": 80 or 100}
 
 
 def cap(config: Any, key: str = CAP_KEY) -> float | None:
@@ -74,10 +82,23 @@ def claude_paused(config: Any, state: Any, today: date) -> bool:
     return limit is not None and provider_spent(state, today, "claude") >= limit
 
 
+def gemini_paused(config: Any, state: Any, today: date) -> bool:
+    limit = cap(config, GEMINI_CAP_KEY)
+    return limit is not None and provider_spent(state, today, "gemini") >= limit
+
+
 def blocked(config: Any, state: Any, today: date, stage: str,
             provider: str = "any") -> str | None:
     """Why this AI call may not run now; None when it may. `provider` "claude": the call is
-    about to go to Claude (also as the fallback of a failed DeepSeek or Gemini call)."""
+    about to go to Claude (also as the fallback of a failed DeepSeek or Gemini call);
+    "gemini": about to go to Gemini (the router then gives the work to DeepSeek)."""
+    if provider == "gemini":  # also replies: DeepSeek reads them instead
+        if not gemini_paused(config, state, today):
+            return None
+        return (f"Gemini paused: this month's Gemini cost (about "
+                f"${provider_spent(state, today, 'gemini'):.2f}) reached Config "
+                f"{GEMINI_CAP_KEY} (${cap(config, GEMINI_CAP_KEY):.2f}). DeepSeek does its "
+                "other work; the Google searches wait until the 1st, or raise the cap")
     if stage in FREE_STAGES:
         return None
     if paused(config, state, today):
@@ -118,6 +139,42 @@ def claude_alert(config: Any, state: Any, today: date) -> str | None:
             f"${limit:.2f} (Config {CLAUDE_CAP_KEY}). DeepSeek keeps working; when DeepSeek "
             "fails, that job now waits instead of going to Claude. Raise the cap to restart "
             "Claude.")
+
+
+def gemini_alert(config: Any, state: Any, today: date) -> str | None:
+    """Gemini's cap at 80% and at 100%, once a month each; None when nothing is new."""
+    limit = cap(config, GEMINI_CAP_KEY)
+    if limit is None:
+        return None
+    used = provider_spent(state, today, "gemini")
+    now = 100 if used >= limit else 80 if used >= WARN_SHARE * limit else 0
+    sent = state.get(GEMINI_ALERT_KEY) or {}
+    if not now or (sent.get("month") == _month(today) and int(sent.get("level") or 0) >= now):
+        return None
+    state.set(GEMINI_ALERT_KEY, {"month": _month(today), "level": now})
+    month = today.strftime("%B")
+    if now == 80:
+        return (f"💳 Gemini cost about ${used:.2f} of its ${limit:.2f} for {month} (Config "
+                f"{GEMINI_CAP_KEY}, paid by the Google Cloud credit). At the cap Gemini "
+                "pauses until the 1st and DeepSeek takes its work.")
+    return (f"⛔ Gemini paused for the rest of {month}: about ${used:.2f} used of "
+            f"${limit:.2f} (Config {GEMINI_CAP_KEY}). DeepSeek does its other work; /update, "
+            "the contact search and the direct job links wait until the 1st. Raise the cap "
+            "to restart Gemini.")
+
+
+def gemini_health_line(config: Any, state: Any, today: date) -> tuple[str, str] | None:
+    """For the morning check: Gemini's cap reached or at 80% ("soon": DeepSeek still works)."""
+    limit = cap(config, GEMINI_CAP_KEY)
+    if limit is None:
+        return None
+    used = provider_spent(state, today, "gemini")
+    if used >= limit:
+        return ("soon", f"Gemini paused (Config {GEMINI_CAP_KEY} ${limit:.2f} reached): "
+                        "the Google searches wait until the 1st.")
+    if used >= WARN_SHARE * limit:
+        return ("soon", f"Gemini used about ${used:.2f} of ${limit:.2f} this month.")
+    return None
 
 
 def level(config: Any, state: Any, today: date) -> int:
