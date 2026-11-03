@@ -35,7 +35,7 @@ from jobengine.settings import ROOT_DIR, Settings
 log = logging.getLogger("jobengine.llm")
 
 STAGES = ("fetch", "score", "tailor", "email", "strategy", "resume", "cover", "prep", "reply",
-          "people", "apply")
+          "people", "apply", "check")
 # A stage without its own Config row uses its parent's model: before 20 Oct resumes, cover
 # letters and interview prep all used model.tailor.
 STAGE_PARENT = {"resume": "tailor", "cover": "tailor", "prep": "tailor",
@@ -52,7 +52,11 @@ DEEPSEEK_PREFIX = "deepseek-"
 SEARCH_STAGES = ("strategy", "people", "fetch")
 # DeepSeek has no web search: it may run every other stage (plan C, 25 Oct; before that
 # only screening, 20 Oct).
-DEEPSEEK_STAGES = tuple(stage for stage in STAGES if stage not in SEARCH_STAGES)
+# Claude only (3 Nov): the check of a filled form before Submit (apply/form_check.py) is
+# never done by the model that filled it.
+CLAUDE_ONLY_STAGES = ("check",)
+DEEPSEEK_STAGES = tuple(stage for stage in STAGES
+                        if stage not in SEARCH_STAGES and stage not in CLAUDE_ONLY_STAGES)
 # Who answers Gemini's non-search work once Config ai.gemini_cap is reached (3 Nov).
 GEMINI_PAUSED_MODEL = "deepseek-v4-flash"
 # Config row naming the model of the "Rebuild with Claude" button under a resume preview.
@@ -1001,6 +1005,8 @@ class ModelRouter:
     def model(self, stage: str) -> str:
         """The model this stage uses now: an override, else Config (llm.force_model outside prod).
         DeepSeek outside its stages becomes haiku."""
+        if stage in CLAUDE_ONLY_STAGES:
+            return self._claude(model_setting(stage, self.config).split()[0])
         override = self.overrides.get(stage)
         if override:
             model = (self._claude(override) if override.startswith("claude-")

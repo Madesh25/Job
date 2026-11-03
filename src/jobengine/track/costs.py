@@ -22,7 +22,8 @@ from jobengine.bot_state import BotState
 # bot_state: {"month", "total", "calls", "stages", "providers", "searches", "last"}
 KEY = "llm.cost_month"
 # LLM stage -> what it is in the digest ("score" is screening and reading replies).
-STAGE_NAMES = {"score": "screening", "reply": "replies", "tailor": "resumes",
+STAGE_NAMES = {"check": "form checks", "score": "screening", "reply": "replies",
+               "tailor": "resumes",
                "resume": "resumes", "cover": "cover letters", "prep": "interview prep",
                "email": "mails", "strategy": "strategy research", "fetch": "job pages",
                "people": "contact search"}

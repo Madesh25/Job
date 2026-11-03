@@ -176,7 +176,30 @@ queue (`/autoapply`, or the autopilot with `apply.auto` = `true`) may.
   tick them); marketing, newsletter, talent-pool and "future roles" boxes are never ticked;
 - exactly one visible Submit button (Submit, Apply, Send, Wyślij, Aplikuj, Solliciteer,
   Verstuur ...);
-- no captcha and no login (the dry run already stops there; the bot never goes past one).
+- no captcha and no login (the dry run already stops there; the bot never goes past one);
+- **Claude's check** (3 Nov, your decision, `apply/form_check.py`): right before Submit the
+  filled answers are checked. Anything wrong, or Claude not reachable (no key, its monthly
+  cap, an error), and the form is not submitted: it comes to you as "Apply by hand" with
+  the reason.
+
+**Claude's check, at low cost:**
+- Free code checks first: an email, phone, link, number or date in the right shape; a
+  dropdown or radio answer that is one of its options; your sponsorship answer not turned
+  around; years of experience not more than your `apply.experience` answer. A problem here
+  stops the submit without any AI call.
+- Only answers that are not yours for sure go to Claude: your name, email, phone and links,
+  the approved resume and a saved answer whose question words are all in the field label
+  are never sent. Profile answers for other fields (salary, notice, city ...) and saved
+  answers that match only partly are sent: the field may ask something else.
+- A short fact sheet (your profile and `apply.*` answers, at most 1,500 characters)
+  instead of the resume; the reply is only the wrong field numbers with a reason.
+- Verdict memory: an answer Claude said OK to for a question is never checked again (Bot
+  State `apply.checked`, the newest 600).
+- Always Claude Haiku (stage `check`): Config `model.check` and `llm.force_model` cannot send
+  it to DeepSeek or Gemini, so the model that filled the form never checks itself. The
+  half-price batch is not used: the form stays open in the browser while it is checked.
+- About 1,000 tokens a form when anything is sent: well under a cent; with the memory most
+  forms need no call at all, so `ai.claude_cap` (5) stays.
 
 **After the press** the page is watched for up to 15 seconds for a confirmation ("thank you
 for applying", "application received", "dziękujemy za aplikację", "bedankt voor je

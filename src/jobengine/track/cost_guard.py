@@ -238,7 +238,8 @@ def health_line(config: Any, state: Any, today: date) -> tuple[str, str] | None:
 
 WATCH_MIN = 3  # failed DeepSeek or Gemini calls before a message
 WATCH_EVERY_HOURS = 3  # at most one message in this many hours
-STAGE_WORDS = {"score": "screening", "resume": "resumes", "tailor": "resumes",
+STAGE_WORDS = {"check": "form checks", "score": "screening", "resume": "resumes",
+               "tailor": "resumes",
                "cover": "cover letters", "email": "mails", "reply": "reading replies",
                "prep": "interview prep", "people": "contact search", "strategy": "/update",
                "apply": "form answers"}

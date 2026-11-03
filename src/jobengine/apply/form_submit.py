@@ -12,7 +12,9 @@ Then the filled form is submitted only when every check passes (`blockers`):
 - the resume field, when there is one, has the job's approved resume;
 - a required consent box: only a privacy or data-protection one, and only with Config
   `apply.tick_privacy` = true (marketing, newsletter and talent-pool boxes are never ticked);
-- exactly one visible Submit button (Submit, Apply, Send, Wyślij, Aplikuj, Solliciteer ...).
+- exactly one visible Submit button (Submit, Apply, Send, Wyślij, Aplikuj, Solliciteer ...);
+- Claude's check of the filled answers (apply/form_check.py, 3 Nov): anything wrong, or the
+  check could not run, and the form is not submitted.
 
 A captcha or a login already stopped the dry run (the bot never goes past one). After the
 press the page is watched for up to CONFIRM_WAIT_MS for a confirmation ("thank you for
@@ -117,14 +119,26 @@ def _confirmed(page: Any, before: str) -> bool:
     return False
 
 
-def finisher(allowed_privacy: bool) -> Callable[[Any, Result, Sending], None]:
-    """The finish step of form_bot.dry_run that submits a form ready to go."""
+def finisher(allowed_privacy: bool,
+             verify: Callable[[list[Answer]], list[str]] | None = None,
+             ) -> Callable[[Any, Result, Sending], None]:
+    """The finish step of form_bot.dry_run that submits a form ready to go. `verify` is the
+    check right before Submit (apply/form_check.Checker): its reasons stop the submit."""
 
     def finish(page: Any, result: Result, sending: Sending) -> None:
         why = blockers(result.answers, allowed_privacy)
         if why:
             result.submitted = "not submitted: " + "; ".join(why[:3])
             return
+        if verify is not None:
+            try:
+                why = verify(result.answers)
+            except Exception as exc:  # Claude not reachable: never sent unchecked
+                log.warning("form check failed for %s: %s", result.url, exc)
+                why = [f"the check before Submit could not run ({str(exc)[:120]})"]
+            if why:
+                result.submitted = "not submitted: " + "; ".join(why[:3])
+                return
         frame = page.frames[result.answers[0].field.frame] if result.answers else page.main_frame
         for a in result.answers:
             if a.value is None and privacy_box(a, allowed_privacy):
