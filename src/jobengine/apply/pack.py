@@ -155,7 +155,7 @@ def build(s: Settings, config: ConfigStore, values: dict[str, Any], details: lis
               f"- {why}" if why else "- (no specific detail stored for this job: write your "
                                        "own line)"]
     lines += ["", "Resume for this job",
-              f"- Headline: {title or 'unchanged (no approved title in this role)'}",
+              f"- Headline: {title or 'your main title (no approved title in this role)'}",
               f"- Location line: {' | '.join((reloc or 'unchanged').splitlines())}"]
     return "\n".join([*lines, *(extra or [])])
 

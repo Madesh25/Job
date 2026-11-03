@@ -62,10 +62,26 @@ def test_header_changes_per_job_and_keeps_the_rest():
     cloud = header.for_job(MASTER, S, ConfigStore.fake(), {"Role": "Cloud Engineer (AWS)",
                                                           "Country": "Poland"})
     assert header.headline_text(cloud) == "Cloud Engineer"  # never "Cloud ... Cloud"
-    # No approved title in the role: the headline stays; no template: the line stays.
+    # No approved title in the role (Phase 19 A-02, 3 Nov): the master's first title only,
+    # never "| Cloud & Platform Engineering"; no template: the line stays.
     s = S.model_copy(update={"resume": {**S.resume, "relocation_template": ""}})
-    same = header.for_job(MASTER, s, ConfigStore.fake(), {"Role": "Java Developer"})
-    assert same.html == MASTER.html
+    same = header.for_job(MASTER, s, ConfigStore.fake(), {"Role": "Systems Engineer"})
+    assert same.html == ('<p class="headline">DevOps Engineer</p>'
+                         '<p class="reloc">Snapshot</p>')
+    assert header.headline_text(same) == "DevOps Engineer"
+
+
+def test_the_summary_never_claims_plus_years():
+    from dataclasses import replace
+
+    summary = ('<p class="summary">DevOps engineer with 4+ years of professional experience, '
+               '3+ of them in DevOps. Runs C++ builds.</p>')
+    master = replace(MASTER, html=MASTER.html + summary,
+                     frozen_html=MASTER.frozen_html + summary)
+    out = header.for_job(master, S, ConfigStore.fake(), {"Role": "DevOps Engineer"})
+    for html in (out.html, out.frozen_html):
+        assert ('<p class="summary">DevOps engineer with 4 years of professional experience, '
+                '3 of them in DevOps. Runs C++ builds.</p>') in html
 
 
 def test_relocation_template_placeholders_and_config_line_breaks():
@@ -86,7 +102,8 @@ def test_config_overrides_the_titles_and_template():
                                                    value="Moving to {place}")
     config = ConfigStore(rows)
     out = header.for_job(MASTER, S, config, {"Role": "DevOps Engineer", "Country": "Ireland"})
-    assert "DevOps Engineer&nbsp; |" in out.html  # not on your list: the headline stays
+    # Not on your list: the master's first title only (Phase 19 A-02, 3 Nov).
+    assert '<p class="headline">DevOps Engineer</p>' in out.html
     assert '<p class="reloc">Moving to Ireland</p>' in out.html
 
 
