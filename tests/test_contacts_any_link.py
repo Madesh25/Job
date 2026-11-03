@@ -73,3 +73,17 @@ def test_the_same_link_with_or_without_utm_finds_the_same_job():
     d.repo.rows[pid]["URL"] = "https://www.adzuna.pl/details/456"
     assert find_row(d.repo, "https://www.adzuna.pl/details/456?utm_source=y").page_id == pid
     assert find_row(d.repo, "https://www.adzuna.pl/details/789") is None
+
+
+def test_the_jobs_own_notion_link_finds_it():
+    """Phase 19 A-04 (3 Nov): /applypack <Notion link> said "No Job Opportunities row"."""
+    d = desk_with(PAGE)
+    pid = next(iter(d.repo.rows))
+    raw = pid.replace("-", "")
+    if len(raw) != 32:  # the fake repo's ids: give the row a Notion-shaped one
+        raw = "40c6edc2b0d48156966fc9051999c7c9"
+        d.repo.rows["40c6edc2-b0d4-8156-966f-c9051999c7c9"] = d.repo.rows.pop(pid)
+        pid = "40c6edc2-b0d4-8156-966f-c9051999c7c9"
+    for link in (f"https://app.notion.com/p/{raw}", f"https://www.notion.so/Job-{raw}?pvs=4"):
+        assert find_row(d.repo, link).page_id == pid
+    assert find_row(d.repo, "https://www.notion.so/Job-" + "0" * 32) is None

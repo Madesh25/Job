@@ -64,7 +64,8 @@ Rules:
   one (5); for a range ("3-5 years") its lower number (3). Ignore nice-to-have years.
 - Salary, sponsorship and dates only when the description states them explicitly.
 - sponsorship: "stated_yes" only when visa sponsorship or relocation with a work permit is
-  offered; "stated_no" only when the description says there is no sponsorship.
+  offered; "stated_no" when the description says there is no sponsorship, or that only EU or
+  EEA nationals or citizens can apply (that rules out a candidate who needs a visa).
 - agency_posting: only when the description says it is posted by a recruitment agency on
   behalf of a client.
 - specific_details: up to 3 short phrases (at most 8 words each) about concrete work in this

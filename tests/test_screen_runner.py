@@ -42,7 +42,8 @@ def test_fake_run_summary(s, deps):
     summary = run(s, deps)
     assert summary.text() == (
         "Screening done: 14 screened (4 high, 2 normal, 2 low, 1 needs review, 5 skipped), "
-        "1 waiting for JD. 4 skipped without the AI."
+        "1 waiting for JD. 4 skipped without the AI (free, not counted in the daily limit); "
+        "10 screened by the AI."
     )
 
 

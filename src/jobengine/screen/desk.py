@@ -2692,6 +2692,14 @@ class Desk:
             text += f"\nIrish permits list: {self.permits_note}"
         except Exception as exc:  # /health never fails over the permits list
             text += f"\nIrish permits list: not checked ({type(exc).__name__})"
+        try:  # Phase 19 A-00 (3 Nov): the AI money lines were only in the morning check
+            from jobengine.track import balancer, costs
+
+            today = self.tracking_now().date()
+            text += (f"\n{costs.month_line(self.state, today)}"
+                     f"\n{balancer.line(self.deps.config(), self.state, today)}")
+        except Exception as exc:  # /health never fails over the cost lines
+            text += f"\nAI cost: not checked ({type(exc).__name__})"
         return [Reply(text)]
 
     def agencies_command(self, args: str) -> list[Reply]:
