@@ -231,8 +231,13 @@ counts today's submits.
   (`apply_pack.city`), permit, sponsorship, salary, notice, start, relocation, English, gender,
   the "why" line, the cover letter and your `/answer` list. A value that is not set is left
   out, so that field stays empty for you.
-- `/autofill` sends the **bookmark** and how to add it once per browser (bookmarks bar, Add
-  page, paste the `javascript:` message as the URL).
+- `/autofill` sends how to add the **bookmark** once per browser (Chrome, Edge or Firefox)
+  and the page `job-engine-autofill.html`: open it, drag its orange button onto the
+  bookmarks bar (Firefox: or right-click, Bookmark Link), or copy the address from its one
+  box (Phase 19 A-05, 3 Nov: the address used to come in 3 messages cut inside words).
+- The bookmark always answers with a message: what it filled, "no form fields on this
+  page" (a job description: press Apply first), or why it stopped. Its address starts with
+  `javascript:void`, so Firefox no longer replaces the page with the script's result.
 - On the form page (Greenhouse, Lever, Workday and most others) click the bookmark and paste
   the whole autofill message. It fills only **empty** fields whose label it recognises (your
   saved answers first, then the standard questions), chooses Yes/No and similar options in

@@ -17,6 +17,7 @@ browser for a dry run: it fills it and still never submits.)
 from __future__ import annotations
 
 import base64
+import html as htmllib
 import json
 import zlib
 from typing import Any
@@ -109,32 +110,56 @@ def message(s: Settings, config: ConfigStore, state: Any, values: dict[str, Any]
 
 
 def bookmarklet() -> str:
-    """The bookmark's address: javascript: plus AUTOFILL_JS on one line."""
+    """The bookmark's address: javascript:void plus AUTOFILL_JS on one line. "void" (Phase 19
+    A-05, 3 Nov): Firefox replaces the page with what a javascript: address returns, so the
+    script's own messages never showed there."""
     one_line = " ".join(line.strip() for line in AUTOFILL_JS.strip().splitlines() if line.strip())
-    return "javascript:" + quote(one_line, safe="()[]{};,.:=!?&|<>+*/'\"_-$ ").replace(" ", "%20")
+    return "javascript:void%20" + quote(one_line, safe="()[]{};,.:=!?&|<>+*/'\"_-$ ").replace(
+        " ", "%20")
+
+
+SETUP_FILE = "job-engine-autofill.html"
+SETUP = ("Job Engine autofill, set up once per browser (Chrome, Edge or Firefox):\n"
+         "1. Open the file below (job-engine-autofill.html) in that browser.\n"
+         "2. Show the bookmarks bar: Ctrl+Shift+B (Firefox: Ctrl+Shift+B too, or View, "
+         "Toolbars, Bookmarks Toolbar).\n"
+         "3. Drag the orange \"Job Engine autofill\" button from the page onto the bar. "
+         "Firefox: or right-click it, Bookmark Link.\n"
+         "Use: open the job's APPLICATION FORM (not the job description: press Apply first), "
+         "click the bookmark, paste the autofill code from the job's Apply pack. Every field it "
+         "filled is marked in orange; check them, fill the rest, attach the resume and press "
+         "Submit yourself. On Workday, click it again on each page (it remembers the code for "
+         "2 hours in that tab). It always answers with a message: what it filled, or why not.")
+
+
+def setup_page() -> bytes:
+    """The page to add the bookmark from: one link to drag (Phase 19 A-05: the address came in
+    3 Telegram messages, each cut inside a word) and the address in one box to copy."""
+    mark = htmllib.escape(bookmarklet(), quote=True)
+    return f"""<!doctype html><html lang="en"><head><meta charset="utf-8">
+<title>Job Engine autofill</title><style>
+body{{font-family:system-ui,sans-serif;max-width:720px;margin:40px auto;padding:0 16px;
+line-height:1.5}}a.mark{{display:inline-block;background:#f59e0b;color:#111;padding:10px 18px;
+border-radius:8px;font-weight:600;text-decoration:none}}textarea{{width:100%;height:120px}}
+</style></head><body><h1>Job Engine autofill</h1>
+<p>Drag this button onto your bookmarks bar (Firefox: or right-click it, Bookmark Link):</p>
+<p><a class="mark" href="{mark}">Job Engine autofill</a></p>
+<p>Clicking it here does nothing useful: use it on a job's application form. It fills empty
+fields from your Apply pack code, never presses a button and never submits.</p>
+<p>No bookmarks bar? Add a bookmark by hand and paste this whole box as its address:</p>
+<textarea readonly onclick="this.select()">{mark}</textarea>
+</body></html>""".encode()
 
 
 def setup_text() -> list[str]:
-    """/autofill: how to add the bookmark (once per browser), then the bookmark itself."""
-    return [
-        "Job Engine autofill, set up once per browser:\n"
-        "1. Show the bookmarks bar (Ctrl+Shift+B in Chrome and Edge).\n"
-        "2. Right-click the bar, Add page (Chrome: Add page, Edge: Add favorite).\n"
-        "3. Name: Job Engine autofill. URL: copy the whole next message (it starts with "
-        "javascript:) and paste it as the URL. Save.\n"
-        "Use: open the application form (when it sits inside a company page, the bookmark "
-        "offers to open it on its own page), click the bookmark, paste the autofill code from "
-        "the job's Apply pack. Every field it filled is marked in orange; check them, fill the "
-        "rest, attach the resume and press Submit yourself. On Workday, click it again on "
-        "each page (it remembers the code for 2 hours in that tab).",
-        bookmarklet(),
-    ]
+    """/autofill: how to add the bookmark (once per browser); the page comes as a file."""
+    return [SETUP]
 
 
 # The bookmark. Rules: no // comments (it is joined into one line), every statement ends
 # with a semicolon, no em or en dashes. It never clicks a button and never submits.
 AUTOFILL_JS = r"""
-(async () => {
+(async () => { try {
   const KEY = 'je-autofill';
   const norm = s => String(s || '').replace(/([a-z])([A-Z])/g, '$1 $2').toLowerCase()
     .replace(/[^a-z0-9]+/g, ' ').trim();
@@ -148,6 +173,11 @@ AUTOFILL_JS = r"""
   if (frame && inputs().length < 3) {
     if (confirm('The form is inside a frame from another site. Open it on its own page? ' +
       'Then click the bookmark again.')) { location.href = frame; }
+    return;
+  }
+  if (!inputs().length) {
+    alert('Job Engine autofill: no form fields on this page. Open the application form ' +
+      '(press Apply on the job page first), then click the bookmark again.');
     return;
   }
   let data = null;
@@ -320,5 +350,5 @@ AUTOFILL_JS = r"""
     'orange. ' + (empty === 1 ? '1 required field is still empty. ' :
     empty ? empty + ' required fields are still empty. ' : '') +
     'Check every field, attach your resume and press Submit yourself.');
-})();
+} catch (e) { alert('Job Engine autofill stopped: ' + ((e && e.message) || e)); } })();
 """

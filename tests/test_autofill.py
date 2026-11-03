@@ -84,7 +84,8 @@ def test_bookmarklet_never_submits():
     assert "fetch(" not in js and "XMLHttpRequest" not in js  # nothing leaves the page
     assert "//" not in js.replace("://", "")  # joined into one line: no line comments
     mark = autofill.bookmarklet()
-    assert mark.startswith("javascript:(async") and " " not in mark and "#" not in mark
+    # void (Phase 19 A-05): Firefox replaced the page with the script's return value.
+    assert mark.startswith("javascript:void%20(async") and " " not in mark and "#" not in mark
     assert "JE1:" in unquote(mark)
 
 
@@ -97,8 +98,12 @@ def test_bookmarklet_is_valid_javascript(tmp_path):
 
 def test_autofill_in_the_bot_and_the_apply_pack(desk):  # noqa: F811
     sent = [text for _chat, text in talk(desk, "/autofill").sent]
-    assert "set up once per browser" in sent[0]
-    assert any("javascript:" in text for text in sent[1:])
+    assert "set up once per browser (Chrome, Edge or Firefox)" in sent[0]
+    assert not any("javascript:" in text for text in sent)  # never cut into messages
+    [(name, page)] = [r.document for r in desk.autofill_command() if r.document]
+    assert name == autofill.SETUP_FILE
+    html = page.decode()
+    assert 'href="javascript:void%20(async' in html and "<textarea" in html
     sent = [text for _chat, text in talk(desk, "/applypack pl-clean").sent]
     code = next(text for text in sent if autofill.CODE_PREFIX in text)
     assert code.startswith("[LOCAL] " + autofill.HOW) or autofill.HOW in code

@@ -1065,7 +1065,9 @@ class Desk:
 
     def autofill_command(self) -> list[Reply]:
         """/autofill: how to add the form autofill bookmark, then the bookmark (feature 9)."""
-        return [Reply(text) for text in autofill.setup_text()]
+        texts = autofill.setup_text()
+        return [*(Reply(text) for text in texts[:-1]),
+                Reply(texts[-1], document=(autofill.SETUP_FILE, autofill.setup_page()))]
 
     def dryrun_command(self, args: str) -> list[Reply]:
         """/dryrun <job> [form link]: fill the job's form in a browser, never submit (H8)."""
