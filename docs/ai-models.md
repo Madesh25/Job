@@ -148,6 +148,25 @@ Developer Program, each month's credit usable for a year, plus the free trial un
 - The morning check says when Gemini is at 80% or paused. Bot State `ai.gemini_alert` keeps
   which message went out this month.
 
+## Credit balancer: the Google credit first (3 Nov, your idea)
+
+Plan C stays the base. While this month's Gemini budget (`ai.gemini_cap`) has room after a
+reserve for the searches, DeepSeek's most expensive jobs run on Gemini instead, in this
+order: resumes, cover letters, form answers, screening. A code rule, no AI.
+
+- At most once an hour (kept in memory, so an AI call adds no Notion read):
+  budget left = `ai.gemini_cap` minus Gemini's cost this month; reserve = what the
+  searches will still cost this month at this month's pace, at least 20% of the cap;
+  room = budget left minus reserve. A job moves while its cost for the rest of the month
+  on Gemini (about 4 times the DeepSeek price) fits in the room.
+- A balanced Gemini call that fails goes back to DeepSeek (not Claude). At the cap Gemini
+  stops and DeepSeek takes everything back. "Rebuild with Claude" is never moved.
+- Notion Config `ai.balance` = off keeps plan C; `ai.balance_model` picks the Gemini
+  model (default `gemini-3.5-flash-lite`). Empty `ai.gemini_cap`: the balancer is off.
+- The morning check says what runs where and why, for example "Credit balancer: resumes,
+  cover letters run on gemini-3.5-flash-lite today (Gemini $1.00 of $9.50 this month,
+  $2.10 kept for the searches)".
+
 ## Setup (once, after go-live)
 
 1. Google AI Studio (aistudio.google.com) -> Get API key, in a Google Cloud project **with
