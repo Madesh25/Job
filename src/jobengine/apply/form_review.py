@@ -46,6 +46,43 @@ def form_type(url: str) -> str:
     return next((name for part, name in FORMS if part in host), "Other")
 
 
+def site_key(url: str) -> str:
+    """The site type a form counts for (auto-submit per site type, 3 Nov): the job platform
+    (Workday, Greenhouse ...), or the company's own host for any other form, since each
+    custom form is different."""
+    kind = form_type(url)
+    if kind != "Other":
+        return kind
+    host = (urlsplit(url).hostname or "").lower().removeprefix("www.")
+    return host or "Other"
+
+
+BY_SITE_KEY = "dryrun.approved_by_site"  # bot_state: {"counts": {"Workday": 4, ...}}
+
+
+def approved_for(state: Any, key: str) -> int:
+    """Approved dry runs of one site type: the lasting count, or the kept runs when higher
+    (runs approved before 3 Nov are only in the kept runs)."""
+    counts = ((state.get(BY_SITE_KEY) if state is not None else None) or {}).get("counts") or {}
+    kept = sum(1 for r in _runs(state)
+               if r.get("status") == "approved" and site_key(r.get("url") or "") == key)
+    return max(int(counts.get(key) or 0), kept)
+
+
+def approved_by_site(state: Any) -> dict[str, int]:
+    counts = ((state.get(BY_SITE_KEY) if state is not None else None) or {}).get("counts") or {}
+    keys = set(counts) | {site_key(r.get("url") or "") for r in _runs(state)
+                          if r.get("status") == "approved"}
+    return {k: approved_for(state, k) for k in sorted(keys)}
+
+
+def _count_site(state: Any, url: str) -> None:
+    key = site_key(url)
+    counts = dict(((state.get(BY_SITE_KEY) or {}).get("counts")) or {})
+    counts[key] = approved_for(state, key) + 1
+    state.set(BY_SITE_KEY, {"counts": counts})
+
+
 def _runs(state: Any) -> list[dict[str, Any]]:
     return list(((state.get(KEY) or {}).get("items")) or []) if state is not None else []
 
@@ -96,6 +133,7 @@ def approve(state: Any, run_id: str, now: datetime, bank: Any = None) -> str:
         answers_mod.save(state, item["q"], item["a"])
         learned += 1
         _bank(bank, item["q"], item["a"], "AI approved", now.date())
+    _count_site(state, run.get("url") or "")  # before the run counts as approved itself
     _update(state, run_id, status="approved", decided=now.isoformat(timespec="seconds"))
     done = approved_count(state)
     more = f" {learned} AI answer(s) saved as yours for the next forms." if learned else ""
