@@ -2514,7 +2514,8 @@ class Desk:
         else:
             fine.append(f"/fetch gate open for {gate} more days")
         for cap in (cost_guard.health_line(config, self.state, today),
-                    cost_guard.claude_health_line(config, self.state, today)):
+                    cost_guard.claude_health_line(config, self.state, today),
+                    cost_guard.gemini_health_line(config, self.state, today)):
             if cap is not None:
                 (blockers if cap[0] == "blocker" else soon).append(cap[1])
         from jobengine.track import audit as audit_mod
@@ -2566,9 +2567,10 @@ class Desk:
             text, button = found
             replies.append(Reply(text, [(f"Allow AI for the rest of {today:%B}", "ai:on")]
                                  if button else []))
-        claude = cost_guard.claude_alert(config, self.state, today)
-        if claude:
-            replies.append(Reply(claude))
+        for text in (cost_guard.claude_alert(config, self.state, today),
+                     cost_guard.gemini_alert(config, self.state, today)):
+            if text:
+                replies.append(Reply(text))
         return replies
 
     def _ai_watch(self, config: Any, today: date) -> list[Reply]:

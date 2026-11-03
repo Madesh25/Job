@@ -106,6 +106,7 @@ def test_the_bot_sends_the_pause_with_the_allow_button():
     d._track_now = lambda: datetime(2026, 10, 26, 9, tzinfo=UTC)
     d.deps.config = lambda: CAP
     spend(d.state, 11)
+    llm.take_fallbacks()  # failed calls of earlier tests would add an AI watch message
     replies = d.ai_cap_tick()
     assert replies[0].buttons == [("Allow AI for the rest of October", "ai:on")]
     assert d.ai_cap_tick() == []

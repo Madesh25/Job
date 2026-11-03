@@ -35,7 +35,9 @@ Rules the code keeps whatever the Config says:
   each link once to read where it points (only the redirect, never the page), so the source
   check still works. A tip Google says is supported by a result gets that result as its
   source. Gemini decides itself how many searches it makes (`strategy.max_searches` applies
-  only on Claude). Gemini 3 search: 5,000 prompts a month free, then $14 per 1,000 searches.
+  only on Claude). Gemini 3 search: 5,000 free a month, then $14 per 1,000 searches. Since 3 Nov
+  the month's AI total counts only the searches past the free 5,000 (each search query
+  counts as one); /health shows "Google searches: N (5,000 a month are free)".
 - A row not set: Haiku. `model.cover`, `model.prep` and `model.resume` fall back to
   `model.tailor` first.
 
@@ -130,6 +132,21 @@ searches a month). Claude Haiku answers only when a DeepSeek or Gemini call fail
   "failed, claude-haiku-4-5 answers instead" warning of the week.
 - The month's AI total (Bot State `llm.cost_month`) now keeps each provider apart
   (`providers`: claude, deepseek, gemini); `ai.monthly_cap` still caps all of them together.
+
+## Gemini's own cap (3 Nov, your decision)
+
+Gemini is paid by the Google Cloud credit: ₹959.89 (about $10) a month from the Google
+Developer Program, each month's credit usable for a year, plus the free trial until 23 Dec.
+
+- **Notion Config `ai.gemini_cap`** is the most Gemini may cost in a month, in US dollars
+  ($60 while the free trial runs, then 9.50, so it stays inside the monthly credit). Empty or
+  0 means no cap.
+- At 80% the bot warns once (`💳 Gemini cost about $X of its $Y`). At the cap Gemini stops
+  until the 1st: DeepSeek (`deepseek-v4-flash`) takes its other work, and the Google
+  searches (/update, the contact search, the direct job links) wait. Claude does not take
+  them, so its own $5 is not spent on Gemini's work. Raising the value restarts Gemini.
+- The morning check says when Gemini is at 80% or paused. Bot State `ai.gemini_alert` keeps
+  which message went out this month.
 
 ## Setup (once, after go-live)
 

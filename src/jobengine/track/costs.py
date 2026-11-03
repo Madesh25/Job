@@ -4,6 +4,9 @@ Every LLM call reports its estimated cost (jobengine.llm.record_cost, the same p
 "AI used" lines); the bot adds it to a running total for the month in Bot State
 `llm.cost_month`. A new month starts from zero and keeps last month's total for comparison.
 It is an estimate from the token counts: Anthropic's console has the exact bill.
+
+Gemini's Google searches (3 Nov): the month counts them (`searches`); the first
+llm.FREE_SEARCHES (5,000) cost nothing, each one after that llm.GEMINI_SEARCH_DOLLARS.
 """
 
 from __future__ import annotations
@@ -16,7 +19,8 @@ from typing import Any
 
 from jobengine.bot_state import BotState
 
-KEY = "llm.cost_month"  # bot_state: {"month", "total", "calls", "stages", "providers", "last"}
+# bot_state: {"month", "total", "calls", "stages", "providers", "searches", "last"}
+KEY = "llm.cost_month"
 # LLM stage -> what it is in the digest ("score" is screening and reading replies).
 STAGE_NAMES = {"score": "screening", "reply": "replies", "tailor": "resumes",
                "resume": "resumes", "cover": "cover letters", "prep": "interview prep",
@@ -29,8 +33,15 @@ def _month(day: date) -> str:
     return day.strftime("%Y-%m")
 
 
+def paid_searches(before: int, searches: int) -> int:
+    """How many of `searches` new Google searches are past the month's free ones."""
+    from jobengine.llm import FREE_SEARCHES
+
+    return max(0, before + searches - FREE_SEARCHES) - max(0, before - FREE_SEARCHES)
+
+
 def record(state: BotState, today: date, stage: str, dollars: float,
-           provider: str = "claude") -> None:
+           provider: str = "claude", searches: int = 0) -> None:
     with _lock:
         value = state.get(KEY) or {}
         month = _month(today)
@@ -38,6 +49,12 @@ def record(state: BotState, today: date, stage: str, dollars: float,
             last = ({"month": value["month"], "total": value.get("total", 0.0)}
                     if value.get("month") else value.get("last"))
             value = {"month": month, "total": 0.0, "calls": 0, "stages": {}, "last": last}
+        if searches > 0:
+            from jobengine.llm import GEMINI_SEARCH_DOLLARS
+
+            before = int(value.get("searches") or 0)
+            dollars += GEMINI_SEARCH_DOLLARS * paid_searches(before, searches)
+            value["searches"] = before + searches
         value["total"] = round(float(value.get("total") or 0.0) + dollars, 6)
         value["calls"] = int(value.get("calls") or 0) + 1
         stages: dict[str, Any] = dict(value.get("stages") or {})
@@ -52,10 +69,16 @@ def record(state: BotState, today: date, stage: str, dollars: float,
     day_ledger.add_cost(state, today, dollars)  # the daily report's "AI today"
 
 
-def sink(state: BotState, today: Callable[[], date]) -> Callable[[str, float, str], None]:
+def sink(state: BotState, today: Callable[[], date]) -> Callable[..., None]:
     """What the bot passes to jobengine.llm.set_cost_sink."""
-    return lambda stage, dollars, provider="claude": record(state, today(), stage, dollars,
-                                                            provider)
+    return lambda stage, dollars, provider="claude", searches=0: record(
+        state, today(), stage, dollars, provider, searches)
+
+
+def searches_used(state: BotState | None, today: date) -> int:
+    """This month's Gemini Google searches."""
+    value = (state.get(KEY) if state is not None else None) or {}
+    return int(value.get("searches") or 0) if value.get("month") == _month(today) else 0
 
 
 def provider_spent(state: BotState | None, today: date, provider: str) -> float:
@@ -83,6 +106,11 @@ def month_line(state: BotState, today: date) -> str:
     text = (f"AI in {name} so far: about ${total:.2f} in {value['calls']} calls"
             + (f" ({split})" if split else "")
             + f"; on pace for about ${pace:.2f} this month.")
+    searches = int(value.get("searches") or 0)
+    if searches:
+        from jobengine.llm import FREE_SEARCHES
+
+        text += f" Google searches: {searches:,} ({FREE_SEARCHES:,} a month are free)."
     last = value.get("last") or {}
     if last.get("month"):
         text += f" Last month: about ${float(last.get('total') or 0):.2f}."
