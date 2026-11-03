@@ -2536,6 +2536,9 @@ class Desk:
         if not plan.on:
             soon.append("The autopilot schedule is off (Notion Config schedule.autopilot).")
         fine.append(costs.month_line(self.state, today))
+        from jobengine.track import balancer
+
+        fine.append(balancer.line(config, self.state, today))
         from jobengine.sweep.runner import LAST_SUMMARY
 
         last = (self.state.get(LAST_SUMMARY) or {}).get("at")
@@ -3801,11 +3804,12 @@ def real_desk(s: Settings) -> Desk | None:
     except Exception as exc:  # the bot still works without /update
         log.warning("strategy update not available: %s", exc)
         strategy = None
-    from jobengine.llm import set_cost_guard, set_cost_sink
-    from jobengine.track import cost_guard, costs
+    from jobengine.llm import set_balancer, set_cost_guard, set_cost_sink
+    from jobengine.track import balancer, cost_guard, costs
 
     set_cost_sink(costs.sink(state, date.today))  # the month's Claude cost (digest)
     set_cost_guard(cost_guard.guard(state, date.today))  # Config ai.monthly_cap (I6)
+    set_balancer(balancer.Balancer(state, date.today))  # the Google credit first (3 Nov)
     desk = Desk(s, real_deps(s), state, resume=resume, contacts=contacts, mail=mail,
                 track=track, strategy=strategy)
     # What the bot did today, by your clock (tracking.utc_offset), for the daily report.

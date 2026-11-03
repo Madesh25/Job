@@ -204,6 +204,28 @@ def set_cost_guard(guard: CostGuard | None) -> None:
     _cost_guard = guard
 
 
+# The credit balancer (track/balancer.py, 3 Nov): (stage, config) -> the Gemini model a
+# DeepSeek job runs on while the Google credit has room, else None. Set once by the bot.
+Balancer = Callable[[str, Any], "str | None"]
+_balancer: Balancer | None = None
+
+
+def set_balancer(balancer: Balancer | None) -> None:
+    global _balancer
+    _balancer = balancer
+
+
+def balanced_model(stage: str, config: Any) -> str | None:
+    if _balancer is None:
+        return None
+    try:
+        model = _balancer(stage, config)
+    except Exception:  # the balancer saves money: never fail a call because it broke
+        log.exception("could not ask the credit balancer")
+        return None
+    return model if model and is_gemini(model) else None
+
+
 class LLMError(Exception):
     """An LLM call could not produce a usable JSON object."""
 
@@ -1011,6 +1033,11 @@ class ModelRouter:
     ) -> dict[str, Any]:
         check_cost(stage, self.config)
         model = self.model(stage)
+        deepseek: str | None = None  # the DeepSeek model a balanced job falls back to
+        if is_deepseek(model) and stage not in self.overrides:
+            moved = balanced_model(stage, self.config)
+            if moved:
+                deepseek, model = model, moved
         if is_gemini(model):
             why = self._gemini_paused(stage)
             if why:
@@ -1018,17 +1045,23 @@ class ModelRouter:
                 # cannot run waits for the 1st.
                 if stage not in DEEPSEEK_STAGES:
                     raise LLMPausedError(why)
-                log.info("%s: %s answers %s", why, GEMINI_PAUSED_MODEL, stage)
-                model = GEMINI_PAUSED_MODEL
+                model = deepseek or GEMINI_PAUSED_MODEL
+                log.info("%s: %s answers %s", why, model, stage)
+                deepseek = None
+        tries = [model, deepseek] if deepseek else [model]
         if is_gemini(model) or is_deepseek(model):
-            client: Any = None
-            try:
-                client = self.gemini() if is_gemini(model) else self.deepseek()
-                return client.complete_json(stage, system, user, model=model,
-                                            max_tokens=max_tokens,
-                                            thinking=thinking_for(stage, self.config))
-            except LLMError as exc:
-                model = self._failed(stage, model, exc)
+            for i, current in enumerate(tries):
+                try:
+                    client: Any = self.gemini() if is_gemini(current) else self.deepseek()
+                    return client.complete_json(stage, system, user, model=current,
+                                                max_tokens=max_tokens,
+                                                thinking=thinking_for(stage, self.config))
+                except LLMError as exc:
+                    if i + 1 < len(tries):  # the balancer's Gemini failed: DeepSeek again
+                        log.warning("%s %s failed, %s answers instead: %s", current, stage,
+                                    tries[i + 1], exc)
+                        continue
+                    model = self._failed(stage, current, exc)
         check_cost(stage, self.config, CLAUDE)  # Config ai.claude_cap: the safety net's limit
         return self.claude.complete_json(stage, system, user, max_tokens=max_tokens,
                                          key=key, model=model)
