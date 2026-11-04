@@ -827,3 +827,13 @@ companies' jobs".
 would otherwise wait 3 or 14 days); the ghost-job counts stay. A short company name counts
 in a web address when it is written together at the start of a part of it (P&G is
 pgcareers.com).
+
+### Close titles (4 Nov)
+
+A job board with no exact title but one job in the row's place whose title is the row's
+title with at most two more words, none a level word (senior, lead, intern ...), takes that
+job: JustJoin's "DevOps Engineer" is Motorola's "Software DevOps Engineer" in Krakow. Two
+or more such jobs: none is taken, and the job is not a ghost either (it is on the list in
+some form). Google's copy now takes the advert as the search results show it, in its own
+words, even when they show only part of it (on 4 Nov the copy-only rule gave "not found"
+37 times).

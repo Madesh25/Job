@@ -1167,3 +1167,31 @@ def test_a_better_lookup_tries_the_jobs_not_found_before_once():
     assert saved[job_links.MISSES] == {"p9": [TODAY.isoformat()]}
     again = job_links.run(deps([row()], llm=Search(), state=state), BOARDS)
     assert again.tried == 0  # once only: now it waits its 3 days as before
+
+
+def test_a_close_title_in_the_same_place_is_the_same_job():
+    """4 Nov: JustJoin's "DevOps Engineer" at Motorola Solutions was skipped as a ghost job,
+    while Motorola's own board had "Software DevOps Engineer" in Krakow."""
+    assert job_links.close_title("Software DevOps Engineer", "DevOps Engineer", "Krakow",
+                                 "Poland")
+    assert not job_links.close_title("Senior DevOps Engineer", "DevOps Engineer")
+    assert not job_links.close_title("DevOps Engineer Intern Program Lead", "DevOps Engineer")
+    assert not job_links.close_title("Data Engineer", "AWS Databricks Platform Engineer")
+    url = "https://boards.greenhouse.io/dunedata/jobs/9"
+    get = board_api([("Software DevOps Engineer", "Amsterdam", url),
+                     ("DevOps Engineer", "Berlin, Germany", "https://boards.greenhouse.io/x/1")])
+    d = deps([row()], pages={url: job_page("Software DevOps Engineer")}, get=get)
+    assert job_links.run(d, BOARDS).labels == ["Dune Data, DevOps Engineer (company job board)"]
+    assert d.repo.rows["p0"]["URL"] == url
+
+
+def test_two_close_titles_are_not_a_guess_and_not_a_ghost():
+    get = board_api([("Software DevOps Engineer", "Amsterdam", "https://boards.greenhouse.io/d/1"),
+                     ("Cloud DevOps Engineer", "Amsterdam", "https://boards.greenhouse.io/d/2"),
+                     ("Data Analyst", "Amsterdam", "https://boards.greenhouse.io/d/3")])
+    state = FakeBotState()
+    for _ in range(2):  # two checks
+        d = deps([row()], get=get, state=state)
+        state.set(job_links.KEY, {**(state.get(job_links.KEY) or {}), "tried": {}})
+        result = job_links.run(d, BOARDS)
+    assert d.repo.rows["p0"]["URL"] == LINKEDIN and result.ghosts == []

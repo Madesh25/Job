@@ -293,7 +293,7 @@ class Rules:
 # reposted job: just delete it"). sweep.reposters in the config replaces this list.
 REPOSTERS = ("Jobgether", "JobLeads", "Lensa", "Talent.com", "Jobted", "Jobrapido",
              "Careerjet", "WhatJobs", "Jobsora", "Jooble", "Remote Rocketship", "Hirify",
-             "Jobs via Dice", "Jobright.ai")
+             "Jobs via Dice", "Jobright.ai", "Jobster", "Jobbird")
 REPOSTER = "reposting site, not the employer"
 
 
