@@ -841,8 +841,12 @@ def from_site(deps: Deps, careers: str, company: str, role: str, city: str | Non
                          careers)
         if found is not None:
             return found
+        # 4 Nov: also a full-looking careers page that shows no job list (YachtCloud: big
+        # menus and footer, the jobs come later by JavaScript); a long page that lists jobs
+        # already is never opened again.
         if (deps.render is not None and (depth or _careers_url(final))
-                and ats.board_in_page(final, html) is None and thin_page(html)):
+                and ats.board_in_page(final, html) is None
+                and (thin_page(html) or not job_list_page(html))):
             if renders[0] <= 0 or getattr(deps.render, "left", 1) <= 0:
                 _partial()
                 log.info("careers page not opened in the browser %s: no browser pages left "

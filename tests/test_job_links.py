@@ -507,13 +507,29 @@ def long_page(*links):
             f"{careers_page(*links)}</body></html>")
 
 
-def test_a_long_page_is_not_opened_in_the_browser():
-    """30 Oct: CGI's long pages used 5 of the 15 browser pages and found nothing."""
-    d = deps([row()], pages={CAREERS: long_page()}, careers={"dune data": CAREERS})
+def test_a_long_page_that_lists_jobs_is_not_opened_in_the_browser():
+    """30 Oct: CGI's long pages used 5 of the 15 browser pages and found nothing. A long
+    page that already shows a job list (without this job) is not opened again."""
+    listed = long_page(("/careers/java-developer", "Java Developer"),
+                       ("/careers/data-engineer", "Data Engineer"),
+                       ("/careers/frontend-engineer", "Frontend Engineer"))
+    d = deps([row()], pages={CAREERS: listed}, careers={"dune data": CAREERS})
     browser = Pages({})
     d.render = browser
     job_links.run(d, BOARDS)
     assert browser.opened == []
+
+
+def test_a_long_page_with_no_job_list_is_opened_in_the_browser():
+    """4 Nov: YachtCloud's careers page is full of menus and text, and its job list comes
+    later by JavaScript: it was never opened, so its job was never found."""
+    rendered = careers_page(("/careers/devops-engineer-amsterdam", "DevOps Engineer"))
+    d = deps([row()], pages={CAREERS: long_page(), JOB: job_page("DevOps Engineer")},
+             careers={"dune data": CAREERS})
+    browser = Pages({CAREERS: rendered})
+    d.render = browser
+    assert job_links.run(d, BOARDS).labels == ["Dune Data, DevOps Engineer (careers page)"]
+    assert browser.opened == [CAREERS]
 
 
 def test_one_job_opens_at_most_two_pages_in_the_browser():
@@ -1082,3 +1098,30 @@ def test_googles_copy_never_brings_back_a_ghost_job():
     d = deps([row()], pages={CAREERS: listed}, llm=search, careers={"dune data": CAREERS})
     job_links.run(d, BOARDS)
     assert search.google == [] and d.repo.rows["p0"]["URL"] == LINKEDIN
+
+
+def test_a_jobs_box_from_another_site_is_read_with_the_page():
+    """4 Nov: a careers page that shows its jobs in a box from Recruitee, Homerun or
+    Personio (an iframe): the box's HTML comes after the page's."""
+    from jobengine.sweep import render
+
+    class Frame:
+        def __init__(self, url, html, fails=False):
+            self.url, self.html, self.fails = url, html, fails
+
+        def content(self):
+            if self.fails:
+                raise RuntimeError("frame was detached")
+            return self.html
+
+    class Page:
+        frames = [Frame("https://www.dunedata.com/careers", "<main/>"),
+                  Frame("https://dunedata.recruitee.com/embed", "<a href='/o/devops'>DevOps "
+                        "Engineer</a>"),
+                  Frame("https://ads.example.com", "", fails=True)]
+
+    out = render._frames(Page())
+    assert "frame https://dunedata.recruitee.com/embed" in out
+    # its links are made whole with the box's own site, not the careers page's
+    assert "<a href='https://dunedata.recruitee.com/o/devops'>DevOps Engineer</a>" in out
+    assert "<main/>" not in out
