@@ -55,7 +55,7 @@ from bs4 import BeautifulSoup
 from jobengine import textblocks
 from jobengine.notion_repo import JobsRepo, select_filter
 from jobengine.safety import SafetyError
-from jobengine.sweep import fulltext
+from jobengine.sweep import fulltext, normalize
 from jobengine.sweep.crossmatch import DESCRIPTION_HEADER, plain_title, title_key
 from jobengine.sweep.dedupe import DESCRIPTION_BLOCK_CHARS, DESCRIPTION_MAX_BLOCKS, link_rank
 from jobengine.sweep.normalize import canon, canon_city, canon_company, without_region
@@ -161,6 +161,7 @@ class Result:
     no_company: list[str] = field(default_factory=list)  # the alert showed no company: noted
     not_yet: int = 0  # not on the company's site at the first check: looked up again
     unchecked: int = 0  # the company's site could not be checked: waits for /jd
+    deleted: list[str] = field(default_factory=list)  # reposted jobs deleted (4 Nov)
 
 
 @dataclass
@@ -1000,6 +1001,18 @@ def run(deps: Deps, boards: tuple[str, ...], with_body: set[str] | None = None,
             no_company[pid] = deps.today.isoformat()
             result.no_company.append(f"{v.get('Role')} ('{v.get('Company')}')")
     rows = [r for r in rows if real_company(str(r[1]["Company"]))]
+    rules = normalize.Rules.from_config(deps.s.sweep)
+    for pid, v in [r for r in rows if normalize.reposter(str(r[1]["Company"]), rules)]:
+        # 4 Nov, your decision: a reposted job (Jobgether ...) is deleted from the list
+        # (Notion keeps it in its trash for 30 days). One you approved or built a resume
+        # for stays: that was your choice.
+        if v.get("Status") not in ("New", "Screened"):
+            continue
+        deps.repo.archive(pid)
+        result.deleted.append(f"{v.get('Company')}, {v.get('Role')}")
+        log.info("deleted %s, %s: a reposting site, not the employer", v.get("Company"),
+                 v.get("Role"))
+    rows = [r for r in rows if not normalize.reposter(str(r[1]["Company"]), rules)]
     rows.sort(key=lambda r: str(r[1].get("Posted date") or ""), reverse=True)
     tried = _remembered(deps.state, deps.today, "tried")
     no_board = _remembered(deps.state, deps.today, "no_board")

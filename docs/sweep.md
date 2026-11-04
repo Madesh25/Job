@@ -792,3 +792,13 @@ Ties go to the newest posting. Jobs already in Notion are always updated (seen a
 reposts). With a daily cap set, jobs below the cut are not saved and the summary says how
 many, for example `Kept the best 30 of 142 new jobs (daily limit 30, 0 already added today).
 112 weaker matches were not saved.`
+
+### Reposting sites (4 Nov, your decision)
+
+Sites that post other companies' jobs as their own (Jobgether, JobLeads, Lensa,
+Talent.com, Jooble, WhatJobs ...; `sweep.reposters` in the config replaces the list) are not
+the employer. A job from one is never saved ("reposting site, not the employer" in the
+skipped counts), and one already in Notion with Status New or Screened is deleted (Notion
+keeps it in its trash for 30 days). One you approved or built a resume for stays. The
+/fetch summary lists them: "Deleted from Notion, posted by a site that reposts other
+companies' jobs".

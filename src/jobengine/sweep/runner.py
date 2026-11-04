@@ -781,6 +781,7 @@ def run_sweep(
             summary.direct_links_again = getattr(found, "again", 0)
             summary.ghost_jobs = list(getattr(found, "ghosts", []))
             summary.no_company = list(getattr(found, "no_company", []))
+            summary.reposted = list(getattr(found, "deleted", []))
             summary.not_on_site_yet = getattr(found, "not_yet", 0)
             summary.site_unchecked = getattr(found, "unchecked", 0)
         except Exception:  # never fail a sweep over the link search
