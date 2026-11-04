@@ -1075,11 +1075,16 @@ class ModelRouter:
     def complete_json_with_search(
         self, stage: str, system: str, user: str, *, max_tokens: int = 4000,
         max_uses: int = 8, key: str | None = None, titles: dict[str, str] | None = None,
+        gemini_model: str | None = None,
     ) -> tuple[dict[str, Any], list[str]]:
         """Gemini searches with Google (it cannot be told a maximum number of searches);
-        DeepSeek has no web search, so a DeepSeek model here becomes haiku."""
+        DeepSeek has no web search, so a DeepSeek model here becomes haiku. `gemini_model`:
+        a stronger Gemini for this one call, when the stage runs on Gemini (Google's copy of
+        a job advert, 4 Nov)."""
         check_cost(stage, self.config)
         model = self.model(stage)
+        if gemini_model and is_gemini(model) and is_gemini(gemini_model):
+            model = gemini_model
         if is_gemini(model):
             why = self._gemini_paused(stage)
             if why:  # DeepSeek cannot search and Claude would spend its own cap: it waits

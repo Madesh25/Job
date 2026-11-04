@@ -30,7 +30,10 @@ sweep:
   job_links:
     max_rows: 80
     # AI searches: a company's careers page, or the job when no careers page is found.
-    max_searches: 80
+    max_searches: 150  # 4 Nov: a company can take 3 now (careers page, job system, Google's copy)
+    # Google's copy reads the advert with a stronger Gemini than the light fetch model (4 Nov:
+    # flash-lite answered "not found" at once for most adverts). Empty: the fetch model.
+    copy_model: gemini-3.8-flash
     # Browser pages for careers pages built by JavaScript: one per job looked up (2 Nov:
     # 40 ran out halfway through the 80 jobs).
     max_rendered: 80

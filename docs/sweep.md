@@ -837,3 +837,17 @@ or more such jobs: none is taken, and the job is not a ghost either (it is on th
 some form). Google's copy now takes the advert as the search results show it, in its own
 words, even when they show only part of it (on 4 Nov the copy-only rule gave "not found"
 37 times).
+
+### Round 3 (4 Nov evening)
+
+- Link text before the title is not part of it ("Bekijk vacature voor DevOps Engineer",
+  "View vacancy for ..."), nor a list of your cities and countries after it
+  ("Site Reliability Engineer Wroclaw, Krakow, Gdansk, Warsaw, Poland").
+- The browser opens one page once per /fetch: the same careers page for the next job of
+  that company costs no browser page (on 4 Nov the 80 ran out halfway, CGI, Apple and
+  Prism Digital again and again).
+- `sweep.job_links.copy_model` (DEV: `gemini-3.8-flash`): Google's copy is asked of a
+  stronger Gemini than the light fetch model, which answered "not found" at once for most
+  adverts. Empty: the fetch model. `max_searches` in DEV is 150: a company can take three
+  searches now (careers page, job system, Google's copy).
+- LOOKUP_VERSION 3: the next /fetch looks up again, once, the jobs not found before.

@@ -228,3 +228,16 @@ def test_month_line_adds_old_and_new_resume_stages():
         costs.record(state, day, stage, dollars)
     line = costs.month_line(state, day)
     assert "(resumes $0.50, cover letters $0.10, replies $0.05)" in line
+
+
+def test_one_search_call_can_use_a_stronger_gemini():
+    """4 Nov: Google's copy of a job advert asks gemini-3.8-flash; the stage keeps its own
+    model otherwise, and a Claude stage never becomes Gemini this way."""
+    llm, claude, gemini = router({"model.fetch": "gemini-3.5-flash-lite"})
+    llm.complete_json_with_search("fetch", "s", "u", gemini_model="gemini-3.8-flash")
+    llm.complete_json_with_search("fetch", "s", "u")
+    assert gemini.calls == [("fetch", "gemini-3.8-flash", "search"),
+                            ("fetch", "gemini-3.5-flash-lite", "search")]
+    on_claude, claude2, gemini2 = router({})
+    on_claude.complete_json_with_search("fetch", "s", "u", gemini_model="gemini-3.8-flash")
+    assert gemini2.calls == []

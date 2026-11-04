@@ -40,6 +40,7 @@ A form behind a login or a captcha is still yours to send: the autopilot stops t
 
 from __future__ import annotations
 
+import functools
 import json
 import logging
 import re
@@ -68,7 +69,7 @@ KEY = "sweep.job_links"
 # Bumped when the lookup itself gets better (4 Nov: JavaScript pages, job systems, Google's
 # copy): the jobs and companies not found before are looked up again once, not 3 or 14
 # days later. Ghost-job counts ("misses") are kept.
-LOOKUP_VERSION = 2
+LOOKUP_VERSION = 3  # 3: close titles, link text, city lists, one browser page per URL
 RETRY_DAYS = 3  # a job not found is looked up again after this (14 until 30 Oct)
 NO_BOARD_DAYS = 14  # a company without a job board or careers page is asked again after
 MAX_RENDERS_PER_JOB = 2  # browser pages for one job: one site never uses the whole budget
@@ -161,6 +162,12 @@ employer's own page at all, answer {"found": false}."""
 GOOGLE_HOW = "Google's copy of the company page"  # its site does not let the bot read it
 MIN_TITLE_SHARE = 0.5  # of the role's words the text must name
 
+
+def copy_model(s: Any) -> str:
+    """sweep.job_links.copy_model: a stronger Gemini for Google's copy (4 Nov: the light one
+    answered "not found" at once, 5 tokens, for most adverts). Empty: the fetch model."""
+    return str((s.sweep.get("job_links") or {}).get("copy_model") or "").strip()
+
 # 4 Nov: big companies' own websites (Serco, PwC) refuse automated readers with HTTP 403,
 # while the job system they post on is meant to be read by job sites.
 BOARD_SYSTEM = """You find the job list of one company on its applicant tracking system.
@@ -244,9 +251,18 @@ _RUNNING_NUMBER = re.compile(r"\s*\(\d{1,3}/\d{1,3}\)\s*$")
 _ID_SUFFIX = re.compile(r"\s+(?:id|ref|req)\s?[:#]?\s?\d{3,}\s*$", re.I)
 
 
+# Link text before the title (4 Nov: CIMSOLUTIONS lists "Bekijk vacature voor DevOps
+# Engineer", "View vacancy for ...").
+_BUTTON_BEFORE = re.compile(
+    r"^\s*(?:bekijk (?:de |deze )?vacature (?:voor|van)|view (?:the )?(?:job|vacancy|position|"
+    r"role)(?: for)?|apply (?:for|to)|solliciteer (?:op|voor|naar)|zobacz ofert[eę]"
+    r"(?: pracy)?(?: na)?|aplikuj na)\s*:?\s+", re.I)
+
+
 def card_title(text: str | None) -> str:
     """A job title as a careers page shows it, without its job number and button text."""
-    value = _JOB_NUMBER.sub("", text or "")
+    value = _BUTTON_BEFORE.sub("", text or "")
+    value = _JOB_NUMBER.sub("", value)
     value = _BUTTON.sub("", value).strip()
     value = _RUNNING_NUMBER.sub("", _TEAM_CODE.sub("", value)).strip()
     return _ID_SUFFIX.sub("", value).strip()
@@ -260,7 +276,31 @@ def same_title(found: str | None, role: str | None, city: str | None = None,
     if city:  # "... (f/m) Warsaw" for a row in "Warszawa" (Netcompany, 2 Nov)
         home = canon_city(city)
         got = " ".join(w for w in got.split() if canon_city(w) != home)
+    if got != want:  # "Site Reliability Engineer Wroclaw, Krakow, Gdansk, Warsaw, Poland"
+        places = place_words() - set(want.split())
+        got = " ".join(w for w in got.split() if w not in places)
     return bool(want) and got == want
+
+
+@functools.lru_cache(maxsize=1)
+def place_words() -> frozenset[str]:
+    """The one-word names of your countries and cities (4 Nov: Grid Dynamics puts every city
+    after the title)."""
+    from jobengine.settings import get_settings
+
+    words = {w for names in COUNTRY_WORDS.values() for w in names if len(w) > 2}
+    try:
+        locations = get_settings().sweep.get("locations") or {}
+    except Exception:  # no settings (a script): the countries only
+        locations = {}
+    for spec in locations.values():
+        for name in [*(spec.get("names") or []),
+                     *(a for aliases in (spec.get("cities") or {}).values() for a in aliases)]:
+            value = canon(str(name))
+            if value and " " not in value and len(value) > 2:
+                words.add(value)
+                words.add(canon_city(value))
+    return frozenset(words)
 
 
 # Extra words a close title may have (4 Nov: JustJoin's "DevOps Engineer" is Motorola's
@@ -1136,9 +1176,11 @@ def from_google(deps: Deps, company: str, role: str, city: str | None,
     user = (f"Company: {without_region(company)}\nJob title: {role}\n"
             f"City: {city or 'not given'}\nCountry: {country or 'not given'}")
     try:
+        model = copy_model(deps.s)
+        extra = {"gemini_model": model} if model else {}
         raw, sources = deps.llm.complete_json_with_search(STAGE, GOOGLE_SYSTEM, user,
                                                           max_tokens=2400, max_uses=3,
-                                                          key=f"{key}-google")
+                                                          key=f"{key}-google", **extra)
     except LLMError as exc:
         log.info("Google's copy not read for %s: %s", company, exc)
         return None
