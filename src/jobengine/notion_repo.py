@@ -183,6 +183,8 @@ class JobsRepo(Protocol):
     def replace_blocks(self, page_id: str, after_id: str, old_ids: list[str],
                        texts: list[str]) -> None: ...
 
+    def archive(self, page_id: str) -> None: ...
+
 
 # ---------------------------------------------------------------- short page refs
 
@@ -552,6 +554,10 @@ class NotionJobsRepo:
 
     def update(self, page_id: str, props: dict[str, Any]) -> None:
         self.client.request("PATCH", f"/pages/{page_id}", {"properties": self._props(props)})
+
+    def archive(self, page_id: str) -> None:
+        """Move a job to the Notion trash (a reposted job, 4 Nov: kept there 30 days)."""
+        self.client.request("PATCH", f"/pages/{page_id}", {"in_trash": True})
 
     def has_body(self, page_id: str) -> bool:
         data = self.client.request(

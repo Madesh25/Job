@@ -236,6 +236,26 @@ def test_years_required_follows_the_column_type(notion, column, sent):
     assert len(schema_reads) == 1  # read once per repo
 
 
+def test_a_job_goes_to_the_notion_trash(notion):
+    """4 Nov: the reposted-job delete called archive(), which only the fake repo had: every
+    direct link lookup of that /fetch stopped."""
+    repo = NotionJobsRepo(client_for(load_settings("dev", {})), SANDBOX_JOBS)
+    repo.archive("p1")
+    assert notion.requests[-1][:2] == ("PATCH", "/v1/pages/p1")
+    assert notion.requests[-1][3] == {"in_trash": True}
+
+
+def test_every_jobs_repo_has_what_the_protocol_names():
+    """The fake repo must never have a method the Notion one lacks."""
+    from jobengine.notion_repo import JobsRepo
+
+    names = [n for n in vars(JobsRepo) if not n.startswith("_")]
+    assert "archive" in names
+    for cls in (NotionJobsRepo, FakeJobsRepo):
+        missing = [n for n in names if not callable(getattr(cls, n, None))]
+        assert missing == [], (cls.__name__, missing)
+
+
 def test_fake_repo_records_writes():
     repo = FakeJobsRepo([{"page_id": "p1", "Dedupe key": "k", "Status": "Applied",
                           "Posting IDs": "adzuna:1", "Times seen": 1}])
