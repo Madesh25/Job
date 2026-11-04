@@ -966,6 +966,72 @@ def test_a_job_list_that_needs_the_browser_with_no_page_left_is_no_check():
     assert result.not_yet == 0
 
 
+def test_a_made_up_workday_host_is_repaired_too():
+    """4 Nov: the search gave nn.workdayjobs.com (no such server) for NN Group; the real
+    site is nn.wd3.myworkdayjobs.com."""
+    post, _posted = workday_api("nn", "wd3", "nn_careers", [])
+    d = deps([row(company="NN Group")])
+    d.post = post
+    made_up = "https://nn.workdayjobs.com/nn_careers/job/The-Hague/Medior-Engineer_REQALL-7901"
+    assert job_links.workday_board(d, made_up).host == "nn.wd3.myworkdayjobs.com"
+
+
+class RefusingSite(Search):
+    """The company's own site refuses the bot; the job system search answers `board`."""
+
+    def __init__(self, board, website="https://www.dunedata.com/careers"):
+        super().__init__()
+        self.board, self.website = board, website
+
+    def complete_json_with_search(self, stage, system, user, **kwargs):
+        self.calls.append((system, user))
+        if system == job_links.SITE_SYSTEM:
+            return {"website": "", "careers": self.website, "board": ""}, []
+        if system == job_links.BOARD_SYSTEM:
+            return {"board": self.board}, ["https://www.dunedata.com/careers/search"]
+        return {"url": ""}, []
+
+
+class Refuses(Pages):
+    def __call__(self, url):
+        self.opened.append(url)
+        if "dunedata.com" in url:
+            raise http.HttpError("GET failed: HTTP 403", status=403)
+        return super().__call__(url)
+
+
+def test_a_site_that_refuses_the_bot_gets_its_job_system_searched():
+    """4 Nov: Serco's and PwC's own sites answered HTTP 403; the job system they post on
+    is meant to be read by job sites."""
+    post, posted = workday_api("dunedata", "wd3", "Careers",
+                               [("DevOps Engineer", "Amsterdam, Netherlands", "DevOps_R1")])
+    real = "https://dunedata.wd3.myworkdayjobs.com/en-US/Careers/job/DevOps_R1"
+
+    def get(url, params):
+        if url.endswith("/DevOps_R1"):
+            return {"jobPostingInfo": {"title": "DevOps Engineer", "externalUrl": real,
+                                       "location": "Amsterdam, Netherlands",
+                                       "jobDescription": f"<p>{TEXT}</p>"}}
+        raise http.HttpError("GET failed: HTTP 404", status=404)
+
+    search = RefusingSite("https://dunedata.myworkdayjobs.com/Careers")
+    d = deps([row()], get=get, llm=search)
+    d.post, d.page = post, Refuses({})
+    result = job_links.run(d, BOARDS)
+    assert [s for s, _u in search.calls].count(job_links.BOARD_SYSTEM) == 1
+    assert d.repo.rows["p0"]["URL"] == real
+    assert result.labels == ["Dune Data, DevOps Engineer (company job board)"]
+
+
+def test_the_job_system_search_takes_only_a_job_systems_link():
+    search = RefusingSite("https://www.dunedata.com/jobs")  # the refusing site again
+    d = deps([row()], llm=search)
+    d.page = Refuses({})
+    job_links.run(d, BOARDS)
+    assert d.repo.rows["p0"]["URL"] == LINKEDIN  # nothing found, nothing made up
+    assert [s for s, _u in search.calls].count(job_links.BOARD_SYSTEM) == 1
+
+
 def test_a_jobs_box_from_another_site_is_read_with_the_page():
     """4 Nov: a careers page that shows its jobs in a box from Recruitee, Homerun or
     Personio (an iframe): the box's HTML comes after the page's."""
