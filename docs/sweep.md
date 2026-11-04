@@ -846,8 +846,18 @@ words, even when they show only part of it (on 4 Nov the copy-only rule gave "no
 - The browser opens one page once per /fetch: the same careers page for the next job of
   that company costs no browser page (on 4 Nov the 80 ran out halfway, CGI, Apple and
   Prism Digital again and again).
-- `sweep.job_links.copy_model` (DEV: `gemini-3.8-flash`): Google's copy is asked of a
-  stronger Gemini than the light fetch model, which answered "not found" at once for most
-  adverts. Empty: the fetch model. `max_searches` in DEV is 150: a company can take three
+- `sweep.job_links.copy_model`: another Gemini for Google's copy; empty (the default) uses
+  the fetch model. Tried on 4 Nov with `gemini-3.8-flash`: it made 20 to 78 Google searches
+  a call (Gemini cannot be told a maximum), timed out or answered no JSON, and found no
+  more, so it is off again. Google's copy never falls back to Claude. `max_searches` in DEV is 150: a company can take three
   searches now (careers page, job system, Google's copy).
 - LOOKUP_VERSION 3: the next /fetch looks up again, once, the jobs not found before.
+
+### Round 4 (4 Nov evening)
+
+- A company's address may use its initials or a careers word before its name: P&G
+  (Procter & Gamble) is pgcareers.com, a.s.r. werkenbijasr.nl, BNG werkenbijbng.nl.
+- More job systems count as the employer's own: eRecruiter, Traffit, Recruitify, Emply,
+  ApplyToJob, Cornerstone (csod.com), Pinpoint, careers-page.com, Njoyn, softgarden ...
+- A close title may carry its place after it ("Software DevOps Engineer (Krakow, Poland)").
+- LOOKUP_VERSION 4: the jobs not found before are looked up once more.

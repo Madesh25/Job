@@ -241,3 +241,12 @@ def test_one_search_call_can_use_a_stronger_gemini():
     on_claude, claude2, gemini2 = router({})
     on_claude.complete_json_with_search("fetch", "s", "u", gemini_model="gemini-3.8-flash")
     assert gemini2.calls == []
+
+
+def test_a_search_without_fallback_fails_instead_of_asking_claude():
+    llm, claude, gemini = router({"model.fetch": "gemini-3.5-flash-lite"})
+    gemini.complete_json_with_search = lambda *a, **k: (_ for _ in ()).throw(
+        LLMError("Gemini call failed (vertex): ReadTimeout"))
+    with pytest.raises(LLMError, match="ReadTimeout"):
+        llm.complete_json_with_search("fetch", "s", "u", fallback=False)
+    assert claude.calls == []

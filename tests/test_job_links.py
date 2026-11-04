@@ -1253,3 +1253,37 @@ def test_googles_copy_can_use_a_stronger_gemini():
                               "copy_model": "gemini-3.8-flash"}
     job_links.run(d, BOARDS)
     assert seen.get("gemini_model") == "gemini-3.8-flash"
+
+
+def test_careers_addresses_with_initials_or_a_careers_word():
+    """4 Nov: P&G (Procter & Gamble) is pgcareers.com, a.s.r. werkenbijasr.nl, UNIQA's
+    adverts are on erecruiter.pl."""
+    assert job_links._company_host("https://www.pgcareers.com/job/R1", "Procter & Gamble")
+    assert job_links._company_host("https://www.werkenbijasr.nl/vacatures/1", "a.s.r.")
+    assert job_links._company_host("https://www.werkenbijbng.nl/vacature/2", "BNG")
+    assert job_links._company_host("https://system.erecruiter.pl/FormTemplates/1", "UNIQA")
+    assert not job_links._company_host("https://www.werkenbijdefensie.nl/1", "a.s.r.")
+
+
+def test_a_close_title_with_its_place_after_it():
+    """4 Nov: Motorola's "Software DevOps Engineer (Krakow, Poland)" for JustJoin's
+    "DevOps Engineer" (the row had no city)."""
+    assert job_links.close_title("Software DevOps Engineer (Krakow, Poland)", "DevOps Engineer",
+                                 None, "Poland")
+    assert not job_links.close_title("Intern DevOps Engineer (Krakow, Poland)",
+                                     "DevOps Engineer", None, "Poland")
+
+
+def test_googles_copy_never_falls_back_to_claude():
+    search = GoogleCopy({"found": False}, [])
+    seen = {}
+
+    def spy(stage, system, user, **kwargs):
+        seen.update(kwargs)
+        return search.reply, []
+
+    search.complete_json_with_search = spy
+    d = deps([row()], llm=search, careers={"dune data": CAREERS})
+    d.page = Refuses({})
+    job_links.run(d, BOARDS)
+    assert seen.get("fallback") is False
