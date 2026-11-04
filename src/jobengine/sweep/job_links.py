@@ -49,7 +49,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import date, timedelta
 from typing import Any
-from urllib.parse import urlencode, urljoin, urlsplit
+from urllib.parse import unquote, urlencode, urljoin, urlsplit
 
 from bs4 import BeautifulSoup
 
@@ -69,7 +69,7 @@ KEY = "sweep.job_links"
 # Bumped when the lookup itself gets better (4 Nov: JavaScript pages, job systems, Google's
 # copy): the jobs and companies not found before are looked up again once, not 3 or 14
 # days later. Ghost-job counts ("misses") are kept.
-LOOKUP_VERSION = 4  # 4: initials and careers prefixes in addresses, more job systems
+LOOKUP_VERSION = 5  # 5: Google's answer on the company site counts when it names the job
 RETRY_DAYS = 3  # a job not found is looked up again after this (14 until 30 Oct)
 NO_BOARD_DAYS = 14  # a company without a job board or careers page is asked again after
 MAX_RENDERS_PER_JOB = 2  # browser pages for one job: one site never uses the whole budget
@@ -1177,6 +1177,15 @@ def _company_host(url: str, company: str) -> bool:
     return any(w in host for w in words) or name_in_host(host, key)
 
 
+def _url_names_role(url: str, role: str) -> bool:
+    """The address itself names the job ("/cloud-engineer-noordwijk-313360" for "Cloud
+    Engineer"): every word of the title of 3 letters or more is in its path."""
+    path = canon(unquote(urlsplit(url).path).replace("-", " ").replace("_", " "))
+    words = [w for w in canon(plain_title(role)).split() if len(w) > 2]
+    have = set(path.split())
+    return bool(words) and all(w in have for w in words)
+
+
 def _names_role(text: str, role: str) -> bool:
     words = [w for w in canon(plain_title(role)).split() if len(w) > 2]
     have = set(canon(text).split())
@@ -1205,14 +1214,21 @@ def from_google(deps: Deps, company: str, role: str, city: str | None,
     raw = raw or {}
     text = " ".join(str(raw.get("description") or "").split()) if raw.get("found") else ""
     own = [u for u in sources if _company_host(u, company)]
+    answer = str(raw.get("url") or "").strip()
+    if text and not own and _company_host(answer, company) and _url_names_role(answer, role):
+        # 4 Nov: Serco, BNG, IVO ... Google's sources were job boards, but its answer was
+        # the advert's own address on the company's site, the job's title in it (a site
+        # that refuses the bot: Google has the page, the bot may not open it).
+        own = [answer]
     if not text or not own:
+        hosts = sorted({urlsplit(u).hostname or "" for u in sources} - {""})[:6]
         log.info("Google's copy for %s, %s: %s", company, role,
-                 "not found" if not text else "no source on the company's own site")
+                 "not found" if not text else "no source on the company's own site "
+                 f"(sources: {', '.join(hosts) or 'none'}; answer: {answer or 'none'})")
         return None
     if len(text) < _full_min(deps) or not _names_role(text, role):
         log.info("Google's copy for %s, %s not used: too short or not this job", company, role)
         return None
-    answer = str(raw.get("url") or "").strip()
     url = answer if answer and any(urlsplit(answer).hostname == urlsplit(u).hostname
                                    for u in own) else own[0]
     log.info("Google's copy for %s, %s: %s (%d characters)", company, role, url, len(text))
