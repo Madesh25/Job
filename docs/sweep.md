@@ -463,8 +463,9 @@ site (`src/jobengine/sweep/job_links.py`), newest first:
    job list, or the job's own page could not be read): **Google's copy** (4 Nov, your
    decision). Gemini with Google Search reads the advert from Google's copy of the
    employer's own page; the bot never opens the refusing site. Used only when Google's
-   sources include the employer's own site or job system, the text is at least as long as a
-   full description and names the role; the description says "found by Google's copy of
+   sources include the employer's own site or job system (or Gemini's answer is an address
+   on the employer's site whose path names every word of the title), the text is at least as
+   long as a full description and names the role; the description says "found by Google's copy of
    the company page". Never for a job whose job list was read without it (a ghost job).
    One search from `max_searches`.
 3. Only when no careers page was found: one AI web search for the job itself (on 30 Oct it
@@ -861,3 +862,13 @@ words, even when they show only part of it (on 4 Nov the copy-only rule gave "no
   ApplyToJob, Cornerstone (csod.com), Pinpoint, careers-page.com, Njoyn, softgarden ...
 - A close title may carry its place after it ("Software DevOps Engineer (Krakow, Poland)").
 - LOOKUP_VERSION 4: the jobs not found before are looked up once more.
+
+### Round 5 (4 Nov night)
+
+- Google's copy: Gemini often answered with the job's own address on the company site while
+  its listed sources were only LinkedIn or Indeed (Serco, Medtronic, HSBC, Deloitte ...).
+  That answer now counts when it is on the company's own site and its path names every word
+  of the title (`/careers/devops-engineer-amsterdam` for "DevOps Engineer"); an address like
+  `/careers/12345` or one on another site still does not. A rejected copy logs its source
+  hosts and the answer, so the next log shows why.
+- LOOKUP_VERSION 5: the jobs not found before are looked up once more.

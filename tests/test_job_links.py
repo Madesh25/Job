@@ -1089,8 +1089,11 @@ def test_a_site_that_could_not_be_checked_is_read_from_googles_copy():
 
 
 @pytest.mark.parametrize(("reply", "sources"), [
-    ({"found": True, "url": OWN, "description": ADVERT},
-     ["https://www.indeed.com/viewjob?jk=1"]),  # no source on the company's own site
+    ({"found": True, "url": "https://www.dunedata.com/careers/12345", "description": ADVERT},
+     ["https://www.indeed.com/viewjob?jk=1"]),  # no own source, the address names no job
+    ({"found": True, "url": "https://www.jobbird.com/devops-engineer-amsterdam",
+      "description": ADVERT},
+     ["https://www.indeed.com/viewjob?jk=1"]),  # no own source, the answer on another site
     ({"found": True, "url": OWN, "description": "DevOps Engineer. Apply now."}, [OWN]),
     ({"found": True, "url": OWN, "description": "Data Analyst in Amsterdam. " + TEXT}, [OWN]),
     ({"found": False}, [OWN]),
@@ -1100,6 +1103,27 @@ def test_googles_copy_is_used_only_when_it_is_this_job_on_the_company_site(reply
     d.page = Refuses({})
     job_links.run(d, BOARDS)
     assert d.repo.rows["p0"]["URL"] == LINKEDIN
+
+
+def test_googles_copy_takes_its_answer_on_the_company_site_when_it_names_the_job():
+    """4 Nov: Serco, Medtronic and HSBC came back with the job's own address as the answer
+    but only LinkedIn and Indeed as sources."""
+    search = GoogleCopy({"found": True, "url": OWN, "description": ADVERT},
+                        ["https://www.linkedin.com/jobs/view/1",
+                         "https://www.indeed.com/viewjob?jk=1"])
+    d = deps([row()], llm=search, careers={"dune data": CAREERS})
+    d.page = Refuses({})
+    result = job_links.run(d, BOARDS)
+    assert d.repo.rows["p0"]["URL"] == OWN
+    assert result.labels == [f"Dune Data, DevOps Engineer ({job_links.GOOGLE_HOW})"]
+
+
+def test_an_address_names_the_job_only_with_every_title_word():
+    assert job_links._url_names_role(OWN, "DevOps Engineer")
+    assert job_links._url_names_role("https://x.com/jobs/Senior_DevOps_Engineer%20NL",
+                                     "DevOps Engineer")
+    assert not job_links._url_names_role("https://x.com/jobs/devops-lead", "DevOps Engineer")
+    assert not job_links._url_names_role("https://x.com/jobs/1", "DevOps Engineer")
 
 
 def test_googles_copy_never_brings_back_a_ghost_job():
