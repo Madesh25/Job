@@ -110,8 +110,11 @@ SEARCH_FIELDS = ("q", "query", "search", "keyword", "keywords", "s", "term", "te
 # A Workday link without its server part ("wd5"): the AI often gives these, and the address
 # does not exist (Armacell, Coca-Cola, Kyndryl on 30 Oct: ConnectError). The site is asked on
 # each Workday server until one answers.
+# A Workday link without its server part (armacell.myworkdayjobs.com) or with a made-up host
+# (4 Nov: the search gave nn.workdayjobs.com, which does not exist, for NN Group): the
+# tenant and site are asked of each real Workday server.
 SHARDLESS_WORKDAY = re.compile(
-    r"^https://([a-z0-9-]+)\.myworkdayjobs\.com/(?:[a-z]{2}-[a-z]{2}/)?([\w-]+)", re.I)
+    r"^https://([a-z0-9-]+)\.(?:my)?workdayjobs\.com/(?:[a-z]{2}-[a-z]{2}/)?([\w-]+)", re.I)
 WORKDAY_SHARDS = ("wd1", "wd3", "wd5", "wd12", "wd103", "wd105")
 TITLE_SPLIT = re.compile(r"\s+(?:[|\u2013\u2014\-\u00b7:]|at)\s+")  # | - and long dashes
 
@@ -124,12 +127,28 @@ job board or aggregator page. It must be this exact job: the same title at the s
 the same city or country. When you are not sure, answer {"url": ""}."""
 
 SITE_SYSTEM = """You find the official website and careers page of one company.
-Search the web, then answer with JSON only: {"website": "<link>", "careers": "<link>"}.
+Search the web, then answer with JSON only:
+{"website": "<link>", "careers": "<link>", "board": "<link>"}.
 "careers" is the page that lists the company's open jobs: on its own site, or on its
 applicant tracking system (Workday, Greenhouse, Lever, SmartRecruiters, Teamtailor,
 Recruitee, Personio, Workable and similar). For a recruitment agency, its own vacancies page.
-Never a LinkedIn, Indeed, Glassdoor, job board or aggregator page. Use the company in the
-country given when it has a page per country. When you are not sure, use ""."""
+"board" is the job list on the applicant tracking system itself when the company uses one
+(for example https://<name>.wd3.myworkdayjobs.com/<site>, a successfactors.eu or
+successfactors.com career page, boards.greenhouse.io/<name>, jobs.lever.co/<name>), copied
+exactly from a search result, never made up. Never a LinkedIn, Indeed, Glassdoor, job board
+or aggregator page. Use the company in the country given when it has a page per country.
+When you are not sure, use ""."""
+
+# 4 Nov: big companies' own websites (Serco, PwC) refuse automated readers with HTTP 403,
+# while the job system they post on is meant to be read by job sites.
+BOARD_SYSTEM = """You find the job list of one company on its applicant tracking system.
+Search the web, then answer with JSON only: {"board": "<link>"}.
+The link must be on the job system itself: Workday (myworkdayjobs.com), SuccessFactors,
+Greenhouse, Lever, SmartRecruiters, Ashby, Teamtailor, Recruitee, Personio, Workable, Oracle,
+Eightfold, iCIMS or similar. Never the company's own website, LinkedIn, Indeed, Glassdoor, a
+job board or an aggregator. Copy it exactly from a search result, never make one up. Use the
+company in the country given when it has a page per country. When you are not sure, answer
+{"board": ""}."""
 
 Getter = Callable[[str, Any], Any]
 Poster = Callable[[str, Any], Any]
@@ -840,8 +859,9 @@ def from_site(deps: Deps, careers: str, company: str, role: str, city: str | Non
     return None
 
 
-def _site_ok(deps: Deps, url: str, company: str) -> bool:
-    """An answer of the website search is a page of this company (read once to check)."""
+def _site_ok(deps: Deps, url: str, company: str, refused: list[str] | None = None) -> bool:
+    """An answer of the website search is a page of this company (read once to check).
+    `refused` gets the hosts that refused the bot (HTTP 401 or 403)."""
     from jobengine import http
 
     if not employer_page(url, company):
@@ -850,13 +870,34 @@ def _site_ok(deps: Deps, url: str, company: str) -> bool:
         final, html = deps.page(url)
     except http.HttpError as exc:
         log.info("careers page not read %s: %s", urlsplit(url).hostname, exc)
+        if refused is not None and getattr(exc, "status", None) in (401, 403):
+            refused.append(urlsplit(url).hostname or url)
         return False
     return employer_page(final, company) and names_company(final, html, company)
 
 
-def find_site(deps: Deps, company: str, country: str | None, key: str) -> str:
+def _board_link(url: str) -> bool:
+    """A link on a job system (Workday, SuccessFactors, Greenhouse ...), not a company site."""
+    from jobengine.sweep.sources import ats
+
+    host = (urlsplit(url).hostname or "").lower()
+    return (ats.board_from_url(url) is not None or bool(SHARDLESS_WORKDAY.match(url))
+            or any(a in host for a in ATS_HOSTS))
+
+
+def _checked(deps: Deps, url: str, company: str, refused: list[str] | None = None) -> str:
+    """The link when it really is this company's careers page or job board, else ""."""
+    board = workday_board(deps, url)
+    if board is not None:
+        return f"https://{board.host}/{board.site}"
+    return url if _site_ok(deps, url, company, refused) else ""
+
+
+def find_site(deps: Deps, company: str, country: str | None, key: str,
+              more: Callable[[], bool] | None = None) -> str:
     """One AI web search for the company's careers page (else its website), checked by
-    reading it. "" when nothing usable was found."""
+    reading it. "" when nothing usable was found. `more` takes one more search from the
+    sweep's budget (the job system search when the site refuses the bot)."""
     from jobengine.llm import LLMError
 
     user = f"Company: {without_region(company)}\nCountry: {country or 'not given'}"
@@ -867,17 +908,46 @@ def find_site(deps: Deps, company: str, country: str | None, key: str) -> str:
         log.info("careers page search failed for %s: %s", company, exc)
         return ""
     raw = raw or {}
-    answers = [str(raw.get("careers") or "").strip(), str(raw.get("website") or "").strip()]
+    answers = [str(raw.get(k) or "").strip() for k in ("board", "careers", "website")]
+    refused: list[str] = []
     for url in list(dict.fromkeys(u for u in [*answers, *sources] if u))[:MAX_CANDIDATES]:
-        board = workday_board(deps, url)
-        if board is not None:
-            url = f"https://{board.host}/{board.site}"
-            log.info("careers page for %s: %s", company, url)
-            return url
-        if _site_ok(deps, url, company):
-            log.info("careers page for %s: %s", company, url)
-            return url
+        found = _checked(deps, url, company, refused)
+        if found:
+            log.info("careers page for %s: %s", company, found)
+            return found
+    if refused and (more is None or more()):  # its own site refuses the bot: its job
+        found = find_board(deps, company, country, key, refused)  # system may not
+        if found:
+            return found
     log.info("careers page for %s not found", company)
+    return ""
+
+
+def find_board(deps: Deps, company: str, country: str | None, key: str,
+               refused: list[str]) -> str:
+    """One more AI web search, for the company's job list on its job system (4 Nov: Serco's
+    and PwC's own sites answered HTTP 403). Only a job system's link counts, checked by
+    reading it."""
+    from jobengine.llm import LLMError
+
+    user = f"Company: {without_region(company)}\nCountry: {country or 'not given'}"
+    try:
+        raw, sources = deps.llm.complete_json_with_search(STAGE, BOARD_SYSTEM, user,
+                                                          max_tokens=300, max_uses=2,
+                                                          key=f"{key}-board")
+    except LLMError as exc:
+        log.info("job system search failed for %s: %s", company, exc)
+        return ""
+    answer = str((raw or {}).get("board") or "").strip()
+    links = [u for u in dict.fromkeys([answer, *sources]) if u and _board_link(u)]
+    for url in links[:MAX_CANDIDATES]:
+        found = _checked(deps, url, company)
+        if found:
+            log.info("job system for %s (its site %s refuses the bot): %s", company,
+                     ", ".join(dict.fromkeys(refused)), found)
+            return found
+    log.info("job system for %s not found (its site %s refuses the bot)", company,
+             ", ".join(dict.fromkeys(refused)))
     return ""
 
 
@@ -1041,7 +1111,7 @@ def run(deps: Deps, boards: tuple[str, ...], with_body: set[str] | None = None,
         url = deps.careers.get(key) or (sites.get(key) or {}).get("url") or ""
         if url or key in sites or not search():
             return url
-        url = find_site(deps, company, country, page_id)
+        url = find_site(deps, company, country, page_id, more=search)
         sites[key] = {"url": url, "date": deps.today.isoformat()}
         if url:
             with lock:

@@ -448,8 +448,13 @@ site (`src/jobengine/sweep/job_links.py`), newest first:
    the browser /dryrun uses; plain GETs only, never a site that refuses the bot). Only short
    pages (little text or few links) are opened there, at most 2 per job and `max_rendered`
    (40) per sweep: on 30 Oct CGI's long pages used 5 of 15 and the rest of the sweep had none. A Workday link without its server part
-   (`armacell.myworkdayjobs.com`, an address that does not exist) is repaired by asking each
-   Workday server, and a Workday site is searched for the exact title.
+   (`armacell.myworkdayjobs.com`, an address that does not exist) or with a made-up host
+   (`nn.workdayjobs.com`, 4 Nov) is repaired by asking each Workday server, and a Workday
+   site is searched for the exact title. The careers page search also asks for the job
+   system's own list ("board": Workday, SuccessFactors, Greenhouse ...), tried first. When
+   the company's own site refuses the bot (HTTP 401 or 403: Serco, PwC, 4 Nov), one more
+   search asks only for its job system's list; only a job system's link counts, and every
+   link is checked by reading it before it is used. That search comes from `max_searches`.
 3. Only when no careers page was found: one AI web search for the job itself (on 30 Oct it
    found nothing the careers page had missed, so the searches go to more companies).
 
