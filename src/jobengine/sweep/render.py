@@ -14,9 +14,11 @@ from __future__ import annotations
 
 import importlib.util
 import logging
+import re
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any
+from urllib.parse import urljoin
 
 from jobengine import http, safety
 from jobengine.settings import Settings
@@ -30,6 +32,27 @@ SETTLE_MS = 8_000  # time for the jobs list to appear after the page loaded
 
 def available() -> bool:
     return importlib.util.find_spec("playwright") is not None
+
+
+MAX_FRAMES = 5
+HREF = re.compile(r"""href=(["'])([^"']*)\1""", re.I)
+
+
+def _frames(page: Any) -> str:
+    """The jobs list shown in a box from another site (an iframe: Recruitee, Homerun,
+    Personio widgets, 4 Nov) is a page of its own: its HTML is added after the page's."""
+    out = []
+    for frame in page.frames[1:MAX_FRAMES + 1]:
+        try:
+            base = frame.url
+            # The box's own links are relative to the box's site, not to the careers page.
+            html = HREF.sub(lambda m, base=base: (f"href={m.group(1)}"
+                                                  f"{urljoin(base, m.group(2))}{m.group(1)}"),
+                            frame.content())
+            out.append(f"\n<!-- frame {http.safe_url(base)} -->\n{html}")
+        except Exception as exc:  # a frame that went away
+            log.info("frame not read: %s", str(exc)[:80])
+    return "".join(out)
 
 
 class Renderer:
@@ -78,7 +101,7 @@ class Renderer:
                 page.wait_for_load_state("networkidle", timeout=SETTLE_MS)
             except Exception:  # a page that keeps loading: use what is there
                 log.info("page still loading after %d ms: %s", SETTLE_MS, http.safe_url(url))
-            return page.url, page.content()
+            return page.url, page.content() + _frames(page)
         except http.HttpError:
             raise
         except Exception as exc:
