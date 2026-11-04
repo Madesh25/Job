@@ -819,3 +819,11 @@ skipped counts), and one already in Notion with Status New or Screened is delete
 keeps it in its trash for 30 days). One you approved or built a resume for stays. The
 /fetch summary lists them: "Deleted from Notion, posted by a site that reposts other
 companies' jobs".
+
+### When the lookup gets better (4 Nov)
+
+`job_links.LOOKUP_VERSION` goes up when the direct link search itself improves. The next
+/fetch then looks up again, once, every job and every company it did not find before (it
+would otherwise wait 3 or 14 days); the ghost-job counts stay. A short company name counts
+in a web address when it is written together at the start of a part of it (P&G is
+pgcareers.com).

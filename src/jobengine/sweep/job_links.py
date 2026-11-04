@@ -65,6 +65,10 @@ log = logging.getLogger("jobengine.sweep")
 # bot_state: {"tried": {page_id: date}, "no_board": {company: date},
 #             "sites": {company: {"url": careers page or "", "date": date}}}
 KEY = "sweep.job_links"
+# Bumped when the lookup itself gets better (4 Nov: JavaScript pages, job systems, Google's
+# copy): the jobs and companies not found before are looked up again once, not 3 or 14
+# days later. Ghost-job counts ("misses") are kept.
+LOOKUP_VERSION = 2
 RETRY_DAYS = 3  # a job not found is looked up again after this (14 until 30 Oct)
 NO_BOARD_DAYS = 14  # a company without a job board or careers page is asked again after
 MAX_RENDERS_PER_JOB = 2  # browser pages for one job: one site never uses the whole budget
@@ -306,6 +310,19 @@ def same_site(url: str, other: str) -> bool:
     return bool(other) and base(url) == base(other) != ""
 
 
+def name_in_host(host: str, name: str) -> bool:
+    """The company's name is in the web address: its first word of 3 letters or more, or a
+    short name written together at the start of a part of the address (4 Nov: P&G is
+    pgcareers.com; "p g" has no word of 3 letters)."""
+    words = name.split()
+    if words and len(words[0]) >= 3 and words[0] in host:
+        return True
+    together = "".join(words)
+    if len(words) > 1 and len(together) >= 2:  # "p g" -> "pg", never a one-letter name
+        return any(label.startswith(together) for label in host.replace("-", "").split("."))
+    return False
+
+
 def names_company(url: str, html: str, company: str, site: str = "") -> bool:
     """The company's own domain (or the site of its careers page `site`), or a job system's
     page that names the company."""
@@ -313,8 +330,7 @@ def names_company(url: str, html: str, company: str, site: str = "") -> bool:
     if site and same_site(url, site):
         return True
     name = canon_company(without_region(company))
-    first = name.split()[0] if name else ""
-    if len(first) >= 3 and first in host:
+    if name_in_host(host, name):
         return True
     return bool(name) and any(a in host for a in ATS_HOSTS) and f" {name} " in (
         f" {canon(BeautifulSoup(html, 'html.parser').get_text(' '))} ")
@@ -1060,8 +1076,9 @@ def _company_host(url: str, company: str) -> bool:
     if _board_link(url):
         return True
     host = (urlsplit(url).hostname or "").lower().replace("-", "")
-    words = [w for w in company_key(company).split() if len(w) >= 3]
-    return bool(words) and any(w in host for w in words)
+    key = company_key(company)
+    words = [w for w in key.split() if len(w) >= 3]
+    return any(w in host for w in words) or name_in_host(host, key)
 
 
 def _names_role(text: str, role: str) -> bool:
@@ -1161,6 +1178,12 @@ def run(deps: Deps, boards: tuple[str, ...], with_body: set[str] | None = None,
     tried = _remembered(deps.state, deps.today, "tried")
     no_board = _remembered(deps.state, deps.today, "no_board")
     sites = _sites(deps.state, deps.today)
+    if int(saved.get("version") or 1) < LOOKUP_VERSION:
+        log.info("direct job links: the lookup is new (version %d): %d jobs and %d companies "
+                 "not found before are looked up again", LOOKUP_VERSION, len(tried),
+                 sum(1 for v in sites.values() if not v.get("url")))
+        tried = {}
+        sites = {k: v for k, v in sites.items() if v.get("url")}
     cutoff = (deps.today - timedelta(days=MISSES_KEEP_DAYS)).isoformat()
     misses: dict[str, list[str]] = {
         k: [d for d in v if str(d) > cutoff] for k, v in (saved.get(MISSES) or {}).items()
@@ -1331,5 +1354,6 @@ def run(deps: Deps, boards: tuple[str, ...], with_body: set[str] | None = None,
         result.labels.extend(labels)
     if deps.state is not None:
         deps.state.set(KEY, {"tried": tried, "no_board": no_board, "sites": sites,
-                             MISSES: misses, "noted": noted, "no_company": no_company})
+                             MISSES: misses, "noted": noted, "no_company": no_company,
+                             "version": LOOKUP_VERSION})
     return result

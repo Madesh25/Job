@@ -1138,3 +1138,32 @@ def test_a_jobs_box_from_another_site_is_read_with_the_page():
     # its links are made whole with the box's own site, not the careers page's
     assert "<a href='https://dunedata.recruitee.com/o/devops'>DevOps Engineer</a>" in out
     assert "<main/>" not in out
+
+
+def test_a_short_company_name_is_seen_in_its_web_address():
+    """4 Nov: P&G's careers site is pgcareers.com; "p g" has no word of 3 letters, so
+    Google's copy of its page was refused as "no source on the company's own site"."""
+    assert job_links.name_in_host("www.pgcareers.com", "p g")
+    assert job_links.name_in_host("careers.serco.com", "serco")
+    assert not job_links.name_in_host("www.example.com", "p g")
+    assert not job_links.name_in_host("jobs.ab.com", "a")  # never a one-letter name
+    assert job_links.names_company("https://www.pgcareers.com/sre", "", "P&G")
+    assert job_links._company_host("https://www.pgcareers.com/global/en/job/R1", "P&G")
+
+
+def test_a_better_lookup_tries_the_jobs_not_found_before_once():
+    """4 Nov: after the fixes the jobs looked up in the morning waited 3 days; with a new
+    lookup version they are looked up again once (the ghost counts stay)."""
+    state = FakeBotState()
+    state.set(job_links.KEY, {"tried": {"p0": TODAY.isoformat()},
+                              "sites": {"dune data": {"url": "", "date": TODAY.isoformat()}},
+                              job_links.MISSES: {"p9": [TODAY.isoformat()]}})
+    search = Search()
+    d = deps([row()], llm=search, state=state)
+    result = job_links.run(d, BOARDS)
+    assert result.tried == 1 and search.calls  # looked up again, its careers page searched
+    saved = state.get(job_links.KEY)
+    assert saved["version"] == job_links.LOOKUP_VERSION
+    assert saved[job_links.MISSES] == {"p9": [TODAY.isoformat()]}
+    again = job_links.run(deps([row()], llm=Search(), state=state), BOARDS)
+    assert again.tried == 0  # once only: now it waits its 3 days as before
