@@ -1089,7 +1089,7 @@ def test_a_site_that_could_not_be_checked_is_read_from_googles_copy():
 
 
 @pytest.mark.parametrize(("reply", "sources"), [
-    ({"found": True, "url": "https://www.dunedata.com/careers/12345", "description": ADVERT},
+    ({"found": True, "url": "https://www.dunedata.com/careers", "description": ADVERT},
      ["https://www.indeed.com/viewjob?jk=1"]),  # no own source, the address names no job
     ({"found": True, "url": "https://www.jobbird.com/devops-engineer-amsterdam",
       "description": ADVERT},
@@ -1124,6 +1124,67 @@ def test_an_address_names_the_job_only_with_every_title_word():
                                      "DevOps Engineer")
     assert not job_links._url_names_role("https://x.com/jobs/devops-lead", "DevOps Engineer")
     assert not job_links._url_names_role("https://x.com/jobs/1", "DevOps Engineer")
+
+
+@pytest.mark.parametrize("answer", [
+    "https://www.dunedata.com/eu/careers/find-jobs/job-details?jobId=313360",  # Serco
+    "https://boards.greenhouse.io/dunedata/jobs/7478061002",  # Sony
+])
+def test_googles_answer_with_a_job_number_on_the_company_site_counts(answer):
+    """4 Nov: Serco's and Sony's answers named the job by its number, not its title."""
+    search = GoogleCopy({"found": True, "url": answer, "description": ADVERT}, [])
+    d = deps([row()], llm=search, careers={"dune data": CAREERS})
+    d.page = Refuses({})
+    job_links.run(d, BOARDS)
+    assert d.repo.rows["p0"]["URL"] == answer
+
+
+def test_googles_redirect_link_as_its_answer_is_followed(monkeypatch):
+    """4 Nov: ChipSoft's answer was Google's own redirect link."""
+    from jobengine import http
+    from jobengine.llm import GROUNDING_REDIRECT
+
+    monkeypatch.setattr(http, "redirect_location", lambda url, s=None: OWN)
+    search = GoogleCopy({"found": True, "url": GROUNDING_REDIRECT + "AUZIYQ", "description":
+                         ADVERT}, [])
+    d = deps([row()], llm=search, careers={"dune data": CAREERS})
+    d.page = Refuses({})
+    job_links.run(d, BOARDS)
+    assert d.repo.rows["p0"]["URL"] == OWN
+
+
+def test_googles_copy_when_the_job_list_needed_the_browser_and_none_was_left(monkeypatch):
+    """4 Nov: TNO, CGI and SURF: their job lists need the browser, this job's browser pages
+    were used up, so the list was never really read: no ghost, and Google's copy is asked."""
+    monkeypatch.setattr(job_links, "MAX_RENDERS_PER_JOB", 0)
+    thin = ("<html><body><a href='/careers/jobs'>Jobs</a>"
+            + "".join(f"<a href='/p{i}'>Senior Engineer {i}</a>" for i in range(5))
+            + "</body></html>")
+    search = GoogleCopy({"found": True, "url": OWN, "description": ADVERT}, [OWN])
+    d = deps([row()], pages={CAREERS: thin}, llm=search, careers={"dune data": CAREERS})
+    browser = Pages({})
+    browser.left = 40
+    d.render = browser
+    job_links.run(d, BOARDS)
+    assert len(search.google) == 1 and d.repo.rows["p0"]["URL"] == OWN
+    assert browser.opened == []
+
+
+def test_job_addresses_in_other_languages_and_two_letter_names():
+    """4 Nov: ASTEK's "/devops-inzynier-km-2/", NN Group's nn-careers.com."""
+    assert job_links._one_job_address("https://astek.pl/oferty-pracy/devops-inzynier-km-2/",
+                               "DevOps Engineer")
+    assert job_links._company_host("https://www.nn-careers.com/en/vacancies/1", "NN Group")
+    assert not job_links._company_host("https://www.nnn.com/jobs/1", "NN Group")
+    assert not job_links._one_job_address("https://www.dunedata.com/careers", "DevOps Engineer")
+
+
+def test_privacy_and_cookie_links_are_not_careers_pages():
+    """4 Nov: on careers.kingfisher.com its privacy policy was opened in the browser."""
+    html = ("<a href='https://careers.dunedata.com/privacy-policy/'>Privacy</a>"
+            "<a href='https://careers.dunedata.com/jobs/'>Jobs</a>")
+    assert job_links.careers_links("https://careers.dunedata.com/", html) == [
+        "https://careers.dunedata.com/jobs/"]
 
 
 def test_googles_copy_never_brings_back_a_ghost_job():

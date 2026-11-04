@@ -69,7 +69,7 @@ KEY = "sweep.job_links"
 # Bumped when the lookup itself gets better (4 Nov: JavaScript pages, job systems, Google's
 # copy): the jobs and companies not found before are looked up again once, not 3 or 14
 # days later. Ghost-job counts ("misses") are kept.
-LOOKUP_VERSION = 5  # 5: Google's answer on the company site counts when it names the job
+LOOKUP_VERSION = 6  # 6: job numbers in addresses, Google's copy when no browser page was left
 RETRY_DAYS = 3  # a job not found is looked up again after this (14 until 30 Oct)
 NO_BOARD_DAYS = 14  # a company without a job board or careers page is asked again after
 MAX_RENDERS_PER_JOB = 2  # browser pages for one job: one site never uses the whole budget
@@ -395,13 +395,20 @@ def name_in_host(host: str, name: str) -> bool:
     for short in (together, initials):  # "p g" -> "pg"; "procter gamble" -> "pg"
         if len(words) > 1 and len(short) >= 2 and any(lb.startswith(short) for lb in labels):
             return True
-    return False
+    # 4 Nov: a 2-letter name with a careers word next to it (NN Group is nn-careers.com)
+    first = words[0] if words else ""
+    return len(first) == 2 and any(
+        lb == first or CAREERS_SUFFIX.fullmatch(lb[len(first):] if lb.startswith(first) else "")
+        for lb in (label.replace("-", "") for label in host.split(".")))
 
 
 # The part before the company's name in a careers site's address (4 Nov: a.s.r. is
 # werkenbijasr.nl, BNG werkenbijbng.nl).
 CAREERS_PREFIX = re.compile(r"^(?:werkenbij(?:de)?|werkenvoor|careers?at|careers?|jobsat|jobs|"
                             r"kariera|karriere|praca|joinus|workat|work)(?=[a-z0-9]{2})")
+
+
+CAREERS_SUFFIX = re.compile(r"careers?|jobs|vacatures|werkenbij|kariera|karriere|praca")
 
 
 def names_company(url: str, html: str, company: str, site: str = "") -> bool:
@@ -714,6 +721,12 @@ def careers_of(companies: list[Any]) -> dict[str, str]:
     return out
 
 
+# 4 Nov: on careers.kingfisher.com every link has "careers" in it; its privacy policy was
+# opened in the browser instead of the job list.
+NOT_CAREERS = re.compile(r"privacy|cookie|terms|legal|gdpr|rodo|disclaimer|accessibility|"
+                         r"sitemap|login|sign-in|register")
+
+
 def careers_links(base: str, html: str) -> list[str]:
     """Links on a page to a careers page or a job list ("Careers", "Vacancies", ...)."""
     soup = BeautifulSoup(html, "html.parser")
@@ -723,7 +736,7 @@ def careers_links(base: str, html: str) -> list[str]:
         if not href or href.startswith(("#", "mailto:", "tel:", "javascript:")):
             continue
         words = f"{href} {a.get_text(' ', strip=True)}".lower().replace(" ", "-")
-        if any(w in words for w in CAREER_WORDS):
+        if any(w in words for w in CAREER_WORDS) and not NOT_CAREERS.search(words):
             url = urljoin(base, href).split("#")[0]
             if url.startswith("https://") and url.rstrip("/") != base.rstrip("/"):
                 out.append(url)
@@ -1177,13 +1190,42 @@ def _company_host(url: str, company: str) -> bool:
     return any(w in host for w in words) or name_in_host(host, key)
 
 
+# Title words as job addresses in your countries write them (4 Nov: ASTEK's
+# "/devops-inzynier-km-2/" for "DevOps Engineer").
+URL_WORDS = {"inzynier": "engineer", "inżynier": "engineer", "ingenieur": "engineer",
+             "inzynierka": "engineer"}
+JOB_NUMBER = re.compile(r"\d{5,}")
+
+
 def _url_names_role(url: str, role: str) -> bool:
     """The address itself names the job ("/cloud-engineer-noordwijk-313360" for "Cloud
     Engineer"): every word of the title of 3 letters or more is in its path."""
     path = canon(unquote(urlsplit(url).path).replace("-", " ").replace("_", " "))
     words = [w for w in canon(plain_title(role)).split() if len(w) > 2]
-    have = set(path.split())
+    have = {URL_WORDS.get(w, w) for w in path.split()}
     return bool(words) and all(w in have for w in words)
+
+
+def _one_job_address(url: str, role: str) -> bool:
+    """The address is one job's page, not a careers page or a homepage: it names the job,
+    or it carries a job number of 5 digits or more (4 Nov: Serco's "?jobId=313360", Sony's
+    Greenhouse ".../jobs/7478061002", Brunel's "...-it003509")."""
+    parts = urlsplit(url)
+    return _url_names_role(url, role) or bool(JOB_NUMBER.search(f"{parts.path}?{parts.query}"))
+
+
+def _resolved(deps: Deps, url: str) -> str:
+    """Gemini sometimes answers with Google's redirect link (4 Nov: ChipSoft): its target."""
+    from jobengine import http
+    from jobengine.llm import GROUNDING_REDIRECT
+
+    if not url.startswith(GROUNDING_REDIRECT):
+        return url
+    try:
+        return http.redirect_location(url, deps.s) or ""
+    except http.HttpError as exc:
+        log.info("Google's answer link not resolved: %s", exc)
+        return ""
 
 
 def _names_role(text: str, role: str) -> bool:
@@ -1215,10 +1257,12 @@ def from_google(deps: Deps, company: str, role: str, city: str | None,
     text = " ".join(str(raw.get("description") or "").split()) if raw.get("found") else ""
     own = [u for u in sources if _company_host(u, company)]
     answer = str(raw.get("url") or "").strip()
-    if text and not own and _company_host(answer, company) and _url_names_role(answer, role):
-        # 4 Nov: Serco, BNG, IVO ... Google's sources were job boards, but its answer was
-        # the advert's own address on the company's site, the job's title in it (a site
-        # that refuses the bot: Google has the page, the bot may not open it).
+    if text and not own:
+        answer = _resolved(deps, answer)
+    if text and not own and _company_host(answer, company) and _one_job_address(answer, role):
+        # 4 Nov: Serco, BNG, IVO ... Google listed no source on the company's site, but its
+        # answer was the advert's own address there: the job's title or its job number in
+        # it (a site that refuses the bot: Google has the page, the bot may not open it).
         own = [answer]
     if not text or not own:
         hosts = sorted({urlsplit(u).hostname or "" for u in sources} - {""})[:6]
@@ -1360,8 +1404,11 @@ def run(deps: Deps, boards: tuple[str, ...], with_body: set[str] | None = None,
             found = from_search(deps, company, role, city, country, page_id)
         # Its site could not be checked, or the job's page could not be read: Google's copy
         # (never when its job list was read without this job: that is a ghost job).
+        # 4 Nov: also when its job list needed the browser and no browser page was left for
+        # this job (TNO, CGI, SURF: the list was never really read).
         if (found is None and deps.llm is not None and not getattr(_SHORT, "hit", False)
-                and (getattr(_CHECK, "seen", False) or not getattr(_CHECK, "read", False))
+                and (getattr(_CHECK, "seen", False) or not getattr(_CHECK, "read", False)
+                     or getattr(_CHECK, "partial", False))
                 and search()):
             found = from_google(deps, company, role, city, country, page_id)
         board = str(values.get("Board") or "alert")
@@ -1371,7 +1418,9 @@ def run(deps: Deps, boards: tuple[str, ...], with_body: set[str] | None = None,
                          "closest titles seen: %s", company, role, closest())
                 return None
             log.info("no direct link for %s, %s: %s; closest titles seen: %s", company, role,
-                     "not on its job list" if getattr(_CHECK, "read", False)
+                     "its job list needs the browser, no browser page was left"
+                     if getattr(_CHECK, "partial", False)
+                     else "not on its job list" if getattr(_CHECK, "read", False)
                      else "its site could not be checked", closest())
             missing(page_id, values, company, role, board)
             return None

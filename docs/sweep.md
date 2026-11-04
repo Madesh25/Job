@@ -463,8 +463,9 @@ site (`src/jobengine/sweep/job_links.py`), newest first:
    job list, or the job's own page could not be read): **Google's copy** (4 Nov, your
    decision). Gemini with Google Search reads the advert from Google's copy of the
    employer's own page; the bot never opens the refusing site. Used only when Google's
-   sources include the employer's own site or job system (or Gemini's answer is an address
-   on the employer's site whose path names every word of the title), the text is at least as
+   sources include the employer's own site or job system (or Gemini's answer is one job's
+   address on the employer's site or job system: its path names every word of the title, or
+   it carries a job number of 5 digits or more), the text is at least as
    long as a full description and names the role; the description says "found by Google's copy of
    the company page". Never for a job whose job list was read without it (a ghost job).
    One search from `max_searches`.
@@ -872,3 +873,20 @@ words, even when they show only part of it (on 4 Nov the copy-only rule gave "no
   `/careers/12345` or one on another site still does not. A rejected copy logs its source
   hosts and the answer, so the next log shows why.
 - LOOKUP_VERSION 5: the jobs not found before are looked up once more.
+
+### Round 6 (4 Nov night)
+
+After round 5: 9 of 80 alert jobs found (8 by Google's copy). What the log showed next:
+- Gemini lists no sources at all for these searches ("sources: none"), so its answer address
+  is what counts. A job number in the address now counts like the title (Serco
+  `?jobId=313360`, Sony's Greenhouse `/jobs/7478061002`, Brunel `...-it003509`); a homepage
+  or a careers page still does not. A Google redirect link as the answer is followed first
+  (ChipSoft). Title words in Polish and Dutch addresses: "inzynier", "ingenieur" = engineer.
+- A 2-letter company name with a careers word is its site: NN Group is nn-careers.com.
+- A job whose job list needed the browser, with no browser page left for it (TNO, CGI,
+  SURF ...), was never really checked: Google's copy is now asked for it too (still never
+  for a job missing from a list that was read). Its log line says so.
+- Privacy, cookie, terms and login links are not careers pages (Kingfisher's privacy policy
+  had used a browser page).
+- The "searched:" log line counts Google's result links, to show when there are none.
+- LOOKUP_VERSION 6: the jobs not found before are looked up once more.

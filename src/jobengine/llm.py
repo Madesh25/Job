@@ -769,7 +769,8 @@ class GeminiLLM:
                  model, meta.get("promptTokenCount"), meta.get("candidatesTokenCount"),
                  len(queries))
         if queries:
-            log.info("llm stage=%s searched: %s", stage, " | ".join(map(str, queries)))
+            log.info("llm stage=%s searched: %s (%d result links)", stage,
+                     " | ".join(map(str, queries)), len(grounding.get("groundingChunks") or []))
         if first.get("finishReason") in GEMINI_DECLINED:
             raise LLMError(f"Gemini declined the {stage} request")
         parts = (first.get("content") or {}).get("parts") or []
