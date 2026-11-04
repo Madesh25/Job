@@ -455,6 +455,14 @@ site (`src/jobengine/sweep/job_links.py`), newest first:
    the company's own site refuses the bot (HTTP 401 or 403: Serco, PwC, 4 Nov), one more
    search asks only for its job system's list; only a job system's link counts, and every
    link is checked by reading it before it is used. That search comes from `max_searches`.
+   Still nothing, and the company's site could not be checked (it refuses the bot, shows no
+   job list, or the job's own page could not be read): **Google's copy** (4 Nov, your
+   decision). Gemini with Google Search reads the advert from Google's copy of the
+   employer's own page; the bot never opens the refusing site. Used only when Google's
+   sources include the employer's own site or job system, the text is at least as long as a
+   full description and names the role; the description says "found by Google's copy of
+   the company page". Never for a job whose job list was read without it (a ghost job).
+   One search from `max_searches`.
 3. Only when no careers page was found: one AI web search for the job itself (on 30 Oct it
    found nothing the careers page had missed, so the searches go to more companies).
 

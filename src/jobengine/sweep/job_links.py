@@ -139,6 +139,22 @@ exactly from a search result, never made up. Never a LinkedIn, Indeed, Glassdoor
 or aggregator page. Use the company in the country given when it has a page per country.
 When you are not sure, use ""."""
 
+# 4 Nov, your decision: a job whose company site refuses the bot or could not be checked is
+# read from Google's copy of the company's own page (Gemini with Google Search). The bot
+# never opens the refusing site; only text from the employer's own page or job system counts.
+GOOGLE_SYSTEM = """You read one job advert for a candidate, using Google Search.
+Find this exact job (same title, same company, same city or country) on the employer's own
+careers site or its job system (Workday, SuccessFactors, Greenhouse, Lever and similar), and
+answer with JSON only:
+{"found": true, "url": "<the advert's own page>", "description": "<the advert's text>"}.
+"description" is the advert's own text as Google has it: the tasks, the requirements, the
+offer and the place, in its own words and order, at most 900 words. Copy, never summarise,
+never add or guess anything. Never use LinkedIn, Indeed, Glassdoor, job boards or
+aggregators. When you cannot find this exact advert on the employer's page, answer
+{"found": false}."""
+GOOGLE_HOW = "Google's copy of the company page"  # its site does not let the bot read it
+MIN_TITLE_SHARE = 0.5  # of the role's words the text must name
+
 # 4 Nov: big companies' own websites (Serco, PwC) refuse automated readers with HTTP 403,
 # while the job system they post on is meant to be read by job sites.
 BOARD_SYSTEM = """You find the job list of one company on its applicant tracking system.
@@ -1032,6 +1048,56 @@ def no_company_note(deps: Deps, page_id: str, values: dict[str, Any]) -> None:
              " and skipped" if "Skip" in text else "")
 
 
+def _company_host(url: str, company: str) -> bool:
+    """The employer's own site (its name in the host) or a job system's page."""
+    if not employer_page(url, company):
+        return False
+    if _board_link(url):
+        return True
+    host = (urlsplit(url).hostname or "").lower().replace("-", "")
+    words = [w for w in company_key(company).split() if len(w) >= 3]
+    return bool(words) and any(w in host for w in words)
+
+
+def _names_role(text: str, role: str) -> bool:
+    words = [w for w in canon(plain_title(role)).split() if len(w) > 2]
+    have = set(canon(text).split())
+    return bool(words) and sum(w in have for w in words) >= MIN_TITLE_SHARE * len(words)
+
+
+def from_google(deps: Deps, company: str, role: str, city: str | None,
+                country: str | None, key: str) -> Found | None:
+    """The advert's text from Google's copy of the employer's page (4 Nov). Accepted only
+    when Google's sources include the employer's own site or job system, the text is long
+    enough and names the role; the refusing site itself is never opened."""
+    from jobengine.llm import LLMError
+
+    user = (f"Company: {without_region(company)}\nJob title: {role}\n"
+            f"City: {city or 'not given'}\nCountry: {country or 'not given'}")
+    try:
+        raw, sources = deps.llm.complete_json_with_search(STAGE, GOOGLE_SYSTEM, user,
+                                                          max_tokens=2400, max_uses=3,
+                                                          key=f"{key}-google")
+    except LLMError as exc:
+        log.info("Google's copy not read for %s: %s", company, exc)
+        return None
+    raw = raw or {}
+    text = " ".join(str(raw.get("description") or "").split()) if raw.get("found") else ""
+    own = [u for u in sources if _company_host(u, company)]
+    if not text or not own:
+        log.info("Google's copy for %s, %s: %s", company, role,
+                 "not found" if not text else "no source on the company's own site")
+        return None
+    if len(text) < _full_min(deps) or not _names_role(text, role):
+        log.info("Google's copy for %s, %s not used: too short or not this job", company, role)
+        return None
+    answer = str(raw.get("url") or "").strip()
+    url = answer if answer and any(urlsplit(answer).hostname == urlsplit(u).hostname
+                                   for u in own) else own[0]
+    log.info("Google's copy for %s, %s: %s (%d characters)", company, role, url, len(text))
+    return Found(url, text, GOOGLE_HOW)
+
+
 def blocks(found: Found, board: str, old_url: str | None) -> list[str]:
     """The earlier link, then the description as screening reads it (newest last)."""
     out = [f"{EARLIER} ({board}): {old_url}"] if old_url else []
@@ -1133,6 +1199,12 @@ def run(deps: Deps, boards: tuple[str, ...], with_body: set[str] | None = None,
         # 0 of 20), so the searches go to the next companies instead.
         if found is None and not careers and search():
             found = from_search(deps, company, role, city, country, page_id)
+        # Its site could not be checked, or the job's page could not be read: Google's copy
+        # (never when its job list was read without this job: that is a ghost job).
+        if (found is None and deps.llm is not None and not getattr(_SHORT, "hit", False)
+                and (getattr(_CHECK, "seen", False) or not getattr(_CHECK, "read", False))
+                and search()):
+            found = from_google(deps, company, role, city, country, page_id)
         board = str(values.get("Board") or "alert")
         if found is None:
             if getattr(_SHORT, "hit", False):

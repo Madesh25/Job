@@ -4,6 +4,8 @@ the exact title on an employer page with a full description counts."""
 
 from datetime import date, timedelta
 
+import pytest
+
 from jobengine import http
 from jobengine.bot_state import FakeBotState
 from jobengine.notion_repo import FakeJobsRepo
@@ -51,8 +53,12 @@ class Search:
         self.sources = list(sources)
         self.careers = careers
         self.calls = []
+        self.google = []
 
     def complete_json_with_search(self, stage, system, user, **kwargs):
+        if system == job_links.GOOGLE_SYSTEM:  # 4 Nov: counted on its own
+            self.google.append(user)
+            return {"found": False}, []
         self.calls.append((stage, user))
         if system == job_links.SITE_SYSTEM:
             return {"careers": self.careers, "website": ""}, []
@@ -262,7 +268,10 @@ def test_the_careers_page_is_found_once_by_a_search_and_remembered():
     # careers page read no search for the exact job either (30 Oct: it found 0 of 20)
     d2 = deps([row(), row(role="Platform Engineer")], pages=pages, llm=search, state=state)
     result = job_links.run(d2, BOARDS)
-    assert len(search.calls) == 1 and result.searches == 0
+    assert len(search.calls) == 1
+    # 4 Nov: a page with one job link is no job list, so its site counts as not checked:
+    # only Google's copy is asked, once
+    assert result.searches == 1 and len(search.google) == 1
 
 
 def test_a_careers_page_answer_of_another_company_is_not_used():
@@ -1014,3 +1023,62 @@ def test_the_job_system_search_takes_only_a_job_systems_link():
     job_links.run(d, BOARDS)
     assert d.repo.rows["p0"]["URL"] == LINKEDIN  # nothing found, nothing made up
     assert [s for s, _u in search.calls].count(job_links.BOARD_SYSTEM) == 1
+
+
+class GoogleCopy(Search):
+    """The AI web search: nothing for the careers page and the job, then Google's copy."""
+
+    def __init__(self, reply, sources):
+        super().__init__()
+        self.reply, self.copy_sources = reply, sources
+
+    def complete_json_with_search(self, stage, system, user, **kwargs):
+        if system == job_links.GOOGLE_SYSTEM:
+            self.google.append(user)
+            return self.reply, self.copy_sources
+        return super().complete_json_with_search(stage, system, user, **kwargs)
+
+
+ADVERT = ("DevOps Engineer in Amsterdam. You build and run our Kubernetes platform, write "
+          "Terraform and keep the CI/CD pipelines green. " + TEXT)
+OWN = "https://www.dunedata.com/careers/devops-engineer-amsterdam"
+
+
+def test_a_site_that_could_not_be_checked_is_read_from_googles_copy():
+    """4 Nov, your decision: Serco's site refuses the bot; Google has its page."""
+    search = GoogleCopy({"found": True, "url": OWN, "description": ADVERT},
+                        ["https://www.linkedin.com/jobs/view/1", OWN])
+    d = deps([row()], llm=search, careers={"dune data": CAREERS})
+    d.page = Refuses({})
+    result = job_links.run(d, BOARDS)
+    assert len(search.google) == 1
+    assert d.repo.rows["p0"]["URL"] == OWN
+    assert result.labels == [f"Dune Data, DevOps Engineer ({job_links.GOOGLE_HOW})"]
+    body = "\n".join(d.repo.rows["p0"]["body"])
+    assert "Google's copy of the company page" in body and "Kubernetes platform" in body
+    assert d.page.opened == [CAREERS]  # the refusing site: never opened again
+
+
+@pytest.mark.parametrize(("reply", "sources"), [
+    ({"found": True, "url": OWN, "description": ADVERT},
+     ["https://www.indeed.com/viewjob?jk=1"]),  # no source on the company's own site
+    ({"found": True, "url": OWN, "description": "DevOps Engineer. Apply now."}, [OWN]),
+    ({"found": True, "url": OWN, "description": "Data Analyst in Amsterdam. " + TEXT}, [OWN]),
+    ({"found": False}, [OWN]),
+])
+def test_googles_copy_is_used_only_when_it_is_this_job_on_the_company_site(reply, sources):
+    d = deps([row()], llm=GoogleCopy(reply, sources), careers={"dune data": CAREERS})
+    d.page = Refuses({})
+    job_links.run(d, BOARDS)
+    assert d.repo.rows["p0"]["URL"] == LINKEDIN
+
+
+def test_googles_copy_never_brings_back_a_ghost_job():
+    """Its job list was read and the job is not on it: Google is not asked."""
+    listed = careers_page(("/careers/java-developer", "Java Developer"),
+                          ("/careers/data-engineer", "Data Engineer"),
+                          ("/careers/frontend-engineer", "Frontend Engineer"))
+    search = GoogleCopy({"found": True, "url": OWN, "description": ADVERT}, [OWN])
+    d = deps([row()], pages={CAREERS: listed}, llm=search, careers={"dune data": CAREERS})
+    job_links.run(d, BOARDS)
+    assert search.google == [] and d.repo.rows["p0"]["URL"] == LINKEDIN
