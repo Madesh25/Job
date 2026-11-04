@@ -1148,7 +1148,11 @@ def run(deps: Deps, boards: tuple[str, ...], with_body: set[str] | None = None,
         # for stays: that was your choice.
         if v.get("Status") not in ("New", "Screened"):
             continue
-        deps.repo.archive(pid)
+        try:
+            deps.repo.archive(pid)
+        except Exception as exc:  # 4 Nov: one failed delete stopped every job's lookup
+            log.warning("could not delete %s, %s: %s", v.get("Company"), v.get("Role"), exc)
+            continue
         result.deleted.append(f"{v.get('Company')}, {v.get('Role')}")
         log.info("deleted %s, %s: a reposting site, not the employer", v.get("Company"),
                  v.get("Role"))
