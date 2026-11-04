@@ -69,7 +69,7 @@ KEY = "sweep.job_links"
 # Bumped when the lookup itself gets better (4 Nov: JavaScript pages, job systems, Google's
 # copy): the jobs and companies not found before are looked up again once, not 3 or 14
 # days later. Ghost-job counts ("misses") are kept.
-LOOKUP_VERSION = 3  # 3: close titles, link text, city lists, one browser page per URL
+LOOKUP_VERSION = 4  # 4: initials and careers prefixes in addresses, more job systems
 RETRY_DAYS = 3  # a job not found is looked up again after this (14 until 30 Oct)
 NO_BOARD_DAYS = 14  # a company without a job board or careers page is asked again after
 MAX_RENDERS_PER_JOB = 2  # browser pages for one job: one site never uses the whole budget
@@ -101,7 +101,12 @@ NOT_EMPLOYER = ("glassdoor.", "indeed.", "talent.com", "jobted.", "careerjet.", 
 ATS_HOSTS = ("myworkdayjobs.com", "greenhouse.io", "lever.co", "smartrecruiters.com",
              "ashbyhq.com", "recruitee.com", "teamtailor.com", "personio.", "workable.com",
              "jobvite.com", "icims.com", "successfactors.", "oraclecloud.com", "eightfold.ai",
-             "taleo.net", "breezy.hr", "bamboohr.com", "join.com", "homerun.co")
+             "taleo.net", "breezy.hr", "bamboohr.com", "join.com", "homerun.co",
+             # 4 Nov: job systems the adverts were on (UNIQA, Square One, PeopleVibe, BNG,
+             # Sea Machines, Ework, Infor, Patrickbeek)
+             "erecruiter.pl", "traffit.com", "recruitify.ai", "emply.com", "applytojob.com",
+             "csod.com", "pinpointhq.com", "careers-page.com", "njoyn.com", "softgarden.",
+             "jobs.cz", "hrlink.pl", "elevatus.io", "manatal.com")
 COUNTRY_WORDS = {"poland": ("poland", "polska", "pl"),
                  "netherlands": ("netherlands", "nederland", "the netherlands", "nl", "holland"),
                  "ireland": ("ireland", "ie", "eire")}
@@ -164,8 +169,9 @@ MIN_TITLE_SHARE = 0.5  # of the role's words the text must name
 
 
 def copy_model(s: Any) -> str:
-    """sweep.job_links.copy_model: a stronger Gemini for Google's copy (4 Nov: the light one
-    answered "not found" at once, 5 tokens, for most adverts). Empty: the fetch model."""
+    """sweep.job_links.copy_model: another Gemini for Google's copy. Empty (the default):
+    the fetch model. 4 Nov: gemini-3.8-flash made 20 to 78 Google searches a call (Gemini
+    cannot be told a maximum), timed out or answered no JSON, and found no more."""
     return str((s.sweep.get("job_links") or {}).get("copy_model") or "").strip()
 
 # 4 Nov: big companies' own websites (Serco, PwC) refuse automated readers with HTTP 403,
@@ -320,6 +326,8 @@ def close_title(found: str | None, role: str | None, city: str | None = None,
     if city:
         home = canon_city(city)
         got = [w for w in got if canon_city(w) != home]
+    places = place_words() - set(want)  # "Software DevOps Engineer (Krakow, Poland)"
+    got = [w for w in got if w not in places]
     extra = [w for w in got if w not in want]
     return (len(want) >= 2 and all(w in got for w in want)
             and 0 < len(extra) <= MAX_EXTRA_WORDS and not set(extra) & NEVER_EXTRA)
@@ -381,10 +389,19 @@ def name_in_host(host: str, name: str) -> bool:
     words = name.split()
     if words and len(words[0]) >= 3 and words[0] in host:
         return True
+    labels = [CAREERS_PREFIX.sub("", label) for label in host.replace("-", "").split(".")]
     together = "".join(words)
-    if len(words) > 1 and len(together) >= 2:  # "p g" -> "pg", never a one-letter name
-        return any(label.startswith(together) for label in host.replace("-", "").split("."))
+    initials = "".join(w[0] for w in words) if len(words) > 1 else ""
+    for short in (together, initials):  # "p g" -> "pg"; "procter gamble" -> "pg"
+        if len(words) > 1 and len(short) >= 2 and any(lb.startswith(short) for lb in labels):
+            return True
     return False
+
+
+# The part before the company's name in a careers site's address (4 Nov: a.s.r. is
+# werkenbijasr.nl, BNG werkenbijbng.nl).
+CAREERS_PREFIX = re.compile(r"^(?:werkenbij(?:de)?|werkenvoor|careers?at|careers?|jobsat|jobs|"
+                            r"kariera|karriere|praca|joinus|workat|work)(?=[a-z0-9]{2})")
 
 
 def names_company(url: str, html: str, company: str, site: str = "") -> bool:
@@ -1180,7 +1197,8 @@ def from_google(deps: Deps, company: str, role: str, city: str | None,
         extra = {"gemini_model": model} if model else {}
         raw, sources = deps.llm.complete_json_with_search(STAGE, GOOGLE_SYSTEM, user,
                                                           max_tokens=2400, max_uses=3,
-                                                          key=f"{key}-google", **extra)
+                                                          key=f"{key}-google", fallback=False,
+                                                          **extra)
     except LLMError as exc:
         log.info("Google's copy not read for %s: %s", company, exc)
         return None
