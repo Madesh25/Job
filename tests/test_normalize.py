@@ -215,3 +215,16 @@ def test_region_tag_is_not_part_of_the_company():
     assert index_key("citi ie|site reliability engineer sre|warszawa", "Citi (IE)") == key
     assert index_key("citi|sre|warszawa", "Citi") == "citi|sre|warszawa"
     assert dedupe_key("Delft Digital B.V.", "SRE", None, "Netherlands").startswith("delft digital|")
+
+
+def test_a_reposting_site_is_not_the_employer():
+    """4 Nov, your decision: Jobgether reposts other companies' jobs (only remote copies on
+    its own board): such a job is never saved."""
+    from jobengine.sweep.normalize import REPOSTER, normalize
+
+    out = normalize(raw(title="DevOps Engineer", company="Jobgether", location="Amsterdam"),
+                    RULES, ["Netherlands"])
+    assert isinstance(out, Skipped) and out.reason == REPOSTER
+    kept = normalize(raw(title="DevOps Engineer", company="Jobgether Partner BV",
+                         location="Amsterdam"), RULES, ["Netherlands"])
+    assert not isinstance(kept, Skipped)  # only the reposting site itself

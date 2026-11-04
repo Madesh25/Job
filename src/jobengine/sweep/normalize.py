@@ -266,6 +266,8 @@ class Rules:
     # False (your decision of 23 Oct: office or hybrid only): a job whose place or title is
     # remote, with no hybrid or office word, is left out, even in one of your countries.
     remote_jobs: bool = True
+    # Sites that copy other companies' jobs (4 Nov, your decision: Jobgether): never saved.
+    reposters: tuple[str, ...] = ()
 
     @classmethod
     def from_config(cls, sweep: Mapping[str, Any]) -> Rules:
@@ -283,7 +285,22 @@ class Rules:
             locations=locations,
             remote_regions=tuple(canon(r) for r in sweep.get("remote_regions") or ()),
             remote_jobs=bool(sweep.get("remote_jobs", True)),
+            reposters=tuple(canon_company(r) for r in sweep.get("reposters", REPOSTERS) or ()),
         )
+
+
+# Sites that post other companies' jobs as their own (4 Nov, your decision: "a fake or
+# reposted job: just delete it"). sweep.reposters in the config replaces this list.
+REPOSTERS = ("Jobgether", "JobLeads", "Lensa", "Talent.com", "Jobted", "Jobrapido",
+             "Careerjet", "WhatJobs", "Jobsora", "Jooble", "Remote Rocketship", "Hirify",
+             "Jobs via Dice", "Jobright.ai")
+REPOSTER = "reposting site, not the employer"
+
+
+def reposter(company: str | None, rules: Rules) -> bool:
+    """The company is a site that reposts other companies' jobs."""
+    key = canon_company(company or "")
+    return bool(key) and key in rules.reposters
 
 
 def title_scope(title: str, rules: Rules) -> str | None:
@@ -375,6 +392,8 @@ def normalize(
     reason = title_scope(raw.title, rules)
     if reason:
         return Skipped(raw, reason)
+    if reposter(raw.company, rules):
+        return Skipped(raw, REPOSTER)
     country, city = place(raw.location_text, rules, raw.location_area)
     if country is None:
         return Skipped(raw, f"location not recognised ({raw.location_text or 'empty'})")

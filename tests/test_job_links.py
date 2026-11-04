@@ -975,6 +975,19 @@ def test_a_job_list_that_needs_the_browser_with_no_page_left_is_no_check():
     assert result.not_yet == 0
 
 
+def test_a_reposted_job_is_deleted_from_the_list():
+    """4 Nov, your decision: "a wrong or fake one: just delete it". A job you approved or
+    built a resume for stays."""
+    d = deps([row(company="Jobgether"), row(company="Jobgether", Status="Resume built"),
+              row()], llm=None)
+    result = job_links.run(d, BOARDS)
+    assert "p0" not in d.repo.rows and "p1" in d.repo.rows and "p2" in d.repo.rows
+    assert result.deleted == ["Jobgether, DevOps Engineer"]
+    summary = SweepSummary(reposted=result.deleted)
+    assert ("Deleted from Notion, posted by a site that reposts other companies' jobs (not "
+            "the employer): 1") in summary.friendly_text()
+
+
 def test_a_made_up_workday_host_is_repaired_too():
     """4 Nov: the search gave nn.workdayjobs.com (no such server) for NN Group; the real
     site is nn.wd3.myworkdayjobs.com."""
