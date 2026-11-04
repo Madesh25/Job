@@ -1195,3 +1195,61 @@ def test_two_close_titles_are_not_a_guess_and_not_a_ghost():
         state.set(job_links.KEY, {**(state.get(job_links.KEY) or {}), "tried": {}})
         result = job_links.run(d, BOARDS)
     assert d.repo.rows["p0"]["URL"] == LINKEDIN and result.ghosts == []
+
+
+def test_link_text_and_city_lists_are_not_part_of_the_title():
+    """4 Nov: CIMSOLUTIONS lists "Bekijk vacature voor DevOps Engineer"; Grid Dynamics
+    "Site Reliability Engineer Wroclaw, Krakow, Gdansk, Warsaw, Poland"."""
+    assert job_links.same_title("Bekijk vacature voor DevOps Engineer", "DevOps Engineer")
+    assert job_links.same_title("View vacancy for Platform Engineer", "Platform Engineer")
+    assert job_links.same_title("Site Reliability Engineer Wroclaw, Krakow, Gdansk, Warsaw, "
+                                "Poland", "Site Reliability Engineer", "Wrocław", "Poland")
+    assert not job_links.same_title("Senior Site Reliability Engineer Krakow, Poland",
+                                    "Site Reliability Engineer", "Kraków", "Poland")
+
+
+def test_a_page_is_opened_in_the_browser_once_per_fetch():
+    """4 Nov: CGI's, Apple's and Prism's pages were opened again for each of their jobs."""
+    from jobengine.sweep import render
+
+    class Thread:
+        def __init__(self):
+            self.opened = []
+
+        def submit(self, fn, url):
+            self.opened.append(url)
+
+            class Done:
+                def result(self):
+                    if "fails" in url:
+                        raise http.HttpError("page not rendered: timeout")
+                    return url, "<html/>"
+            return Done()
+
+    browser = render.Renderer(load_settings("local", {}), left=5)
+    browser._thread = Thread()
+    for _ in range(3):
+        assert browser("https://www.dunedata.com/careers") == (
+            "https://www.dunedata.com/careers", "<html/>")
+        with pytest.raises(http.HttpError):
+            browser("https://www.dunedata.com/fails")
+    assert browser._thread.opened == ["https://www.dunedata.com/careers",
+                                      "https://www.dunedata.com/fails"]
+    assert browser.left == 3
+
+
+def test_googles_copy_can_use_a_stronger_gemini():
+    search = GoogleCopy({"found": False}, [])
+    seen = {}
+
+    def spy(stage, system, user, **kwargs):
+        seen.update(kwargs)
+        return search.reply, []
+
+    search.complete_json_with_search = spy
+    d = deps([row()], llm=search, careers={"dune data": CAREERS})
+    d.page = Refuses({})
+    d.s.sweep["job_links"] = {**(d.s.sweep.get("job_links") or {}),
+                              "copy_model": "gemini-3.8-flash"}
+    job_links.run(d, BOARDS)
+    assert seen.get("gemini_model") == "gemini-3.8-flash"

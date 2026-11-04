@@ -68,9 +68,17 @@ class Renderer:
         self._browser: Any = None
         self._thread = ThreadPoolExecutor(max_workers=1, thread_name_prefix="browser")
         self._lock = threading.Lock()
+        self._seen: dict[str, Any] = {}  # url -> (final, html) or the HttpError, this sweep
 
     def __call__(self, url: str) -> tuple[str, str]:
         with self._lock:
+            # One page once per sweep (4 Nov: CGI's, Apple's and Prism's careers pages were
+            # opened again for each of their jobs and the 80 pages ran out halfway).
+            if url in self._seen:
+                answer = self._seen[url]
+                if isinstance(answer, http.HttpError):
+                    raise answer
+                return answer
             if self.left <= 0:
                 raise http.HttpError("page not rendered: the browser budget of this sweep is "
                                      "used")
@@ -79,7 +87,15 @@ class Renderer:
             safety.assert_page_fetch_allowed(url, self.s)
         except safety.SafetyError as exc:
             raise http.HttpError(f"page not rendered: {exc}") from None
-        return self._thread.submit(self._open, url).result()
+        try:
+            answer = self._thread.submit(self._open, url).result()
+        except http.HttpError as exc:
+            with self._lock:
+                self._seen[url] = exc
+            raise
+        with self._lock:
+            self._seen[url] = answer
+        return answer
 
     def _open(self, url: str) -> tuple[str, str]:
         """On the browser thread."""
