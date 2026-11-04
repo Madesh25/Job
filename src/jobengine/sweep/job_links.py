@@ -150,12 +150,14 @@ GOOGLE_SYSTEM = """You read one job advert for a candidate, using Google Search.
 Find this exact job (same title, same company, same city or country) on the employer's own
 careers site or its job system (Workday, SuccessFactors, Greenhouse, Lever and similar), and
 answer with JSON only:
-{"found": true, "url": "<the advert's own page>", "description": "<the advert's text>"}.
-"description" is the advert's own text as Google has it: the tasks, the requirements, the
-offer and the place, in its own words and order, at most 900 words. Copy, never summarise,
-never add or guess anything. Never use LinkedIn, Indeed, Glassdoor, job boards or
-aggregators. When you cannot find this exact advert on the employer's page, answer
-{"found": false}."""
+{"found": true, "url": "<the advert's own page>", "description": "<the advert>"}.
+"description" gives the advert as the search results show it: what the job does, what it
+asks for (skills, years, languages, work permit), what it offers and where, in the advert's
+own words as far as the results have them, at most 900 words. Only what the advert says:
+never add, guess or take from another advert. An advert on the employer's careers page or
+job system counts even when the search results show only part of it. Never use LinkedIn,
+Indeed, Glassdoor, job boards or aggregators. When you cannot find this advert on the
+employer's own page at all, answer {"found": false}."""
 GOOGLE_HOW = "Google's copy of the company page"  # its site does not let the bot read it
 MIN_TITLE_SHARE = 0.5  # of the role's words the text must name
 
@@ -259,6 +261,28 @@ def same_title(found: str | None, role: str | None, city: str | None = None,
         home = canon_city(city)
         got = " ".join(w for w in got.split() if canon_city(w) != home)
     return bool(want) and got == want
+
+
+# Extra words a close title may have (4 Nov: JustJoin's "DevOps Engineer" is Motorola's
+# "Software DevOps Engineer" in Krakow); never a level word, never more than two.
+NEVER_EXTRA = {"senior", "sr", "lead", "principal", "staff", "head", "manager", "director",
+               "junior", "jr", "intern", "internship", "trainee", "graduate", "student",
+               "architect", "chief", "vp"}
+MAX_EXTRA_WORDS = 2
+
+
+def close_title(found: str | None, role: str | None, city: str | None = None,
+                country: str | None = None) -> bool:
+    """The board's title is the row's title with at most two more words, none a level word
+    ("Software DevOps Engineer" for "DevOps Engineer", never "Senior DevOps Engineer")."""
+    want = title_key(card_title(role), city, country).split()
+    got = title_key(card_title(found), city, country).split()
+    if city:
+        home = canon_city(city)
+        got = [w for w in got if canon_city(w) != home]
+    extra = [w for w in got if w not in want]
+    return (len(want) >= 2 and all(w in got for w in want)
+            and 0 < len(extra) <= MAX_EXTRA_WORDS and not set(extra) & NEVER_EXTRA)
 
 
 def page_titles(html: str) -> list[str]:
@@ -414,6 +438,21 @@ def _pick(deps: Deps, postings: list[Any], role: str, city: str | None,
         if p.description_is_snippet or len(text) < full_min:
             text = _page_text(deps, p.url) or text
         if len(text) >= full_min:
+            return Found(p.url, text, how)
+    # No exact title: one job in the row's place with the same title and at most two more
+    # words is the same job (4 Nov: five jobs were skipped as ghosts this way, Motorola's
+    # "Software DevOps Engineer" in Krakow among them). Two or more: not sure, none.
+    close = [p for p in postings if p.url and close_title(p.title, role, city, country)
+             and in_place(p.location_text, city, country)]
+    if close:
+        _seen()  # a close title on its list: never a ghost job, even when not sure which
+    if len(close) == 1:
+        p = close[0]
+        text = (p.description or "").strip()
+        if p.description_is_snippet or len(text) < full_min:
+            text = _page_text(deps, p.url) or text
+        if len(text) >= full_min:
+            log.info("close title for %s: %s", role, p.title)
             return Found(p.url, text, how)
     return None
 
