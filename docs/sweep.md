@@ -445,11 +445,28 @@ site (`src/jobengine/sweep/job_links.py`), newest first:
    10 pages per job. A recruitment agency's own page counts: it is where that job is
    published. A careers page that shows its jobs only with JavaScript is opened in a
    headless browser when Playwright is installed (every Docker build since 30 Oct,
-   the browser /dryrun uses; plain GETs only, never a site that refuses the bot). Only short
-   pages (little text or few links) are opened there, at most 2 per job and `max_rendered`
-   (40) per sweep: on 30 Oct CGI's long pages used 5 of 15 and the rest of the sweep had none. A Workday link without its server part
-   (`armacell.myworkdayjobs.com`, an address that does not exist) is repaired by asking each
-   Workday server, and a Workday site is searched for the exact title.
+   the browser /dryrun uses; plain GETs only, never a site that refuses the bot). Opened
+   there: short pages (little text or few links) and, since 4 Nov, any careers page that
+   shows no job list (YachtCloud: big menus, the jobs come later by JavaScript); a long page
+   that already lists jobs is not. At most 2 per job and `max_rendered` (40, DEV 80) per
+   sweep: on 30 Oct CGI's long pages used 5 of 15 and the rest of the sweep had none. A jobs
+   box from another site inside the page (an iframe: Recruitee, Homerun, Personio ...) is
+   read too, with its links made whole with the box's own site. A Workday link without its
+   server part (`armacell.myworkdayjobs.com`, an address that does not exist) or with a
+   made-up host (`nn.workdayjobs.com`, 4 Nov) is repaired by asking each Workday server, and
+   a Workday site is searched for the exact title. The careers page search also asks for the
+   job system's own list ("board": Workday, SuccessFactors, Greenhouse ...), tried first.
+   When the company's own site refuses the bot (HTTP 401 or 403: Serco, PwC, 4 Nov), one more
+   search asks only for its job system's list; only a job system's link counts, and every
+   link is checked by reading it before it is used. That search comes from `max_searches`.
+   Still nothing, and the company's site could not be checked (it refuses the bot, shows no
+   job list, or the job's own page could not be read): **Google's copy** (4 Nov, your
+   decision). Gemini with Google Search reads the advert from Google's copy of the
+   employer's own page; the bot never opens the refusing site. Used only when Google's
+   sources include the employer's own site or job system, the text is at least as long as a
+   full description and names the role; the description says "found by Google's copy of
+   the company page". Never for a job whose job list was read without it (a ghost job).
+   One search from `max_searches`.
 3. Only when no careers page was found: one AI web search for the job itself (on 30 Oct it
    found nothing the careers page had missed, so the searches go to more companies).
 

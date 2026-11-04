@@ -4,6 +4,8 @@ the exact title on an employer page with a full description counts."""
 
 from datetime import date, timedelta
 
+import pytest
+
 from jobengine import http
 from jobengine.bot_state import FakeBotState
 from jobengine.notion_repo import FakeJobsRepo
@@ -51,8 +53,12 @@ class Search:
         self.sources = list(sources)
         self.careers = careers
         self.calls = []
+        self.google = []
 
     def complete_json_with_search(self, stage, system, user, **kwargs):
+        if system == job_links.GOOGLE_SYSTEM:  # 4 Nov: counted on its own
+            self.google.append(user)
+            return {"found": False}, []
         self.calls.append((stage, user))
         if system == job_links.SITE_SYSTEM:
             return {"careers": self.careers, "website": ""}, []
@@ -262,7 +268,10 @@ def test_the_careers_page_is_found_once_by_a_search_and_remembered():
     # careers page read no search for the exact job either (30 Oct: it found 0 of 20)
     d2 = deps([row(), row(role="Platform Engineer")], pages=pages, llm=search, state=state)
     result = job_links.run(d2, BOARDS)
-    assert len(search.calls) == 1 and result.searches == 0
+    assert len(search.calls) == 1
+    # 4 Nov: a page with one job link is no job list, so its site counts as not checked:
+    # only Google's copy is asked, once
+    assert result.searches == 1 and len(search.google) == 1
 
 
 def test_a_careers_page_answer_of_another_company_is_not_used():
@@ -498,13 +507,29 @@ def long_page(*links):
             f"{careers_page(*links)}</body></html>")
 
 
-def test_a_long_page_is_not_opened_in_the_browser():
-    """30 Oct: CGI's long pages used 5 of the 15 browser pages and found nothing."""
-    d = deps([row()], pages={CAREERS: long_page()}, careers={"dune data": CAREERS})
+def test_a_long_page_that_lists_jobs_is_not_opened_in_the_browser():
+    """30 Oct: CGI's long pages used 5 of the 15 browser pages and found nothing. A long
+    page that already shows a job list (without this job) is not opened again."""
+    listed = long_page(("/careers/java-developer", "Java Developer"),
+                       ("/careers/data-engineer", "Data Engineer"),
+                       ("/careers/frontend-engineer", "Frontend Engineer"))
+    d = deps([row()], pages={CAREERS: listed}, careers={"dune data": CAREERS})
     browser = Pages({})
     d.render = browser
     job_links.run(d, BOARDS)
     assert browser.opened == []
+
+
+def test_a_long_page_with_no_job_list_is_opened_in_the_browser():
+    """4 Nov: YachtCloud's careers page is full of menus and text, and its job list comes
+    later by JavaScript: it was never opened, so its job was never found."""
+    rendered = careers_page(("/careers/devops-engineer-amsterdam", "DevOps Engineer"))
+    d = deps([row()], pages={CAREERS: long_page(), JOB: job_page("DevOps Engineer")},
+             careers={"dune data": CAREERS})
+    browser = Pages({CAREERS: rendered})
+    d.render = browser
+    assert job_links.run(d, BOARDS).labels == ["Dune Data, DevOps Engineer (careers page)"]
+    assert browser.opened == [CAREERS]
 
 
 def test_one_job_opens_at_most_two_pages_in_the_browser():
@@ -961,3 +986,155 @@ def test_a_reposted_job_is_deleted_from_the_list():
     summary = SweepSummary(reposted=result.deleted)
     assert ("Deleted from Notion, posted by a site that reposts other companies' jobs (not "
             "the employer): 1") in summary.friendly_text()
+
+
+def test_a_made_up_workday_host_is_repaired_too():
+    """4 Nov: the search gave nn.workdayjobs.com (no such server) for NN Group; the real
+    site is nn.wd3.myworkdayjobs.com."""
+    post, _posted = workday_api("nn", "wd3", "nn_careers", [])
+    d = deps([row(company="NN Group")])
+    d.post = post
+    made_up = "https://nn.workdayjobs.com/nn_careers/job/The-Hague/Medior-Engineer_REQALL-7901"
+    assert job_links.workday_board(d, made_up).host == "nn.wd3.myworkdayjobs.com"
+
+
+class RefusingSite(Search):
+    """The company's own site refuses the bot; the job system search answers `board`."""
+
+    def __init__(self, board, website="https://www.dunedata.com/careers"):
+        super().__init__()
+        self.board, self.website = board, website
+
+    def complete_json_with_search(self, stage, system, user, **kwargs):
+        self.calls.append((system, user))
+        if system == job_links.SITE_SYSTEM:
+            return {"website": "", "careers": self.website, "board": ""}, []
+        if system == job_links.BOARD_SYSTEM:
+            return {"board": self.board}, ["https://www.dunedata.com/careers/search"]
+        return {"url": ""}, []
+
+
+class Refuses(Pages):
+    def __call__(self, url):
+        self.opened.append(url)
+        if "dunedata.com" in url:
+            raise http.HttpError("GET failed: HTTP 403", status=403)
+        return super().__call__(url)
+
+
+def test_a_site_that_refuses_the_bot_gets_its_job_system_searched():
+    """4 Nov: Serco's and PwC's own sites answered HTTP 403; the job system they post on
+    is meant to be read by job sites."""
+    post, posted = workday_api("dunedata", "wd3", "Careers",
+                               [("DevOps Engineer", "Amsterdam, Netherlands", "DevOps_R1")])
+    real = "https://dunedata.wd3.myworkdayjobs.com/en-US/Careers/job/DevOps_R1"
+
+    def get(url, params):
+        if url.endswith("/DevOps_R1"):
+            return {"jobPostingInfo": {"title": "DevOps Engineer", "externalUrl": real,
+                                       "location": "Amsterdam, Netherlands",
+                                       "jobDescription": f"<p>{TEXT}</p>"}}
+        raise http.HttpError("GET failed: HTTP 404", status=404)
+
+    search = RefusingSite("https://dunedata.myworkdayjobs.com/Careers")
+    d = deps([row()], get=get, llm=search)
+    d.post, d.page = post, Refuses({})
+    result = job_links.run(d, BOARDS)
+    assert [s for s, _u in search.calls].count(job_links.BOARD_SYSTEM) == 1
+    assert d.repo.rows["p0"]["URL"] == real
+    assert result.labels == ["Dune Data, DevOps Engineer (company job board)"]
+
+
+def test_the_job_system_search_takes_only_a_job_systems_link():
+    search = RefusingSite("https://www.dunedata.com/jobs")  # the refusing site again
+    d = deps([row()], llm=search)
+    d.page = Refuses({})
+    job_links.run(d, BOARDS)
+    assert d.repo.rows["p0"]["URL"] == LINKEDIN  # nothing found, nothing made up
+    assert [s for s, _u in search.calls].count(job_links.BOARD_SYSTEM) == 1
+
+
+class GoogleCopy(Search):
+    """The AI web search: nothing for the careers page and the job, then Google's copy."""
+
+    def __init__(self, reply, sources):
+        super().__init__()
+        self.reply, self.copy_sources = reply, sources
+
+    def complete_json_with_search(self, stage, system, user, **kwargs):
+        if system == job_links.GOOGLE_SYSTEM:
+            self.google.append(user)
+            return self.reply, self.copy_sources
+        return super().complete_json_with_search(stage, system, user, **kwargs)
+
+
+ADVERT = ("DevOps Engineer in Amsterdam. You build and run our Kubernetes platform, write "
+          "Terraform and keep the CI/CD pipelines green. " + TEXT)
+OWN = "https://www.dunedata.com/careers/devops-engineer-amsterdam"
+
+
+def test_a_site_that_could_not_be_checked_is_read_from_googles_copy():
+    """4 Nov, your decision: Serco's site refuses the bot; Google has its page."""
+    search = GoogleCopy({"found": True, "url": OWN, "description": ADVERT},
+                        ["https://www.linkedin.com/jobs/view/1", OWN])
+    d = deps([row()], llm=search, careers={"dune data": CAREERS})
+    d.page = Refuses({})
+    result = job_links.run(d, BOARDS)
+    assert len(search.google) == 1
+    assert d.repo.rows["p0"]["URL"] == OWN
+    assert result.labels == [f"Dune Data, DevOps Engineer ({job_links.GOOGLE_HOW})"]
+    body = "\n".join(d.repo.rows["p0"]["body"])
+    assert "Google's copy of the company page" in body and "Kubernetes platform" in body
+    assert d.page.opened == [CAREERS]  # the refusing site: never opened again
+
+
+@pytest.mark.parametrize(("reply", "sources"), [
+    ({"found": True, "url": OWN, "description": ADVERT},
+     ["https://www.indeed.com/viewjob?jk=1"]),  # no source on the company's own site
+    ({"found": True, "url": OWN, "description": "DevOps Engineer. Apply now."}, [OWN]),
+    ({"found": True, "url": OWN, "description": "Data Analyst in Amsterdam. " + TEXT}, [OWN]),
+    ({"found": False}, [OWN]),
+])
+def test_googles_copy_is_used_only_when_it_is_this_job_on_the_company_site(reply, sources):
+    d = deps([row()], llm=GoogleCopy(reply, sources), careers={"dune data": CAREERS})
+    d.page = Refuses({})
+    job_links.run(d, BOARDS)
+    assert d.repo.rows["p0"]["URL"] == LINKEDIN
+
+
+def test_googles_copy_never_brings_back_a_ghost_job():
+    """Its job list was read and the job is not on it: Google is not asked."""
+    listed = careers_page(("/careers/java-developer", "Java Developer"),
+                          ("/careers/data-engineer", "Data Engineer"),
+                          ("/careers/frontend-engineer", "Frontend Engineer"))
+    search = GoogleCopy({"found": True, "url": OWN, "description": ADVERT}, [OWN])
+    d = deps([row()], pages={CAREERS: listed}, llm=search, careers={"dune data": CAREERS})
+    job_links.run(d, BOARDS)
+    assert search.google == [] and d.repo.rows["p0"]["URL"] == LINKEDIN
+
+
+def test_a_jobs_box_from_another_site_is_read_with_the_page():
+    """4 Nov: a careers page that shows its jobs in a box from Recruitee, Homerun or
+    Personio (an iframe): the box's HTML comes after the page's."""
+    from jobengine.sweep import render
+
+    class Frame:
+        def __init__(self, url, html, fails=False):
+            self.url, self.html, self.fails = url, html, fails
+
+        def content(self):
+            if self.fails:
+                raise RuntimeError("frame was detached")
+            return self.html
+
+    class Page:
+        frames = [Frame("https://www.dunedata.com/careers", "<main/>"),
+                  Frame("https://dunedata.recruitee.com/embed", "<a href='/o/devops'>DevOps "
+                        "Engineer</a>"),
+                  Frame("https://ads.example.com", "", fails=True)]
+
+    out = render._frames(Page())
+    assert "frame https://dunedata.recruitee.com/embed" in out
+    # its links are made whole with the box's own site, not the careers page's
+    assert "<a href='https://dunedata.recruitee.com/o/devops'>DevOps Engineer</a>" in out
+    assert "<main/>" not in out
