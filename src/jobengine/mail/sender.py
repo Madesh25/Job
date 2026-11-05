@@ -57,6 +57,12 @@ SEND_AFTER = ("Applied", "Followed up")  # the job Status that releases a held m
 MOVED_ON = ("Rejected", "Declined", "Expired", "Withdrawn", "Ghosted", "Replied",
             "Screening", "Interview", "Offer")  # no cold mail is needed any more
 HOLD_DAYS = 7  # a held mail for a job you did not apply to leaves the queue after this
+# 5 Nov (the autopilot timetable): one mail per check reached about 18 a day, below the
+# warm-up cap of 30, and nothing ever left the queue, so mails went out weeks late.
+PER_CHECK_KEY = "mail.per_check"  # Notion Config: mails sent per queue check (default 3)
+DEFAULT_PER_CHECK = 3
+STALE_KEY = "mail.stale_days"  # Notion Config: window days a mail may wait (default 3)
+DEFAULT_STALE_DAYS = 3
 
 
 @dataclass
@@ -99,7 +105,8 @@ def queue_followup(s: Any, config: Any, state: BotState | None, now: datetime, *
     timing.add(state, timing.QueueItem(
         draft_id=draft_id, job_id=job_id, page_id=page_id, name=name, to=to,
         subject=subject, template="followup", thread_id=thread_id, country=country,
-        signature=signature, due=timing.aware(at).astimezone(UTC).isoformat()))
+        signature=signature, due=timing.aware(at).astimezone(UTC).isoformat(),
+        rank=timing.rank_of("followup", None)))
     return timing.when_text(at)
 
 
@@ -252,7 +259,8 @@ def send_checked(deps: MailDeps, state: BotState | None, drafts: DraftsResult) -
                         signature=mail.signature.text.strip().splitlines()[0]
                         if mail.signature.text.strip() else "",
                         due=timing.aware(at).astimezone(UTC).isoformat(),
-                        hold=HOLD if hold else ""))
+                        hold=HOLD if hold else "",
+                        rank=timing.rank_of(line.template, values.get("Screen verdict"))))
                 continue
             if used >= result.cap:
                 result.kept.append(f"{who}: today's {result.cap} sends are used")
@@ -370,10 +378,38 @@ def send_due(deps: MailDeps, state: BotState | None) -> str | None:
     s = deps.s
     window = timing.window(s.mail, config)
     now = deps.now()
-    notes = release_held(deps, state, now, window)
-    sent = _send_one(deps, state, config, window, now)
-    lines = [*notes, *([sent] if sent else [])]
+    notes = release_held(deps, state, now, window) + drop_stale(state, config, now, window)
+    sent: list[str] = []
+    for _ in range(per_check(config)):
+        text = _send_one(deps, state, config, window, now)
+        if not text:
+            break
+        sent.append(text)
+    lines = [*notes, *sent]
     return "\n".join(lines) if lines else None
+
+
+def per_check(config: Any) -> int:
+    return max(1, config.get_int(PER_CHECK_KEY, DEFAULT_PER_CHECK) or DEFAULT_PER_CHECK)
+
+
+def stale_days(config: Any) -> int:
+    return max(1, config.get_int(STALE_KEY, DEFAULT_STALE_DAYS) or DEFAULT_STALE_DAYS)
+
+
+def drop_stale(state: BotState | None, config: Any, now: datetime,
+               window: timing.Window) -> list[str]:
+    """Mails that waited `stale_days` window days (the daily cap was used up) leave the
+    queue: they stay drafts in Gmail, for you to send or delete."""
+    limit = stale_days(config)
+    items = timing.load(state)
+    old = [i for i in items if timing.window_days_missed(window, i, now) >= limit]
+    if not old:
+        return []
+    timing.save(state, [i for i in items if i not in old])
+    names = ", ".join(f"{i.name} ({KIND.get(i.template, 'mail')})" for i in old)
+    return [f"Left the mail queue after {limit} working days without a free send, kept as "
+            f"drafts in Gmail (send them yourself or delete them): {names}."]
 
 
 def _send_one(deps: MailDeps, state: BotState | None, config: Any, window: timing.Window,
@@ -459,10 +495,13 @@ def queue_text(deps: MailDeps, state: BotState | None) -> str:
     if not items:
         return f"{head}\nNo mail waits in the queue."
     lines = [head, f"{len(items)} mail{'' if len(items) == 1 else 's'} waiting:"]
-    for item in sorted(items, key=lambda i: (bool(i.hold), i.due)):
+    for item in sorted(items, key=lambda i: (bool(i.hold), i.rank or timing.OTHER_RANK,
+                                             i.due)):
         at = datetime.fromisoformat(item.due).astimezone(timing.zone(item.country))
         when = "after you apply" if item.hold else timing.when_text(at)
         lines.append(f"- {item.name} ({KIND.get(item.template, 'mail')}), "
                      f"{when}: {item.subject}")
-    lines.append("Each is checked again and sent by itself; one every few minutes.")
+    lines.append(f"Each is checked again and sent by itself, up to {per_check(deps.config())} "
+                 "every few minutes, follow-ups and the best jobs first. One that waits "
+                 f"{stale_days(deps.config())} working days stays a draft.")
     return "\n".join(lines)

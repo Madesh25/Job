@@ -44,11 +44,11 @@ def test_window_from_yaml_and_config():
     config = ConfigStore.from_values({})
     w = timing.window({"send_window": {"days": ["mon", "fri"], "start": "07:30",
                                        "end": "bad"}}, config)
-    assert (w.days, w.start.isoformat(), w.end.isoformat()) == ((0, 4), "07:30:00", "10:00:00")
-    assert w.text() == "Mon, Fri, 07:30 to 10:00 the recipient's time, public holidays skipped"
+    assert (w.days, w.start.isoformat(), w.end.isoformat()) == ((0, 4), "07:30:00", "11:00:00")
+    assert w.text() == "Mon, Fri, 07:30 to 11:00 the recipient's time, public holidays skipped"
     # 27 Oct: Monday to Friday by default (was Tuesday to Thursday).
     assert (timing.window({}, config).text()
-            == "Mon to Fri, 08:00 to 10:00 the recipient's time, public holidays skipped")
+            == "Mon to Fri, 08:00 to 11:00 the recipient's time, public holidays skipped")
     assert not timing.window({}, ConfigStore.from_values({timing.WINDOW_KEY: "off"})).enabled
 
 
@@ -70,34 +70,44 @@ def test_outside_the_window_the_checked_mails_wait():
     assert len(timing.load(d.state)) == 4
     assert statuses(d)["fake-contact-9"][0] != "Contacted"
     queue = d.mailqueue_command()[0].text
-    assert queue.startswith("Send window: Mon to Fri, 08:00 to 10:00 the recipient's time, "
+    assert queue.startswith("Send window: Mon to Fri, 08:00 to 11:00 the recipient's time, "
                             "public holidays skipped.\n"
                             "4 mails waiting:\n- Piotr Example (cold mail), Fri 02 Oct 08:00")
 
 
-def test_the_queue_sends_one_mail_per_check_in_the_morning():
+def test_the_queue_sends_up_to_three_mails_per_check_in_the_morning():
     d = queued_desk()
     d.tap("dr:pl-clean")
-    assert d.mail_queue_tick() == []  # still Thursday 11:00
+    assert d.mail_queue_tick() == []  # still Thursday 11:00: the window ends at 11:00
     d.mail.today = lambda: at(6, 8).date()
     d.mail.now = lambda: at(6, 8, 5)
     before = statuses(d)
     first = d.mail_queue_tick()[0].text
+    # 5 Nov: up to 3 a check (one a check never reached the daily cap).
     assert first.startswith("Sent at 08:05 CEST (the recipient's morning), after the checks: "
                             "Piotr Example (cold mail) | To madeshwaranm02@gmail.com")
-    assert first.endswith("1 of 10 sends used today. 3 mails wait in the queue.")
-    assert d.mail.gmail().sent == ["r-fake-draft-1"]
+    assert first.count("Sent at 08:05 CEST") == 3
+    assert first.endswith("3 of 10 sends used today. 1 mail wait in the queue.")
+    assert d.mail.gmail().sent == ["r-fake-draft-1", "r-fake-draft-2", "r-fake-draft-3"]
     changed = [v for k, v in statuses(d).items() if v != before[k]]
-    assert changed == [("Contacted", "")]
-    for _ in range(3):
-        d.mail_queue_tick()
+    assert changed == [("Contacted", "")] * 3
+    d.mail_queue_tick()
     assert len(d.mail.gmail().sent) == 4 and timing.load(d.state) == []
     assert d.mail_queue_tick() == []
+    # Config mail.per_check = 1: one a check, as before.
+    d = queued_desk()
+    d.tap("dr:pl-clean")
+    store = ConfigStore.from_values({**ConfigStore.fake().all(), sender.PER_CHECK_KEY: "1"})
+    d.mail.config = lambda: store
+    d.mail.now = lambda: at(6, 8, 5)
+    assert d.mail_queue_tick()[0].text.count("Sent at") == 1
 
 
 def test_a_draft_you_sent_or_changed_leaves_the_queue():
     d = queued_desk()
     d.tap("dr:pl-clean")
+    store = ConfigStore.from_values({**ConfigStore.fake().all(), sender.PER_CHECK_KEY: "1"})
+    d.mail.config = lambda: store  # one a check, to see each case
     d.mail.now = lambda: at(6, 8, 5)
     gmail = d.mail.gmail()
     real = gmail.draft_raw

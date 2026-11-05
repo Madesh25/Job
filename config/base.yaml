@@ -389,7 +389,7 @@ mail:
     enabled: true
     days: [Mon, Tue, Wed, Thu, Fri]  # 27 Oct, your decision (was Tue to Thu)
     start: "08:00"
-    end: "10:00"
+    end: "11:00"  # 5 Nov, the autopilot timetable (was 10:00): room for the daily cap
 sweep:
   # LinkedIn alert jobs have no description (LinkedIn is never read). After each sweep the
   # same company, title and country is looked up among the other sources' postings and its
