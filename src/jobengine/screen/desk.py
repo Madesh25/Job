@@ -126,6 +126,8 @@ MAX_TEXT = 20000
 NO_GAP = ("none", "n/a", "-")  # a Gaps cell that says there is none
 HIGH_ALERT = "\U0001F525 Apply high: apply today while the posting is fresh."
 MAX_HIGH_ALERTS = 5
+ADDED_ALL_KEY = "discover.added_all"  # bot_state: the companies /newcompanies Add all added
+MAX_ADDED_NAMES = 40
 # About what one screened job costs (Haiku measured 10 Oct; Gemini 3.5 Flash-Lite on 28 Oct:
 # 82 calls, $0.044), for the /screen choice. Another model: Haiku's figure scaled by its price.
 SCREEN_COST_PER_JOB = 0.003
@@ -633,6 +635,10 @@ class Desk:
             return self.spot_tap(action, arg)
         if action in ("dc", "dn") and arg:  # /newcompanies: Add, Not interested
             return self.newcompany_tap(action, arg)
+        if action == "da" and arg == "all":  # /newcompanies: Add all (5 Nov)
+            return self.newcompanies_add_all()
+        if action == "ua" and arg == "last":  # Undo all under Add all
+            return self.newcompanies_undo_all()
         if action == "ai" and arg == "on":  # "Allow AI" under the month's cap message (I6)
             return self.ai_allow()
         if action == "tu" and arg:  # "Undo" under a company /add put in Target Companies
@@ -3187,7 +3193,11 @@ class Desk:
             return None
         from jobengine.screen import daily
 
-        waiting = len(unscreened_rows(self.deps, self.today()))
+        # 5 Nov: only jobs with a description can be screened; the others wait for /jd and
+        # cost nothing (310 "waiting" were 40 to screen and 270 without a description).
+        no_jd = {r.page_id for r in waiting_for_jd(self.repo, self.state)}
+        waiting = len([r for r in unscreened_rows(self.deps, self.today())
+                       if r.page_id not in no_jd])
         cap = daily.daily_limit(self.s)
         room = max(0, cap - daily.used_today(self.state, self.today()))
         if waiting <= room:
@@ -3200,14 +3210,16 @@ class Desk:
             buttons.append((f"{more} (over the limit)", f"sc:{more}"))
         if waiting > more:
             buttons.append((f"All {waiting}", f"sc:{waiting}"))
-        lines = [f"{waiting} jobs wait to be screened. Today's limit: {cap} a day, {room} left "
-                 f"({cap - room} screened today)."]
+        lines = [f"{waiting} jobs with a description wait to be screened. Today's limit: {cap} a "
+                 f"day, {room} left ({cap - room} screened today)."]
+        if no_jd:
+            lines.append(f"{len(no_jd)} more have no description yet: they wait for /jd and "
+                         "are not counted.")
         if room:
             lines.append(f"Today's {room}: the best {room} now, the rest wait for tomorrow.")
         model, cost = screen_cost(self.s, self.deps.config())
         lines.append(f"Over the limit: about ${cost:.4f} a job ({model}), so all {waiting} cost "
-                     f"about ${waiting * cost:.2f}. Jobs without a description cost nothing "
-                     "(they wait for /jd).")
+                     f"about ${waiting * cost:.2f}.")
         return Reply("\n".join(lines), buttons)
 
     def high_alerts(self, summary: ScreenSummary | None) -> list[Reply]:
@@ -3678,7 +3690,70 @@ class Desk:
             f"Jobs seen ({', '.join(item.get('countries') or [])}): {shown}{more}\n"
             f"Found through: {', '.join(item.get('boards') or [])}\n{visa}{site}\n"
             "Add it to Target Companies, so every /fetch reads its own job board?",
-            [("Add to Target Companies", f"dc:{ref}"), ("Not interested", f"dn:{ref}")])]
+            [("Add to Target Companies", f"dc:{ref}"), ("Not interested", f"dn:{ref}"),
+             *([(f"Add all {len(items)}", "da:all")] if len(items) > 1 else [])],
+            column=len(items) > 1)]  # three buttons: one per row, so none is cut short
+
+    def newcompanies_add_all(self) -> list[Reply]:
+        """5 Nov, your ask: every open suggestion into Target Companies in one tap (agencies
+        and companies already there are left out), with one Undo for all of them."""
+        from jobengine.sweep import discover
+
+        items = discover.suggestions(self.state, self.reference().companies)
+        if not items:
+            return [Reply("No new companies to suggest.")]
+        if self.companies is None:
+            return [Reply("Target Companies cannot be changed from here (no Notion access).")]
+        config = self.deps.config()
+        added: list[str] = []
+        ids: list[str] = []
+        agencies: list[str] = []
+        for key, item in items:
+            name = str(item.get("name") or "").strip()
+            if not name:
+                continue
+            if agency_by_name(name, config):
+                agencies.append(name)
+                discover.drop(self.state, key, never_again=True)
+                continue
+            if add_link.known_company(name, [c.name for c in self.reference().companies]):
+                discover.drop(self.state, key)
+                continue
+            url, _platform = discover.site_of(item.get("urls") or [])
+            country = next((c for c in item.get("countries") or [] if c in add_link.COUNTRIES),
+                           None)
+            note = (f"Added by /newcompanies (Add all) on {self.today().isoformat()}: jobs "
+                    f"seen through {', '.join(item.get('boards') or [])}")
+            props = add_link.company_props(name, url, country, self.today(), note)
+            ids.append(self.companies.add(props))
+            self._reference = None
+            added.append(name)
+            discover.drop(self.state, key)
+        if self.state is not None:
+            self.state.set(ADDED_ALL_KEY, {"ids": ids, "day": self.today().isoformat()})
+        shown = ", ".join(added[:MAX_ADDED_NAMES])
+        more = f" and {len(added) - MAX_ADDED_NAMES} more" if len(added) > MAX_ADDED_NAMES else ""
+        lines = [f"Added {len(added)} companies to Target Companies: {shown}{more}."
+                 if added else "No company added."]
+        if added:
+            lines.append("Every /fetch checks them from now on; the next /fetch looks for each "
+                         "one's job board by its name.")
+        if agencies:
+            lines.append(f"Not added, recruitment agencies: {', '.join(agencies)}.")
+        buttons = [("Undo all", "ua:last")] if ids else []
+        return [Reply("\n".join(lines), buttons)]
+
+    def newcompanies_undo_all(self) -> list[Reply]:
+        value = (self.state.get(ADDED_ALL_KEY) if self.state is not None else None) or {}
+        ids = [str(i) for i in value.get("ids") or []]
+        if not ids or self.companies is None:
+            return [Reply("Nothing to undo.")]
+        for page_id in ids:
+            self.companies.deactivate(page_id)
+        self._reference = None
+        self.state.set(ADDED_ALL_KEY, {"ids": []})
+        return [Reply(f"Undone: the {len(ids)} companies stay in Target Companies with Active "
+                      "unticked, so /fetch no longer checks them.")]
 
     def newcompany_tap(self, action: str, short: str) -> list[Reply]:
         from jobengine.sweep import discover

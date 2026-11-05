@@ -99,8 +99,9 @@ def test_newcompanies_adds_or_turns_down_one_at_a_time():
         "Found through: Jooble, LinkedIn",
         "Job board: Greenhouse, https://boards.greenhouse.io/novasystems (every /fetch can "
         "read it)"]
-    add, no = card.buttons
+    add, no, everyone = card.buttons
     assert add[0] == "Add to Target Companies" and no[0] == "Not interested"
+    assert everyone == ("Add all 2", "da:all")
     added, nxt = d.tap(add[1])
     assert added.text.startswith("Added Nova Systems to Target Companies with its Greenhouse "
                                  "job board: https://boards.greenhouse.io/novasystems")
@@ -114,6 +115,32 @@ def test_newcompanies_adds_or_turns_down_one_at_a_time():
     assert last.text.startswith("No new companies to suggest.")
     assert "quiet labs" in discover.skipped(d.state)
     assert d.tap(nxt.buttons[0][1])[0].text == "That suggestion is no longer open."
+
+
+def test_add_all_puts_every_suggestion_in_target_companies_with_one_undo():
+    """5 Nov, your ask: one by one is too slow; one tap adds them all."""
+    d = fake_desk(settings(), FAKE_TODAY, now=Clock())
+    discover.record(d.state, discover.find(SEEN, COMPANIES, [], ConfigStore.fake(),
+                                           skip=["old co"], today=TODAY), TODAY)
+    [card] = d.newcompanies_command()
+    [done] = d.tap(card.buttons[2][1])
+    assert done.text.startswith("Added 2 companies to Target Companies: Nova Systems, "
+                                "Quiet Labs.")
+    assert sorted(r["Company"] for r in d.companies.rows.values()) == ["Nova Systems",
+                                                                         "Quiet Labs"]
+    assert d.newcompanies_command()[0].text.startswith("No new companies to suggest.")
+    assert done.buttons == [("Undo all", "ua:last")]
+    [undone] = d.tap("ua:last")
+    assert undone.text.startswith("Undone: the 2 companies stay in Target Companies")
+    assert all(r["Active"] is False for r in d.companies.rows.values())
+    assert d.tap("ua:last")[0].text == "Nothing to undo."
+
+
+def test_one_suggestion_left_has_no_add_all_button():
+    d = fake_desk(settings(), FAKE_TODAY, now=Clock())
+    discover.record(d.state, discover.find(SEEN[-1:], COMPANIES, [], ConfigStore.fake(),
+                                           today=TODAY), TODAY)
+    assert len(d.newcompanies_command()[0].buttons) == 2
 
 
 def test_a_company_added_without_a_link_gets_no_careers_url():

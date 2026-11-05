@@ -611,7 +611,10 @@ def waiting_for_jd(repo: JobsRepo, state: Any = None) -> list[JobRow]:
                                         select_filter("Board", "LinkedIn")]})
         return [job_row(pid, v) for pid, v in rows]
     known = set(waiting.noted(state))
+    # 5 Nov: a LinkedIn row whose own link on the company's site was found (sweep/job_links)
+    # has its description: it no longer waits for /jd.
     rows = [job_row(pid, v)
             for pid, v in repo.query_rows(select_filter("Screen verdict", "Unscreened"))
-            if v.get("Board") == "LinkedIn" or pid in known]
+            if (v.get("Board") == "LinkedIn" and "linkedin." in str(v.get("URL") or ""))
+            or pid in known]
     return sorted(rows, key=lambda r: (r.board != "LinkedIn", r.board or ""))

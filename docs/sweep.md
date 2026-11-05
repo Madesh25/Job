@@ -920,3 +920,10 @@ The /fetch of 5 Nov skipped 11 jobs as ghosts. Two were not ghosts:
   job from being a ghost. It is not taken as the job's link: it may be another job.
 - Title words written together in an address count ("/o/devopsplatform-engineer").
 - LOOKUP_VERSION 8.
+
+### /newcompanies: Add all (5 Nov, your ask)
+
+Each suggestion card has a third button, "Add all N" (when more than one is open): every open
+suggestion goes into Target Companies in one tap, the same way "Add to Target Companies" adds
+one. Recruitment agencies (by name) and companies already there are left out; agencies are
+not suggested again. One "Undo all" button unticks Active for every company it added.
