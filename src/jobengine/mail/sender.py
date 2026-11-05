@@ -9,6 +9,15 @@ Drafts and the reason is shown. With DRY_RUN on, the checks run and nothing is s
 Safe sending (mail/send_guard.py, 28 Oct): an unverified address stays a draft, a domain
 without a mail server too, and sending pauses by itself after bounces.
 Outside prod every mail goes to your redirect address (safety.route_recipients).
+
+After you applied (5 Nov, the autopilot timetable): you apply the same night, so a job's
+mails wait in the queue until its Status is Applied ("I applied" under the resume, the
+employer's thank-you mail, or the auto-submit), then go out in the recipient's morning.
+The peer mail says "I've applied through the portal" (Cold Mail Templates, 5 Nov). A held
+mail leaves the queue (kept as a draft, you are told) when the job closes or moves on
+(Rejected, Declined, Expired, Withdrawn, Ghosted, Replied, Screening, Interview, Offer) or
+when you did not apply within HOLD_DAYS. Notion Config `mail.after_applied` = `off` sends
+without waiting for your application.
 """
 
 from __future__ import annotations
@@ -42,6 +51,12 @@ DRAFT, SEND = "draft", "send"
 DEFAULT_DAILY_SENDS = 10
 CHECKED = "To, no Cc or Bcc, subject, body, signature, resume attachment, Gmail's copy"
 WINDOW_HINT = "/mailqueue shows the queue"
+AFTER_KEY = "mail.after_applied"  # Notion Config: "off" sends before you applied too
+HOLD = "applied"  # timing.QueueItem.hold: waits for your application
+SEND_AFTER = ("Applied", "Followed up")  # the job Status that releases a held mail
+MOVED_ON = ("Rejected", "Declined", "Expired", "Withdrawn", "Ghosted", "Replied",
+            "Screening", "Interview", "Offer")  # no cold mail is needed any more
+HOLD_DAYS = 7  # a held mail for a job you did not apply to leaves the queue after this
 
 
 @dataclass
@@ -58,10 +73,16 @@ class SendResult:
     sent: list[SentLine] = field(default_factory=list)
     kept: list[str] = field(default_factory=list)
     queued: list[str] = field(default_factory=list)  # wait for the recipient's morning
+    held: list[str] = field(default_factory=list)  # wait until you applied to the job
     dry_run: bool = False
     used: int = 0
     cap: int = DEFAULT_DAILY_SENDS
     message: str = ""
+
+
+def after_applied(config: Any) -> bool:
+    """Mails wait until you applied (default on; Notion Config mail.after_applied = off)."""
+    return (config.get(AFTER_KEY) or "").strip().lower() not in ("off", "false", "no")
 
 
 def mode(state: BotState | None) -> str:
@@ -169,6 +190,7 @@ def send_checked(deps: MailDeps, state: BotState | None, drafts: DraftsResult) -
     now = deps.now()
     values = (deps.jobs.get_values(drafts.job_id) if deps.jobs is not None else None) or {}
     country = str(values.get("Country") or "")
+    hold = after_applied(config) and str(values.get("Status") or "") not in SEND_AFTER
     for line, mail in zip(drafts.drafted, drafts.mails, strict=True):
         who = line.name or line.email
         expected = preflight.Expected(
@@ -191,10 +213,14 @@ def send_checked(deps: MailDeps, state: BotState | None, drafts: DraftsResult) -
             if unsafe:
                 result.kept.append(f"{who}: {unsafe}")
                 continue
-            if window.enabled and not timing.inside(window, country, now):
-                at = timing.next_start(window, country, now)
+            outside = window.enabled and not timing.inside(window, country, now)
+            if hold or outside:
+                at = timing.next_start(window, country, now) if window.enabled else now
                 kind = KIND.get(line.template, "mail")
-                result.queued.append(f"{who} ({kind}): {timing.when_text(at)}")
+                if hold:
+                    result.held.append(f"{who} ({kind})")
+                else:
+                    result.queued.append(f"{who} ({kind}): {timing.when_text(at)}")
                 if gmail is not None:
                     timing.add(state, timing.QueueItem(
                         draft_id=line.draft_id, job_id=drafts.job_id, page_id=line.page_id,
@@ -202,7 +228,8 @@ def send_checked(deps: MailDeps, state: BotState | None, drafts: DraftsResult) -
                         template=line.template, thread_id=line.thread_id, country=country,
                         signature=mail.signature.text.strip().splitlines()[0]
                         if mail.signature.text.strip() else "",
-                        due=at.astimezone(UTC).isoformat()))
+                        due=timing.aware(at).astimezone(UTC).isoformat(),
+                        hold=HOLD if hold else ""))
                 continue
             if used >= result.cap:
                 result.kept.append(f"{who}: today's {result.cap} sends are used")
@@ -256,6 +283,12 @@ def send_summary(deps: MailDeps, drafts: DraftsResult, result: SendResult) -> st
     for item in result.sent:
         lines.append(f"- {item.name} ({item.kind}): To {item.to} | Subject: {item.subject} | "
                      f"Attachment: {item.attachment}")
+    if result.held:
+        verb = "Would wait" if result.dry_run else "Waiting"
+        lines.append(f"{verb} until you apply (tap I applied under the resume; the "
+                     "employer's thank-you mail counts too), then sent in the recipient's "
+                     "morning after the same checks:")
+        lines += [f"- {h}" for h in result.held]
     if result.queued:
         verb = "Would wait" if result.dry_run else "Waiting"
         lines.append(f"{verb} for the recipient's morning ({WINDOW_HINT}), then sent by "
@@ -274,6 +307,39 @@ def send_summary(deps: MailDeps, drafts: DraftsResult, result: SendResult) -> st
 # ---------------------------------------------------------------- the morning queue
 
 
+def release_held(deps: MailDeps, state: BotState | None, now: datetime,
+                 window: timing.Window) -> list[str]:
+    """Held mails whose recipient's morning has come: sendable once you applied to the job,
+    out of the queue (kept as drafts) when the job moved on or you did not apply in time.
+    The job is read only while its window is open, once per job."""
+    items = timing.load(state)
+    held = [i for i in items if i.hold and (not window.enabled
+                                             or timing.inside(window, i.country, now))]
+    if not held or deps.jobs is None:
+        return []
+    status: dict[str, str] = {}
+    dropped: dict[str, list[str]] = {}
+    stamp = timing.aware(now)
+    for item in held:
+        if item.job_id not in status:
+            values = deps.jobs.get_values(item.job_id) or {}
+            status[item.job_id] = str(values.get("Status") or "")
+        now_status = status[item.job_id]
+        waited = (stamp - datetime.fromisoformat(item.due)).days
+        if now_status in SEND_AFTER:
+            item.hold = ""
+            item.due = stamp.astimezone(UTC).isoformat()
+        elif now_status in MOVED_ON or not now_status:
+            dropped.setdefault(f"the job is {now_status or 'gone'}", []).append(item.name)
+            items.remove(item)
+        elif waited >= HOLD_DAYS:
+            dropped.setdefault(f"not applied within {HOLD_DAYS} days", []).append(item.name)
+            items.remove(item)
+    timing.save(state, items)
+    return [f"Left the mail queue, kept as drafts ({why}): {', '.join(names)}."
+            for why, names in dropped.items()]
+
+
 def send_due(deps: MailDeps, state: BotState | None) -> str | None:
     """Send one waiting mail whose recipient's morning has come, after the same checks.
     Called every few minutes; None when nothing was due (or today's sends are used)."""
@@ -281,6 +347,15 @@ def send_due(deps: MailDeps, state: BotState | None) -> str | None:
     s = deps.s
     window = timing.window(s.mail, config)
     now = deps.now()
+    notes = release_held(deps, state, now, window)
+    sent = _send_one(deps, state, config, window, now)
+    lines = [*notes, *([sent] if sent else [])]
+    return "\n".join(lines) if lines else None
+
+
+def _send_one(deps: MailDeps, state: BotState | None, config: Any, window: timing.Window,
+              now: datetime) -> str | None:
+    s = deps.s
     due = timing.due_items(state, now, window)
     if not due or not gmail_write_allowed(s) or send_guard.paused(state):
         return None  # a bounce pause: the queue waits for /mailmode send
@@ -359,9 +434,10 @@ def queue_text(deps: MailDeps, state: BotState | None) -> str:
     if not items:
         return f"{head}\nNo mail waits in the queue."
     lines = [head, f"{len(items)} mail{'' if len(items) == 1 else 's'} waiting:"]
-    for item in sorted(items, key=lambda i: i.due):
+    for item in sorted(items, key=lambda i: (bool(i.hold), i.due)):
         at = datetime.fromisoformat(item.due).astimezone(timing.zone(item.country))
+        when = "after you apply" if item.hold else timing.when_text(at)
         lines.append(f"- {item.name} ({KIND.get(item.template, 'mail')}), "
-                     f"{timing.when_text(at)}: {item.subject}")
+                     f"{when}: {item.subject}")
     lines.append("Each is checked again and sent by itself; one every few minutes.")
     return "\n".join(lines)

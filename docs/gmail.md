@@ -175,6 +175,15 @@ evening.
   signature, the approved resume); the daily cap still applies, and the rest wait for the
   next morning. A draft you sent or deleted yourself leaves the queue; one that changed is
   kept as a draft and you are told why.
+- **After you applied (5 Nov):** you apply the same night, so a job's mails wait in the
+  queue until its Status is Applied (the I applied button, the employer's thank-you mail,
+  or the auto-submit), then go out in the recipient's next morning, even when they were
+  written inside the window. The peer template says "I've applied through the portal"
+  (Cold Mail Templates, changed 5 Nov). A held mail leaves the queue and stays a draft,
+  with a message, when the job closes or moves on (Rejected, Declined, Expired, Withdrawn,
+  Ghosted, Replied, Screening, Interview, Offer) or when you did not apply within 7 days.
+  `/mailqueue` shows them as "after you apply". Notion Config `mail.after_applied` = `off`
+  sends without waiting.
 - **Public holidays (5 Nov):** a mail sent on a public holiday waits unread until the next
   working day, under everything else. So the window stays closed on the recipient
   country's public holidays and the mail goes out the next working morning
