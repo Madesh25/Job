@@ -17,8 +17,12 @@ sent (see "Mail mode" in [gmail.md](gmail.md)).
      other commands in the meantime.
    - Webhook (Cloud Run): send `/autopilot` again later; it carries on without a new fetch.
 4. **Approve**: the best Apply high and Apply normal jobs, in the `/pending` order, at most
-   `screening.autopilot_approvals` a day (50 since 27 Oct, was 10; Bot State
-   `autopilot.day`). Apply low and Needs review are never approved by autopilot; they wait
+   `screening.autopilot_approvals` a day (**10 since 5 Nov**, what you apply to in one
+   evening; 50 from 27 Oct; Notion Config `screening.autopilot_approvals` wins; Bot State
+   `autopilot.day`). With the schedule on, a run while a later start time is still ahead
+   today (the 07:00 run) uses at most `screening.morning_share` (Config, default 60%) of
+   the approvals and of the screening limit, so the 19:30 run, with the freshest jobs, gets
+   the rest (6 and 4 approvals, 30 and 20 screenings). Apply low and Needs review are never approved by autopilot; they wait
    in `/pending`. With Config `apply.auto` = `true` the approved jobs then go to the
    auto-apply queue, and with auto-submit on ([apply-pack.md](apply-pack.md), step 5) the
    complete forms are submitted; the rest come to you as Apply by hand.
@@ -75,8 +79,8 @@ see whether it is on and when it runs next.
   30 minutes after each start time ([deploy.md](deploy.md) B4). The first call starts the
   run; later calls carry on with its half-price batch once it has answered. The call is
   answered at once and the run reports in Telegram (a failure too, also by email).
-- It is the same run as `/autopilot`: at most `screening.autopilot_approvals` (50) approvals
-  a day for both runs together, and the mail mode (`/mailmode`) decides between drafts and
+- It is the same run as `/autopilot`: at most `screening.autopilot_approvals` (10) approvals
+  a day for both runs together (60% in the morning run, the rest in the evening run), and the mail mode (`/mailmode`) decides between drafts and
   sending. The summary starts with "Scheduled autopilot (07:00 Asia/Kolkata)".
 
 ## Morning check before the run (Autopilot C)

@@ -12,7 +12,8 @@ bot that was off in the morning does not run the morning run in the afternoon.
   each start time; the first call starts the run, later calls carry on with its batch.
 
 The run is the same as sending /autopilot: approvals are capped by
-`screening.autopilot_approvals` a day (both runs together), and mail mode decides between
+`screening.autopilot_approvals` a day (both runs together; the morning run at most
+`screening.morning_share`, 5 Nov), and mail mode decides between
 drafts and sending (sending keeps the recipient's morning, /mailqueue).
 """
 

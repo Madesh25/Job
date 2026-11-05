@@ -43,6 +43,9 @@ DAY_KEY = "autopilot.day"  # bot_state: {"date": <iso date>, "count": <jobs appr
 DEFAULT_APPROVALS = 10
 DEFAULT_CHECK_MINUTES = 5
 
+MORNING_FULL = ("Screening: this morning's share ({share}% of today's limit) is used; the "
+                "rest waits for the evening run, with the freshest jobs.")
+
 Progress = Callable[[str], None]
 Fetch = Callable[[Progress], str]
 
@@ -72,8 +75,49 @@ class JobReport:
         return f"{text}\n   {self.url}" if self.url else text
 
 
+APPROVALS_KEY = "screening.autopilot_approvals"  # Notion Config wins over the yaml
+SHARE_KEY = "screening.morning_share"  # Notion Config: % of the day a morning run may use
+DEFAULT_SHARE = 60
+
+
+def day_approvals(desk: Desk) -> int:
+    """Approvals a day, both runs together (5 Nov: 10, what you apply to in one evening)."""
+    default = int(desk.s.screening.get("autopilot_approvals", DEFAULT_APPROVALS))
+    return max(0, desk.deps.config().get_int(APPROVALS_KEY, default) or 0)
+
+
+def later_run_today(desk: Desk) -> bool:
+    """The schedule is on and a later start time is still to come today (the 07:00 run
+    while 19:30 is ahead): this run leaves a share of the day for it."""
+    p = autopilot_schedule.plan(desk)
+    if not p.on:
+        return False
+    now = autopilot_schedule.local_now(desk, p)
+    return now.weekday() in p.days and any(now.time() < at for at in p.starts[1:])
+
+
+def share(desk: Desk) -> int:
+    value = desk.deps.config().get_int(SHARE_KEY, DEFAULT_SHARE)
+    return min(100, max(0, DEFAULT_SHARE if value is None else value))
+
+
+def run_cap(desk: Desk, total: int) -> int:
+    """What this run may use of a day's total: all of it, or the morning share."""
+    return round(total * share(desk) / 100) if later_run_today(desk) else total
+
+
 def approvals_limit(desk: Desk) -> int:
-    return max(0, int(desk.s.screening.get("autopilot_approvals", DEFAULT_APPROVALS)))
+    return run_cap(desk, day_approvals(desk))
+
+
+def screening_room(desk: Desk) -> int | None:
+    """Jobs this run may screen (None: the whole day's room, as /screen)."""
+    if not later_run_today(desk):
+        return None
+    from jobengine.screen import daily
+
+    cap = run_cap(desk, daily.daily_limit(desk.s))
+    return max(0, cap - daily.used_today(desk.state, desk.today()))
 
 
 def check_seconds(desk: Desk) -> float:
@@ -101,9 +145,13 @@ def run(desk: Desk, fetch: Fetch | None, progress: Progress) -> list[Reply]:
             if fetch is not None:
                 progress("Fetching new jobs")
                 lines.append(fetch(progress))
-            progress("Sending the new jobs to the half-price batch")
-            summary = batch.submit(desk.s, desk.deps, desk.today())
-            lines.append(summary.text().replace(batch.COLLECT_HINT, ""))
+            room = screening_room(desk)
+            if room == 0:
+                lines.append(MORNING_FULL.format(share=share(desk)))
+            else:
+                progress("Sending the new jobs to the half-price batch")
+                summary = batch.submit(desk.s, desk.deps, desk.today(), limit=room)
+                lines.append(summary.text().replace(batch.COLLECT_HINT, ""))
         return _collect_then_finish(desk, lines, progress)
     except (ScreenError, LLMError, http.HttpError) as exc:
         lines.append(f"Autopilot stopped: {exc}")
@@ -365,8 +413,12 @@ def _summary(desk: Desk, reports: list[JobReport], over: int) -> str:
     split = ", ".join(f"{counts[v]} {v}" for v in AUTO_VERDICTS if counts.get(v))
     out = [f"Autopilot done: {len(approved)} job{'' if len(approved) == 1 else 's'} approved "
            f"({split}).", *(r.line(i) for i, r in enumerate(reports, 1))]
-    if over:
-        out.append(f"{over} more wait for tomorrow (at most {approvals_limit(desk)} a day).")
+    if over and later_run_today(desk):
+        out.append(f"{over} more wait in /pending: this morning run approves at most "
+                   f"{approvals_limit(desk)} of the day's {day_approvals(desk)}, the evening "
+                   "run the rest (with the freshest jobs).")
+    elif over:
+        out.append(f"{over} more wait for tomorrow (at most {day_approvals(desk)} a day).")
     if desk.sending() and mail_sender.after_applied(desk.deps.config()):
         out.append("Mail mode send: the mails that passed every check wait until you apply "
                    "(details below). Apply on the job page tonight, then tap I applied under "
