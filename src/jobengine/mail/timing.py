@@ -16,11 +16,12 @@ from __future__ import annotations
 
 import re
 from dataclasses import asdict, dataclass
-from datetime import datetime, time, timedelta
+from datetime import date, datetime, time, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
 
 from jobengine.bot_state import BotState
+from jobengine.mail import holidays
 
 QUEUE_KEY = "mail.queue"  # bot_state: {"items": [QueueItem as dict, ...]}
 WINDOW_KEY = "mail.send_window"  # Notion Config: "off" sends at once
@@ -37,13 +38,15 @@ class Window:
     days: tuple[int, ...]  # 0 = Monday
     start: time
     end: time
+    holidays: bool = True  # skip the recipient country's public holidays (mail/holidays.py)
 
     def text(self) -> str:
         names = [DAYS[d] for d in self.days]
         span = (f"{names[0]} to {names[-1]}" if len(names) > 2 and
                 list(self.days) == list(range(self.days[0], self.days[-1] + 1))
                 else ", ".join(names))
-        return f"{span}, {self.start:%H:%M} to {self.end:%H:%M} the recipient's time"
+        tail = ", public holidays skipped" if self.holidays else ""
+        return f"{span}, {self.start:%H:%M} to {self.end:%H:%M} the recipient's time{tail}"
 
 
 @dataclass
@@ -80,7 +83,8 @@ def window(mail_yaml: dict[str, Any], config: Any) -> Window:
     enabled = bool(raw.get("enabled", True))
     if (config.get(WINDOW_KEY) or "").strip().lower() in ("off", "false", "no"):
         enabled = False
-    return Window(enabled=enabled, days=days, start=start, end=max(start, end))
+    return Window(enabled=enabled, days=days, start=start, end=max(start, end),
+                  holidays=holidays.enabled(config))
 
 
 def zone(country: str | None) -> ZoneInfo:
@@ -92,9 +96,14 @@ def aware(now: datetime) -> datetime:
     return now if now.tzinfo is not None else now.astimezone()
 
 
+def open_day(w: Window, country: str | None, day: date) -> bool:
+    """A window day in this country: a send day and not a public holiday there."""
+    return day.weekday() in w.days and not (w.holidays and holidays.holiday(country, day))
+
+
 def inside(w: Window, country: str | None, now: datetime) -> bool:
     local = aware(now).astimezone(zone(country))
-    return local.weekday() in w.days and w.start <= local.time() < w.end
+    return open_day(w, country, local.date()) and w.start <= local.time() < w.end
 
 
 def next_start(w: Window, country: str | None, now: datetime) -> datetime:
@@ -103,12 +112,28 @@ def next_start(w: Window, country: str | None, now: datetime) -> datetime:
     local = aware(now).astimezone(tz)
     if inside(w, country, now):
         return local
-    for ahead in range(8):
+    for ahead in range(22):  # Christmas, a weekend and New Year can close two weeks
         day = local.date() + timedelta(days=ahead)
         at = datetime.combine(day, w.start, tzinfo=tz)
-        if day.weekday() in w.days and at > local:
+        if open_day(w, country, day) and at > local:
             return at
-    return local  # pragma: no cover: some day in the next week is always a window day
+    return local  # pragma: no cover: some day in the next weeks is always a window day
+
+
+def holidays_ahead(w: Window, today: date, days: int = 14) -> list[str]:
+    """The public holidays of the next `days` days that close the window, per country."""
+    if not w.holidays:
+        return []
+    out = []
+    for ahead in range(days):
+        day = today + timedelta(days=ahead)
+        if day.weekday() not in w.days:
+            continue
+        for country in ZONES:
+            name = holidays.holiday(country, day)
+            if name:
+                out.append(f"{day:%a %d %b}: {name} in {country}")
+    return out
 
 
 def when_text(at: datetime) -> str:

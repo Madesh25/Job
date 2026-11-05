@@ -175,6 +175,15 @@ evening.
   signature, the approved resume); the daily cap still applies, and the rest wait for the
   next morning. A draft you sent or deleted yourself leaves the queue; one that changed is
   kept as a draft and you are told why.
+- **Public holidays (5 Nov):** a mail sent on a public holiday waits unread until the next
+  working day, under everything else. So the window stays closed on the recipient
+  country's public holidays and the mail goes out the next working morning
+  (`mail/holidays.py`: Poland, the Netherlands and Ireland, worked out for any year,
+  Easter dates included; an Irish holiday on a weekend moves to the next working day).
+  Example: Wednesday 11 November is Independence Day in Poland, so a Polish mail queued
+  on Tuesday after the window goes on Thursday 12 November; a Dutch one goes on the 11th.
+  `/mailqueue` names the holidays of the next 14 days. Notion Config `mail.holidays` =
+  `off` sends on holidays too.
 - Change the days and hours in `config/base.yaml` (`mail.send_window`). Notion Config
   `mail.send_window` = `off` sends at once, as before.
 - DRY RUN: the summary says `Would wait for the recipient's morning` and nothing is queued.
