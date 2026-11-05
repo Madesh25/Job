@@ -1183,6 +1183,7 @@ def autopilot_check(client: TelegramClient, s: Settings, desk: Desk | None,
                           lambda: desk.check_scheduled(autopilot_fetch(fetch)) or [], desk)
     replies += _scheduled("Mail queue", desk.mail_queue_tick, desk)
     replies += _scheduled("Reply check", desk.reply_ping_tick, desk)
+    replies += _scheduled("Daily check", desk.tracking_tick, desk)
     replies += _scheduled("Daily report", desk.daily_report_tick, desk)
     replies += _scheduled("Spot check", desk.spot_check_tick, desk)
     replies += _scheduled("Link check", desk.expired_check_tick, desk)

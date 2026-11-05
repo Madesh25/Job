@@ -2397,6 +2397,21 @@ class Desk:
         self.say(Reply("Running the daily check..."))
         return self.report_replies(track_runner.run_daily(self.track, self.tracking_now()))
 
+    def tracking_tick(self) -> list[Reply]:
+        """Every few minutes: the daily check by itself at 07:30 and 21:30 (track/timed.py)."""
+        from jobengine.track import daily_report, timed
+
+        if self.track is None:
+            return []
+        config = self.deps.config()
+        now = self.tracking_now()
+        local = daily_report.local(now, config)
+        at = timed.due(config, self.state, local)
+        if at is None:
+            return []
+        timed.mark(self.state, local.date(), at)
+        return self.report_replies(track_runner.run_daily(self.track, now))
+
     def reply_ping_tick(self) -> list[Reply]:
         """Every few minutes: ping new replies from contacts and employers (track/ping.py).
         A Gmail or Notion failure is only logged: the daily check reports token problems."""
@@ -3297,8 +3312,10 @@ class Desk:
     def autopilot_when(self) -> list[Reply]:
         """/autopilot when: the schedule and the next run, and the afternoon check."""
         from jobengine.screen import check, schedule
+        from jobengine.track import timed
 
-        return [Reply(f"{schedule.status_text(self)}\n\n{check.status_text(self)}")]
+        return [Reply(f"{schedule.status_text(self)}\n\n{check.status_text(self)}\n\n"
+                      f"{timed.text(self.deps.config())}")]
 
     # ------------------------------------------------------------ /jd and /done
 

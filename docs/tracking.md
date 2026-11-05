@@ -35,6 +35,16 @@ Telegram report. It never sends mail.
 
 ## The daily run
 
+**When (5 Nov, the autopilot timetable):** by itself at **07:30 and 21:30 India time**,
+once each a day (`track/timed.py`; Notion Config `schedule.tracking_times`, and
+`schedule.tracking` = `false` turns it off), on the laptop (long polling) and on Cloud Run
+(`je-daily-prod` at `30 7,21`). Before, the laptop ran it only on /today, and Cloud Run only
+at 07:30. The 07:30 check records last night's applications and queues the day's
+follow-ups; the 21:30 check, after the recipients' office closes, records the day's replies
+and rejections before the 21:45 report and the 22:00 apply nudge. The once-a-day messages
+of the Cloud Run task come with the 07:30 call only. `/autopilot when` names the times.
+/today still runs it at any time.
+
 0. Token health: both Gmail tokens are refreshed. A failure is the first line of the report;
    when the sender token fails, steps 2 to 8 are skipped and the report is still sent.
 1. Window (above), Gmail query `after:<epoch> -in:chats`.
