@@ -944,3 +944,12 @@ Only empty columns, only rows whose Notes start with "Added by /" or "Added from
 application" (safety.target_companies_fill_fields); a row you added by hand is never touched.
 A company with columns still empty is looked up again after 14 days. The /fetch summary lists
 the companies filled. `sweep.company_details.enabled: false` turns it off.
+
+### Round 9 (5 Nov): a job list the browser could not open is no check
+
+Sii's careers page needs the browser, and the browser got HTTP 403; its jobs were still
+counted as "not on its job list" and three were skipped as ghosts. A job list whose browser
+page fails now counts like one with no browser page left: the job waits for /jd and Google's
+copy is tried, never a ghost. LOOKUP_VERSION 9. The Tier question also says a big
+international company is never Tier 5, and energy, nuclear and chemicals are Tier 6, games
+and media Tier 2 (the first run put Westinghouse in Tier 4 and Sony in Tier 5).
