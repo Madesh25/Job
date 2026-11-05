@@ -58,7 +58,9 @@ or aggregator page.
 product and cloud companies Tier 2; banks, insurers, payments and fintech Tier 3;
 consulting, outsourcing, IT services and shared service centres Tier 4; product companies
 from Poland "Tier 5 - Polish product", from the Netherlands or Ireland "Tier 5 - Local
-product (NL/IE)"; car makers, engineering, energy and industrial firms Tier 6.
+product (NL/IE)" (a big international company is never Tier 5, even with an office there);
+car makers, engineering, energy, nuclear, chemicals and industrial firms Tier 6. Games,
+media and entertainment companies are Tier 2.
 When you are not sure of a field, use ""."""
 
 

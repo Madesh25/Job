@@ -69,7 +69,7 @@ KEY = "sweep.job_links"
 # Bumped when the lookup itself gets better (4 Nov: JavaScript pages, job systems, Google's
 # copy): the jobs and companies not found before are looked up again once, not 3 or 14
 # days later. Ghost-job counts ("misses") are kept.
-LOOKUP_VERSION = 8  # 8: unreadable own page or a shorter title on the list: no ghost
+LOOKUP_VERSION = 9  # 9: a job list the browser could not open is no check
 RETRY_DAYS = 3  # a job not found is looked up again after this (14 until 30 Oct)
 NO_BOARD_DAYS = 14  # a company without a job board or careers page is asked again after
 MAX_RENDERS_PER_JOB = 2  # browser pages for one job: one site never uses the whole budget
@@ -1014,6 +1014,9 @@ def from_site(deps: Deps, careers: str, company: str, role: str, city: str | Non
             except http.HttpError as exc:
                 log.info("careers page not opened in the browser %s: %s",
                          urlsplit(url).hostname, exc)
+                # 5 Nov: Sii's job list needs the browser, which got HTTP 403; three of its
+                # jobs were skipped as ghosts. A list the browser could not open is no check.
+                _partial()
             else:
                 if job_list_page(html):
                     _listed()

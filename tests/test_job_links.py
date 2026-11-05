@@ -957,6 +957,29 @@ def test_a_board_known_to_miss_jobs_is_no_check():
     assert job_links._incomplete(state, TODAY + timedelta(days=job_links.INCOMPLETE_DAYS)) == set()
 
 
+def test_a_job_list_the_browser_could_not_open_is_never_a_ghost():
+    """5 Nov: Sii's careers page needs the browser, which got HTTP 403; three Sii jobs were
+    skipped as ghosts although its job list was never read."""
+    thin = ("<html><body><a href='/careers/jobs'>Jobs</a>"
+            + "".join(f"<a href='/p{i}'>Senior Engineer {i}</a>" for i in range(5))
+            + "</body></html>")
+
+    class Refused:
+        left = 40
+
+        def __call__(self, url):
+            raise http.HttpError("page not rendered: HTTP 403", status=403)
+
+    state = FakeBotState()
+    for _ in range(2):  # two checks
+        d = deps([row()], pages={CAREERS: thin}, careers={"dune data": CAREERS}, llm=None,
+                 state=state)
+        d.render = Refused()
+        state.set(job_links.KEY, {**(state.get(job_links.KEY) or {}), "tried": {}})
+        result = job_links.run(d, BOARDS)
+    assert result.ghosts == [] and result.unchecked == 1
+
+
 def test_a_job_list_that_needs_the_browser_with_no_page_left_is_no_check():
     """2 Nov: Infor's job list (Pinpoint) needs the browser; this job's pages had run out."""
     thin = ("<html><body><a href='/careers/jobs'>Jobs</a>"
