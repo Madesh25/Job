@@ -45,9 +45,10 @@ def test_window_from_yaml_and_config():
     w = timing.window({"send_window": {"days": ["mon", "fri"], "start": "07:30",
                                        "end": "bad"}}, config)
     assert (w.days, w.start.isoformat(), w.end.isoformat()) == ((0, 4), "07:30:00", "10:00:00")
-    assert w.text() == "Mon, Fri, 07:30 to 10:00 the recipient's time"
+    assert w.text() == "Mon, Fri, 07:30 to 10:00 the recipient's time, public holidays skipped"
     # 27 Oct: Monday to Friday by default (was Tuesday to Thursday).
-    assert timing.window({}, config).text() == "Mon to Fri, 08:00 to 10:00 the recipient's time"
+    assert (timing.window({}, config).text()
+            == "Mon to Fri, 08:00 to 10:00 the recipient's time, public holidays skipped")
     assert not timing.window({}, ConfigStore.from_values({timing.WINDOW_KEY: "off"})).enabled
 
 
@@ -69,7 +70,8 @@ def test_outside_the_window_the_checked_mails_wait():
     assert len(timing.load(d.state)) == 4
     assert statuses(d)["fake-contact-9"][0] != "Contacted"
     queue = d.mailqueue_command()[0].text
-    assert queue.startswith("Send window: Mon to Fri, 08:00 to 10:00 the recipient's time.\n"
+    assert queue.startswith("Send window: Mon to Fri, 08:00 to 10:00 the recipient's time, "
+                            "public holidays skipped.\n"
                             "4 mails waiting:\n- Piotr Example (cold mail), Fri 02 Oct 08:00")
 
 

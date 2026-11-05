@@ -352,6 +352,10 @@ def queue_text(deps: MailDeps, state: BotState | None) -> str:
         head = "Send window: off (mails that pass the checks are sent at once)."
     else:
         head = f"Send window: {window.text()}."
+    closed = timing.holidays_ahead(window, deps.today()) if window.enabled else []
+    if closed:
+        head += "\nNo mails on these public holidays (they go out the next working day): " \
+            + "; ".join(closed) + "."
     if not items:
         return f"{head}\nNo mail waits in the queue."
     lines = [head, f"{len(items)} mail{'' if len(items) == 1 else 's'} waiting:"]
