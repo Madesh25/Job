@@ -69,7 +69,9 @@ def test_runs_at_07_00_and_19_30_once_each(tmp_path):
     assert fetch.calls == 1
     assert replies[0].text.startswith("Scheduled autopilot (07:00 Asia/Kolkata):\n\n"
                                       "Job search done: 3 new jobs.")
-    assert "Autopilot done: 7 jobs approved" in replies[0].text
+    # 5 Nov: the 07:00 run approves 60% of the day's 10, the 19:30 run the rest.
+    assert "Autopilot done: 6 jobs approved" in replies[0].text
+    assert "this morning run approves at most 6 of the day's 10" in replies[0].text
     assert d.state.get(schedule.LAST_KEY) == {"date": "2026-10-01", "done": ["07:00"]}
     clock.now = clock.now.replace(hour=8)
     assert d.autopilot_scheduled(fetch) is None  # once for 07:00
