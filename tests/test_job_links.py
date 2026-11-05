@@ -1179,6 +1179,20 @@ def test_job_addresses_in_other_languages_and_two_letter_names():
     assert not job_links._one_job_address("https://www.dunedata.com/careers", "DevOps Engineer")
 
 
+def test_googles_careers_site_short_job_system_numbers_and_countries():
+    """4 Nov: Google's own careers page, CGI's Njoyn link, a row whose company was "Poland"."""
+    google = ("https://www.google.com/about/careers/applications/jobs/results/"
+              "140683074818966214-cloud-engineer-data-and-ai-google-cloud")
+    assert job_links._company_host(google, "Google")
+    assert not job_links._company_host(google, "Dune Data")
+    assert not job_links.employer_page("https://www.google.com/search?q=jobs", "Google")
+    njoyn = "https://nl.njoyn.com/CGI/urlredirect.jso?J1026-2636&lang=nl"
+    assert job_links._one_job_address(njoyn, "DevOps Engineer - Digitale Overheid")
+    assert not job_links._one_job_address("https://www.dunedata.com/jobs?page=2026",
+                                          "DevOps Engineer")
+    assert not job_links.real_company("Poland")
+
+
 def test_privacy_and_cookie_links_are_not_careers_pages():
     """4 Nov: on careers.kingfisher.com its privacy policy was opened in the browser."""
     html = ("<a href='https://careers.dunedata.com/privacy-policy/'>Privacy</a>"

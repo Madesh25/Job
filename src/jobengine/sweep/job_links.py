@@ -69,7 +69,7 @@ KEY = "sweep.job_links"
 # Bumped when the lookup itself gets better (4 Nov: JavaScript pages, job systems, Google's
 # copy): the jobs and companies not found before are looked up again once, not 3 or 14
 # days later. Ghost-job counts ("misses") are kept.
-LOOKUP_VERSION = 6  # 6: job numbers in addresses, Google's copy when no browser page was left
+LOOKUP_VERSION = 7  # 7: Google's own careers site, short job numbers on job systems
 RETRY_DAYS = 3  # a job not found is looked up again after this (14 until 30 Oct)
 NO_BOARD_DAYS = 14  # a company without a job board or careers page is asked again after
 MAX_RENDERS_PER_JOB = 2  # browser pages for one job: one site never uses the whole budget
@@ -371,6 +371,9 @@ def employer_page(url: str, company: str) -> bool:
     host = (parts.hostname or "").lower()
     if parts.scheme != "https" or not host or link_rank(url) != 3:
         return False
+    if host in ("www.google.com", "careers.google.com") and parts.path.startswith(
+            ("/about/careers", "/jobs")):
+        return True  # 4 Nov: Google's own careers site (google.com is otherwise a search)
     return not any(bad in host for bad in NOT_EMPLOYER)
 
 
@@ -574,7 +577,10 @@ NOT_COMPANIES = {"hybrid", "remote", "on site", "onsite", "full time", "part tim
                  "junior", "mid", "regular", "medior", "senior", "mid senior", "junior mid",
                  "lead", "principal",
                  # job boards, not employers: the real company is not named
-                 "solid jobs", "gamblingcareers com"}
+                 "solid jobs", "gamblingcareers com",
+                 # 4 Nov: "Cloud & Platform Engineer (Go/Java) | Poland" gave "Poland"
+                 "poland", "polska", "netherlands", "the netherlands", "nederland", "ireland",
+                 "europe", "emea"}
 
 
 def real_company(company: str) -> bool:
@@ -1211,7 +1217,10 @@ def _one_job_address(url: str, role: str) -> bool:
     or it carries a job number of 5 digits or more (4 Nov: Serco's "?jobId=313360", Sony's
     Greenhouse ".../jobs/7478061002", Brunel's "...-it003509")."""
     parts = urlsplit(url)
-    return _url_names_role(url, role) or bool(JOB_NUMBER.search(f"{parts.path}?{parts.query}"))
+    where = f"{parts.path}?{parts.query}"
+    # 4 Nov: CGI's Njoyn link "?J1026-2636": on a job system 4 digits are a job number too
+    return (_url_names_role(url, role) or bool(JOB_NUMBER.search(where))
+            or (_board_link(url) and bool(re.search(r"\d{4,}", where))))
 
 
 def _resolved(deps: Deps, url: str) -> str:

@@ -890,3 +890,20 @@ After round 5: 9 of 80 alert jobs found (8 by Google's copy). What the log showe
   had used a browser page).
 - The "searched:" log line counts Google's result links, to show when there are none.
 - LOOKUP_VERSION 6: the jobs not found before are looked up once more.
+
+### Round 7 (4 Nov night)
+
+After round 6: 8 more of 80 alert jobs found (ChipSoft, Serco, NN Group, Infor, Egnyte,
+Venquis by Google's copy, CIMSOLUTIONS twice by its careers page). Small fixes from its log:
+- Google's own careers site (google.com/about/careers) counts as Google's site; the rest of
+  google.com is still a search, never an employer.
+- On a job system a 4-digit job number counts too (CGI's Njoyn "?J1026-2636").
+- A country name where the company should be ("Poland") is no company: noted once, not
+  searched again at every /fetch.
+- LOOKUP_VERSION 7.
+
+The rest wait for /jd: mostly recruitment agencies that post only on LinkedIn (Square One,
+ALOIS, Ventula, Thomson Keene ...), sites that refuse the bot with no job system Google
+shows (BNG, Rabobank, ALTEN, Phoenix Contact) and answers that are only a homepage. Gemini
+gives no result links for these searches ("0 result links"), so its answer address is all
+the bot can check.
