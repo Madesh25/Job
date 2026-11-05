@@ -927,3 +927,20 @@ Each suggestion card has a third button, "Add all N" (when more than one is open
 suggestion goes into Target Companies in one tap, the same way "Add to Target Companies" adds
 one. Recruitment agencies (by name) and companies already there are left out; agencies are
 not suggested again. One "Undo all" button unticks Active for every company it added.
+
+### Target Companies details (5 Nov, your ask)
+
+The companies the bot adds itself (/newcompanies with Add or Add all, /add, the companies of
+your applications) came in with only Company, Region, Active, Notes and Last checked. Each
+/fetch now fills their empty columns, up to `sweep.company_details.max_per_run` (20) a run
+(sweep/company_details.py):
+- Careers URL and ATS platform: one AI web search for the careers page or job system, each
+  link checked by reading it (a site that refuses the bot is never opened again).
+- Domain: its website's address without www.
+- Hub / City and Tier: from the same search; a tier that is not one of the table's is left out.
+- IND sponsor: Verified or Not listed from the IND register for Dutch companies, N/A for the
+  others (no search).
+Only empty columns, only rows whose Notes start with "Added by /" or "Added from your
+application" (safety.target_companies_fill_fields); a row you added by hand is never touched.
+A company with columns still empty is looked up again after 14 days. The /fetch summary lists
+the companies filled. `sweep.company_details.enabled: false` turns it off.

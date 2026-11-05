@@ -149,6 +149,19 @@ def check_target_companies_add(fields: list[str] | tuple[str, ...] | set[str]) -
         raise SafetyError(f"refusing to write Target Companies fields {bad}")
 
 
+# 5 Nov, your ask: the empty columns of a row the bot added itself (/newcompanies, /add,
+# your applications) are filled by /fetch (sweep/company_details.py). Only these, only
+# empty ones, never a row you added by hand.
+target_companies_fill_fields = ["Careers URL", "ATS platform", "Domain", "Hub / City", "Tier",
+                                "IND sponsor"]
+
+
+def check_target_companies_fill(fields: list[str] | tuple[str, ...] | set[str]) -> None:
+    bad = [f for f in fields if f not in target_companies_fill_fields]
+    if bad:
+        raise SafetyError(f"refusing to fill Target Companies fields {bad}")
+
+
 def connections_write_target(s: Settings) -> str | None:
     """🤝 LinkedIn Connections (contacts/connections.py), your decision of 23 Oct: one table
     for every env, like Skills Inventory. It is your own reference table, written only when

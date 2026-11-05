@@ -246,6 +246,7 @@ class SweepSummary:
     ghost_jobs: list[str] = field(default_factory=list)  # not on the company's site: skipped
     no_company: list[str] = field(default_factory=list)  # the alert showed no company
     reposted: list[str] = field(default_factory=list)  # reposting sites' jobs deleted (4 Nov)
+    details_filled: list[str] = field(default_factory=list)  # Target Companies columns (5 Nov)
     not_on_site_yet: int = 0  # not on the company's site at the first check
     site_unchecked: int = 0  # the company's site could not be checked
     tidied: tuple[int, int, int] | None = None  # old descriptions: checked, rewritten, left
@@ -346,6 +347,12 @@ class SweepSummary:
             if self.site_unchecked:
                 lines.append(f"- {self.site_unchecked} whose company site could not be checked "
                              "(no careers page found, or no answer): they wait for /jd")
+        if self.details_filled:
+            lines.append(f"\U0001F3E2 Target Companies details filled (empty columns of the "
+                         f"companies the bot added): {len(self.details_filled)}")
+            lines.extend(f"- {c}" for c in self.details_filled[:10])
+            if len(self.details_filled) > 10:
+                lines.append(f"- and {len(self.details_filled) - 10} more")
         if self.no_company:
             lines.append(f"\u2753 Alert jobs without a company name (noted on each page; the "
                          f"Unscreened ones skipped): {len(self.no_company)}")
