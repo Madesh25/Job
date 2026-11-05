@@ -163,6 +163,8 @@ class Company:
     careers_url: str | None = None
     hub_city: str | None = None
     domain: str | None = None  # email domain, filled by hand in Target Companies
+    notes: str = ""  # "Added by /newcompanies ...": a row the bot added (company_details)
+    ats_platform: str | None = None
 
     @property
     def tier_number(self) -> int | None:
@@ -239,10 +241,11 @@ class Reference:
             Company(row_id=pid, name=v.get("Company") or "", region=v.get("Region"),
                     tier=v.get("Tier"), ind_sponsor=v.get("IND sponsor"),
                     active=bool(v.get("Active")), careers_url=v.get("Careers URL"),
-                    hub_city=v.get("Hub / City"), domain=(v.get("Domain") or "").strip() or None)
+                    hub_city=v.get("Hub / City"), domain=(v.get("Domain") or "").strip() or None,
+                    notes=v.get("Notes") or "", ats_platform=v.get("ATS platform"))
             for pid, v in rows("target_companies", ("Company", "Region", "Tier", "IND sponsor",
                                                     "Active", "Careers URL", "Hub / City",
-                                                    "Domain"))
+                                                    "Domain", "Notes", "ATS platform"))
             if v.get("Company")
         ]
         return cls(skills, term_map, companies)
@@ -270,7 +273,8 @@ class Reference:
             Company(row_id=r["id"], name=r["Company"], region=r.get("Region"),
                     tier=r.get("Tier"), ind_sponsor=r.get("IND sponsor"),
                     active=r.get("Active", True), careers_url=r.get("Careers URL"),
-                    hub_city=r.get("Hub / City"), domain=r.get("Domain"))
+                    hub_city=r.get("Hub / City"), domain=r.get("Domain"),
+                    notes=r.get("Notes") or "", ats_platform=r.get("ATS platform"))
             for r in load("target_companies.json")
         ]
         return cls(skills, term_map, companies)

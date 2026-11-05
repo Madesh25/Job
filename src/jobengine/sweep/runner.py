@@ -19,6 +19,7 @@ from jobengine.settings import Settings
 from jobengine.sweep import (
     backfill,
     best,
+    company_details,
     crossmatch,
     discover,
     fakes,
@@ -110,6 +111,9 @@ class SweepDeps:
     # job_links.Result: the alert rows' own links on the company's site (28 Oct). None: not
     # looked up. `companies`: Target Companies, whose Careers URL is used first (30 Oct).
     links: Callable[..., Any] | None = None
+    # (config, state, today, progress) -> company_details.Result: the empty columns of the
+    # Target Companies rows the bot added (5 Nov). None: not filled.
+    details: Callable[..., Any] | None = None
 
 
 def fake_deps(s: Settings, repo: JobsRepo | None = None) -> SweepDeps:
@@ -157,7 +161,40 @@ def real_deps(s: Settings) -> SweepDeps:
         nofluffjobs=lambda: nofluffjobs.fetch(s),
         iamexpat=lambda: iamexpat.fetch(s),
         links=lambda *args: _find_links(s, *args),
+        details=lambda *args: _fill_details(s, client, *args),
     )
+
+
+def _fill_details(s: Settings, client: NotionClient, config: ConfigStore, state: Any,
+                  today: date, progress: Progress) -> Any:
+    """The empty columns of the Target Companies rows the bot added, filled by one AI web
+    search each (sweep/company_details.py)."""
+    from jobengine.ind_register import load_register
+    from jobengine.llm import make_llm
+    from jobengine.notion_repo import company_adder
+    from jobengine.safety import llm_allowed
+    from jobengine.sweep import company_details
+
+    adder = company_adder(s, client)
+    if adder is None:
+        return company_details.Result()
+    register = None
+    url = config.get("ind_register.url")
+    if url:
+        try:
+            register = load_register(str(url), lambda u: http.get_text(u, s=s))
+            register.add_aliases(config.get("ind_register.aliases"))
+        except (http.HttpError, ValueError) as exc:
+            log.info("IND register not read for the company details: %s", exc)
+    deps = job_links.Deps(
+        s=s, repo=None,  # type: ignore[arg-type]  # Target Companies only, no job rows
+        page=lambda u: http.get_page(u, s=s, blocked=fulltext.blocked_hosts(s)),
+        get=lambda u, params: http.get_json(u, params=params or None, s=s),
+        post=lambda u, body: http.post_json(u, json=body, s=s),
+        llm=make_llm(s, config) if llm_allowed(s) else None, state=state, today=today)
+    companies = Reference.load(client, s).companies
+    return company_details.fill(deps, companies, adder.fill, register,
+                                company_details.max_per_run(s), progress)
 
 
 def _find_links(s: Settings, repo: JobsRepo, config: ConfigStore, state: Any, today: date,
@@ -786,6 +823,14 @@ def run_sweep(
             summary.site_unchecked = getattr(found, "unchecked", 0)
         except Exception:  # never fail a sweep over the link search
             log.exception("direct job links failed")
+
+    # Pass 3c (5 Nov): the companies the bot added to Target Companies get their empty
+    # columns filled (Careers URL, Domain, Hub / City, Tier, IND sponsor).
+    if deps.details is not None and company_details.enabled(s):
+        try:
+            summary.details_filled = list(deps.details(config, state, today, say).filled)
+        except Exception:  # never fail a sweep over the company details
+            log.exception("Target Companies details failed")
 
     # Pass 4: saved rows that still wait for a description get their page read (8 Oct).
     if repo and deps.page is not None:

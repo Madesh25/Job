@@ -1142,7 +1142,8 @@ class CompanyAdder:
 
     TYPES = {"Company": "title", "Careers URL": "url", "ATS platform": "select",
              "Region": "select", "Active": "checkbox", "Last checked": "date",
-             "Notes": "rich_text"}
+             "Notes": "rich_text", "Domain": "rich_text", "Hub / City": "rich_text",
+             "Tier": "select", "IND sponsor": "select"}
 
     def __init__(self, client: NotionClient, data_source: str):
         self.client = client
@@ -1159,6 +1160,14 @@ class CompanyAdder:
     def deactivate(self, page_id: str) -> None:
         self.client.request("PATCH", f"/pages/{page_id}",
                             {"properties": {"Active": notion_value("checkbox", False)}})
+
+    def fill(self, page_id: str, props: dict[str, Any]) -> None:
+        """The empty columns of a row the bot added (sweep/company_details.py)."""
+        from jobengine.safety import check_target_companies_fill
+
+        check_target_companies_fill(list(props))
+        self.client.request("PATCH", f"/pages/{page_id}", {"properties": {
+            k: notion_value(self.TYPES[k], v) for k, v in props.items()}})
 
 
 class FakeCompanyAdder:
@@ -1177,6 +1186,12 @@ class FakeCompanyAdder:
 
     def deactivate(self, page_id: str) -> None:
         self.rows[page_id]["Active"] = False
+
+    def fill(self, page_id: str, props: dict[str, Any]) -> None:
+        from jobengine.safety import check_target_companies_fill
+
+        check_target_companies_fill(list(props))
+        self.rows.setdefault(page_id, {}).update(props)
 
 
 def company_adder(s: Settings, client: NotionClient) -> CompanyAdder | None:
