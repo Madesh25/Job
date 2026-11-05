@@ -19,6 +19,7 @@ from jobengine.config_store import ConfigStore
 from jobengine.gmail_client import TrackGmail
 from jobengine.llm import LLMClient
 from jobengine.mail import send_guard
+from jobengine.mail import sender as mail_sender
 from jobengine.mail.compose import ComposeError
 from jobengine.mail.fill import FillError, job_from_values
 from jobengine.mail.templates import Template
@@ -98,6 +99,7 @@ class DailyReport:
     bounced: list[str] = field(default_factory=list)
     followups: list[str] = field(default_factory=list)
     followups_dry: list[str] = field(default_factory=list)
+    followups_queued: list[str] = field(default_factory=list)  # mail mode send (5 Nov)
     followup_problems: list[str] = field(default_factory=list)
     ghosted_contacts: list[str] = field(default_factory=list)
     ghosted_jobs: list[str] = field(default_factory=list)
@@ -129,6 +131,9 @@ class DailyReport:
         if self.followups:
             lines.append(f"Follow-ups drafted: {len(self.followups)} (send them from Gmail > "
                          f"Drafts): {', '.join(self.followups)}")
+        if self.followups_queued:
+            lines.append(f"Follow-ups queued, sent by the bot in the recipient's morning "
+                         f"(Tue to Thu, /mailqueue): {', '.join(self.followups_queued)}")
         if self.followups_dry:
             lines.append(f"DRY RUN: {len(self.followups_dry)} follow-ups not drafted "
                          f"({', '.join(self.followups_dry)})")
@@ -659,7 +664,17 @@ def draft_followups(run: Run, report: DailyReport) -> None:
         draft = run.gmail.create_draft(built.mail.raw(), thread_id=built.thread_id)
         run.set_contact(pid, {"Follow-up draft ID": draft.draft_id, "Notes": _append(
             c.get("Notes"), f"{followup.NOTE} {run.today}")})
-        report.followups.append(name)
+        if mail_sender.followup_send(run.deps.state, run.config):
+            sig = built.mail.signature.text.strip()
+            when = mail_sender.queue_followup(
+                run.s, run.config, run.deps.state, run.now, draft_id=draft.draft_id,
+                job_id=jobs[0], page_id=pid, name=name, to=built.mail.to,
+                subject=built.mail.subject, thread_id=built.thread_id,
+                country=str(run.jobs[jobs[0]].get("Country") or ""),
+                signature=sig.splitlines()[0] if sig else "")
+            report.followups_queued.append(f"{name} ({when})")
+        else:
+            report.followups.append(name)
 
 
 def mark_ghosted(run: Run, report: DailyReport) -> None:

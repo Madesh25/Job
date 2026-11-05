@@ -80,6 +80,29 @@ class SendResult:
     message: str = ""
 
 
+FOLLOWUP_KEY = "mail.followup_send"  # Notion Config: "off" leaves follow-ups as drafts
+
+
+def followup_send(state: BotState | None, config: Any) -> bool:
+    """Mail mode send: the bot sends the follow-up drafts too, Tuesday to Thursday in the
+    recipient's morning (default on; Notion Config mail.followup_send = off)."""
+    return mode(state) == SEND and (config.get(FOLLOWUP_KEY) or "").strip().lower() not in (
+        "off", "false", "no")
+
+
+def queue_followup(s: Any, config: Any, state: BotState | None, now: datetime, *,
+                   draft_id: str, job_id: str, page_id: str, name: str, to: str,
+                   subject: str, thread_id: str, country: str, signature: str) -> str:
+    """Put a follow-up draft in the mail queue; the text says when it goes."""
+    window = timing.for_template(timing.window(s.mail, config), "followup")
+    at = timing.next_start(window, country, now) if window.enabled else timing.aware(now)
+    timing.add(state, timing.QueueItem(
+        draft_id=draft_id, job_id=job_id, page_id=page_id, name=name, to=to,
+        subject=subject, template="followup", thread_id=thread_id, country=country,
+        signature=signature, due=timing.aware(at).astimezone(UTC).isoformat()))
+    return timing.when_text(at)
+
+
 def after_applied(config: Any) -> bool:
     """Mails wait until you applied (default on; Notion Config mail.after_applied = off)."""
     return (config.get(AFTER_KEY) or "").strip().lower() not in ("off", "false", "no")
@@ -380,9 +403,10 @@ def _send_one(deps: MailDeps, state: BotState | None, config: Any, window: timin
         timing.remove(state, item.draft_id)
         return (f"{item.name}: the draft is no longer in Gmail (sent or deleted), so it left "
                 "the mail queue.")
+    followup = item.template == "followup"
     try:
         attachment = None
-        if (config.get("mail.attach_resume") or "yes").casefold() != "no":
+        if not followup and (config.get("mail.attach_resume") or "yes").casefold() != "no":
             row = approved_resume(deps, item.job_id)
             if row is None:
                 raise DriveError("no approved resume for this job")
@@ -407,8 +431,9 @@ def _send_one(deps: MailDeps, state: BotState | None, config: Any, window: timin
     timing.remove(state, item.draft_id)
     used += 1
     _record(state, today, used)
-    _mark_contacted(deps, item.page_id, contact.get("Notes") or "",
-                    sent.thread_id or item.thread_id, today)
+    if not followup:  # a sent follow-up is recorded by the daily check (Followed up)
+        _mark_contacted(deps, item.page_id, contact.get("Notes") or "",
+                        sent.thread_id or item.thread_id, today)
     if deps.jobs is not None:
         deps.jobs.update(item.job_id, {"Last activity date": today})
     local = timing.aware(now).astimezone(timing.zone(item.country))
