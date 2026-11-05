@@ -158,8 +158,8 @@ servers. The daily cap therefore grows week by week (`src/jobengine/mail/warmup.
 ### The recipient's morning (send window)
 
 In send mode a mail that passed every check goes out at once only inside the recipient's
-morning: **Monday to Friday, 08:00 to 10:00 in the job's country** (your decision of
-27 Oct, was Tuesday to Thursday; Poland
+morning: **Monday to Friday, 08:00 to 11:00 in the job's country** (your decision of
+27 Oct, was Tuesday to Thursday; 11:00 since 5 Nov, was 10:00; Poland
 Europe/Warsaw, Netherlands Europe/Amsterdam, Ireland Europe/Dublin). Mails read at the
 start of the working day get more replies than ones that arrive at night or on a Friday
 evening.
@@ -169,8 +169,14 @@ evening.
   morning: - Piotr Example (cold mail): Tue 06 Oct 08:00 CEST`).
 - `/mailqueue` lists the waiting mails and when each goes.
 - The queue is checked every few minutes (long polling, together with /autopilot; Cloud
-  Run: Cloud Scheduler job `je-mail-prod`, [deploy.md](deploy.md) B4). Each check sends at
-  most **one** mail, so a morning's mails go out a few minutes apart.
+  Run: Cloud Scheduler job `je-mail-prod`, [deploy.md](deploy.md) B4). Each check sends up
+  to **3** mails (Notion Config `mail.per_check`; 5 Nov: one a check reached only about 18
+  a day, below the warm-up cap of 30), **follow-ups first, then Apply high, Apply normal
+  and the rest**, the longest waiting first within each.
+- **No mail weeks late (5 Nov):** a mail that waited 3 window days in its country without
+  a free send (the daily cap was used up) leaves the queue and stays a draft in Gmail, with
+  a message, for you to send or delete (Notion Config `mail.stale_days`). A mail held until
+  you apply starts counting when you applied.
 - At send time the draft is read back from Gmail and checked again (To, subject, body,
   signature, the approved resume); the daily cap still applies, and the rest wait for the
   next morning. A draft you sent or deleted yourself leaves the queue; one that changed is

@@ -1,10 +1,12 @@
 """Send at the recipient's morning (PR 13), mail mode "send" only.
 
 A mail that passed every check is sent at once only inside the recipient's send window
-(default Monday to Friday since 27 Oct, 08:00 to 10:00 in the job's country). Outside it, the draft
-stays in Gmail and waits in a queue (Bot State `mail.queue`); the queue is checked every few
-minutes (long polling, or Cloud Scheduler's POST /tasks/mail on Cloud Run) and sends at
-most one waiting mail per check, so the mails of a morning go out a few minutes apart.
+(default Monday to Friday since 27 Oct, 08:00 to 11:00 in the job's country since 5 Nov).
+Outside it, the draft stays in Gmail and waits in a queue (Bot State `mail.queue`); the
+queue is checked every few minutes (long polling, or Cloud Scheduler's POST /tasks/mail on
+Cloud Run) and sends up to 3 waiting mails per check (Config mail.per_check, 5 Nov: one a
+check never reached the daily cap), follow-ups and the best jobs first. A mail that waited
+3 window days (Config mail.stale_days) leaves the queue and stays a draft.
 
 At send time the draft is checked again exactly as before (Gmail's copy, the approved
 resume, To, subject, signature) and the daily send cap still applies. A draft you sent or
@@ -66,6 +68,7 @@ class QueueItem:
     signature: str  # the signature's first line, checked again at send time
     due: str  # ISO time (UTC) of the next window start
     hold: str = ""  # "applied": waits until you applied to the job (mail/sender.py)
+    rank: str = ""  # the order in the queue: 0 follow-up, 1 Apply high, 2 Apply normal, 3 rest
 
     @classmethod
     def from_dict(cls, value: dict[str, Any]) -> QueueItem:
@@ -83,7 +86,7 @@ def window(mail_yaml: dict[str, Any], config: Any) -> Window:
     items = raw.get("days") or ["Mon", "Tue", "Wed", "Thu", "Fri"]
     days = tuple(sorted({DAYS.index(str(d)[:3].title()) for d in items
                          if str(d)[:3].title() in DAYS})) or (1, 2, 3)
-    start, end = _time(raw.get("start"), "08:00"), _time(raw.get("end"), "10:00")
+    start, end = _time(raw.get("start"), "08:00"), _time(raw.get("end"), "11:00")
     enabled = bool(raw.get("enabled", True))
     if (config.get(WINDOW_KEY) or "").strip().lower() in ("off", "false", "no"):
         enabled = False
@@ -170,14 +173,39 @@ def add(state: BotState | None, item: QueueItem) -> None:
     save(state, [*items, item])
 
 
+RANKS = {"followup": "0", "Apply high": "1", "Apply normal": "2"}
+OTHER_RANK = "3"
+
+
+def rank_of(template: str, verdict: str | None) -> str:
+    """Follow-ups first (they continue a conversation), then the best jobs."""
+    if template == "followup":
+        return RANKS["followup"]
+    return RANKS.get((verdict or "").strip(), OTHER_RANK)
+
+
 def due_items(state: BotState | None, now: datetime, w: Window) -> list[QueueItem]:
-    """Waiting mails whose window is open now, the longest waiting first. A mail held until
-    you apply is not due before mail/sender.py releases it."""
+    """Waiting mails whose window is open now: follow-ups, then Apply high, Apply normal and
+    the rest, the longest waiting first within each. A mail held until you apply is not due
+    before mail/sender.py releases it."""
     stamp = aware(now)
     items = [i for i in load(state)
              if not i.hold and datetime.fromisoformat(i.due) <= stamp and
              (not w.enabled or inside(for_template(w, i.template), i.country, now))]
-    return sorted(items, key=lambda i: i.due)
+    return sorted(items, key=lambda i: (i.rank or OTHER_RANK, i.due))
+
+
+def window_days_missed(w: Window, item: QueueItem, now: datetime) -> int:
+    """Whole window days that passed since the mail was first due and it is still here
+    (every window day before today in the recipient's country)."""
+    if item.hold or not w.enabled:
+        return 0
+    tz = zone(item.country)
+    first = datetime.fromisoformat(item.due).astimezone(tz).date()
+    today = aware(now).astimezone(tz).date()
+    ww = for_template(w, item.template)
+    return sum(1 for n in range((today - first).days)
+               if open_day(ww, item.country, first + timedelta(days=n)))
 
 
 def remove(state: BotState | None, draft_id: str) -> None:

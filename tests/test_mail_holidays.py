@@ -60,7 +60,7 @@ def test_config_off_sends_on_holidays_and_mailqueue_names_the_coming_ones():
     off = timing.window({}, ConfigStore.from_values({holidays.SWITCH_KEY: "off"}))
     assert not off.holidays
     assert timing.inside(off, "Poland", datetime(2026, 11, 11, 8, 30, tzinfo=WARSAW))
-    assert off.text() == "Mon to Fri, 08:00 to 10:00 the recipient's time"
+    assert off.text() == "Mon to Fri, 08:00 to 11:00 the recipient's time"
     assert timing.holidays_ahead(W, date(2026, 11, 5)) == [
         "Wed 11 Nov: Independence Day in Poland"]
     assert timing.holidays_ahead(off, date(2026, 11, 5)) == []
