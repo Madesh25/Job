@@ -1296,6 +1296,38 @@ def test_two_close_titles_are_not_a_guess_and_not_a_ghost():
     assert d.repo.rows["p0"]["URL"] == LINKEDIN and result.ghosts == []
 
 
+def test_a_shorter_title_on_the_list_is_never_a_ghost():
+    """5 Nov: Xccelerated lists "Cloud Engineer" for the alert's "Cloud Engineer GCP"; the
+    job was skipped as a ghost. Not taken as its link either: maybe another job."""
+    state = FakeBotState()
+    for _ in range(2):  # two checks
+        d = deps([row(role="Cloud Engineer GCP")], get=board_get(["Cloud Engineer"]),
+                 state=state)
+        state.set(job_links.KEY, {**(state.get(job_links.KEY) or {}), "tried": {}})
+        result = job_links.run(d, BOARDS)
+    assert result.ghosts == [] and d.repo.rows["p0"]["URL"] == LINKEDIN
+    assert job_links.shorter_title("Platform Engineer", "AWS Platform Engineer")
+    assert not job_links.shorter_title("Cloud Engineer", "Junior Cloud Engineer")
+    assert not job_links.shorter_title("Data Engineer", "AWS Databricks Platform Engineer")
+
+
+def test_the_jobs_own_page_found_but_unreadable_is_never_a_ghost():
+    """5 Nov: the search found Coolblue's own page for the job (".../cloud-engineer.html"),
+    which answered HTTP 405; its job list elsewhere did not show it: skipped as a ghost."""
+    state = FakeBotState()
+    for _ in range(2):
+        d = deps([row()], get=board_get(["Data Engineer"]), llm=Search(url=OWN), state=state)
+        d.page = Refuses({})
+        state.set(job_links.KEY, {**(state.get(job_links.KEY) or {}), "tried": {}})
+        result = job_links.run(d, BOARDS)
+    assert result.ghosts == [] and result.unchecked == 1  # waits for /jd, never skipped
+
+
+def test_title_words_written_together_in_an_address():
+    assert job_links._url_names_role("https://wellis.recruitee.com/o/devopsplatform-engineer",
+                                     job_links.plain_title("DevOps/Platform Engineer"))
+
+
 def test_link_text_and_city_lists_are_not_part_of_the_title():
     """4 Nov: CIMSOLUTIONS lists "Bekijk vacature voor DevOps Engineer"; Grid Dynamics
     "Site Reliability Engineer Wroclaw, Krakow, Gdansk, Warsaw, Poland"."""
