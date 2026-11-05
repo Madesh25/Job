@@ -8,7 +8,15 @@ Telegram report. It never sends mail.
 
 ## Rules
 
-- **Never send.** Follow-ups are drafts in the original thread, like Module 06.
+- **Follow-ups are drafts in the original thread**, like Module 06. In mail mode draft you
+  send them yourself. In mail mode send (5 Nov, the autopilot timetable) the bot also puts
+  each follow-up draft in the mail queue and sends it after the same checks in the
+  recipient's morning, **Tuesday to Thursday only** (the days cold mail gets the most
+  replies), without an attachment; a follow-up you would send at night would arrive in
+  their evening and sink. The next daily check sees the draft gone and records Followed up.
+  The daily report says `Follow-ups queued, sent by the bot in the recipient's morning (Tue
+  to Thu, /mailqueue): Anna Example (Thu 15 Oct 08:00 CEST)`. Notion Config
+  `mail.followup_send` = `off` keeps them as drafts for you.
 - **One follow-up per contact, ever.** Never to `Do not contact`, `Bounced` or `Replied`
   contacts, and never while a reply waits for your decision. The Notes line
   `follow-up drafted <date>` makes sure a second one is never made, even if you delete the

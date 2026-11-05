@@ -15,7 +15,7 @@ deleted yourself leaves the queue. `mail.send_window.enabled: false` in the yaml
 from __future__ import annotations
 
 import re
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from datetime import date, datetime, time, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -29,6 +29,9 @@ DAYS = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
 ZONES = {"Poland": "Europe/Warsaw", "Netherlands": "Europe/Amsterdam",
          "Ireland": "Europe/Dublin"}
 DEFAULT_ZONE = "Europe/Warsaw"
+# 5 Nov (the autopilot timetable): follow-ups go out Tuesday to Thursday only, the days
+# cold mail gets the most replies; first mails use every window day (they need the room).
+FOLLOWUP_DAYS = (1, 2, 3)
 TIME_RE = re.compile(r"^([01]?\d|2[0-3]):([0-5]\d)$")
 
 
@@ -86,6 +89,14 @@ def window(mail_yaml: dict[str, Any], config: Any) -> Window:
         enabled = False
     return Window(enabled=enabled, days=days, start=start, end=max(start, end),
                   holidays=holidays.enabled(config))
+
+
+def for_template(w: Window, template: str) -> Window:
+    """The window for one kind of mail: a follow-up keeps only Tuesday to Thursday."""
+    if template != "followup":
+        return w
+    days = tuple(d for d in w.days if d in FOLLOWUP_DAYS)
+    return replace(w, days=days or w.days)
 
 
 def zone(country: str | None) -> ZoneInfo:
@@ -165,7 +176,7 @@ def due_items(state: BotState | None, now: datetime, w: Window) -> list[QueueIte
     stamp = aware(now)
     items = [i for i in load(state)
              if not i.hold and datetime.fromisoformat(i.due) <= stamp and
-             (not w.enabled or inside(w, i.country, now))]
+             (not w.enabled or inside(for_template(w, i.template), i.country, now))]
     return sorted(items, key=lambda i: i.due)
 
 

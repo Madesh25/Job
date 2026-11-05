@@ -1,5 +1,7 @@
 """Follow-up drafts (spec section 5): the approved `followup` template, as a reply in the
-original thread, with the Config signature and no attachment. Never sent by the bot."""
+original thread, with the Config signature and no attachment. In mail mode draft you send
+them; in mail mode send the daily check queues them and the bot sends them Tuesday to
+Thursday in the recipient's morning (mail/sender.queue_followup, 5 Nov)."""
 
 from __future__ import annotations
 
