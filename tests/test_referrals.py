@@ -82,7 +82,7 @@ def test_layer_1_fills_only_empty_fields_and_never_a_personal_email():
 
 
 def test_contacts_answer_lists_your_connections_and_the_referral_flow():
-    d = ready_desk(mode="draft")
+    d = ready_desk(mode="draft", applied=False)
     d.connections = FakeConnections([PIOTR, OLA, EWA, BANK])
     contacts = d.tap("ct:pl-clean")[-1]
     assert "🤝 Your LinkedIn connections at Vistula Cloud: 3" in contacts.text

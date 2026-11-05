@@ -8,6 +8,7 @@ import pytest
 from test_telegram_bot import ButtonTelegram, Clock, fake_rendering, settings, update
 
 from jobengine import telegram_bot as tb
+from jobengine.config_store import ConfigStore
 from jobengine.mail import preflight, sender
 from jobengine.mail.compose import Signature, compose
 from jobengine.screen.desk import fake_desk
@@ -100,7 +101,9 @@ def test_unreadable_gmail_copy_is_never_sent():
 # ---------------------------------------------------------------- the send flow
 
 
-def ready_desk(mode="send", dry=False):
+def ready_desk(mode="send", dry=False, applied=True):
+    """The Vistula Cloud job with an approved resume. `applied` taps I applied too: since
+    5 Nov a job's mails wait until you applied (mail.after_applied)."""
     s = settings(DRY_RUN="true" if dry else "false")
     d = fake_desk(s, FAKE_TODAY, now=Clock())
     fake_rendering(d, Path(tempfile.mkdtemp()))
@@ -109,6 +112,8 @@ def ready_desk(mode="send", dry=False):
     d.tap("ap:pl-clean")
     log_id = d.resume.resume_log.all_rows()[0][0]
     d.tap("ra:" + log_id.replace("-", ""))
+    if applied:
+        d.tap("ia:pl-clean")
     return d
 
 
@@ -219,6 +224,20 @@ def test_autopilot_in_send_mode():
     d = fake_desk(s, FAKE_TODAY, now=Clock())
     fake_rendering(d, Path(tempfile.mkdtemp()))
     d.mailmode_command("send")
+    replies = d.autopilot(None)
+    summary = replies[0].text
+    # 5 Nov: the mails wait until you applied, then go in the recipient's morning.
+    assert ("2. Vistula Cloud, DevOps Engineer (Apply high): resume saved, 4 contacts, "
+            "0 of 4 mails sent, 4 wait until you apply") in summary
+    assert "Mail mode send: the mails that passed every check wait until you apply" in summary
+    assert any("Waiting until you apply (tap I applied under the resume" in r.text
+               for r in replies)
+    d = fake_desk(s, FAKE_TODAY, now=Clock())
+    fake_rendering(d, Path(tempfile.mkdtemp()))
+    d.mailmode_command("send")
+    store = ConfigStore.from_values({**ConfigStore.fake().all(), sender.AFTER_KEY: "off"})
+    d.mail.config = lambda: store
+    d.deps.config = lambda: store
     replies = d.autopilot(None)
     summary = replies[0].text
     assert ("2. Vistula Cloud, DevOps Engineer (Apply high): resume saved, 4 contacts, "

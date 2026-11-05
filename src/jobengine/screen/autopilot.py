@@ -246,6 +246,7 @@ def _prepare(desk: Desk, row: JobRow) -> JobReport:
         verb = "would be sent (DRY RUN)" if sent.dry_run else "sent"
         report.drafts = f"{len(sent.sent)} of {len(drafts.drafted)} mails {verb}" + (
             f", {len(sent.queued)} wait for the recipient's morning" if sent.queued else ""
+        ) + (f", {len(sent.held)} wait until you apply" if sent.held else ""
         ) + (f", {len(sent.kept)} kept as drafts" if sent.kept else "")
         report.mail = sent.message
     elif drafts.dry_run:
@@ -366,7 +367,12 @@ def _summary(desk: Desk, reports: list[JobReport], over: int) -> str:
            f"({split}).", *(r.line(i) for i, r in enumerate(reports, 1))]
     if over:
         out.append(f"{over} more wait for tomorrow (at most {approvals_limit(desk)} a day).")
-    if desk.sending():
+    if desk.sending() and mail_sender.after_applied(desk.deps.config()):
+        out.append("Mail mode send: the mails that passed every check wait until you apply "
+                   "(details below). Apply on the job page tonight, then tap I applied under "
+                   "the resume: the mails go out in the recipient's next morning. /pending "
+                   "has the rest.")
+    elif desk.sending():
         out.append("Mail mode send: mails that passed every check were sent (details below); "
                    "the rest stay in Gmail Drafts. Apply on the job page, then tap I applied "
                    "under the resume. /pending has the rest.")

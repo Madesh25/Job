@@ -62,6 +62,7 @@ class QueueItem:
     country: str
     signature: str  # the signature's first line, checked again at send time
     due: str  # ISO time (UTC) of the next window start
+    hold: str = ""  # "applied": waits until you applied to the job (mail/sender.py)
 
     @classmethod
     def from_dict(cls, value: dict[str, Any]) -> QueueItem:
@@ -159,10 +160,11 @@ def add(state: BotState | None, item: QueueItem) -> None:
 
 
 def due_items(state: BotState | None, now: datetime, w: Window) -> list[QueueItem]:
-    """Waiting mails whose window is open now, the longest waiting first."""
+    """Waiting mails whose window is open now, the longest waiting first. A mail held until
+    you apply is not due before mail/sender.py releases it."""
     stamp = aware(now)
     items = [i for i in load(state)
-             if datetime.fromisoformat(i.due) <= stamp and
+             if not i.hold and datetime.fromisoformat(i.due) <= stamp and
              (not w.enabled or inside(w, i.country, now))]
     return sorted(items, key=lambda i: i.due)
 

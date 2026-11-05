@@ -177,5 +177,15 @@ def test_autopilot_line_counts_the_waiting_mails():
     d.mailmode_command("send")
     d.mail.now = lambda: at(1, 11)
     summary = d.autopilot(None)[0].text
+    # 5 Nov: the autopilot's mails first wait until you applied to the job.
+    assert ("2. Vistula Cloud, DevOps Engineer (Apply high): resume saved, 4 contacts, "
+            "0 of 4 mails sent, 4 wait until you apply") in summary
+    store = ConfigStore.from_values({**ConfigStore.fake().all(), sender.AFTER_KEY: "off"})
+    d2 = fake_desk(settings(DRY_RUN="false"), FAKE_TODAY, now=Clock())
+    fake_rendering(d2, Path(tempfile.mkdtemp()))
+    d2.mailmode_command("send")
+    d2.mail.now = lambda: at(1, 11)
+    d2.mail.config = lambda: store
+    summary = d2.autopilot(None)[0].text
     assert ("2. Vistula Cloud, DevOps Engineer (Apply high): resume saved, 4 contacts, "
             "0 of 4 mails sent, 4 wait for the recipient's morning") in summary
