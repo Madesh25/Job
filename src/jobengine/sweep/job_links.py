@@ -69,7 +69,7 @@ KEY = "sweep.job_links"
 # Bumped when the lookup itself gets better (4 Nov: JavaScript pages, job systems, Google's
 # copy): the jobs and companies not found before are looked up again once, not 3 or 14
 # days later. Ghost-job counts ("misses") are kept.
-LOOKUP_VERSION = 7  # 7: Google's own careers site, short job numbers on job systems
+LOOKUP_VERSION = 8  # 8: unreadable own page or a shorter title on the list: no ghost
 RETRY_DAYS = 3  # a job not found is looked up again after this (14 until 30 Oct)
 NO_BOARD_DAYS = 14  # a company without a job board or careers page is asked again after
 MAX_RENDERS_PER_JOB = 2  # browser pages for one job: one site never uses the whole budget
@@ -333,6 +333,24 @@ def close_title(found: str | None, role: str | None, city: str | None = None,
             and 0 < len(extra) <= MAX_EXTRA_WORDS and not set(extra) & NEVER_EXTRA)
 
 
+# Words an alert adds to a title that a company's own list may leave out (5 Nov:
+# Xccelerated lists "Cloud Engineer" for the alert's "Cloud Engineer GCP", Reperio
+# "Platform Engineer" for "AWS Platform Engineer").
+TECH_WORDS = {"aws", "gcp", "azure", "google", "amazon", "microsoft", "kubernetes", "k8s",
+              "openshift", "linux", "terraform"}
+
+
+def shorter_title(found: str | None, role: str | None, city: str | None = None,
+                  country: str | None = None) -> bool:
+    """The list's title is the row's title without its platform words: maybe the same
+    job, so the job is never called a ghost (it is not taken as the job's link either)."""
+    want = title_key(card_title(role), city, country).split()
+    got = title_key(card_title(found), city, country).split()
+    missing = [w for w in want if w not in got]
+    return (len(got) >= 2 and all(w in want for w in got) and bool(missing)
+            and all(w in TECH_WORDS for w in missing))
+
+
 def page_titles(html: str) -> list[str]:
     """The job titles a page states: JSON-LD JobPosting title, the first heading, and the
     first part of the browser title ("DevOps Engineer | Acme Careers")."""
@@ -511,7 +529,8 @@ def _pick(deps: Deps, postings: list[Any], role: str, city: str | None,
     # "Software DevOps Engineer" in Krakow among them). Two or more: not sure, none.
     close = [p for p in postings if p.url and close_title(p.title, role, city, country)
              and in_place(p.location_text, city, country)]
-    if close:
+    if close or any(shorter_title(p.title, role, city, country)
+                    and in_place(p.location_text, city, country) for p in postings):
         _seen()  # a close title on its list: never a ghost job, even when not sure which
     if len(close) == 1:
         p = close[0]
@@ -764,6 +783,8 @@ def title_links(base: str, html: str, role: str, city: str | None,
         shown = heading.get_text(" ", strip=True) if heading is not None else texts[0]
         if shown:
             _note(TITLE_SPLIT.split(shown)[0], role, city, country)
+            if shorter_title(TITLE_SPLIT.split(shown)[0], role, city, country):
+                _seen()
         if any(same_title(TITLE_SPLIT.split(x)[0], role, city, country)
                or same_title(x, role, city, country) for x in texts if x):
             _seen()
@@ -1132,6 +1153,10 @@ def from_search(deps: Deps, company: str, role: str, city: str | None,
             final, html = deps.page(url)
         except http.HttpError as exc:
             log.info("search result not read %s: %s", urlsplit(url).hostname, exc)
+            if _company_host(url, company) and _url_names_role(url, role):
+                # 5 Nov: Coolblue's own page for the job answered HTTP 405 and the job was
+                # skipped as a ghost: the job is there, its page is only unreadable
+                _seen()
             continue
         if not employer_page(final, company) or not names_company(final, html, company):
             continue
@@ -1209,7 +1234,8 @@ def _url_names_role(url: str, role: str) -> bool:
     path = canon(unquote(urlsplit(url).path).replace("-", " ").replace("_", " "))
     words = [w for w in canon(plain_title(role)).split() if len(w) > 2]
     have = {URL_WORDS.get(w, w) for w in path.split()}
-    return bool(words) and all(w in have for w in words)
+    joined = "".join(path.split())  # 5 Nov: Recruitee's "/o/devopsplatform-engineer"
+    return bool(words) and all(w in have or w in joined for w in words)
 
 
 def _one_job_address(url: str, role: str) -> bool:

@@ -907,3 +907,16 @@ ALOIS, Ventula, Thomson Keene ...), sites that refuse the bot with no job system
 shows (BNG, Rabobank, ALTEN, Phoenix Contact) and answers that are only a homepage. Gemini
 gives no result links for these searches ("0 result links"), so its answer address is all
 the bot can check.
+
+### Round 8 (5 Nov): no ghost jobs by mistake
+
+The /fetch of 5 Nov skipped 11 jobs as ghosts. Two were not ghosts:
+- Coolblue's Cloud Engineer: the search found Coolblue's own page for the job
+  (`.../vacancies/1054366/cloud-engineer.html`), which answered HTTP 405. A page like that, on
+  the company's own site and naming the job, now counts as "on its list, page not readable":
+  the job waits for /jd and is never skipped.
+- Xccelerated's "Cloud Engineer GCP": its list says "Cloud Engineer". A list title that is
+  the row's title without platform words (AWS, GCP, Azure, Kubernetes, Linux ...) keeps the
+  job from being a ghost. It is not taken as the job's link: it may be another job.
+- Title words written together in an address count ("/o/devopsplatform-engineer").
+- LOOKUP_VERSION 8.
