@@ -45,6 +45,12 @@ class Window:
     end: time
     holidays: bool = True  # skip the recipient country's public holidays (mail/holidays.py)
 
+    def days_text_short(self) -> str:
+        names = [DAYS[d] for d in self.days]
+        return (f"{names[0]} to {names[-1]}" if len(names) > 2 and
+                list(self.days) == list(range(self.days[0], self.days[-1] + 1))
+                else ", ".join(names))
+
     def text(self) -> str:
         names = [DAYS[d] for d in self.days]
         span = (f"{names[0]} to {names[-1]}" if len(names) > 2 and

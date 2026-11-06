@@ -86,7 +86,7 @@ HELP_TEXT = (
     "/credits - contact credits left, asked from each provider\n"
     "/outreach - this week's budget: which approved jobs get contacts and cold mails\n"
     "/mailmode - draft (only write Gmail drafts) or send (check every mail, then send it)\n"
-    "/mailqueue - mails waiting for the recipient's morning (Mon to Fri, 8 to 10)\n"
+    "/mailqueue - mails waiting for the recipient's morning (Mon to Fri, 8 to 11)\n"
     "/agencies - recruitment agencies by country; /agencies <name> gives the intro mail\n"
     "\n🔴 Replies and interviews\n"
     "/today - run the daily check now (sent mails, replies, bounces, follow-ups)\n"
@@ -104,6 +104,7 @@ HELP_TEXT = (
     "/autopilot - fetch, screen at half price, approve the best (10 a day), save resumes, "
     "find contacts, write Gmail drafts\n"
     "/autopilot when - its schedule (07:00 and 19:30) and the next run\n"
+    "/timetable - when everything runs, in your time and theirs, and your part\n"
     "/next - your day in order: what is done and what to do now\n"
     "/pause 5d - holiday mode: jobs found and screened, none approved or mailed\n"
     "/resume - end holiday mode now\n"
@@ -972,6 +973,8 @@ def desk_replies(update: dict[str, Any], s: Settings, desk: Desk | None) -> list
         return _guarded("/thanks", lambda: desk.thanks_command(args))
     if command == "mailqueue":
         return _guarded("/mailqueue", desk.mailqueue_command)
+    if command == "timetable":
+        return _guarded("/timetable", desk.timetable_command)
     if command == "mailmode":
         return _guarded("/mailmode", lambda: desk.mailmode_command(args))
     if command == "status" and desk.track is not None:

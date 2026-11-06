@@ -63,13 +63,19 @@ never stops the others.
 `schedule.autopilot` to `true` (set it back to `false` to stop it). Send `/autopilot when` to
 see whether it is on and when it runs next.
 
-- **When** (your decision of 25 Oct, Autopilot H6): at **07:00 and 19:30 India time, every
-  day**, weekends too. Fetch, screening, resumes and contacts are then ready when you start
-  applying at 22:00, and the weekend can be a catch-up apply day. Mails you send still go out
-  at the recipient's working time (`/mailqueue`).
+- **When** (Autopilot H6, 25 Oct; the days per run since 5 Nov, the autopilot timetable):
+  **07:00 India time Monday to Saturday and 19:30 Monday to Friday**, none on Sunday.
+  European jobs are posted Monday to Friday in their office hours (13:30 to 21:30 India
+  time): the 07:00 run gets yesterday afternoon's jobs (Saturday's gets Friday afternoon's,
+  Monday's the weekend's), the 19:30 run gets this European morning's jobs, ready for your
+  22:00 apply session. Mails still go out at the recipient's working time (`/mailqueue`).
 - **Change the times**: Notion Config `schedule.autopilot_time` (`HH:MM`, or several:
-  `07:00, 19:30`). The days, the time zone and the window are in `config/base.yaml` under
-  `screening.autopilot_schedule`.
+  `07:00, 19:30`), and the days per time with Notion Config `schedule.autopilot_days`
+  (`07:00 Mon-Sat; 19:30 Mon-Fri`; `none` for a time that should not run). The yaml
+  defaults, the time zone and the window are in `config/base.yaml` under
+  `screening.autopilot_schedule` (`time_days`).
+- **`/timetable`** shows the whole day (autopilot, daily checks, mail windows in your time,
+  report, nudge, the weekly and monthly runs) and your part.
 - **Once per time**: the first check at or after a start time runs it (Bot State
   `autopilot.scheduled` keeps the date and the times done). A bot that was off then starts it
   up to `window_hours` (3) later, never after that: send `/autopilot` yourself then.

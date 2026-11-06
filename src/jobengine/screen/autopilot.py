@@ -93,7 +93,9 @@ def later_run_today(desk: Desk) -> bool:
     if not p.on:
         return False
     now = autopilot_schedule.local_now(desk, p)
-    return now.weekday() in p.days and any(now.time() < at for at in p.starts[1:])
+    today = [at for at in p.starts if now.weekday() in p.days_for(at)]
+    return any(now.time() < at for at in today[1:]) and now.time() >= today[0] \
+        if today else False
 
 
 def share(desk: Desk) -> int:

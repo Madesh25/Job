@@ -3375,6 +3375,12 @@ class Desk:
 
         return check.scheduled(self, fetch, progress or (lambda text: None))
 
+    def timetable_command(self) -> list[Reply]:
+        """/timetable: when everything runs, in your time and theirs (5 Nov)."""
+        from jobengine.screen import timetable
+
+        return [Reply(timetable.text(self)[:MAX_TEXT])]
+
     def autopilot_when(self) -> list[Reply]:
         """/autopilot when: the schedule and the next run, and the afternoon check."""
         from jobengine.screen import check, schedule
