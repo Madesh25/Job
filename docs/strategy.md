@@ -96,8 +96,12 @@ send it on the day the bot ran the research by itself (below).
 
 ## Monthly /update by itself (Autopilot I5)
 
-From 5 days before the /fetch gate closes (or once it is closed), the bot runs the same
-research as /update by itself, once, from 07:00 India time (after the morning check). It sends
+On the **Friday evening** (from 19:00 India time) before the /fetch gate closes, the first
+Friday when it closes within 8 days, the bot runs the same research as /update by itself,
+once, so the tips wait for your **Saturday** review (about 20 minutes, the same day as
+/newcompanies; 5 Nov, the autopilot timetable; it was 5 days before, any weekday). If the
+bot was off that Friday or the research failed, it runs from 07:00 on each of the last 2
+days before the gate closes (and after it closed), once a day until it succeeds. It sends
 `🤖 Monthly strategy research, run by itself (/fetch closes in N days)` and then the usual
 summary and tip cards with Adopt / Reject. Nothing is adopted for you: the gate opens only
 when every tip is decided, as with /update.
@@ -105,10 +109,11 @@ when every tip is decided, as with /update.
 - It runs once per gate period (bot_state `strategy.auto` keeps the date it ran for).
 - It does not run while a review is open (an earlier /update with undecided tips); /update
   shows those tips again.
-- When the research cannot run (no API key, a failed call) it says so and tries again the
-  next day. Paid AI calls follow the usual rules (prod with DRY_RUN false).
+- When the research cannot run (no API key, a failed call) it says so and tries again in
+  the last 2 days before the gate closes. Paid AI calls follow the usual rules (prod with DRY_RUN false).
 - Notion Config `strategy.auto_update` = `false` switches it off (default on).
-- Long polling checks it every few minutes; on Cloud Run the daily task runs it.
+- Long polling checks it every few minutes; on Cloud Run the daily task (07:30 and 21:30)
+  runs it, so the Friday 21:30 call prepares it.
 
 ## Learning plan and LinkedIn keywords (flow features 14 and 8)
 

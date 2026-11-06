@@ -102,6 +102,10 @@ def desk_tasks(s: Settings, desk: Desk, client: tb.TelegramClient,
             raise RuntimeError("tracking is not available (see the startup log)")
         report = run_daily(desk.track, desk.tracking_now())
         send(desk.report_replies(report))
+        # The monthly /update by itself (I5): on the Friday evening before /fetch closes, so
+        # the 21:30 call counts too (5 Nov); it runs once per gate period whatever calls it.
+        auto = desk.auto_update_tick()
+        send(auto)
         from jobengine.track import daily_report, timed
 
         day = daily_report.local(desk.tracking_now(), desk.deps.config()).date()
@@ -109,8 +113,6 @@ def desk_tasks(s: Settings, desk: Desk, client: tb.TelegramClient,
             return {"ok": report.ok, "sent": len(report.sent),
                     "replies": len(report.replies), "followups": len(report.followups),
                     "reminder": False}
-        auto = desk.auto_update_tick()  # the monthly /update by itself, 5 days before (I5)
-        send(auto)
         reminder = (run_strategy_reminder(desk.strategy)
                     if desk.strategy and not auto else None)
         if reminder:
