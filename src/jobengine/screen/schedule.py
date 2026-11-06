@@ -20,7 +20,7 @@ drafts and sending (sending keeps the recipient's morning, /mailqueue).
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, time, timedelta
 from typing import TYPE_CHECKING
 from zoneinfo import ZoneInfo
@@ -46,18 +46,35 @@ class Plan:
     window: timedelta  # a start time is due for this long after it
     zone: ZoneInfo
     days: tuple[int, ...]  # 0 = Monday
+    # 5 Nov, the autopilot timetable: days per start time ("07:00" -> Mon to Sat); a start
+    # time not listed runs on `days`.
+    time_days: dict[str, tuple[int, ...]] = field(default_factory=dict)
 
     @property
     def start(self) -> time:
         return self.starts[0]
 
-    def days_text(self) -> str:
-        names = [DAYS[d] for d in self.days]
+    def days_for(self, at: time) -> tuple[int, ...]:
+        return self.time_days.get(f"{at:%H:%M}", self.days)
+
+    def runs_on(self, day: int) -> bool:
+        return any(day in self.days_for(at) for at in self.starts)
+
+    def days_text(self, days: tuple[int, ...] | None = None) -> str:
+        days = self.days if days is None else days
+        names = [DAYS[d] for d in days]
         if len(names) == 7:
             return "every day"
-        if list(self.days) == list(range(self.days[0], self.days[-1] + 1)) and len(names) > 2:
+        if names and list(days) == list(range(days[0], days[-1] + 1)) and len(names) > 2:
             return f"{names[0]} to {names[-1]}"
-        return ", ".join(names)
+        return ", ".join(names) or "no day"
+
+    def when_text(self) -> str:
+        """"07:00 Mon to Sat and 19:30 Mon to Fri", or "every day at 07:00 and 19:30"."""
+        if not any(f"{at:%H:%M}" in self.time_days for at in self.starts):
+            return f"{self.days_text()} at {self.times_text()}"
+        return " and ".join(f"{at:%H:%M} {self.days_text(self.days_for(at))}"
+                            for at in self.starts)
 
     def times_text(self) -> str:
         return " and ".join(f"{t:%H:%M}" for t in self.starts)
@@ -84,6 +101,41 @@ def _days(value: object) -> tuple[int, ...]:
     return tuple(picked) or tuple(range(5))
 
 
+DAYS_KEY = "schedule.autopilot_days"  # Notion Config: "07:00 Mon-Sat; 19:30 Mon-Fri"
+DAY_RANGE = re.compile(r"^(mon|tue|wed|thu|fri|sat|sun)\w*\s*-\s*(mon|tue|wed|thu|fri|sat|sun)\w*$",
+                       re.I)
+
+
+def _day_spec(text: str) -> tuple[int, ...]:
+    """"Mon-Sat", "Mon to Fri", "Mon, Wed, Fri" or "none" -> weekday numbers."""
+    text = text.strip().replace(" to ", "-")
+    if text.lower() in ("none", "off", "no"):
+        return ()
+    match = DAY_RANGE.match(text)
+    if match:
+        a = DAYS.index(match.group(1)[:3].title())
+        b = DAYS.index(match.group(2)[:3].title())
+        return tuple(range(a, b + 1)) if a <= b else (*range(a, 7), *range(0, b + 1))
+    return tuple(sorted({DAYS.index(w[:3].title()) for w in re.split(r"[,\s]+", text)
+                         if w[:3].title() in DAYS}))
+
+
+def _time_days(value: object) -> dict[str, tuple[int, ...]]:
+    """yaml {"07:00": [Mon, ...]} or Config "07:00 Mon-Sat; 19:30 Mon-Fri"."""
+    out: dict[str, tuple[int, ...]] = {}
+    if isinstance(value, dict):
+        for key, days in value.items():
+            if TIME_RE.match(str(key).strip()):
+                at = _time(key, DEFAULT_TIME)
+                out[f"{at:%H:%M}"] = (_days(days) if days else ())
+        return out
+    for part in str(value or "").split(";"):
+        bits = part.strip().split(None, 1)
+        if len(bits) == 2 and TIME_RE.match(bits[0]):
+            out[f"{_time(bits[0], DEFAULT_TIME):%H:%M}"] = _day_spec(bits[1])
+    return out
+
+
 def plan(desk: Desk) -> Plan:
     """The schedule: yaml `screening.autopilot_schedule`, with Notion Config on top."""
     base = desk.s.screening.get("autopilot_schedule") or {}
@@ -97,7 +149,8 @@ def plan(desk: Desk) -> Plan:
         window = DEFAULT_WINDOW
     return Plan(on=on, starts=starts, window=max(window, timedelta(0)),
                 zone=ZoneInfo(str(base.get("timezone") or DEFAULT_ZONE)),
-                days=_days(base.get("days")))
+                days=_days(base.get("days")),
+                time_days=_time_days(config.get(DAYS_KEY)) or _time_days(base.get("time_days")))
 
 
 def local_now(desk: Desk, p: Plan) -> datetime:
@@ -124,9 +177,9 @@ def due(desk: Desk) -> time | None:
     if not p.on:
         return None
     now = local_now(desk, p)
-    if now.weekday() not in p.days:
-        return None
     for at in p.starts:
+        if now.weekday() not in p.days_for(at):
+            continue
         begin = datetime.combine(now.date(), at, tzinfo=now.tzinfo)
         if begin <= now <= begin + p.window and not started(desk, p, at):
             return at
@@ -139,10 +192,9 @@ def missed(desk: Desk) -> list[str]:
     if not p.on:
         return []
     now = local_now(desk, p)
-    if now.weekday() not in p.days:
-        return []
     return [f"{at:%H:%M}" for at in p.starts
-            if now > datetime.combine(now.date(), at, tzinfo=now.tzinfo) + p.window
+            if now.weekday() in p.days_for(at)
+            and now > datetime.combine(now.date(), at, tzinfo=now.tzinfo) + p.window
             and not started(desk, p, at)]
 
 
@@ -159,9 +211,9 @@ def next_start(desk: Desk, p: Plan) -> datetime:
     now = local_now(desk, p)
     for ahead in range(8):
         day = (now + timedelta(days=ahead)).date()
-        if day.weekday() not in p.days:
-            continue
         for at in p.starts:
+            if day.weekday() not in p.days_for(at):
+                continue
             begin = datetime.combine(day, at, tzinfo=p.zone)
             if ahead == 0 and (started(desk, p, at) or now > begin + p.window):
                 continue
@@ -174,7 +226,7 @@ def status_text(desk: Desk) -> str:
     p = plan(desk)
     zone = p.zone.key
     hours = p.window.total_seconds() / 3600
-    window = (f"{p.days_text()} at {p.times_text()} {zone} (a bot that is off then starts "
+    window = (f"{p.when_text()} {zone} (a bot that is off then starts "
               f"it up to {hours:g} hours later)")
     if not p.on:
         return ("Scheduled autopilot: off. To run /autopilot by itself, set "

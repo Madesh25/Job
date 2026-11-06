@@ -55,8 +55,8 @@ def test_off_by_default(tmp_path):
     assert d.autopilot_scheduled(Fetch()) is None
     assert d.autopilot_when()[0].text.startswith(
         "Scheduled autopilot: off. To run /autopilot by itself, set Notion Config "
-        "schedule.autopilot to true. It would run every day at 07:00 and 19:30 Asia/Kolkata "
-        "(a bot that is off then starts it up to 3 hours later)")
+        "schedule.autopilot to true. It would run 07:00 Mon to Sat and 19:30 Mon to Fri "
+        "Asia/Kolkata (a bot that is off then starts it up to 3 hours later)")
 
 
 def test_runs_at_07_00_and_19_30_once_each(tmp_path):
@@ -149,8 +149,8 @@ def test_autopilot_when_command(tmp_path):
     d = make_desk(tmp_path)
     fake = ButtonTelegram([[update(1, "/autopilot when")]])
     tb.poll_once(tb.TelegramClient(fake), settings(), None, desk=d)
-    assert fake.sent[-1][1].startswith("[LOCAL] Scheduled autopilot: on, every day at 07:00 "
-                                       "and 19:30")
+    assert fake.sent[-1][1].startswith("[LOCAL] Scheduled autopilot: on, 07:00 Mon to Sat "
+                                       "and 19:30 Mon to Fri")
     assert d.state.get(schedule.LAST_KEY) is None  # asking never starts a run
 
 

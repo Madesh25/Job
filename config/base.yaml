@@ -122,6 +122,14 @@ screening:
     window_hours: 3
     timezone: Asia/Kolkata
     days: [Mon, Tue, Wed, Thu, Fri, Sat, Sun]
+    # 5 Nov, the autopilot timetable: days per start time. European jobs are posted Monday
+    # to Friday, so the 19:30 run (this European morning's jobs) is Monday to Friday, the
+    # 07:00 run Monday to Saturday (Saturday gets Friday afternoon's jobs; Monday's gets the
+    # weekend's), none on Sunday. Notion Config schedule.autopilot_days wins
+    # ("07:00 Mon-Sat; 19:30 Mon-Fri").
+    time_days:
+      "07:00": [Mon, Tue, Wed, Thu, Fri, Sat]
+      "19:30": [Mon, Tue, Wed, Thu, Fri]
   # /jd writes the pasted text in blocks of this size, at most this many blocks.
   block_chars: 2000
   max_blocks: 90

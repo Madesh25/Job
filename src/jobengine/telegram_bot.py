@@ -64,12 +64,11 @@ HELP_TEXT = (
     "/linkedin - LinkedIn jobs one at a time: paste each description, tap Done\n"
     "/add <job link> - save a job from a company's own site, resume and Target Companies\n"
     "/newcompanies - companies hiring for your roles, not in Target Companies\n"
-    "/fetchreport - where the last /fetch's postings went and why jobs were dropped; "
-    "/fetchreport <word> for one\n"
+    "/fetchreport - where the last /fetch's postings went and why jobs were dropped\n"
     "/alertcheck - the job alert mails the next /fetch reads, and their jobs\n"
     "\n🟢 Review and apply\n"
-    "/pending - review screened jobs one at a time (Approve, Skip, "
-    "Next); /pending poland, netherlands, ireland, remote or all\n"
+    "/pending - review screened jobs one at a time; /pending poland, netherlands or "
+    "ireland\n"
     "/applypack <url or id> - ready answers for a job's form (visa, notice, salary)\n"
     "/autofill - the bookmark that fills forms from the Apply pack code\n"
     "/answer <question> = <answer> - save a form answer for every form\n"
@@ -86,7 +85,7 @@ HELP_TEXT = (
     "/credits - contact credits left, asked from each provider\n"
     "/outreach - this week's budget: which approved jobs get contacts and cold mails\n"
     "/mailmode - draft (only write Gmail drafts) or send (check every mail, then send it)\n"
-    "/mailqueue - mails waiting for the recipient's morning (Mon to Fri, 8 to 10)\n"
+    "/mailqueue - mails waiting for the recipient's morning (Mon to Fri, 8 to 11)\n"
     "/agencies - recruitment agencies by country; /agencies <name> gives the intro mail\n"
     "\n🔴 Replies and interviews\n"
     "/today - run the daily check now (sent mails, replies, bounces, follow-ups)\n"
@@ -101,9 +100,10 @@ HELP_TEXT = (
     "/update - monthly strategy research (opens /fetch); /update new again\n"
     "/rules - V16 rules, thresholds, adopted tips and the /fetch gate\n"
     "/audit - the weekly self-audit now (it also comes every Sunday)\n"
-    "/autopilot - fetch, screen at half price, approve the best (10 a day), save resumes, "
-    "find contacts, write Gmail drafts\n"
+    "/autopilot - fetch, screen, approve the best (10 a day), resumes, contacts, Gmail "
+    "drafts\n"
     "/autopilot when - its schedule (07:00 and 19:30) and the next run\n"
+    "/timetable - when everything runs, your time and theirs\n"
     "/next - your day in order: what is done and what to do now\n"
     "/pause 5d - holiday mode: jobs found and screened, none approved or mailed\n"
     "/resume - end holiday mode now\n"
@@ -972,6 +972,8 @@ def desk_replies(update: dict[str, Any], s: Settings, desk: Desk | None) -> list
         return _guarded("/thanks", lambda: desk.thanks_command(args))
     if command == "mailqueue":
         return _guarded("/mailqueue", desk.mailqueue_command)
+    if command == "timetable":
+        return _guarded("/timetable", desk.timetable_command)
     if command == "mailmode":
         return _guarded("/mailmode", lambda: desk.mailmode_command(args))
     if command == "status" and desk.track is not None:
