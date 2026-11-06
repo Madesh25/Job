@@ -58,6 +58,13 @@ def text(desk: Desk) -> str:
                      f"({w.start:%H:%M} to {w.end:%H:%M} their time, {w.days_text_short()})")
         lines.append(f"{ie} Mails to Ireland. Follow-ups Tue to Thu only; public holidays "
                      "skipped; a mail waits until you applied.")
+        ahead = timing.holidays_ahead(w, local.date())
+        if ahead:  # TT-01 (6 Nov): name the days, as /mailqueue does
+            lines.append("   No mails on these public holidays (next 14 days): "
+                         + "; ".join(ahead) + ".")
+        elif w.holidays:
+            lines.append("   No public holiday in Poland, the Netherlands or Ireland in the "
+                         "next 14 days.")
     else:
         lines.append("Mails: sent at once (Config mail.send_window = off).")
     lines.append("07:00 to 23:45 Reply pings every 15 minutes (with Send in their morning)")

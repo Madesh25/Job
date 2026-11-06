@@ -552,7 +552,7 @@ def test_screen_command(desk):
 
 def test_screen_with_a_word_explains_the_forms(desk):
     fake = talk(desk, "/screen pending")
-    assert fake.sent[0][1].startswith("[LOCAL] /screen screens the jobs waiting")
+    assert fake.sent[0][1].startswith("[LOCAL] /screen screens the jobs today's /fetch found")
     assert "/screen <job link or page id>" in fake.sent[0][1]
 
 
@@ -579,7 +579,7 @@ def test_desk_failures_are_reported_not_raised(desk):
 
 def test_fake_harness_taps(monkeypatch, capsys):
     monkeypatch.setattr(tb, "get_settings", lambda: load_settings("local", {}))
-    monkeypatch.setattr(sys, "stdin", io.StringIO("/screen\n/pending\ntap ap:nl-sponsor-yes\n"))
+    monkeypatch.setattr(sys, "stdin", io.StringIO("/screen all\n/pending\ntap ap:nl-sponsor-yes\n"))
     assert tb.main(["--fake"]) == 0
     out = capsys.readouterr().out
     assert "[Approve: tap ap:nl-sponsor-yes]" in out

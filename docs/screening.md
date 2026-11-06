@@ -36,8 +36,14 @@ postings go first; the rest stay `Unscreened` and are picked up by the next day'
 When the limit is reached the summary says so:
 `daily limit 30 reached (30 screened today): 99 Unscreened rows wait for the next run.`
 
+**`/screen` takes today's jobs (6 Nov).** A bare `/screen` screens only the Unscreened jobs a
+`/fetch` found today (their Swept date is today). `/screen week` takes the jobs found in the
+last 7 days, `/screen all` (or `/screen whole`) every job waiting. The summary says how many
+older jobs it left out and which form takes them. `/autopilot`, the afternoon check,
+`/screen batch` and the CLI always take every waiting job.
+
 **`/screen` asks first (23 Oct, Phase 9 P9-19).** When more jobs wait than today's limit
-leaves, `/screen` screens nothing yet and shows how many wait, the limit, and the cost over
+leaves, `/screen` screens nothing yet and shows how many wait (of the jobs its form takes), the limit, and the cost over
 it (about $0.003 a job on Haiku), with buttons:
 
 - **Today's N**: what is left of today's limit (the best N first), the rest wait for tomorrow;

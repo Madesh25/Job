@@ -85,7 +85,7 @@ def test_alerts_are_capped(monkeypatch):
 
 def test_screen_command_sends_the_alerts_with_buttons():
     d = fresh_desk()
-    fake = ButtonTelegram([[update(1, "/screen")]])
+    fake = ButtonTelegram([[update(1, "/screen all")]])
     tb.poll_once(tb.TelegramClient(fake), settings(), None, desk=d)
     texts = [t for _, t in fake.sent]
     assert any(t.startswith("[LOCAL] Screening done:") for t in texts)
