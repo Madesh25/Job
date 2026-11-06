@@ -137,6 +137,16 @@ The daily check records it; send /today to record it now.
 
 ### Draft answer (flow feature 3)
 
+**Send it in their morning (5 Nov, the autopilot timetable):** an answer you send at 23:00
+India time arrives in the recipient's evening and sinks. A ping with a draft answer has two
+buttons: **✉️ Send in their morning** writes the answer as a Gmail draft in the same thread
+(you can still edit it in Gmail) and queues it for the recipient's next window (08:00 to
+11:00 their time, first in the queue; at once when their morning is now); **Send now**
+writes it and sends it at once, for an urgent answer such as an interview time. Both go
+through the same checks as every mail (Gmail's copy, To, subject, signature, no
+attachment) and count in the daily cap; in DRY RUN nothing is written. The daily check
+records the thread as before.
+
 When the new part of the reply asks for a call, your notice period, salary, visa or work
 permit, start date or relocation, the ping ends with a **draft answer** to copy into your
 Gmail reply (`src/jobengine/track/reply_draft.py`):

@@ -5,7 +5,9 @@ visa, start date or relocation, the reply ping carries a short answer to copy in
 Only the new part of their mail is read (the quoted mail you sent is cut, it names visa and
 relocation itself). Every sentence comes from config/base.yaml `reply_drafts` (a Notion
 Config key `reply.<name>` wins) filled with your Apply pack answers and the job's country
-permit line; no AI is used and nothing is sent. You edit it and send it yourself.
+permit line; no AI is used. You copy it into Gmail, or (5 Nov) tap "Send in their morning"
+(a Gmail draft in the thread, which you can still edit, sent in their next morning) or
+"Send now" under the ping.
 """
 
 from __future__ import annotations
@@ -127,5 +129,6 @@ def draft(s: Settings, config: ConfigStore, text: str, *, today: date, first: st
 
 
 def block(text: str) -> str:
-    return ("Draft answer (copy it into your reply in Gmail, edit it, send it yourself):\n"
+    return ("Draft answer (a button below sends it in the recipient's morning or now, after "
+            "the checks; or copy it into Gmail and edit it):\n"
             f"{text}")

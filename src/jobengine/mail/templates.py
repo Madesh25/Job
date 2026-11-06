@@ -28,7 +28,7 @@ TYPE_TEMPLATE = {"Peer engineer": "peer", "Recruiter/TA": "recruiter", "Hiring":
 # What each template is, as the summaries say it: engineers get the referral ask; HR,
 # recruiters and hiring managers get the cold mail.
 KIND = {"peer": "referral ask", "recruiter": "cold mail", "hiring": "cold mail",
-        "followup": "follow-up"}
+        "followup": "follow-up", "reply": "answer"}
 MARKDOWN_ESCAPE = re.compile(r"\\([{}_*`\[\]\\])")
 
 
