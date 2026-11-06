@@ -163,7 +163,8 @@ def test_mailqueue_command_and_the_polling_loop():
     assert "mailqueue" in [c["command"] for c in tb.bot_commands()]
     d.mail.now = lambda: at(6, 8, 5)
     tb.autopilot_check(tb.TelegramClient(fake), settings(), d)
-    assert fake.sent[-1][1].startswith("[LOCAL] Sent at 08:05 CEST")
+    # The daily check (07:30, track/timed.py) may come in the same loop pass.
+    assert any(text.startswith("[LOCAL] Sent at 08:05 CEST") for _chat, text, *_ in fake.sent)
 
 
 def test_cloud_run_mail_task():

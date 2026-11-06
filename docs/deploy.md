@@ -197,7 +197,7 @@ job() {  # name schedule url path
     --attempt-deadline 900s --max-retry-attempts 1
 }
 job je-daily-dev   "30 7 * * *" "$DEV_URL"  /tasks/daily  && gcloud scheduler jobs pause je-daily-dev --project $PROJECT --location $REGION
-job je-daily-prod  "30 7 * * *" "$PROD_URL" /tasks/daily
+job je-daily-prod  "30 7,21 * * *" "$PROD_URL" /tasks/daily
 job je-digest-prod "0 20 * * 0" "$PROD_URL" /tasks/digest && gcloud scheduler jobs pause je-digest-prod --project $PROJECT --location $REGION
 job je-sweep-prod  "0 8 * * *"  "$PROD_URL" /tasks/sweep
 # Scheduled /autopilot (H6): 07:00 and 19:30 India time, every day; every 30 minutes for
@@ -236,7 +236,9 @@ job je-nudge-prod "*/30 22-23,0 * * *" "$PROD_URL" /tasks/nudge
 ```
 
 - [ ] `je-daily-dev`: paused (run it by hand with `gcloud scheduler jobs run`).
-- [ ] `je-daily-prod`: `30 7 * * *`, enabled at go-live step 3.
+- [ ] `je-daily-prod`: `30 7,21 * * *` (07:30 and 21:30 India time, 5 Nov: the evening
+      check records the day's replies before the 21:45 report; the once-a-day messages come
+      with the 07:30 call only), enabled at go-live step 3.
 - [ ] `je-digest-prod`: `0 20 * * 0` (Sunday 20:00), paused until go-live step 4.
 - [ ] `je-sweep-prod`: `0 8 * * *`; it does nothing unless Config `schedule.auto_fetch` is `true`.
 - [ ] `je-autopilot-prod`: `*/30 7-9,19-22 * * *` in Asia/Kolkata; it does nothing unless Config
