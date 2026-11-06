@@ -173,14 +173,14 @@ def add(state: BotState | None, item: QueueItem) -> None:
     save(state, [*items, item])
 
 
-RANKS = {"followup": "0", "Apply high": "1", "Apply normal": "2"}
+RANKS = {"followup": "0", "reply": "0", "Apply high": "1", "Apply normal": "2"}
 OTHER_RANK = "3"
 
 
 def rank_of(template: str, verdict: str | None) -> str:
     """Follow-ups first (they continue a conversation), then the best jobs."""
-    if template == "followup":
-        return RANKS["followup"]
+    if template in ("followup", "reply"):
+        return RANKS[template]
     return RANKS.get((verdict or "").strip(), OTHER_RANK)
 
 

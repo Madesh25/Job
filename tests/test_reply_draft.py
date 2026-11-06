@@ -68,8 +68,8 @@ def test_nothing_guessed_and_config_wins():
 def test_the_ping_carries_the_draft():
     pings = texts(make_desk())
     piotr = next(t for t in pings if "Piotr Example" in t)
-    assert "Draft answer (copy it into your reply in Gmail, edit it, send it yourself):\n" \
-           "Hi Piotr," in piotr
+    assert ("Draft answer (a button below sends it in the recipient's morning or now, "
+            "after the checks; or copy it into Gmail and edit it):\nHi Piotr,") in piotr
     assert piotr.endswith("The daily check records it; send /today to record it now.")
     rita = next(t for t in pings if "Rita Example" in t)  # "remove me" asks nothing
     assert "Draft answer" not in rita

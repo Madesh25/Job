@@ -423,12 +423,25 @@ def _send_one(deps: MailDeps, state: BotState | None, config: Any, window: timin
     used = sent_today(state, today)
     if used >= cap:
         return None  # the rest wait for the next morning
-    item = due[0]
+    return send_item(deps, state, config, now, due[0])
+
+
+NO_RESUME = ("followup", "reply")  # follow-ups and answers to a reply carry no attachment
+
+
+def send_item(deps: MailDeps, state: BotState | None, config: Any, now: datetime,
+              item: timing.QueueItem, when: str = "the recipient's morning") -> str:
+    """Check one draft again (Gmail's copy) and send it; it leaves the queue either way."""
+    s = deps.s
+    today = deps.today()
+    cap = daily_cap(deps, config, state)
+    used = sent_today(state, today)
     kind = KIND.get(item.template, "mail")
     rows = dict(deps.contacts.all_rows()) if deps.contacts is not None else {}
     contact = rows.get(item.page_id) or {}
-    unsafe = send_guard.address_problem(contact, str(contact.get("Email") or item.to), config,
-                                        deps.mx)
+    # An answer to someone who wrote to you goes to the address their mail came from.
+    unsafe = None if item.template == "reply" else send_guard.address_problem(
+        contact, str(contact.get("Email") or item.to), config, deps.mx)
     if unsafe:
         timing.remove(state, item.draft_id)
         return f"Not sent, kept as a draft: {item.name}: {unsafe}."
@@ -439,7 +452,7 @@ def _send_one(deps: MailDeps, state: BotState | None, config: Any, window: timin
         timing.remove(state, item.draft_id)
         return (f"{item.name}: the draft is no longer in Gmail (sent or deleted), so it left "
                 "the mail queue.")
-    followup = item.template == "followup"
+    followup = item.template in NO_RESUME
     try:
         attachment = None
         if not followup and (config.get("mail.attach_resume") or "yes").casefold() != "no":
@@ -467,14 +480,14 @@ def _send_one(deps: MailDeps, state: BotState | None, config: Any, window: timin
     timing.remove(state, item.draft_id)
     used += 1
     _record(state, today, used)
-    if not followup:  # a sent follow-up is recorded by the daily check (Followed up)
+    if not followup:  # a sent follow-up or answer is recorded by the daily check
         _mark_contacted(deps, item.page_id, contact.get("Notes") or "",
                         sent.thread_id or item.thread_id, today)
-    if deps.jobs is not None:
-        deps.jobs.update(item.job_id, {"Last activity date": today})
+    if deps.jobs is not None and item.job_id and item.template != "reply":
+        deps.jobs.update(item.job_id, {"Last activity date": today})  # an answer: daily check
     local = timing.aware(now).astimezone(timing.zone(item.country))
     left = len(timing.load(state))
-    return (f"Sent at {local:%H:%M} {local.tzname()} (the recipient's morning), after the "
+    return (f"Sent at {local:%H:%M} {local.tzname()} ({when}), after the "
             f"checks: {item.name} ({kind}) | To {item.to} | Subject: {item.subject}\n"
             f"{used} of {cap} sends used today. {left} "
             f"mail{'' if left == 1 else 's'} wait in the queue.")

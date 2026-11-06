@@ -7,11 +7,12 @@ module talks to Telegram.
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import re
 from collections.abc import Callable
 from dataclasses import dataclass, field, replace
-from datetime import date, datetime, timedelta, timezone
+from datetime import UTC, date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
@@ -114,6 +115,7 @@ CONTACTS_LINKEDIN = ("The bot never opens {host} pages, so it needs the company 
                      "there with the referral messages.")
 ADD_TIMEOUT = 30.0  # seconds for the /add page (a /fetch page gets http.PAGE_TIMEOUT_SECONDS)
 ADD_COMPANIES_KEY = "apply.add_companies"  # Autopilot A2: "true" turns it on
+ANSWERS_KEY = "reply.answers"  # bot_state: {"items": {key: draft answer}} (5 Nov)
 AUTO_PREP_KEY = "autoprep.done"  # bot_state: {"jobs": {page id: iso date}} (D)
 ADD_PLACE_CHARS = 3000  # the start of the job text where /add looks for the place
 ADD_LONGER_CHARS = 200  # a /add description this much longer replaces a full one
@@ -619,6 +621,8 @@ class Desk:
             return self.track_tap(action, data)
         if action in ("sa", "sr", "sc", "sx") and arg:
             return self.strategy_tap(action, arg)
+        if action in ("ym", "yn") and arg:  # the draft answer under a reply ping
+            return self.answer_tap(action, arg)
         if action == "oc" and arg:
             return self.outreach_tap(arg)
         if action == "ln" and arg:  # "LinkedIn notes" under the contacts
@@ -2434,10 +2438,72 @@ class Desk:
             texts = [text + extra if ping.INTERVIEW_HINT in text else text for text in texts]
         out: list[Reply] = []
         for p, text in zip(pings, texts, strict=True):
-            out.append(Reply(text[:MAX_TEXT]))
+            buttons: list[tuple[str, str]] = []
+            if p.answer is not None and self.mail is not None:
+                key = self._keep_answer(p.answer)
+                buttons = [("✉️ Send in their morning", f"ym:{key}"), ("Send now", f"yn:{key}")]
+            out.append(Reply(text[:MAX_TEXT], buttons))
             if p.interview and p.job_id:
                 out += self.auto_prep(p.job_id, now.date())
         return out
+
+    def _keep_answer(self, answer: dict[str, str]) -> str:
+        """The draft answer under a reply ping, kept for its buttons (the last 30)."""
+        key = hashlib.sha1((answer.get("message_id") or answer.get("thread_id") or "")
+                           .encode()).hexdigest()[:10]
+        kept = dict((self.state.get(ANSWERS_KEY) or {}).get("items") or {})
+        kept[key] = answer
+        self.state.set(ANSWERS_KEY, {"items": dict(list(kept.items())[-30:])})
+        return key
+
+    def answer_tap(self, action: str, key: str) -> list[Reply]:
+        """ym: the draft answer as a Gmail draft, sent in the recipient's morning; yn: now.
+        Both after the same checks as every mail (5 Nov, the autopilot timetable)."""
+        from jobengine.mail import compose as mail_compose
+        from jobengine.safety import gmail_write_allowed, route_recipients
+        from jobengine.track.followup import reply_subject
+
+        kept = dict((self.state.get(ANSWERS_KEY) or {}).get("items") or {})
+        answer = kept.get(key)
+        if answer is None or self.mail is None:
+            return [Reply("This draft answer is no longer kept: answer in Gmail yourself.")]
+        config = self.mail.config()
+        to, _cc, subject = route_recipients([answer["to"]], [],
+                                            reply_subject(answer.get("subject") or ""), self.s)
+        sig = mail_compose.signature(config)
+        mail = mail_compose.compose(to[0], subject, answer["draft"], sig, None)
+        if answer.get("message_id"):
+            mail.message["In-Reply-To"] = answer["message_id"]
+            mail.message["References"] = answer["message_id"]
+        if not gmail_write_allowed(self.s):
+            return [Reply(f"DRY RUN: would write your answer to {answer['name']} as a Gmail "
+                          "draft and send it" + (" now." if action == "yn" else
+                                                 " in their morning."))]
+        draft = self.mail.gmail().create_draft(mail.raw(), thread_id=answer["thread_id"])
+        kept.pop(key, None)
+        self.state.set(ANSWERS_KEY, {"items": kept})
+        first = sig.text.strip().splitlines()[0] if sig.text.strip() else ""
+        now = self.mail.now()
+        window = mail_timing.window(self.s.mail, config)
+        country = answer.get("country") or ""
+        at = (mail_timing.next_start(window, country, now) if window.enabled and action == "ym"
+              else mail_timing.aware(now))
+        item = mail_timing.QueueItem(
+            draft_id=draft.draft_id, job_id=answer.get("job_id") or "",
+            page_id=answer.get("page_id") or "", name=answer["name"], to=to[0],
+            subject=subject, template="reply", thread_id=answer["thread_id"], country=country,
+            signature=first, due=at.astimezone(UTC).isoformat(),
+            rank=mail_timing.rank_of("reply", None))
+        if action == "yn":
+            return [Reply(mail_sender.send_item(self.mail, self.state, config, now, item,
+                                                when="now, as you asked")[:MAX_TEXT])]
+        mail_timing.add(self.state, item)
+        when = ("at the next queue check (their morning is now)"
+                if mail_timing.inside(window, country, now) or not window.enabled
+                else mail_timing.when_text(at))
+        return [Reply(f"Your answer to {answer['name']} is a Gmail draft in the same thread "
+                      f"(edit it there if you like). It goes {when}, after the same checks "
+                      "(/mailqueue).")]
 
     def auto_prep(self, job_id: str, today: date) -> list[Reply]:
         """Autopilot D: a reply about an interview or a call comes with the /prep pack for
