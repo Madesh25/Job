@@ -54,7 +54,7 @@ HELP_TEXT = (
     "Job Engine commands: as in the Command guide; start each day with /next.\n"
     "\n🔵 Find and screen\n"
     "/fetch - search for new jobs, then screen them\n"
-    "/screen - screen jobs that are not screened yet\n"
+    "/screen - screen today's new jobs; /screen week or /screen all for more\n"
     "/screen <url or id> - screen one job again\n"
     "/screen batch - send them at half price, answers later\n"
     "/screen collect - save the answers of that batch\n"
@@ -771,13 +771,14 @@ def handle_one(
             with Typing(client, chat):
                 run_autopilot(client, s, chat, desk, fetch)
         return
-    if desk is not None and parse_command(text) == "screen" and len(text.split()) == 1:
-        choice = _guarded("/screen", lambda: [r for r in [desk.screen_choice()] if r])
+    scope = _screen_scope(text) if desk is not None else None
+    if desk is not None and scope is not None:
+        choice = _guarded("/screen", lambda: [r for r in [desk.screen_choice(scope)] if r])
         if choice:  # more jobs wait than today's limit leaves: the buttons decide (P9-19)
             send_replies(client, s, chat, choice)
             return
         with Typing(client, chat):
-            run_screen(client, s, chat, desk)
+            run_screen(client, s, chat, desk, scope=scope)
         return
     with Typing(client, chat):
         replies = desk_replies(update, s, desk)
@@ -1028,9 +1029,10 @@ def handle_callback(
     except TelegramError as exc:
         log.warning("answerCallbackQuery failed: %s", exc)
     action, _, arg = data.partition(":")
-    if action == "sc" and arg.isdigit() and desk is not None:  # a /screen choice button
+    count, _, scope = arg.partition(":")  # sc:<n>[:<today|week|all>], a /screen choice
+    if action == "sc" and count.isdigit() and desk is not None:
         with Typing(client, sender):
-            run_screen(client, s, sender, desk, limit=int(arg))
+            run_screen(client, s, sender, desk, limit=int(count), scope=scope or "all")
         return
     with Typing(client, sender), SlowWatch(client, sender, data):
         if desk is None:
@@ -1091,17 +1093,34 @@ def _stopped(client: TelegramClient, s: Settings, chat_id: str, name: str,
         "is kept.", s))
 
 
+def _screen_scope(text: str) -> str | None:
+    """/screen, /screen today, /screen week or /screen all: which jobs (6 Nov); None for
+    any other /screen (a job link, batch, collect) or another command."""
+    from jobengine.screen.desk import SCREEN_DEFAULT, SCREEN_SCOPES
+
+    if parse_command(text) != "screen":
+        return None
+    words = text.split()[1:]
+    if not words:
+        return SCREEN_DEFAULT
+    if len(words) == 1:
+        return SCREEN_SCOPES.get(words[0].lower())
+    return None
+
+
 def run_screen(
     client: TelegramClient, s: Settings, chat_id: str, desk: Desk,
     clock: Callable[[], float] = time.monotonic, limit: int | None = None,
+    scope: str = "today",
 ) -> None:
     """/screen without a job: it can take minutes, so show one progress message like /fetch.
-    `limit`: a /screen choice button (that many now, over today's limit if needed)."""
+    `limit`: a /screen choice button (that many now, over today's limit if needed).
+    `scope`: today (the default), week or all (6 Nov)."""
     progress = ProgressMessage(client, chat_id, s, clock=clock, name="Screening",
                                first="Screening new jobs")
     try:
         with CONTROL.job("/screen"):
-            replies = desk.screen_replies("", progress.update, limit)
+            replies = desk.screen_replies(scope, progress.update, limit)
     except Stopped:
         _stopped(client, s, chat_id, "/screen", progress)
         return

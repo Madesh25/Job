@@ -45,7 +45,7 @@ def test_screen_asks_then_the_button_screens_that_many():
     s, d = desk(2)
     fake = ButtonTelegram()
     client = tb.TelegramClient(fake)
-    tb.handle_one(client, s, update(1, "/screen"), desk=d)
+    tb.handle_one(client, s, update(1, "/screen all"), desk=d)
     assert fake.buttons[-1] == ["sc:2", "sc:4", "sc:15"]
     assert daily.used_today(d.deps.state, FAKE_TODAY) == 0  # nothing screened before the tap
     tb.handle_one(client, s, tap(2, "sc:4"), desk=d)

@@ -53,6 +53,7 @@ from jobengine.screen.runner import (
     find_row,
     job_row,
     pending_rows,
+    scope_text,
     screen_one,
     screen_pending,
     unscreened_rows,
@@ -147,7 +148,12 @@ class Reply:
     column: bool = False  # one button per row (a list to pick from)
 
 
-SCREEN_USAGE = ("/screen screens the jobs waiting to be screened. Other forms:\n"
+# /screen takes the jobs today's /fetch found unless you say week or all (6 Nov).
+SCREEN_DEFAULT = "today"
+SCREEN_SCOPES = {"today": "today", "week": "week", "all": "all", "whole": "all"}
+SCREEN_USAGE = ("/screen screens the jobs today's /fetch found. Other forms:\n"
+                "/screen week - the jobs found in the last 7 days\n"
+                "/screen all - every job waiting to be screened\n"
                 "/screen batch - send them to the half-price batch\n"
                 "/screen collect - save the batch answers\n"
                 "/screen <job link or page id> - screen one job again\n"
@@ -3262,12 +3268,15 @@ class Desk:
         """The screening summary, then an alert card for each new Apply high job. `limit`
         (a /screen choice button) screens that many now, over today's limit if needed."""
         word = args.strip()
+        if word.lower() in SCREEN_SCOPES:  # /screen today, week or all (6 Nov)
+            text, summary = self._screen("", progress, limit, SCREEN_SCOPES[word.lower()])
+            return [Reply(text), *self.high_alerts(summary)]
         if word and word.lower() not in ("batch", "collect") and not _job_ref(word):
             return [Reply(SCREEN_USAGE)]
         text, summary = self._screen(args, progress, limit)
         return [Reply(text), *self.high_alerts(summary)]
 
-    def screen_choice(self) -> Reply | None:
+    def screen_choice(self, scope: str = "all") -> Reply | None:
         """/screen with more jobs waiting than today's limit leaves (Phase 9 P9-19: it stopped
         silently at 30 with 109 waiting): ask first. None: run as usual."""
         if self.repo is None:
@@ -3277,22 +3286,24 @@ class Desk:
         # 5 Nov: only jobs with a description can be screened; the others wait for /jd and
         # cost nothing (310 "waiting" were 40 to screen and 270 without a description).
         no_jd = {r.page_id for r in waiting_for_jd(self.repo, self.state)}
-        waiting = len([r for r in unscreened_rows(self.deps, self.today())
+        waiting = len([r for r in unscreened_rows(self.deps, self.today(), scope)
                        if r.page_id not in no_jd])
         cap = daily.daily_limit(self.s)
         room = max(0, cap - daily.used_today(self.state, self.today()))
         if waiting <= room:
             return None
         buttons = []
+        tag = "" if scope == "all" else f":{scope}"
         if room:
-            buttons.append((f"Today's {room}", f"sc:{room}"))
+            buttons.append((f"Today's {room}", f"sc:{room}{tag}"))
         more = min(waiting, room + cap) if room else min(waiting, cap)
         if more > room:
-            buttons.append((f"{more} (over the limit)", f"sc:{more}"))
+            buttons.append((f"{more} (over the limit)", f"sc:{more}{tag}"))
         if waiting > more:
-            buttons.append((f"All {waiting}", f"sc:{waiting}"))
-        lines = [f"{waiting} jobs with a description wait to be screened. Today's limit: {cap} a "
-                 f"day, {room} left ({cap - room} screened today)."]
+            buttons.append((f"All {waiting}", f"sc:{waiting}{tag}"))
+        found = f" ({scope_text(scope)})" if scope_text(scope) else ""
+        lines = [f"{waiting} jobs with a description wait to be screened{found}. Today's limit: "
+                 f"{cap} a day, {room} left ({cap - room} screened today)."]
         if no_jd:
             lines.append(f"{len(no_jd)} more have no description yet: they wait for /jd and "
                          "are not counted.")
@@ -3324,7 +3335,8 @@ class Desk:
         return replies
 
     def _screen(self, args: str, progress: Callable[[str], None] | None,
-                limit: int | None = None) -> tuple[str, ScreenSummary | None]:
+                limit: int | None = None,
+                scope: str = "all") -> tuple[str, ScreenSummary | None]:
         if self.repo is None:
             return NO_TARGET, None
         word = args.strip().lower()
@@ -3336,7 +3348,8 @@ class Desk:
             elif args.strip():
                 summary = screen_one(self.s, self.deps, self.today(), args.strip())
             else:
-                summary = screen_pending(self.s, self.deps, self.today(), progress, limit)
+                summary = screen_pending(self.s, self.deps, self.today(), progress, limit,
+                                         scope)
         except http.HttpError as exc:
             if exc.status == 400 and word not in ("batch", "collect"):  # not a page id
                 return f"No job found for {args.strip()}.\n{SCREEN_USAGE}", None

@@ -61,3 +61,15 @@ def test_timetable_command():
     assert "21:45 Daily report" in text and "22:00 Apply nudge" in text
     assert "Friday evening before /fetch closes" in text
     assert "timetable" in [c["command"] for c in tb.bot_commands()]
+
+
+def test_timetable_names_the_coming_public_holidays():
+    """TT-01 (6 Nov): /timetable lists the holidays of the next 14 days, as /mailqueue does."""
+    d = make_desk_tmp()
+    d._track_now = Clock(day=20)  # Tue 20 Oct
+    text = d.timetable_command()[0].text
+    assert ("No mails on these public holidays (next 14 days): Mon 26 Oct: October bank "
+            "holiday in Ireland.") in text
+    d._track_now = Clock(day=1)  # 1 to 14 Oct: none
+    text = d.timetable_command()[0].text
+    assert "No public holiday in Poland, the Netherlands or Ireland in the next 14 days." in text

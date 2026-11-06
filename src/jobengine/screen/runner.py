@@ -7,7 +7,7 @@ import re
 import threading
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -416,9 +416,38 @@ def _batch_rows(deps: ScreenDeps) -> set[str]:
     return set((pending or {}).get("rows") or [])
 
 
-def unscreened_rows(deps: ScreenDeps, today: date | None = None) -> list[JobRow]:
+# Which Unscreened jobs /screen takes (6 Nov): the ones today's /fetch found (by default),
+# the last 7 days, or all of them. The autopilot and the batch always take all.
+SCOPES = ("today", "week", "all")
+SCOPE_ALL = "all"
+WEEK_DAYS = 7
+
+
+def found_on(row: JobRow) -> date | None:
+    """The day a /fetch last found the job (Swept date), else None."""
+    return row.swept_date if isinstance(row.swept_date, date) else None
+
+
+def in_scope(row: JobRow, scope: str, today: date | None) -> bool:
+    if scope == SCOPE_ALL or today is None:
+        return True
+    day = found_on(row)
+    if day is None:
+        return False
+    if scope == "today":
+        return day >= today
+    return day > today - timedelta(days=WEEK_DAYS)
+
+
+def scope_text(scope: str) -> str:
+    return {"today": "found today", "week": "found in the last 7 days"}.get(scope, "")
+
+
+def unscreened_rows(deps: ScreenDeps, today: date | None = None,
+                    scope: str = SCOPE_ALL) -> list[JobRow]:
     """Unscreened rows without the rows of a waiting batch: today's best new jobs first (the
-    /fetch match score, sweep/best.py), then the others newest posting first."""
+    /fetch match score, sweep/best.py), then the others newest posting first. `scope` keeps
+    only the jobs a /fetch found today or in the last 7 days (SCOPES)."""
     from jobengine.sweep import best
 
     assert deps.repo is not None
@@ -426,6 +455,7 @@ def unscreened_rows(deps: ScreenDeps, today: date | None = None) -> list[JobRow]
     rows = [job_row(pid, v) for pid, v in
             deps.repo.query_rows(select_filter("Screen verdict", "Unscreened"))
             if pid not in waiting]
+    rows = [r for r in rows if in_scope(r, scope, today)]
     ranked = best.scores(deps.state, today) if today else {}
     rows.sort(key=lambda r: r.posted_date or date.min, reverse=True)
     rows.sort(key=lambda r: ranked.get(r.page_id.replace("-", ""), float("-inf")),
@@ -439,18 +469,23 @@ def _label(row: JobRow) -> str:
 
 def screen_pending(
     s: Settings, deps: ScreenDeps, today: date, progress: Callable[[str], None] | None = None,
-    limit: int | None = None,
+    limit: int | None = None, scope: str = SCOPE_ALL,
 ) -> ScreenSummary:
     """Screen Unscreened rows, newest posting first, up to the daily limit.
 
-    `limit` (the CLI --limit) caps this run instead of what is left of today's limit."""
+    `limit` (the CLI --limit) caps this run instead of what is left of today's limit.
+    `scope` (SCOPES): only the jobs found today or in the last 7 days; /screen's default
+    is today."""
     summary = ScreenSummary()
     if deps.repo is None:
         summary.errors.append("DRY RUN: no Job Opportunities target here, nothing screened")
         return summary
     used = daily.used_today(deps.state, today)
     room = limit if limit is not None else max(0, daily.daily_limit(s) - used)
-    rows = unscreened_rows(deps, today)
+    every = unscreened_rows(deps, today)
+    rows = [r for r in every if in_scope(r, scope, today)]
+    if len(every) > len(rows):
+        summary.errors.append(_outside_note(scope, len(every) - len(rows)))
     in_batch = len(_batch_rows(deps))
     if in_batch:
         summary.errors.append(f"{in_batch} jobs wait in a half-price batch: /screen collect "
@@ -551,6 +586,12 @@ def find_row(repo: JobsRepo, ref: str) -> JobRow | None:
                 if job_link(str(values.get("URL") or "")) == wanted:
                     return job_row(pid, values)
     return None
+
+
+def _outside_note(scope: str, outside: int) -> str:
+    wider = "/screen week or /screen all" if scope == "today" else "/screen all"
+    return (f"Only the jobs {scope_text(scope)}: {outside} older Unscreened "
+            f"job{'s' if outside != 1 else ''} not taken ({wider} for those).")
 
 
 def _limit_note(s: Settings, used: int, left: int, limit: int | None) -> str:
