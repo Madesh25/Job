@@ -3185,7 +3185,7 @@ class Desk:
 
     def auto_update_tick(self) -> list[Reply]:
         """Every few minutes (and the daily task): the monthly /update by itself, once, when
-        the /fetch gate closes within 5 days (Autopilot I5)."""
+        the /fetch gate is near: Friday evening, else its last 2 days (Autopilot I5, 5 Nov)."""
         from jobengine.strategy import auto_update
         from jobengine.sweep.gate import last_update
         from jobengine.track import daily_report
