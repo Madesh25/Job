@@ -123,6 +123,24 @@ def test_sponsor_suggestions_come_first_and_say_why():
     assert order == ["Dune Data Nederland", "Plain Co"]
 
 
+def test_a_sponsor_without_a_known_board_still_comes_before_a_plain_company():
+    """Phase 22 Q-12 (7 Nov): a recruiter with no board and no visa line came first."""
+    state = FakeBotState()
+    found = discover.Found(new={
+        "plain co": {"name": "Plain Co", "roles": ["DevOps Engineer"], "countries": ["Poland"],
+                     "urls": ["https://boards.greenhouse.io/plainco/jobs/9"], "boards": ["Adzuna"],
+                     "first": "2026-11-07", "last": "2026-11-07"},
+        "square one": {"name": "Square One", "roles": ["DevOps Engineer"] * 3,
+                       "countries": ["Poland"], "urls": [], "boards": ["Pracuj.pl"],
+                       "first": "2026-11-07", "last": "2026-11-07"},
+        "pggm": {"name": "PGGM", "roles": ["Platform Engineer"], "countries": ["Netherlands"],
+                 "urls": [], "boards": ["visa sponsor list"], "sponsor": sponsors.IND_LABEL,
+                 "first": "2026-11-06", "last": "2026-11-06"}})
+    discover.record(state, found, TODAY)
+    order = [v["name"] for _, v in discover.suggestions(state, [])]
+    assert order == ["PGGM", "Plain Co", "Square One"]
+
+
 def saturday():
     return datetime(2026, 10, 31, 6, tzinfo=UTC)  # 11:30 in India
 
