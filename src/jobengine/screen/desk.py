@@ -3174,7 +3174,8 @@ class Desk:
         return [Reply(run_weekly_digest(self.track, self.tracking_now()))]
 
     def status_lines(self) -> str | None:
-        return track_commands.status_lines(self.track) if self.track is not None else None
+        return (track_commands.status_lines(self.track, self.today())
+                if self.track is not None else None)
 
     # ------------------------------------------------------------ strategy (Module 08)
 
