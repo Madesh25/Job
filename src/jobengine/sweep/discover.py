@@ -153,7 +153,9 @@ def skipped(state: Any) -> list[str]:
 
 
 def suggestions(state: Any, companies: list[TargetCompany]) -> list[tuple[str, dict[str, Any]]]:
-    """The open suggestions, best first: a readable job board, then more roles, then newest."""
+    """The open suggestions, best first: a company on a visa sponsor list (they hire from
+    abroad; Phase 22 Q-12: a plain recruiter came first), then a readable job board, then more
+    roles, then newest."""
     if state is None:
         return []
     known = {company_key(c.name) for c in companies}
@@ -165,7 +167,7 @@ def suggestions(state: Any, companies: list[TargetCompany]) -> list[tuple[str, d
         _url, platform = site_of(kv[1].get("urls") or [])
         readable = platform not in ("Unknown", "Custom")
         sponsor = bool(kv[1].get("sponsor"))  # on a visa sponsor list: they hire from abroad
-        return (0 if readable else 1, 0 if sponsor else 1, -len(kv[1].get("roles") or []))
+        return (0 if sponsor else 1, 0 if readable else 1, -len(kv[1].get("roles") or []))
 
     open_items.sort(key=lambda kv: kv[1].get("last", ""), reverse=True)  # newest first, then
     return sorted(open_items, key=order)  # stable: newest stays first within the same order
