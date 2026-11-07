@@ -936,6 +936,15 @@ def test_rules_command(desk):
     assert "- Exceed one page." in text
     assert "/fetch is open until" in text
     assert "/update" in tb.HELP_TEXT and "/rules" in tb.HELP_TEXT
+    assert "Targets: Poland, Netherlands and Ireland only" in text
+    assert "An /update review is open" not in text
+
+
+def test_rules_names_an_open_update_review(desk):
+    """Phase 22 Q-03: the research ran, but the date moves only when every tip is decided."""
+    talk(desk, "/update")
+    text = talk(desk, "/rules").sent[0][1]
+    assert "An /update review is open: " in text and "wait for Adopt or Reject" in text
 
 
 

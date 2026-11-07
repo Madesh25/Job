@@ -159,6 +159,16 @@ def test_rules_view():
     assert "follow-up after 7 days, ghosted after 14 more" in text
     assert "- Ask a peer engineer for a referral before you apply" in text
     assert "/fetch is open until" in text or "/fetch is blocked" in text
+    # Phase 22 Q-08 (7 Nov): the countries and the screening thresholds are named
+    assert ("Targets: Poland, Netherlands and Ireland only, office or hybrid only (remote "
+            "jobs are skipped).") in text
+    assert "- years asked: at most 4 (a range counts by its lower number)" in text
+    assert ("- skill match: at least 60% of the tools a job names are yours (jobs naming "
+            "fewer than 4 tools are kept)") in text
+    assert "- posted in the last 3 days (jobs without a date are kept)" in text
+    assert "- screening: at most 50 jobs a day by the AI" in text
+    assert "- autopilot approvals: at most 10 a day" in text
+    assert "remote EU" not in text
 
 
 def test_reject_the_rest_closes_the_review_and_moves_the_date():

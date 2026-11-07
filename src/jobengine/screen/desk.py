@@ -3245,6 +3245,11 @@ class Desk:
         d = self.strategy
         text = rules_text(d.config(), d.v16_blocks(), d.existing(), d.today(), d.state, self.s,
                           self.s.resume)
+        _run_id, left = strategy_runner.open_count(d)
+        if left:  # Phase 22 Q-03: the research ran, but the gate moves only when you decide
+            text += (f"\nAn /update review is open: {left} tip{'s' if left != 1 else ''} wait "
+                     "for Adopt or Reject. The date above moves (and /fetch opens for the next "
+                     "month) when every tip is decided: /update shows them.")
         return [Reply(text[:MAX_TEXT])]
 
     # ------------------------------------------------------------ /screen and /fetch
