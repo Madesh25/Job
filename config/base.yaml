@@ -653,6 +653,8 @@ sweep:
     # "Company · Place"). JustJoin IT cards start with the company and the city.
     card_layouts:
       JustJoin IT: [company, place, title]
+      # Glassdoor (8 Nov): company, rating (dropped), title, place.
+      Glassdoor: [company, title, place]
     # Whole link texts that are never job titles (IrishJobs puts "more" under every card).
     ignore_link_exact:
       - more
