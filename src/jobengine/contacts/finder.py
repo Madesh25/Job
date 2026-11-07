@@ -253,17 +253,29 @@ def discover_domain(deps: ContactDeps, config: ConfigStore, company: str, countr
                                        target.careers_url if target else None], jd)
     domain = domain_search.from_job_pages(company, options)
     how = f"domain {domain} found on the job's pages" if domain else ""
+    log.info("domain for %s: job pages %s", company, domain or f"not sure ({options})")
+    misses: list[str] = []
     if domain is None:
         llm = deps.llm(config)
-        if llm is None:
-            return None
-        domain, how = domain_search.from_ai(llm, company, country, valid_domain, base_domain,
-                                            _not_company)
+        if llm is not None:
+            domain, how = domain_search.from_ai(llm, company, country, valid_domain,
+                                                base_domain, _not_company)
+            log.info("domain for %s: %s", company, how)
+            if domain is None:
+                misses.append(how)
+        else:
+            misses.append("AI domain search: no AI here")
+    if domain is None:  # 7 Nov (Phase 22 REQ-01): the website by its name, before asking you
+        domain, how = domain_search.from_site_guess(company, country, deps.read_page,
+                                                    valid_domain, _not_company)
+        log.info("domain for %s: %s", company, how)
         if domain is None:
-            result.notes.append(how)
+            result.notes += [*misses, how]
             return None
     deps.state.set(state_key(company), {"domain": domain, "found": how})
     deps.save_domain(company, domain)
+    log.info("domain for %s: %s saved (bot memory; Target Companies Domain in prod)",
+             company, domain)
     result.notes.append(f"{how}, saved for next time")
     return domain
 

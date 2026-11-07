@@ -87,3 +87,58 @@ def test_finder_still_asks_when_nothing_is_sure():
     result = find_contacts(d, NO_DOMAIN)
     assert result.status == "waiting_domain"
     assert "What is the email domain for Mystery Example Labs?" in result.message
+
+
+# ---------------------------------------------------------------- 7 Nov: the website by its name
+
+
+def site(pages):
+    def read(url):
+        if url not in pages:
+            raise OSError("no answer")
+        return pages[url]
+    return read
+
+
+def guess(company, country, pages):
+    return ds.from_site_guess(company, country, site(pages), valid_domain, _not_company)
+
+
+def test_likely_addresses_country_first_then_com():
+    assert ds.guesses("BNP Paribas Bank Polska", "Poland") == [
+        "bnpparibas.pl", "bnp.pl", "bnpparibas.com", "bnp.com"]
+    assert ds.guesses("ING", "Netherlands") == ["ing.nl", "ing.com"]
+    assert ds.guesses("Polska", "Poland") == []  # nothing but a country word
+
+
+def test_the_website_counts_only_when_it_names_the_company():
+    pages = {"https://bnpparibas.pl/": "BNP Paribas Bank Polska S.A. | Bank dla Ciebie"}
+    assert guess("BNP Paribas Bank Polska", "Poland", pages) == (
+        "bnpparibas.pl", "domain bnpparibas.pl found on the company's website")
+    other = {"https://bnpparibas.pl/": "Parked domain for sale"}
+    found, note = guess("BNP Paribas Bank Polska", "Poland", other)
+    assert found is None
+    assert note == ("website check: bnpparibas.pl did not name the company; bnp.pl, "
+                    "bnpparibas.com, bnp.com did not answer")
+
+
+def test_a_short_name_must_be_a_whole_word():
+    pages = {"https://ing.nl/": "Online banking and saving for everyone"}  # "ing" inside words
+    assert guess("ING", "Netherlands", pages)[0] is None
+    pages = {"https://ing.nl/": "ING Bank N.V. Particulier"}
+    assert guess("ING", "Netherlands", pages)[0] == "ing.nl"
+
+
+def test_finder_finds_the_domain_on_the_website_when_the_ai_is_not_sure():
+    d = fake_deps(load_settings("local", {}))
+    d.today = lambda: date(2026, 11, 7)
+    saved = []
+    d.save_domain = lambda company, domain: saved.append((company, domain))
+    d.llm = lambda config: DomainLLM("", [])  # the AI is not sure
+    d.read_page = site({"https://mystery.com/": "Mystery Example Labs: platform engineering"})
+    result = find_contacts(d, NO_DOMAIN)
+    assert result.status == "done"  # no domain question
+    assert d.state.get(state_key("Mystery Example Labs"))["domain"] == "mystery.com"
+    assert saved == [("Mystery Example Labs", "mystery.com")]
+    assert "domain mystery.com found on the company's website, saved for next time" in (
+        result.message)

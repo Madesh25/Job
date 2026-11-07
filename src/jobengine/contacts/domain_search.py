@@ -10,6 +10,10 @@ In this order, the first that is sure wins:
    personal mail domain.
 A sure domain is saved: Target Companies Domain in prod (only that column, only when it is
 empty), and the bot's memory everywhere, so the next job of the company needs no search.
+3. The company's website by its name (7 Nov, Phase 22 REQ-01: the bot asked for BNP Paribas
+   Bank Polska's domain): the likely addresses (bnpparibas.pl, bnpparibas.com, ...) are
+   opened, and one counts only when its page names every distinctive word of the company.
+Each step is written to the log (what was tried, what was found, where it was saved).
 When nothing is sure, the bot asks you as before (the last fallback). Emails are never
 guessed from a domain: the finders still give them.
 """
@@ -49,6 +53,13 @@ Rules:
 COMMON = frozenset({"group", "solutions", "technologies", "technology", "services", "global",
                     "international", "systems", "software", "digital", "consulting", "company",
                     "the", "and", "holding", "europe", "bank", "labs", "data"})
+
+
+# Country words: a Polish arm is "<name> Polska", its site is <name>.pl.
+COUNTRY_WORDS = frozenset({"polska", "poland", "nederland", "netherlands", "ireland", "irish",
+                           "dutch", "europe", "emea"})
+TLDS = {"Poland": "pl", "Netherlands": "nl", "Ireland": "ie"}
+MAX_GUESSES = 6
 
 
 def company_words(company: str) -> list[str]:
@@ -93,3 +104,43 @@ def from_ai(llm: Any, company: str, country: str,
         if names(domain.split(".")[0], company) or names(titles.get(url, ""), company):
             return domain, f"domain {domain} found by AI web search ({host})"
     return None, f"AI domain search: {domain} not confirmed by a search result"
+
+
+def guesses(company: str, country: str) -> list[str]:
+    """Likely website addresses from the name: all its words, the first two, the first one;
+    the job's country domain first, then .com."""
+    words = [w for w in company_words(company) if w not in COUNTRY_WORDS]
+    if not words:
+        return []
+    stems = list(dict.fromkeys(["".join(words), "".join(words[:2]), words[0]]))
+    tlds = [tld for tld in (TLDS.get(country or ""), "com") if tld]
+    return [f"{stem}.{tld}" for tld in tlds for stem in stems][:MAX_GUESSES]
+
+
+def from_site_guess(company: str, country: str, read_page: Callable[[str], str],
+                    valid: Callable[[str, str], str | None],
+                    not_company: Callable[[str], bool]) -> tuple[str | None, str]:
+    """(domain or None, note): the first likely address whose home page names every
+    distinctive word of the company (no AI, a few page reads)."""
+    words = [w for w in company_words(company) if w not in COUNTRY_WORDS]
+    wrong: list[str] = []  # read, but the page does not name the company
+    silent: list[str] = []  # did not answer
+    for guess in guesses(company, country):
+        domain = valid(guess, company)
+        if not domain or not_company(domain):
+            continue
+        try:
+            text = read_page(f"https://{domain}/") or ""
+        except Exception as exc:  # a site that does not answer is just not this one
+            log.info("domain guess %s for %s: not read (%s)", domain, company, exc)
+            silent.append(domain)
+            continue
+        lower = text.lower()  # whole words: "ing" never matches "banking"
+        if words and all(re.search(rf"\b{re.escape(w)}\b", lower) for w in words):
+            log.info("domain guess %s for %s: its page names the company", domain, company)
+            return domain, f"domain {domain} found on the company's website"
+        log.info("domain guess %s for %s: page does not name the company", domain, company)
+        wrong.append(domain)
+    parts = [f"{', '.join(wrong)} did not name the company"] if wrong else []
+    parts += [f"{', '.join(silent)} did not answer"] if silent else []
+    return None, "website check: " + ("; ".join(parts) or "no likely address")
