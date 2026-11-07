@@ -56,3 +56,25 @@ def test_the_laptop_bot_runs_the_check_by_itself_and_autopilot_when_names_it():
     assert d.tracking_tick()
     assert ("Daily check: by itself at 07:30 and 21:30 (replies, applications, rejections, "
             "follow-ups).") in d.autopilot_when()[0].text
+
+
+def test_a_utc_machine_clock_is_not_taken_for_india_time():
+    """Phase 22 Q-16 (8 Nov): in Docker the clock is UTC. A check set for 01:27 India time
+    never came, and /today at 01:14 called itself "2026-11-07 19:44". The real bot now reads
+    an aware clock in your zone, so 19:57 UTC is 01:27 India time."""
+    import inspect
+    from datetime import UTC
+
+    from jobengine.screen import desk as desk_module
+
+    utc = datetime(2026, 11, 7, 19, 57, tzinfo=UTC)  # 01:27 on 8 Nov in India
+    d = fake_desk(settings(), FAKE_TODAY, now=lambda: utc)
+    d._track_now = lambda: utc.astimezone(desk_module.tracking_zone(d.s))
+    store = ConfigStore.from_values({timed.TIMES_KEY: "01:27"})
+    d.deps.config = lambda: store
+    assert d.tracking_now().strftime("%Y-%m-%d %H:%M") == "2026-11-08 01:27"
+    assert d.tracking_tick()  # the check comes at 01:27 India time
+    assert d.state.get(timed.LAST_KEY) == {"date": "2026-11-08", "done": ["01:27"]}
+    assert str(desk_module.tracking_zone(d.s)) == "UTC+05:30"
+    # The real bot (laptop and Cloud Run) builds its desk with that aware clock.
+    assert "track_now=lambda: datetime.now(zone)" in inspect.getsource(desk_module.real_desk)
