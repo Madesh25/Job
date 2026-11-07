@@ -38,6 +38,9 @@ CARD_BADGES = {"", "new", "promoted", "najlepiej dopasowana", "nowosc", "hit", "
 _SALARY = re.compile(r"\d.*(?:z\u0142|pln|eur|\u20ac|/\s*(?:mies|godz|month|hour|h)\b)",
                      re.IGNORECASE)
 DEFAULT_LAYOUT = ["title", "company"]
+# An employer rating line ("3.9 ★", "4,3 ★"): Glassdoor puts it between the company and
+# the title (Phase 22 Q-14, 8 Nov: titles "BNP Paribas", companies "3.9 ★"). Never a field.
+_RATING = re.compile(r"^\d(?:[.,]\d)?\s*★?$|^★\s*\d(?:[.,]\d)?$")
 # LinkedIn titles can carry extras after " | " ("DevOps Engineer | Hybrid | Dublin | Up to
 # EUR 65K", "System Engineer / Site Reliability Engineer | 1."): the title is the first part,
 # never split into the company (30 Oct: rows with the company "Hybrid" and "1").
@@ -60,7 +63,8 @@ def board_for_sender(sender: str, sender_boards: Mapping[str, str]) -> str:
 def _lines(node: Tag) -> list[str]:
     """The text lines of a node, without badge lines ("!", "Hit!") that are never a field."""
     lines = [line.strip() for line in node.get_text("\n").split("\n") if line.strip()]
-    return [line for line in lines if canon(line) not in CARD_BADGES]
+    return [line for line in lines
+            if canon(line) not in CARD_BADGES and not _RATING.match(line)]
 
 
 def _split_salary(lines: list[str]) -> tuple[list[str], str | None]:

@@ -91,3 +91,25 @@ def test_a_title_link_alone_keeps_its_card_but_not_the_pipe_extras():
             '</table>')
     [job] = parse("LinkedIn <jobalerts-noreply@linkedin.com>", html)
     assert (job.title, job.company) == ("Platform Engineer", "Acme")
+
+
+def test_glassdoor_card_starts_with_company_and_rating():
+    """Phase 22 Q-14 (8 Nov): "BNP Paribas | 3.9 ★ | Junior DevOps Engineer" was read as the
+    title "BNP Paribas" and the company "3.9 ★", so every Glassdoor job was out of scope."""
+    html = ('<a href="https://www.glassdoor.com/partner/jobListing.htm?jl=1009000001">'
+            '<div>BNP Paribas</div><div>3.9 ★</div><div>Junior DevOps Engineer</div>'
+            '<div>Warszawa</div><div>Easy Apply</div></a>'
+            '<a href="https://www.glassdoor.com/partner/jobListing.htm?jl=1009000002">'
+            '<div>Scalo</div><div>4,3 ★</div><div>DevOps Engineer</div>'
+            '<div>Harmelen (Hybrid)</div></a>'
+            '<a href="https://www.glassdoor.com/partner/jobListing.htm?jl=1009000003">'
+            '<div>New Startup</div><div>Platform Engineer</div><div>Dublin</div></a>')
+    first, second, third = parse("Glassdoor Jobs <noreply@glassdoor.com>", html)
+    assert (first.title, first.company, first.location_text) == (
+        "Junior DevOps Engineer", "BNP Paribas", "Warszawa")
+    assert place(first.location_text, RULES, first.location_area)[0] == "Poland"
+    assert (second.title, second.company, second.location_text) == (
+        "DevOps Engineer", "Scalo", "Harmelen (Hybrid)")
+    assert (third.title, third.company, third.location_text) == (
+        "Platform Engineer", "New Startup", "Dublin")  # no rating: the same order
+    assert all("★" not in " ".join(job.location_area) for job in (first, second, third))
