@@ -44,6 +44,7 @@ from jobengine.track.status import JOB_TERMINAL, advance_contact, effect
 log = logging.getLogger("jobengine.track")
 
 MARKER = "tracking.last_success"
+LAST_RUN = "tracking.last_run"  # every daily check: {"at", "ok", "problem"} (7 Nov)
 ASKED = "tracking.asked"
 MAX_ASKED = 300
 PREVIEW_CHARS = 300
@@ -771,7 +772,38 @@ def run_daily(deps: TrackDeps, now: datetime) -> DailyReport:
         deps.state.set(ASKED, {"ids": run.asked[-MAX_ASKED:]})
         if report.ok:
             deps.state.set(MARKER, {"at": now.isoformat()})
+        deps.state.set(LAST_RUN, {"at": now.isoformat(), "ok": report.ok,
+                                  "problem": first_problem(report)})
     return report
+
+
+def first_problem(report: DailyReport) -> str | None:
+    """Why a daily check did not count as done: a token that does not refresh, else the
+    first failed step (Phase 22 Q-10: /status said "never" and nobody saw why)."""
+    for name, reason in report.tokens.items():
+        if reason is not None:
+            return f"Gmail {name} token: {reason}"[:200]
+    return report.errors[0][:200] if report.errors else None
+
+
+def last_check_line(state: BotState | None) -> str:
+    """"Last daily check: ..." for /status and /health: the last fully OK run, and the last
+    run when it had a problem (the window of the next run starts at the last OK one)."""
+    get = state.get if state is not None else (lambda key: None)
+    ok_at = (get(MARKER) or {}).get("at")
+    last = get(LAST_RUN) or {}
+    line = f"Last daily check: {_stamp(ok_at) if ok_at else 'never'}"
+    if last.get("at") and not last.get("ok") and (not ok_at or last["at"] > ok_at):
+        line += (f" (the last one, {_stamp(last['at'])}, had a problem: "
+                 f"{last.get('problem') or 'unknown'})")
+    return line
+
+
+def _stamp(value: str) -> str:
+    try:
+        return datetime.fromisoformat(value).strftime("%Y-%m-%d %H:%M")
+    except ValueError:
+        return value
 
 
 # ---------------------------------------------------------------- taps

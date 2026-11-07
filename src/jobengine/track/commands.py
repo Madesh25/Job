@@ -10,8 +10,9 @@ from jobengine.config_store import ConfigStore
 from jobengine.safety import contact_lookups
 from jobengine.settings import Settings
 from jobengine.sweep.runner import LAST_SUMMARY as SWEEP_SUMMARY
+from jobengine.track import holiday
 from jobengine.track.followup import NOTE as FOLLOWUP_NOTE
-from jobengine.track.runner import MARKER, TrackDeps
+from jobengine.track.runner import TrackDeps, last_check_line
 
 SOURCE_SECRETS = {"gmail": ("GMAIL_ALERTS_TOKEN_JSON_m02", "GMAIL_ALERTS_TOKEN_JSON_mm"),
                   "adzuna": ("ADZUNA_APP_ID",
@@ -73,17 +74,21 @@ def _counts(values: list[dict[str, Any]]) -> str:
         or "none"
 
 
-def status_lines(deps: TrackDeps) -> str:
+def status_lines(deps: TrackDeps, today: date | None = None) -> str:
     jobs = [v for _, v in deps.jobs.query_rows()] if deps.jobs else []
     contacts = [v for _, v in deps.contacts.all_rows()] if deps.contacts else []
     drafts, followups = unsent_drafts(contacts)
-    last = (deps.state.get(MARKER) or {}).get("at") or "never"
-    return "\n".join([
+    lines = [
         f"Jobs by Status: {_counts(jobs)}",
         f"Contacts by Status: {_counts(contacts)}",
         f"Drafts waiting: {drafts} cold mails, {followups} follow-ups",
-        f"Last daily check: {last}",
-    ])
+        last_check_line(deps.state),
+    ]
+    back = holiday.active(deps.state, today or date.today())
+    if back is not None:  # Phase 22 Q-06: /status shows holiday mode
+        lines.append(f"🏖 Holiday mode on until {back:%a %d %b}: {holiday.STOPS}. "
+                     "/resume ends it.")
+    return "\n".join(lines)
 
 
 def _secret_set(s: Settings, var: str) -> bool:
@@ -177,7 +182,7 @@ def health_text(deps: TrackDeps) -> str:
         lines.append(f"Anthropic key: {'OK' if problem is None else problem}")
     if (s.force_model or "").startswith("gemini-") or s.vertex_api_key:
         lines.append(f"Google AI: {gemini_line(s, deps.gemini_check)}")
-    lines.append(f"Last daily check: {(deps.state.get(MARKER) or {}).get('at') or 'never'}")
+    lines.append(last_check_line(deps.state))
     lines.append(f"Last sweep: {(deps.state.get(SWEEP_SUMMARY) or {}).get('at') or 'never'}")
     lines.append(f"Environment: {s.app_env}, DRY_RUN {'on' if s.dry_run else 'off'}")
     lines.append(f"Contact lookups: {contact_lookups(s)}")
