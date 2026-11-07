@@ -32,6 +32,7 @@ from jobengine.screen.gates import (
     APPLIED_STATUSES,
     MAX_YEARS,
     pre_gate,
+    pre_gate_no_jd,
     run_gates,
     unbacked_tools,
 )
@@ -323,12 +324,17 @@ class _Run:
         assert repo is not None
         full_min = int(self.s.screening.get("full_min_chars", FULL_MIN_CHARS))
         jd, kind = description(repo.read_body(row.page_id), full_min)
-        if kind == "none":
-            return ScreenResult(page_id=row.page_id, verdict="Unscreened", description_kind=kind)
         limit = int(self.s.screening.get("max_years_required", MAX_YEARS))
-        years_fix = years_update(row, jd)
-        early = pre_gate(row, years_required(jd), limit, jd,
-                         bool(self.s.sweep.get("remote_jobs", True)))
+        remote_ok = bool(self.s.sweep.get("remote_jobs", True))
+        if kind == "none":  # the checks that need no description still skip it for free
+            early = pre_gate_no_jd(row, limit, remote_ok)
+            if early is None:
+                return ScreenResult(page_id=row.page_id, verdict="Unscreened",
+                                    description_kind=kind)
+            years_fix: dict[str, Any] = {}
+        else:
+            years_fix = years_update(row, jd)
+            early = pre_gate(row, years_required(jd), limit, jd, remote_ok)
         if early:  # skipped for free, no tokens spent
             result = ScreenResult(page_id=row.page_id, verdict="Skip", skip_reason=early.reason,
                                   description_kind=kind, llm_used=False,

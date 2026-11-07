@@ -71,6 +71,23 @@ def pre_gate(row: JobRow, jd_years: int | None, limit: int = MAX_YEARS,
     return None
 
 
+def pre_gate_no_jd(row: JobRow, limit: int = MAX_YEARS,
+                   remote_ok: bool = True) -> GateHit | None:
+    """The free checks a row without a description can already fail: the title, the years
+    in Notion and a City of "Remote" (Phase 22 Q-15, 8 Nov: a Remote job waited for /jd
+    instead of being skipped). Everything else waits for the description."""
+    match = SENIOR_TITLE.search(canon(row.role))
+    if match:
+        return GateHit(1, "Seniority", f"title says {match.group(1)}")
+    years = _stated_years(row.years_required, None)
+    if years is not None and years > limit:
+        return _years_hit(years, limit)
+    if not remote_ok and (row.city or "") == "Remote":
+        return GateHit(8, fit.skip_reason(fit.FULLY_REMOTE),
+                       "remote job, you want office or hybrid")
+    return None
+
+
 def gate_seniority(row: JobRow, ext: Extraction, limit: int = MAX_YEARS) -> GateHit | None:
     match = SENIOR_TITLE.search(canon(row.role))
     if match:
