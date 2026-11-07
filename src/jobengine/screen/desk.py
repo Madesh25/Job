@@ -2384,10 +2384,7 @@ class Desk:
         now = (self._track_now or self.now)()
         if now.tzinfo is not None:
             return now
-        sign, _, hm = str(self.s.tracking.get("utc_offset", "+05:30")).partition("+")
-        hours, _, minutes = (hm or sign.lstrip("-")).partition(":")
-        delta = timedelta(hours=int(hours or 0), minutes=int(minutes or 0))
-        return now.replace(tzinfo=timezone(-delta if sign.startswith("-") else delta))
+        return now.replace(tzinfo=tracking_zone(self.s))
 
     def _no_track(self) -> list[Reply] | None:
         return [Reply("Tracking is not available in this bot.")] if self.track is None else None
@@ -3906,6 +3903,14 @@ class Desk:
         return [Reply(f"{row.company}, {row.role}: {row.screen_verdict}{reason}")]
 
 
+def tracking_zone(s: Settings) -> timezone:
+    """Your clock's UTC offset (Settings tracking.utc_offset, default +05:30)."""
+    sign, _, hm = str(s.tracking.get("utc_offset", "+05:30")).partition("+")
+    hours, _, minutes = (hm or sign.lstrip("-")).partition(":")
+    delta = timedelta(hours=int(hours or 0), minutes=int(minutes or 0))
+    return timezone(-delta if sign.startswith("-") else delta)
+
+
 def fake_desk(s: Settings, today: date, now: Callable[[], datetime] | None = None) -> Desk:
     """In-memory desk for --fake: the sweep and screening fixtures in one Job Opportunities,
     a FakeLLM that says "nothing stated" for rows without a fixture, and in-memory bot_state."""
@@ -4018,8 +4023,12 @@ def real_desk(s: Settings) -> Desk | None:
     set_cost_sink(costs.sink(state, date.today))  # the month's Claude cost (digest)
     set_cost_guard(cost_guard.guard(state, date.today))  # Config ai.monthly_cap (I6)
     set_balancer(balancer.Balancer(state, date.today))  # the Google credit first (3 Nov)
+    # 8 Nov (Phase 22 Q-16): the real clock is read as an aware time in your zone. A naive
+    # datetime.now() is the machine's clock, UTC in Docker and on Cloud Run, and was taken
+    # for India time: the daily check came 5 h 30 late and /today dated itself in UTC.
+    zone = tracking_zone(s)
     desk = Desk(s, real_deps(s), state, resume=resume, contacts=contacts, mail=mail,
-                track=track, strategy=strategy)
+                track=track, strategy=strategy, track_now=lambda: datetime.now(zone))
     # What the bot did today, by your clock (tracking.utc_offset), for the daily report.
     day_ledger.bind(state, lambda: desk.tracking_now().date(), desk.tracking_now)
     from jobengine.notion_repo import skill_writer
