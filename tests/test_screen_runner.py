@@ -405,3 +405,34 @@ def test_tech_mismatch_skips_only_when_switched_on(s, deps):
     run(on, deps)
     go = deps.repo.rows["pl-learning-go"]
     assert (go["Screen verdict"], go["Skip reason"], go["Gaps"]) == ("Skip", "Tech mismatch", "Go")
+
+
+def test_a_remote_job_without_a_description_is_skipped_for_free(s, deps):
+    """Phase 22 Q-15 (8 Nov): Next GM, DevOps Engineer had City "Remote" and no description;
+    /screen said "1 waiting for JD" and left it Unscreened instead of skipping it."""
+    row = deps.repo.rows["li-no-jd"]
+    row["City"] = "Remote"
+    summary = screen_one(s, deps, TODAY, "li-no-jd")
+    [result] = summary.results
+    assert (result.verdict, result.llm_used) == ("Skip", False)
+    assert "remote job, you want office or hybrid" in " ".join(result.notes)
+    assert row["Screen verdict"] == "Skip"
+
+
+def test_a_lead_title_without_a_description_is_skipped_too(s, deps):
+    deps.repo.rows["li-no-jd"]["Role"] = "Lead DevOps Engineer"
+    [result] = screen_one(s, deps, TODAY, "li-no-jd").results
+    assert result.verdict == "Skip" and result.skip_reason == "Seniority"
+
+
+def test_a_senior_title_without_a_description_waits_for_its_years(s, deps):
+    """A "Senior" job asking 3 years still fits: the years are in the description."""
+    deps.repo.rows["li-no-jd"]["Role"] = "Senior DevOps Engineer"
+    [result] = screen_one(s, deps, TODAY, "li-no-jd").results
+    assert result.verdict == "Unscreened"
+
+
+def test_a_plain_job_without_a_description_still_waits_for_jd(s, deps):
+    [result] = screen_one(s, deps, TODAY, "li-no-jd").results
+    assert result.verdict == "Unscreened"
+    assert deps.repo.rows["li-no-jd"]["Screen verdict"] == "Unscreened"
