@@ -51,6 +51,7 @@ from jobengine.screen.runner import (
     ScreenError,
     description,
     find_row,
+    in_scope,
     job_row,
     pending_rows,
     scope_text,
@@ -243,7 +244,13 @@ def match_counts(body: list[str]) -> dict[str, int]:
 ONE_AT_A_TIME = ("Check the resume: tap Approve resume, or Rebuild to change it. Then you "
                  "get the job link to apply, and the next job comes after I applied or Not "
                  "applying.")
-PENDING_COUNTRY = "pending.country"  # bot_state: {"country": <Country option> | None}
+PENDING_COUNTRY = "pending.country"  # bot_state: {"country": <Country option> | None,
+#                                                  "scope": "today" | "week" | "all"}
+# Phase 23 3-01 (8 Nov): a bare /pending in Telegram shows the jobs today's /fetch found
+# (274 waited, from every day); /pending week and /pending all, or the buttons, for more.
+PENDING_DEFAULT = "today"
+PENDING_SCOPES = {"today": "today", "week": "week", "all": "all", "whole": "all"}
+SCOPE_BUTTONS = {"today": "Today", "week": "This week", "all": "Everything"}
 REMOTE_EU = "Other"  # Country option of remote jobs open across the EU or Europe
 COUNTRY_ORDER = ("Poland", "Netherlands", "Ireland", REMOTE_EU)
 COUNTRY_WORDS = {"pl": "Poland", "poland": "Poland", "polska": "Poland",
@@ -465,19 +472,44 @@ class Desk:
         value = self.state.get(PENDING_COUNTRY) or {}
         return value.get("country")
 
-    def choose_country(self, country: str | None) -> None:
-        self.state.set(PENDING_COUNTRY, {"country": country})
+    def chosen_scope(self) -> str:
+        """Which jobs /pending shows (PENDING_SCOPES); "all" when none was chosen."""
+        value = self.state.get(PENDING_COUNTRY) or {}
+        return str(value.get("scope") or "all")
+
+    def choose_country(self, country: str | None, scope: str | None = None) -> None:
+        self.state.set(PENDING_COUNTRY, {"country": country,
+                                         "scope": scope or self.chosen_scope()})
+
+    def scoped(self, rows: list[JobRow] | None = None, scope: str | None = None
+               ) -> list[JobRow]:
+        """The ranked jobs a /fetch found in the chosen scope (today, this week, all)."""
+        rows = self.all_ranked() if rows is None else rows
+        scope = scope or self.chosen_scope()
+        today = self.today()
+        return [r for r in rows if in_scope(r, scope, today)]
 
     def ranked(self) -> list[JobRow]:
-        """The jobs to review, best first, only the chosen country's when one is chosen."""
-        rows = self.all_ranked()
+        """The jobs to review, best first, only the chosen scope's and country's."""
+        rows = self.scoped()
         country = self.chosen_country()
         if not country:
             return rows
         return [r for r in rows if (r.country or REMOTE_EU) == country]
 
+    def scope_buttons(self, everything: list[JobRow]) -> list[tuple[str, str]]:
+        """Buttons for the other scopes, with their counts (none for an empty one)."""
+        current = self.chosen_scope()
+        out = []
+        for scope, label in SCOPE_BUTTONS.items():
+            count = len(self.scoped(everything, scope))
+            if scope != current and count:
+                out.append((f"{label} ({count})", f"ps:{scope}"))
+        return out
+
     def country_menu(self, rows: list[JobRow] | None = None, text: str = CHOOSE_COUNTRY) -> Reply:
-        rows = self.all_ranked() if rows is None else rows
+        everything = self.all_ranked()
+        rows = self.scoped(everything) if rows is None else rows
         counts: dict[str, int] = {}
         for row in rows:
             key = row.country or REMOTE_EU
@@ -486,31 +518,52 @@ class Desk:
             c for c in counts if c not in COUNTRY_ORDER)
         buttons = [(f"{country_label(c)} ({counts[c]})", f"pc:{c}") for c in order]
         buttons.append((f"All ({len(rows)})", "pc:all"))
+        buttons += self.scope_buttons(everything)
         linkedin = len(self.linkedin_rows()) if self.repo is not None else 0
         if linkedin:  # LinkedIn jobs wait for their description before they can be reviewed
             buttons.append((f"LinkedIn ({linkedin})", "li:next:0"))
+        scope = self.chosen_scope()
+        if scope != "all" and text == CHOOSE_COUNTRY:
+            text = f"Jobs {scope_text(scope)}. {text}"
         return Reply(text, buttons)
 
-    def pending_command(self, args: str = "") -> list[Reply]:
+    def scope_start(self, scope: str) -> list[Reply]:
+        """/pending in a scope: the country buttons, or the first card when the jobs are in
+        one country, or the other scopes' buttons when none was found in this one."""
+        self.choose_country(None, scope)
+        everything = self.all_ranked()
+        rows = self.scoped(everything)
+        if not rows:
+            more = self.scope_buttons(everything)
+            text = (f"No job {scope_text(scope)} waits for review." if scope != "all"
+                    else "Nothing to review right now.")
+            if more:
+                text += " Older jobs wait:"
+            return [Reply(text, more)]
+        if len({r.country or REMOTE_EU for r in rows}) <= 1:
+            return self.pending(0, rows)
+        return [self.country_menu(rows)]
+
+    def pending_command(self, args: str = "", scope: str = "all") -> list[Reply]:
         """/pending: the country buttons when the jobs are in more than one country, else the
-        first card. /pending <country> (pl, nl, ie, remote, all) goes straight to it."""
+        first card; only the jobs of `scope` (Telegram's bare /pending: today's).
+        /pending <country> (pl, nl, ie, remote) or all goes straight to the cards of every
+        day; /pending today or week picks the scope."""
         if self.repo is None:
             return [Reply(NO_TARGET)]
         word = args.strip().lower()
         if word:
             if word == "all":
-                self.choose_country(None)
+                self.choose_country(None, "all")
+            elif word in PENDING_SCOPES:
+                return self.scope_start(PENDING_SCOPES[word])
             elif word in COUNTRY_WORDS:
-                self.choose_country(COUNTRY_WORDS[word])
+                self.choose_country(COUNTRY_WORDS[word], "all")
             else:
-                return [Reply("Send /pending, or /pending poland, netherlands, ireland, remote "
-                              "or all.")]
+                return [Reply("Send /pending, or /pending today, week, all, poland, "
+                              "netherlands, ireland or remote.")]
             return self.pending(0)
-        rows = self.all_ranked()
-        if len({r.country or REMOTE_EU for r in rows}) <= 1:
-            self.choose_country(None)
-            return self.pending(0, rows)
-        return [self.country_menu(rows)]
+        return self.scope_start(scope)
 
     def ranker(self) -> Ranker:
         """The free skill matcher (sweep/rank.py), rebuilt when the reference data is."""
@@ -596,12 +649,15 @@ class Desk:
         waiting = self.waiting_line()
         if not rows:
             country = self.chosen_country()
-            others = self.all_ranked() if country else []
+            others = self.scoped() if country else []
             if others:
                 return [self.country_menu(others, f"No more jobs for {country_label(country)}. "
                                                   "Pick the next country:")]
-            text = "Nothing to review right now."
-            return [Reply("\n".join(t for t in (text, waiting) if t))]
+            scope = self.chosen_scope()
+            more = self.scope_buttons(self.all_ranked()) if scope != "all" else []
+            text = (f"No more jobs {scope_text(scope)}." + (" Older jobs wait:" if more else "")
+                    if scope != "all" else "Nothing to review right now.")
+            return [Reply("\n".join(t for t in (text, waiting) if t), more)]
         index = index % len(rows)
         reply = self.card(rows[index], index, len(rows))
         if waiting:
@@ -620,6 +676,8 @@ class Desk:
                 return [self.country_menu()]
             self.choose_country(None if arg == "all" else arg)
             return self.pending(0)
+        if action == "ps" and arg in SCOPE_BUTTONS:  # Today, This week, Everything (/pending)
+            return self.scope_start(arg)
         if action in ("ra", "rb", "cl", "rq", "ia", "na", "nr", "fg", "fc", "gp", "gt", "gr",
                       "gx", "mk") and arg:
             return self.resume_tap(action, arg)
