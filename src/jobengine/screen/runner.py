@@ -363,7 +363,8 @@ class _Run:
                               extraction=ext, description_kind=prepared.kind,
                               tech_terms=tool_terms(ext))
         hit = run_gates(row, ext, self.ref, self.applied, self.today, prepared.limit,
-                        tech_skips=bool(self.s.screening.get("tech_mismatch_skips", False)))
+                        tech_skips=bool(self.s.screening.get("tech_mismatch_skips", False)),
+                        remote_ok=bool(self.s.sweep.get("remote_jobs", True)))
         if hit:
             result.skip_reason = hit.reason
             result.gaps = list(hit.gaps) or [m.text for m in matrix if m.strength == "Gap"]
