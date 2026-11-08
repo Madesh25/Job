@@ -42,3 +42,15 @@ def test_status_shows_holiday_mode():
     assert "🏖 Holiday mode on until Mon 09 Nov" in text and "/resume ends it." in text
     holiday.resume(d.state, date(2026, 11, 7))
     assert "Holiday mode" not in commands.status_lines(d, date(2026, 11, 7))
+
+
+def test_the_heading_names_the_last_check_not_the_search_start():
+    """Q-24 (8 Nov): the 08:44 check said "since 2026-11-07 08:37" although the last one ran
+    on 2026-11-08 08:37: the mail search starts one day earlier on purpose (overlap_days),
+    the heading must name the last check."""
+    d = deps()
+    assert runner.run_daily(d, NOW).ok
+    later = datetime.fromisoformat("2026-10-15T21:30:00+05:30")
+    report = runner.run_daily(d, later)
+    assert report.since.strftime("%Y-%m-%d %H:%M") == "2026-10-14 08:00"  # search overlap
+    assert "Daily check 2026-10-15 (since 2026-10-15 08:00)" in report.text()
