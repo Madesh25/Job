@@ -383,6 +383,16 @@ def in_place(location: str | None, city: str | None, country: str | None) -> boo
     return any(f" {w} " in loc for w in (*cities, *words) if w)
 
 
+_URL = re.compile(r"https?://[^\s<>\"'`]+")
+
+
+def first_url(value: object) -> str:
+    """The first link in the AI's answer, alone. Phase 23 2-01 (8 Nov): the answer was two
+    links joined by "or", and both went into the job's URL field."""
+    match = _URL.search(str(value or ""))
+    return match.group(0).rstrip(".,;:)]") if match else ""
+
+
 def employer_page(url: str, company: str) -> bool:
     """An https page that is neither a job board nor an aggregator."""
     parts = urlsplit(url)
@@ -1143,7 +1153,7 @@ def from_search(deps: Deps, company: str, role: str, city: str | None,
     except LLMError as exc:
         log.info("job link search failed for %s: %s", company, exc)
         return None
-    answer = str((raw or {}).get("url") or "").strip()
+    answer = first_url((raw or {}).get("url"))
     candidates = list(dict.fromkeys(u for u in [answer, *sources] if u))
     full_min = _full_min(deps)
     for url in [u for u in candidates if employer_page(u, company)][:MAX_CANDIDATES]:
@@ -1294,7 +1304,7 @@ def from_google(deps: Deps, company: str, role: str, city: str | None,
     raw = raw or {}
     text = " ".join(str(raw.get("description") or "").split()) if raw.get("found") else ""
     own = [u for u in sources if _company_host(u, company)]
-    answer = str(raw.get("url") or "").strip()
+    answer = first_url(raw.get("url"))
     if text and not own:
         answer = _resolved(deps, answer)
     if text and not own and _company_host(answer, company) and _one_job_address(answer, role):

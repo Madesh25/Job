@@ -1441,3 +1441,14 @@ def test_googles_copy_never_falls_back_to_claude():
     d.page = Refuses({})
     job_links.run(d, BOARDS)
     assert seen.get("fallback") is False
+
+
+def test_first_url_takes_one_link_from_the_answer():
+    """Phase 23 2-01 (8 Nov): Sony's URL field had two links joined by "or"."""
+    from jobengine.sweep.job_links import first_url
+
+    two = ("https://boards.greenhouse.io/playstation/jobs/7949603002 or "
+           "https://jobs.playstation.com/careers/x")
+    assert first_url(two) == "https://boards.greenhouse.io/playstation/jobs/7949603002"
+    assert first_url("See https://acme.com/jobs/1.") == "https://acme.com/jobs/1"
+    assert first_url("") == first_url(None) == first_url("no link") == ""
