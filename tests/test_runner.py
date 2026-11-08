@@ -94,7 +94,7 @@ def test_new_rows(fake_run):
     _, liffey = rows["liffey analytics|site reliability engineer|cork"]
     assert liffey["Country"] == "Ireland" and liffey["Ghost job risk"] == "Unknown"
     assert "body" in liffey and liffey["body"] == []
-    _, odra = rows["odra systems|mid cloud engineer|wroclaw"]
+    _, odra = rows["odra|mid cloud engineer|wroclaw"]
     assert odra["City"] == "Wrocław"
     assert not any("lead" in key for key in rows)  # Lead titles dropped
     assert not any("wawel" in key for key in rows)  # Berlin job dropped
