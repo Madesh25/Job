@@ -1846,7 +1846,7 @@ class Desk:
         if self.strategy is not None and strategy_runner.open_review(self.strategy):
             out.append("/update: strategy tips wait for your Adopt or Reject")
         else:
-            gate = health_report.gate_days(self.deps.config(), today)
+            gate = health_report.gate_days(self.deps.config(), today, self.state, self.s)
             if gate is not None and gate <= health_report.GATE_SOON_DAYS:
                 out.append("/update: the monthly strategy review, "
                            + (f"/fetch closes in {gate} day(s)" if gate > 0
@@ -2609,7 +2609,7 @@ class Desk:
             if left <= health_report.TOKEN_SOON_DAYS:
                 soon.append(f"Gmail token {account}: {max(left, 0)} day(s) left. Fix: "
                             f"/gmailtoken {account}")
-        gate = health_report.gate_days(config, today)
+        gate = health_report.gate_days(config, today, self.state, self.s)
         if gate is None or gate < 0:
             blockers.append("The /fetch gate is closed: run /update (the monthly strategy "
                             "check).")
