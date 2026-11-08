@@ -180,3 +180,15 @@ def test_slash_terms_match_any_part():
     assert REF.lookup("Unix/Linux") is not None
     assert unbacked_tools(ext(mandatory_requirements=[tool("Unix/Linux")]), REF) == []
     assert REF.lookup("Java/Scala") is None
+
+
+def test_remote_work_mode_from_the_description_skips():
+    """Phase 23 2-05 (8 Nov): Inviso and Look4IT (Adzuna) had Work mode Remote and kept going."""
+    remote = ext(work_mode=Quoted(value="Remote", quote="This is a remote position."))
+    hit = run_gates(row(), remote, REF, [], TODAY, remote_ok=False)
+    assert hit is not None and hit.gate == 8 and "remote job" in hit.detail
+    assert run_gates(row(), remote, REF, [], TODAY, remote_ok=True) is None  # remote wanted
+    hybrid = ext(work_mode=Quoted(value="Remote", quote="Remote or hybrid from our Warsaw office"))
+    assert run_gates(row(), hybrid, REF, [], TODAY, remote_ok=False) is None
+    office = ext(work_mode=Quoted(value="Hybrid", quote="3 days in the office"))
+    assert run_gates(row(), office, REF, [], TODAY, remote_ok=False) is None

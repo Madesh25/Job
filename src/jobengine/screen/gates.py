@@ -10,7 +10,13 @@ from datetime import date
 from jobengine.reference import Reference, is_general
 from jobengine.screen.models import Extraction, JobRow
 from jobengine.sweep import fit
-from jobengine.sweep.normalize import canon, canon_company, canon_title, senior_in_text
+from jobengine.sweep.normalize import (
+    OFFICE_WORDS,
+    canon,
+    canon_company,
+    canon_title,
+    senior_in_text,
+)
 
 MAX_YEARS = 4  # screening.max_years_required overrides it
 SENIOR_TITLE = re.compile(r"\b(lead|principal|head of|staff|vp|vice president)\b")
@@ -103,6 +109,18 @@ def gate_seniority(row: JobRow, ext: Extraction, limit: int = MAX_YEARS) -> Gate
     return None
 
 
+def gate_remote(ext: Extraction, remote_ok: bool = True) -> GateHit | None:
+    """Phase 23 2-05 (8 Nov): the AI read "Remote" as the work mode from the description
+    (quoted), but the row kept going (Inviso, Look4IT on Adzuna). A quote that also names
+    hybrid or an office keeps the job."""
+    if remote_ok or ext.work_mode.value != "Remote":
+        return None
+    quote = f" {canon(ext.work_mode.quote or '')} "
+    if any(f" {word} " in quote for word in OFFICE_WORDS):
+        return None
+    return GateHit(8, fit.skip_reason(fit.FULLY_REMOTE), "remote job, you want office or hybrid")
+
+
 def gate_language(ext: Extraction) -> GateHit | None:
     for lang in ext.languages:
         if lang.level != "mandatory":
@@ -162,13 +180,14 @@ def gate_expired(row: JobRow, ext: Extraction, today: date) -> GateHit | None:
 
 def run_gates(
     row: JobRow, ext: Extraction, ref: Reference, others: Iterable[JobRow], today: date,
-    max_years: int = MAX_YEARS, tech_skips: bool = True,
+    max_years: int = MAX_YEARS, tech_skips: bool = True, remote_ok: bool = True,
 ) -> GateHit | None:
     """The first gate that fires, in V16 order, or None when the row survives. With
     `tech_skips` False (screening.tech_mismatch_skips, your decision of 1 Oct) a required
     tool you do not have never skips the job: it is listed in Gaps for you to judge."""
     return (
         gate_seniority(row, ext, max_years)
+        or gate_remote(ext, remote_ok)
         or gate_language(ext)
         or gate_b2b_only(row, ext)
         or (gate_tech(ext, ref) if tech_skips else None)
