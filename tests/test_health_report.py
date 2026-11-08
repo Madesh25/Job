@@ -80,3 +80,19 @@ def test_the_bot_sends_it_once_before_the_run():
     assert "- The /fetch gate is closed: run /update (the monthly strategy check)." in text
     assert "- The autopilot schedule is off (Notion Config schedule.autopilot)." in text
     assert "Notion table Job Opportunities: not shared with the bot" in text
+
+
+def test_the_gate_uses_the_date_update_stamped_on_the_laptop():
+    """8 Nov (Phase 22): the morning after /update (stamped in Bot State, Config is not
+    written outside prod), the morning check still said "The /fetch gate is closed"."""
+    d = fake_desk(settings(), FAKE_TODAY, now=Clock())
+    d._track_now = lambda: datetime(2026, 10, 27, 1, 5, tzinfo=UTC)
+    base = ConfigStore.fake().all()
+    d.deps.config = lambda: ConfigStore.from_values({
+        **base, "last_strategy_update": "2026-09-23", "strategy_refresh_days": "30"})
+    assert "The /fetch gate is closed" in d.health_report_text()
+    d.state.set("last_strategy_update", {"date": "2026-10-26"})  # what /update stamps
+    text = d.health_report_text()
+    assert "The /fetch gate is closed" not in text
+    assert "✅ /fetch gate open for 29 more days" in text
+    assert health_report.gate_days(d.deps.config(), TODAY) == -4  # Config alone: closed

@@ -89,9 +89,14 @@ def table_problems(found: Mapping[str, str],
     return out
 
 
-def gate_days(config: Any, today: date) -> int | None:
-    """Days the /fetch gate stays open (negative: closed); None when not set."""
-    updated = config.get_date_prefix("last_strategy_update")
+def gate_days(config: Any, today: date, state: Any = None, s: Any = None) -> int | None:
+    """Days the /fetch gate stays open (negative: closed); None when not set. The same date
+    as /fetch and /rules (sweep/gate.py): outside prod a newer date stamped by /update in
+    Bot State wins (Phase 22, 8 Nov: the morning check said the gate was closed the morning
+    after /update, because it read only Config)."""
+    from jobengine.sweep.gate import last_update
+
+    updated = last_update(config, state, s)
     days = config.get_int("strategy_refresh_days")
     if updated is None or days is None:
         return None
