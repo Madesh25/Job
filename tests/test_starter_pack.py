@@ -165,3 +165,29 @@ def test_answer_with_a_country_replaces_the_starter_answer_of_that_country():
     assert bank.rows() == [{"Question": "Expected salary", "Country": "Poland",
                             "Answer": "15000 PLN", "Source": "You", "Approved": True,
                             "Last used": NOW.date(), "Times used": 0}]
+
+
+def test_the_apply_pack_and_the_autofill_use_your_saved_salary():
+    """Phase 23 4-04 (8 Nov): the pack said "Expected: Open, any range at or above the visa
+    minimum" while your saved answer for Ireland was an amount."""
+    from datetime import date
+
+    from test_telegram_bot import settings
+
+    from jobengine.apply import answers, autofill, pack
+    from jobengine.bot_state import FakeBotState
+    from jobengine.config_store import ConfigStore
+
+    state = FakeBotState()
+    answers.save(state, "Expected salary", "60000 EUR a year", "Ireland")
+    assert answers.saved_salary(state, "Ireland") == "60000 EUR a year"
+    assert answers.saved_salary(state, "Poland") is None
+    s, config = settings(), ConfigStore.fake()
+    values = {"Company": "Zinkworks", "Role": "DevOps Engineer", "Country": "Ireland"}
+    text = pack.build(s, config, values, [], date(2026, 11, 8),
+                      salary=answers.saved_salary(state, "Ireland"))
+    assert "- Expected: 60000 EUR a year" in text
+    data = autofill.decode(autofill.code(s, config, state, values))
+    assert data["fields"]["expected_salary"] == "60000 EUR a year"
+    poland = autofill.decode(autofill.code(s, config, state, {**values, "Country": "Poland"}))
+    assert poland["fields"]["expected_salary"].startswith("Open")

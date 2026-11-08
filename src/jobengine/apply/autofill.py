@@ -23,7 +23,7 @@ import zlib
 from typing import Any
 from urllib.parse import quote
 
-from jobengine.apply.answers import for_country
+from jobengine.apply.answers import for_country, saved_salary
 from jobengine.apply.answers import items as saved_answers
 from jobengine.apply.pack import MISSING, answer
 from jobengine.config_store import ConfigStore
@@ -43,7 +43,8 @@ HOW = ("Autofill: on the form page click your \"Job Engine autofill\" bookmark a
 
 
 def fields(s: Settings, config: ConfigStore, values: dict[str, Any], *,
-           letter: str | None = None, why: str | None = None) -> dict[str, str]:
+           letter: str | None = None, why: str | None = None,
+           salary: str | None = None) -> dict[str, str]:
     """Your answers for one job's form, by field name. A value that is not set is left out,
     so the form field stays empty for you to fill (nothing is guessed)."""
     out: dict[str, str] = {}
@@ -61,6 +62,8 @@ def fields(s: Settings, config: ConfigStore, values: dict[str, Any], *,
         value = answer(s, config, key)
         if value != MISSING.format(key=key):
             out[key] = value
+    if salary:  # your saved amount for this job's country wins (Phase 23 4-04)
+        out["expected_salary"] = " ".join(salary.split())
     for name, key in PROFILE.items():
         if config.get(key):
             out[name] = " ".join(str(config.get(key)).split())
@@ -90,7 +93,8 @@ def code(s: Settings, config: ConfigStore, state: Any, values: dict[str, Any], *
     when it is too long, then the cover letter (it is in its own message anyway)."""
     data: dict[str, Any] = {
         "job": f"{values.get('Company') or ''}, {values.get('Role') or ''}".strip(", "),
-        "fields": fields(s, config, values, letter=letter, why=why),
+        "fields": fields(s, config, values, letter=letter, why=why,
+                         salary=saved_salary(state, values.get("Country"))),
         "answers": [[r["q"], r["a"]] for r in for_country(saved_answers(state),
                                                           values.get("Country"))],
     }

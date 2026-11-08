@@ -106,7 +106,7 @@ def why_line(s: Settings, config: ConfigStore, details: list[str],
 
 
 def build(s: Settings, config: ConfigStore, values: dict[str, Any], details: list[str],
-          today: date, extra: list[str] | None = None) -> str:
+          today: date, extra: list[str] | None = None, salary: str | None = None) -> str:
     """The pack as plain text (Telegram and the Notion page)."""
     company, role = values.get("Company") or "", values.get("Role") or ""
     country = values.get("Country") or ""
@@ -125,7 +125,7 @@ def build(s: Settings, config: ConfigStore, values: dict[str, Any], details: lis
         f"- {_clean(per_country.get('permit')) or 'No permit line for this country'}",
         "",
         "Salary",
-        f"- Expected: {answer(s, config, 'expected_salary')}",
+        f"- Expected: {salary or answer(s, config, 'expected_salary')}",
         f"- Visa minimum: {_clean(per_country.get('salary_floor')) or 'unknown for this country'}",
     ]
     if values.get("Salary"):
