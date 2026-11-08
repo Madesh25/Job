@@ -22,6 +22,8 @@ from jobengine.contacts.providers.github import country_of
 # 22 Oct: Snov answers HTTP 402 "ran out of credits" although its site shows credits: its API
 # works only on a paid plan. Said once; the finder skips Snov until the 1st.
 NO_API = "snov: its API needs a paid plan (HTTP 402), skipped until the 1st"
+# 8 Nov (Phase 22 Q-13, Q-27): the free plan now answers 403 "FreePlan" instead of 402.
+FREE_PLAN = "snov: its API needs a paid plan (HTTP 403, free plan), skipped until the 1st"
 
 
 def prospect_country(prospect: dict[str, Any]) -> str | None:
@@ -115,7 +117,9 @@ def search(
                                  params=prospects_params(domain, []))
             prospects = _poll(deps, _result_url(start, PROSPECTS_RESULT), auth)
     except http.HttpError as exc:
-        if exc.status in (401, 403):
+        if exc.status == 403:  # skipped for the month, so /outreach stops counting it
+            return ProviderResult(skipped_reason=FREE_PLAN, month_off=True)
+        if exc.status == 401:
             return ProviderResult(skipped_reason="snov: not available on this plan")
         if exc.status == 402:
             return ProviderResult(skipped_reason=NO_API, month_off=True)

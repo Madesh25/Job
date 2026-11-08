@@ -270,6 +270,29 @@ def test_snov_402_is_said_once_and_snov_is_skipped_until_the_1st():
     assert "snov" in d.calls
 
 
+def test_snov_403_free_plan_is_skipped_until_the_1st_and_not_counted_in_outreach():
+    # 8 Nov (Phase 22 Q-13, Q-27): the free plan answers HTTP 403 "FreePlan"; Snov was
+    # asked on every look-up and /outreach still counted its 50 credits.
+    from jobengine.contacts.finder import OFF_KEY
+    from jobengine.contacts.providers import snov
+
+    d = make()
+    fixture = FixtureHttp(d.s)
+
+    def request(provider):
+        def refuse(method, url, **kw):
+            raise http.HttpError(f"{method} {http.safe_url(url)} failed: HTTP 403", 403)
+        return refuse if provider in ("snov", "apollo", "hunter") else fixture
+
+    d.request = request
+    first = find_contacts(d, PL)
+    assert snov.FREE_PLAN in first.message
+    assert d.state.get(OFF_KEY + "snov") == {"month": "2026-10",
+                                             "why": "its API needs a paid plan"}
+    d.calls.clear()
+    find_contacts(d, PL)
+    assert "snov" not in d.calls
+
 
 def test_after_a_429_the_provider_is_not_called_again_in_the_look_up():
     # 22 Oct, CodiLime: Prospeo refused 8 times (its search, the location check, the AI
