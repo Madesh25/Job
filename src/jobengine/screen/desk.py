@@ -1435,7 +1435,8 @@ class Desk:
             country=values.get("Country") or "", jd=jd,
             resume_text=resume_text, details=specific_details(body),
             gaps=split_gaps(values.get("Gaps")), key=job_id.replace("-", ""),
-            facts=apply_facts.facts(self.s, self.deps.config()))
+            facts=apply_facts.facts(self.s, self.deps.config()),
+            name=str(self.deps.config().get("profile.name") or ""))
 
     def tips(self, categories: tuple[str, ...], country: str | None) -> list[str]:
         """Adopted strategy tips of these categories for this country (strategy/tips.py);
