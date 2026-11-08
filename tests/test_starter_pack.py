@@ -142,3 +142,26 @@ def test_an_answer_again_updates_its_answer_bank_row_and_years_are_plain():
     assert [(r["Question"], r["Answer"]) for r in bank.rows()] == [(q, "4")]
     assert answers.plain_years(q, "3+") == "3"
     assert answers.plain_years("Expected salary", "5000+") == "5000+"  # not a years question
+
+
+def test_answer_with_a_country_replaces_the_starter_answer_of_that_country():
+    """Phase 23 4-01: the Poland salary was a sentence and /answer could not replace it."""
+    from jobengine.apply import answers
+    from jobengine.bot_state import FakeBotState
+    from jobengine.notion_repo import FakeTable
+
+    state, bank = FakeBotState(), FakeTable()
+    for name in ("Expected salary", "Salary expectations", "Desired salary"):
+        answers.save(state, name, "visa level", "Poland")
+    answers.save(state, "Expected salary", "60000 EUR", "Ireland")
+    said = answers.command(state, "Expected salary (Poland) = 15000 PLN", bank, NOW.date())
+    assert said.startswith("Replaced: Expected salary (Poland) = 15000 PLN")
+    poland = [r for r in answers.items(state) if r.get("country") == "Poland"]
+    assert sorted(r["q"] for r in poland) == ["Desired salary", "Expected salary",
+                                              "Salary expectations"]
+    assert {r["a"] for r in poland} == {"15000 PLN"}
+    assert [r["a"] for r in answers.items(state) if r.get("country") == "Ireland"] == \
+        ["60000 EUR"]
+    assert bank.rows() == [{"Question": "Expected salary", "Country": "Poland",
+                            "Answer": "15000 PLN", "Source": "You", "Approved": True,
+                            "Last used": NOW.date(), "Times used": 0}]

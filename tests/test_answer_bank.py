@@ -13,14 +13,16 @@ def test_save_replace_list_and_delete():
         "Saved: Years of Terraform? = 3 years")
     assert answers.command(state, "years of terraform = 4 years in production").startswith(
         "Replaced: years of terraform = 4 years in production")
+    # A starter question's answer goes under all its names (Phase 23 4-01).
     answers.command(state, "Driving licence? = No")
-    assert answers.listing(state) == ("Your saved answers (2), shown in every Apply pack:\n"
+    assert answers.listing(state) == ("Your saved answers (3), shown in every Apply pack:\n"
                                       "1. years of terraform = 4 years in production\n"
-                                      "2. Driving licence? = No")
+                                      "2. Driving licence = No\n"
+                                      "3. Driver license = No")
     assert answers.command(state, "delete 1") == "Deleted: years of terraform"
     assert answers.command(state, "delete 5").startswith("There is no answer 5.")
     assert answers.pack_lines(state) == ["", "Your saved answers (/answers)",
-                                         "- Driving licence? No"]
+                                         "- Driving licence No", "- Driver license No"]
 
 
 def test_empty_pack_part_says_how_to_add():
