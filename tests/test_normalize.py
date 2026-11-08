@@ -228,3 +228,23 @@ def test_a_reposting_site_is_not_the_employer():
     kept = normalize(raw(title="DevOps Engineer", company="Jobgether Partner BV",
                          location="Amsterdam"), RULES, ["Netherlands"])
     assert not isinstance(kept, Skipped)  # only the reposting site itself
+
+
+def test_one_job_under_two_names_of_the_employer_is_one_key():
+    """Phase 23 2-05 (8 Nov): 8 jobs were saved twice under two names of the same employer."""
+    from jobengine.sweep.normalize import dedupe_company, dedupe_key, index_key
+
+    pairs = [("Motorola Solutions", "Motorola Solutions Systems Polska"),
+             ("Akamai", "Akamai Technologies, Inc."),
+             ("BNP Paribas", "BNP Paribas Bank Polska"),
+             ("P&G", "Procter & Gamble"),
+             ("Sony Interactive Entertainment", "Sony Interactive Entertainment Ireland Limited")]
+    for a, b in pairs:
+        assert dedupe_key(a, "DevOps Engineer", "Krakow", "Poland") == \
+            dedupe_key(b, "DevOps Engineer", "Krakow", "Poland"), (a, b)
+    assert dedupe_company("Bank") == "bank"  # never empty
+    assert dedupe_company("Deloitte Poland") == dedupe_company("Deloitte Ireland") == "deloitte"
+    # A row saved before 8 Nov keeps its stored key; the index finds it under the new one.
+    old = "motorola solutions systems polska|devops engineer|krakow"
+    assert index_key(old, "Motorola Solutions Systems Polska") == \
+        dedupe_key("Motorola Solutions", "DevOps Engineer", "Krakow", "Poland")

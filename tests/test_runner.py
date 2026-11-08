@@ -84,7 +84,7 @@ def test_reposts_and_ghost_risk(fake_run):
 def test_new_rows(fake_run):
     _, repo = fake_run
     rows = rows_by_key(repo)
-    _, baltic = rows["baltic bank|junior devops engineer|gdansk"]
+    _, baltic = rows["baltic|junior devops engineer|gdansk"]
     assert baltic["Status"] == "New" and baltic["Screen verdict"] == "Unscreened"
     assert baltic["Seniority"] == "Junior" and baltic["Ghost job risk"] == "Medium"
     assert baltic["City"] == "Gdańsk" and baltic["Board"] == "Adzuna"
@@ -94,7 +94,7 @@ def test_new_rows(fake_run):
     _, liffey = rows["liffey analytics|site reliability engineer|cork"]
     assert liffey["Country"] == "Ireland" and liffey["Ghost job risk"] == "Unknown"
     assert "body" in liffey and liffey["body"] == []
-    _, odra = rows["odra systems|mid cloud engineer|wroclaw"]
+    _, odra = rows["odra|mid cloud engineer|wroclaw"]
     assert odra["City"] == "Wrocław"
     assert not any("lead" in key for key in rows)  # Lead titles dropped
     assert not any("wawel" in key for key in rows)  # Berlin job dropped

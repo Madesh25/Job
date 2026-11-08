@@ -95,19 +95,46 @@ def without_region(company: str | None) -> str:
     return _REGION_TAG.sub("", company or "")
 
 
+# Phase 23 2-05 (8 Nov): one job came twice under two names of the same employer ("Motorola
+# Solutions" and "Motorola Solutions Systems Polska", "Akamai" and "Akamai Technologies, Inc.",
+# "BNP Paribas" and "BNP Paribas Bank Polska"). These words at the end of a name are left out
+# of the Dedupe key only (Target Companies keeps its one row per country, canon_company).
+DEDUPE_TAIL_WORDS = frozenset({
+    "technologies", "technology", "solutions", "systems", "services", "holdings",
+    "corporation", "corp", "company", "co", "bank", "international", "europe", "emea",
+    "polska", "poland", "ireland", "nederland", "netherlands", "the netherlands",
+})
+DEDUPE_ALIASES = {"p g": "procter gamble", "pg": "procter gamble"}
+
+
+def dedupe_company(company: str | None) -> str:
+    """The company part of the Dedupe key: canonical, without a region tag, a legal suffix
+    or a trailing country or generic word; never empty while the name has a first word."""
+    value = canon_company(without_region(company))
+    words = value.split()
+    while len(words) > 1 and (words[-1] in DEDUPE_TAIL_WORDS
+                              or " ".join(words[-2:]) in DEDUPE_TAIL_WORDS):
+        words = words[:-2] if " ".join(words[-2:]) in DEDUPE_TAIL_WORDS else words[:-1]
+        words = canon_company(" ".join(words)).split() or words
+    value = " ".join(words)
+    return DEDUPE_ALIASES.get(value, value)
+
+
 def dedupe_key(company: str, title: str, city: str | None, country: str) -> str:
-    """V16 company-role-city key, all parts canonical (a "(IE)" style tag is left out)."""
+    """V16 company-role-city key, all parts canonical (a "(IE)" style tag, a legal suffix
+    and a trailing country or generic word of the company are left out)."""
     place = canon_city(city) if city else canon(country)
-    return f"{canon_company(without_region(company))}|{canon_title(title)}|{place}"
+    return f"{dedupe_company(company)}|{canon_title(title)}|{place}"
 
 
 def index_key(dedupe: str, company: str | None) -> str:
     """The key an existing row is found by: its stored Dedupe key, with the company part
-    rebuilt when the company has a region tag (rows saved before the tag was left out)."""
-    if not company or not _REGION_TAG.search(company):
+    rebuilt from its Company the way dedupe_key builds it now (rows saved before 8 Nov have
+    the older company part)."""
+    if not company:
         return dedupe
     _, sep, rest = dedupe.partition("|")
-    return f"{canon_company(without_region(company))}{sep}{rest}" if sep else dedupe
+    return f"{dedupe_company(company)}{sep}{rest}" if sep else dedupe
 
 
 def _has_term(text: str, terms: Iterable[str]) -> str | None:
