@@ -10,7 +10,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import re
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field, replace
 from datetime import UTC, date, datetime, timedelta, timezone
 from pathlib import Path
@@ -948,13 +948,27 @@ class Desk:
         jd, _kind = description(self.repo.read_body(outcome.job_id))
         if not jd:
             return None, []
-        terms = list(self.ranker().keywords(jd).have)
+        terms = self.inventory_terms(self.ranker().keywords(jd).have)
         resume_text = cover.pdf_text(outcome.pdf)
         left: list[str] = []
         if terms and resume_text:
             shown, left = cover.cover(terms, resume_text)
             day_ledger.add_match(len(shown), len(terms))
         return cover.cover_line(terms, resume_text), left
+
+    def inventory_terms(self, terms: Iterable[str]) -> list[str]:
+        """The job keywords that are skills of yours, by their Skills Inventory name. Phase 23
+        4-03 (8 Nov): a Term Map word ("Go" -> "scripting and automation", "Flux", "Rancher",
+        "ELK", "Loki") names a tool you do not have; it went into the resume as a skill."""
+        have = self.reference()
+        out: list[str] = []
+        for term in terms:
+            backing = have.lookup(term)
+            if backing is not None and backing.kind == "skill":
+                name = backing.name or term
+                if name not in out:
+                    out.append(name)
+        return out
 
     def missing_keywords_tap(self, arg: str) -> list[Reply]:
         """#13: "Add N keywords" under a preview rebuilds the resume with them."""
@@ -965,12 +979,9 @@ class Desk:
         terms = [str(t) for t in ask.get("terms") or []]
         if not terms or not same_page(str(ask.get("job")), job_id):
             return [Reply("That list is no longer open: the newest preview has the button.")]
-        have = self.reference()
         # Still yours, by the name in your Skills Inventory ("CloudFormation", not the job
-        # keyword "cloudformation", Phase 19 A-03).
-        found = [(t, have.lookup(t)) for t in terms]
-        terms = list(dict.fromkeys(
-            (b.name if b.kind == "skill" and b.name else t) for t, b in found if b is not None))
+        # keyword "cloudformation", Phase 19 A-03); never a Term Map word (Phase 23 4-03).
+        terms = self.inventory_terms(terms)
         self.state.delete(MISSING_KEY)
         if not terms:
             return [Reply("None of those keywords is in your Skills Inventory now.")]
