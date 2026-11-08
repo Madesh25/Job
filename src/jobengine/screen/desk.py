@@ -1133,8 +1133,10 @@ class Desk:
         if not values:
             return []
         body = self.repo.read_body(job_id)
+        country = values.get("Country")
         text = pack.build(self.s, self.deps.config(), values, specific_details(body),
-                          self.today(), answers.pack_lines(self.state, values.get("Country")))
+                          self.today(), answers.pack_lines(self.state, country),
+                          salary=answers.saved_salary(self.state, country))
         letter = self.cover_letter(job_id, values, body, resume_pdf)
         if self.deps.write:
             try:
@@ -1190,7 +1192,8 @@ class Desk:
             return [Reply(f"No Job Opportunities row found for {ref}")]
         job = f"{values.get('Company') or ''}, {values.get('Role') or ''}".strip(", ")
         config = self.deps.config()
-        profile = autofill.fields(self.s, config, values, why=why)
+        profile = autofill.fields(self.s, config, values, why=why,
+                                  salary=answers.saved_salary(self.state, values.get("Country")))
         # Your saved answers win over an Answer bank row of the same question (newer).
         saved = answers.for_country(
             [*form_review.bank_answers(self.answer_bank), *answers.items(self.state)],

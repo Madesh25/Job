@@ -158,6 +158,17 @@ def listing(state: Any) -> str:
     return "\n".join(lines)
 
 
+def saved_salary(state: Any, country: str | None) -> str | None:
+    """Your saved expected salary for a job in `country` (that country's first, then one
+    for any country), or None. Phase 23 4-04 (8 Nov): the Apply pack said "Expected: Open,
+    any range at or above the visa minimum" above your saved amount for Ireland."""
+    from jobengine.apply.starter import SALARY
+
+    names = {_key(n) for n in SALARY}
+    return next((r["a"] for r in for_country(items(state), country)
+                 if _key(r.get("q") or "") in names and r.get("a")), None)
+
+
 def pack_lines(state: Any, country: str | None = None) -> list[str]:
     """The Apply pack part: your saved answers for a job in `country`, or a one-line hint
     how to add one."""
