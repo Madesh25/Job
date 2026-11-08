@@ -125,3 +125,20 @@ def test_in_telegram():
     assert "Starter question 1 of " in sent[0]
     assert sent[1].startswith("[LOCAL] Saved: Expected salary (Netherlands) = 60000 EUR")
     assert d.answer_bank.created[0]["Source"] == "You"
+
+
+def test_an_answer_again_updates_its_answer_bank_row_and_years_are_plain():
+    """Phase 23 4-01 (8 Nov): /answer said "Replaced" but the Notion row kept the old text;
+    "3+" was saved as a year count."""
+    from jobengine.apply import answers
+    from jobengine.bot_state import FakeBotState
+    from jobengine.notion_repo import FakeTable
+
+    state, bank = FakeBotState(), FakeTable()
+    q = "Years of experience with AWS"
+    answers.command(state, f"{q} = 3+ years", bank, NOW.date())
+    said = answers.command(state, f"{q} = 4", bank, NOW.date())
+    assert said.startswith(f"Replaced: {q} = 4")
+    assert [(r["Question"], r["Answer"]) for r in bank.rows()] == [(q, "4")]
+    assert answers.plain_years(q, "3+") == "3"
+    assert answers.plain_years("Expected salary", "5000+") == "5000+"  # not a years question

@@ -50,8 +50,8 @@ def _save(state: Any, rows: list[dict[str, str]]) -> None:
     state.set(KEY, {"items": rows[-MAX_ANSWERS:]})
 
 
-def command(state: Any, args: str) -> str:
-    """/answer: save, replace or delete one answer."""
+def command(state: Any, args: str, bank: Any = None, today: Any = None) -> str:
+    """/answer: save, replace or delete one answer (also in the Notion Answer bank)."""
     text = args.strip()
     rows = items(state)
     delete = re.fullmatch(r"(?:delete|remove)\s+(\d+)", text, re.I)
@@ -66,12 +66,43 @@ def command(state: Any, args: str) -> str:
     question, answer = " ".join(question.split()), " ".join(answer.split())
     if not eq or not question or not answer:
         return USAGE
+    answer = plain_years(question, answer)
     replaced = any(same(r, question) for r in rows)
     rows = [r for r in rows if not same(r, question)] + [{"q": question, "a": answer}]
     _save(state, rows)
+    bank_write(bank, question, answer, None, today)
     verb = "Replaced" if replaced else "Saved"
     return (f"{verb}: {question} = {answer}\nIt is in every Apply pack from now on "
             f"({len(rows)} saved). /answers lists them.")
+
+
+# Phase 23 4-01 (8 Nov): "3+" was saved for "Years of experience with GCP"; a form wants a
+# number. A years question keeps the number ("3+" and "3+ years" -> "3").
+_YEARS_Q = re.compile(r"\byears?\b", re.I)
+_N_PLUS = re.compile(r"^\s*(\d+)\s*\+\s*(?:years?)?\s*$", re.I)
+
+
+def plain_years(question: str, answer: str) -> str:
+    """The answer with an "N+" year count as N, for a question about years."""
+    match = _N_PLUS.match(answer) if _YEARS_Q.search(question) else None
+    return match.group(1) if match else answer
+
+
+def bank_write(bank: Any, question: str, answer: str, country: str | None,
+               today: Any) -> None:
+    """Your answer in the Notion Answer bank (Source You): the row of the same question and
+    country is updated, else one is added. Never raises (Bot State keeps the answer)."""
+    if bank is None:
+        return
+    try:
+        bank.upsert({"Question": question[:200], "Country": country or "Any"},
+                     {"Answer": answer, "Source": "You", "Approved": True,
+                      "Last used": today}, new={"Times used": 0})
+    except Exception:
+        import logging
+
+        logging.getLogger("jobengine.apply").warning("could not write the answer bank",
+                                                     exc_info=True)
 
 
 def save(state: Any, question: str, answer: str, country: str | None = None) -> bool:
