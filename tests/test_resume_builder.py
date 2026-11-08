@@ -407,3 +407,37 @@ def test_refs_use_the_end_of_the_page_id():
     assert find_by_ref([first, second], page_ref(second)) == second
     assert find_by_ref([first, second], "4056edc2") is None  # an old ref names both
     assert find_by_ref([first, "3e66edc2-b0d4-8156-949b-e71e660d93db"], "4056edc2") == first
+
+
+def test_added_skills_go_to_their_row_and_master_skills_stay_home():
+    """Phase 23 4-03 (8 Nov): "CI/CD pipelines" and "Kubernetes (AKS)" went to the last row
+    (Systems & Scripting) too; Azure sat under GitOps & Registry, the Cloud row had AWS only."""
+    from jobengine.reference import Reference, Skill
+    from jobengine.resume.builder import force_skills, tidy_rows
+    from jobengine.resume.models import Plan, PlanRow, SkillRow
+
+    master = SimpleNamespace(
+        skills_main=[SkillRow("Cloud", ("AWS", "Azure", "GCP")),
+                     SkillRow("Kubernetes", ("EKS", "AKS", "Helm")),
+                     SkillRow("CI/CD Pipelines", ("GitLab CI", "Jenkins", "GitHub Actions")),
+                     SkillRow("GitOps & Registry", ("Argo CD", "Harbor", "Nexus")),
+                     SkillRow("Systems & Scripting", ("Linux", "Python", "Bash"))],
+        skills_also=[], all_items=lambda: [])
+    ref = Reference(skills=[Skill("1", "Kubernetes (AKS)", "Hands-on"),
+                            Skill("2", "CI/CD pipelines", "Hands-on")])
+    plan = Plan(skills_main=[PlanRow(label="Cloud", items=["AWS", "GCP"]),
+                             PlanRow(label="Kubernetes", items=["EKS", "AKS", "Helm"]),
+                             PlanRow(label="CI/CD Pipelines", items=["GitLab CI", "Jenkins"]),
+                             PlanRow(label="GitOps & Registry",
+                                     items=["Argo CD", "Harbor", "Azure"]),
+                             PlanRow(label="Systems & Scripting",
+                                     items=["Linux", "Python", "Bash"])],
+                skills_also=[])
+    force_skills(plan, master, ref, "", ["CI/CD pipelines", "Kubernetes (AKS)"])
+    tidy_rows(plan, master)
+    rows = {r.label: r.items for r in plan.skills_main}
+    assert rows["Kubernetes"] == ["EKS", "Kubernetes (AKS)", "Helm"]  # in place of AKS
+    assert rows["Systems & Scripting"] == ["Linux", "Python", "Bash"]  # nothing appended
+    assert rows["Cloud"] == ["AWS", "GCP", "Azure"]  # Azure back home
+    assert "Azure" not in rows["GitOps & Registry"]
+    assert "CI/CD pipelines" not in rows["CI/CD Pipelines"]  # the row itself shows it
