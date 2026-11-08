@@ -67,13 +67,40 @@ def command(state: Any, args: str, bank: Any = None, today: Any = None) -> str:
     if not eq or not question or not answer:
         return USAGE
     answer = plain_years(question, answer)
-    replaced = any(same(r, question) for r in rows)
-    rows = [r for r in rows if not same(r, question)] + [{"q": question, "a": answer}]
+    question, country = _country_of(question)
+    names = _same_names(question, country)
+    replaced = any(same(r, n, country) for r in rows for n in names)
+    rows = [r for r in rows if not any(same(r, n, country) for n in names)] + [
+        {"q": n, "a": answer, **({"country": country} if country else {})} for n in names]
     _save(state, rows)
-    bank_write(bank, question, answer, None, today)
+    bank_write(bank, names[0], answer, country, today)
     verb = "Replaced" if replaced else "Saved"
-    return (f"{verb}: {question} = {answer}\nIt is in every Apply pack from now on "
+    place = f" ({country})" if country else ""
+    return (f"{verb}: {question}{place} = {answer}\nIt is in every Apply pack from now on "
             f"({len(rows)} saved). /answers lists them.")
+
+
+COUNTRIES = ("Poland", "Netherlands", "Ireland")
+
+
+def _country_of(question: str) -> tuple[str, str | None]:
+    """"Expected salary (Poland)" is the Poland answer of "Expected salary", as /answers
+    lists it (Phase 23 4-01, 8 Nov: the Poland salary could not be replaced)."""
+    match = re.fullmatch(r"(.+?)\s*\((poland|netherlands|ireland)\)", question, re.I)
+    if not match:
+        return question, None
+    return match.group(1).strip(), match.group(2).capitalize()
+
+
+def _same_names(question: str, country: str | None) -> list[str]:
+    """The names a starter question saves together ("Expected salary", "Salary
+    expectations", "Desired salary"), else the question alone."""
+    from jobengine.apply.starter import QUESTIONS
+
+    for q in QUESTIONS:
+        if q.country == country and any(_key(n) == _key(question) for n in q.saves):
+            return list(q.saves)
+    return [question]
 
 
 # Phase 23 4-01 (8 Nov): "3+" was saved for "Years of experience with GCP"; a form wants a
