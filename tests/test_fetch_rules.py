@@ -155,7 +155,8 @@ def test_systems_engineer_outside_it_is_excluded():
 
     rules = Rules.from_config(load_settings("local", {}).sweep)
     for title in ("Power Systems Engineer", "Control Systems Engineer",
-                  "Embedded Systems Engineer", "Electrical Systems Engineer"):
+                  "Embedded Systems Engineer", "Electrical Systems Engineer",
+                  "Facilities Industrial Waste Systems Engineer"):
         assert title_scope(title, rules) is not None, title
     for title in ("Systems Engineer", "Linux Systems Engineer", "Cloud Systems Engineer",
                   "DevOps Engineer", "Junior Software Engineer (DevOps)"):
