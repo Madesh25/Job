@@ -1258,6 +1258,26 @@ class NotionTable:
     def rows(self) -> list[dict[str, Any]]:
         return [page_values(page) for page in self.client.query(self.data_source_id)]
 
+    def upsert(self, match: dict[str, Any], props: dict[str, Any],
+               new: dict[str, Any] | None = None) -> str:
+        """Update the first row whose `match` values are equal (Phase 23 4-01, 8 Nov: /answer
+        said "Replaced" but the Answer bank row kept the old text), else create one."""
+        for page in self.client.query(self.data_source_id):
+            values = page_values(page)
+            if all(_same_value(values.get(k), v) for k, v in match.items()):
+                body = {"properties": {name: notion_value(self.types[name], value)
+                                       for name, value in props.items()
+                                       if value not in (None, "")}}
+                self.client.request("PATCH", f"/pages/{page['id']}", body)
+                return str(page["id"])
+        return self.create({**match, **props, **(new or {})})
+
+
+def _same_value(have: Any, want: Any) -> bool:
+    if isinstance(want, str):
+        return " ".join(str(have or "").split()).lower() == " ".join(want.split()).lower()
+    return have == want
+
 
 class FakeTable:
     def __init__(self) -> None:
@@ -1269,6 +1289,14 @@ class FakeTable:
 
     def rows(self) -> list[dict[str, Any]]:
         return [dict(r) for r in self.created]
+
+    def upsert(self, match: dict[str, Any], props: dict[str, Any],
+               new: dict[str, Any] | None = None) -> str:
+        for n, row in enumerate(self.created):
+            if all(_same_value(row.get(k), v) for k, v in match.items()):
+                row.update(props)
+                return f"fake-{n + 1}"
+        return self.create({**match, **props, **(new or {})})
 
 
 # ---------------------------------------------------------------- weekly audit (27 Oct)

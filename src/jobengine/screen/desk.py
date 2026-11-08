@@ -1394,7 +1394,7 @@ class Desk:
 
     def answer_command(self, args: str) -> list[Reply]:
         """/answer <question> = <answer>: kept for every later Apply pack (feature 10)."""
-        return [Reply(answers.command(self.state, args))]
+        return [Reply(answers.command(self.state, args, self.answer_bank, self.today()))]
 
     def answers_command(self, args: str = "") -> list[Reply]:
         """/answers: your saved form answers; /answers start: the starter pack questions."""

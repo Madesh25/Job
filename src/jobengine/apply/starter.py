@@ -143,6 +143,7 @@ def reply(state: Any, now: datetime, text: str, bank: Any = None) -> str | None:
         skipped.append(index)
         said = "Skipped."
     else:
+        answer = answers.plain_years(q.saves[0], answer)
         for saved in q.saves:
             answers.save(state, saved, answer, q.country)
         _bank(bank, q, answer, now)
@@ -158,14 +159,5 @@ def reply(state: Any, now: datetime, text: str, bank: Any = None) -> str | None:
 
 
 def _bank(bank: Any, q: Question, answer: str, now: datetime) -> None:
-    if bank is None:
-        return
-    try:
-        bank.create({"Question": q.saves[0][:200], "Answer": answer, "Source": "You",
-                     "Approved": True, "Country": q.country or "Any",
-                     "Last used": now.date(), "Times used": 0})
-    except Exception:  # the answer is still saved in Bot State
-        import logging
-
-        logging.getLogger("jobengine.apply").warning("could not write the answer bank",
-                                                     exc_info=True)
+    """The Answer bank row of this question: updated when it is there, else added."""
+    answers.bank_write(bank, q.saves[0], answer, q.country, now.date())
