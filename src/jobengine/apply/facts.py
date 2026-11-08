@@ -27,8 +27,10 @@ from jobengine.apply.pack import MISSING, answer
 KEYS = ("experience", "notice_period", "earliest_start", "relocation")
 LABELS = {"experience": "EXPERIENCE", "notice_period": "NOTICE PERIOD",
           "earliest_start": "EARLIEST START", "relocation": "RELOCATION"}
-RULES = """- Years of experience: use only the numbers in EXPERIENCE, in its words. Never write
-  "N+ years" and never give years for one tool, cloud or skill.
+RULES = """- Years of experience: use only the numbers in EXPERIENCE and keep what they mean, in a
+  natural sentence of your own (for example "I have N years of experience, M of them in
+  DevOps"), not copied as a label. Never write "N+ years" and never give years for one tool,
+  cloud or skill.
 - Availability: use only NOTICE PERIOD and EARLIEST START. Never say "immediately"."""
 
 YEARS = re.compile(r"\b(\d{1,2})\s*\+?\s*(?=(?:years?|yrs?)\b)", re.I)
