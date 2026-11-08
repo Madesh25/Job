@@ -78,3 +78,18 @@ def test_a_utc_machine_clock_is_not_taken_for_india_time():
     assert str(desk_module.tracking_zone(d.s)) == "UTC+05:30"
     # The real bot (laptop and Cloud Run) builds its desk with that aware clock.
     assert "track_now=lambda: datetime.now(zone)" in inspect.getsource(desk_module.real_desk)
+
+
+def test_the_process_clock_follows_your_utc_offset():
+    """Phase 23 2-05 (9 Nov): at 01:15 India time /fetch dated new jobs 8 Nov (UTC)."""
+    from jobengine.settings import posix_zone, use_local_time
+
+    assert posix_zone("+05:30") == "UTC-05:30"
+    assert posix_zone("-03:00") == "UTC+03:00"
+    assert posix_zone("+01:00") == "UTC-01:00"
+    calls = []
+    env: dict[str, str] = {}
+    assert use_local_time(settings(), env, lambda: calls.append(1)) == "UTC-05:30"
+    assert env["TZ"] == "UTC-05:30" and calls == [1]
+    assert use_local_time(settings(), {"TZ": "Europe/Warsaw"}, lambda: calls.append(2)) is None
+    assert calls == [1]  # a TZ you set yourself wins

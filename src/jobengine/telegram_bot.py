@@ -37,7 +37,7 @@ from jobengine.resume import builder as resume_builder
 from jobengine.safety import SafetyError, check_startup, telegram_text
 from jobengine.screen import autopilot
 from jobengine.screen.desk import Desk, Reply, fake_desk, real_desk
-from jobengine.settings import ROOT_DIR, Settings, get_settings
+from jobengine.settings import ROOT_DIR, Settings, get_settings, use_local_time
 from jobengine.sweep import fakes
 from jobengine.sweep.runner import fake_deps, real_deps, run_sweep
 
@@ -1450,6 +1450,8 @@ def main(argv: list[str] | None = None) -> int:
             raise SafetyError("BOT_MODE=webhook: the bot runs inside python -m jobengine.web "
                               "(Telegram calls it); long polling is for local runs only")
         check_bot_settings(s, fake=args.fake)
+        if not args.fake:  # dates by your clock, not the container's UTC (Phase 23 2-05)
+            use_local_time(s)
     except (SafetyError, ValueError) as exc:
         print(f"Job Engine bot startup failed: {exc}", file=sys.stderr)
         return 1
