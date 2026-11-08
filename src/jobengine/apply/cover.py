@@ -110,6 +110,28 @@ def check(text: str, gaps: list[str], resume_text: str = "") -> str | None:
     return None
 
 
+SIGN_OFF = re.compile(r"\b(?:kind regards|best regards|warm regards|regards|sincerely|"
+                      r"yours sincerely)\s*,", re.I)
+
+
+def sign(text: str, name: str = "") -> str:
+    """The letter ends with your name as Config profile.name spells it (9 Nov: the AI copied
+    the resume header, "MADESHWARAN M" on one letter and "Madeshwaran M" on another). With
+    no profile name, a signature in capitals becomes "Madeshwaran M". The sign-off and the
+    name are kept on their own lines."""
+    ends = list(SIGN_OFF.finditer(text))
+    if not ends or len(text) - ends[-1].end() > 80:  # no sign-off near the end: leave it
+        return text
+    head = text[:ends[-1].start()].rstrip()
+    off = ends[-1].group(0)
+    said = " ".join(text[ends[-1].end():].split())
+    name = " ".join(str(name or "").split())
+    if not name:
+        name = said.title() if said.isupper() else said
+    sep = "\n\n" if head else ""
+    return f"{head}{sep}{off}\n{name}".rstrip()
+
+
 def _cut(text: str) -> str:
     words = text.split(" ")
     if len(text.split()) <= MAX_WORDS:
@@ -121,7 +143,7 @@ def _cut(text: str) -> str:
 
 def write(llm: Any, *, company: str, role: str, country: str, jd: str, resume_text: str,
           details: list[str], gaps: list[str], key: str,
-          facts: dict[str, str] | None = None) -> Letter:
+          facts: dict[str, str] | None = None, name: str = "") -> Letter:
     """One AI call, checked. Never raises: a failure is a Letter with a note."""
     if not resume_text.strip():
         return Letter(None, "the approved resume could not be read")  # caller drops it
@@ -136,7 +158,8 @@ def write(llm: Any, *, company: str, role: str, country: str, jd: str, resume_te
     except Exception as exc:
         log.info("cover letter not written: %s", exc)
         return Letter(None, f"the AI call failed ({type(exc).__name__})")
-    text, problem = facts_mod.fix(_cut(_clean(str(answer.get("letter") or ""))), facts or {})
+    text, problem = facts_mod.fix(sign(_cut(_clean(str(answer.get("letter") or ""))), name),
+                                  facts or {})
     problem = problem or check(text, gaps, resume_text)
     if problem:
         log.info("cover letter left out: %s", problem)

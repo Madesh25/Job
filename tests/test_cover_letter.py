@@ -64,3 +64,20 @@ def test_resume_match_line_from_the_final_pdf():
     assert cover.cover_line(["Kubernetes"], text) == \
         "Resume match: shows 1 of 1 job keywords you have."
     assert cover.cover_line([], text) is None and cover.pdf_text(b"not a pdf") == ""
+
+
+def test_the_signature_is_your_profile_name():
+    # 9 Nov: "MADESHWARAN M" on one letter, "Madeshwaran M" on another (the resume header)
+    body = "Dear Hiring Team,\n\nI run Kubernetes.\n\n"
+    assert cover.sign(body + "Kind regards,\nMADESHWARAN M", "Madeshwaran M").endswith(
+        "I run Kubernetes.\n\nKind regards,\nMadeshwaran M")
+    assert cover.sign(body + "Kind regards, MADESHWARAN M") == (
+        body + "Kind regards,\nMadeshwaran M")  # no profile name: capitals become a name
+    assert cover.sign(body + "Kind regards,", "Madeshwaran M").endswith(
+        "Kind regards,\nMadeshwaran M")
+    assert cover.sign("No sign-off here.", "Madeshwaran M") == "No sign-off here."
+    llm = LLM({"letter": LETTER.replace("Madeshwaran M", "MADESHWARAN M")})
+    letter = cover.write(llm, company="Tulip", role="DevOps Engineer", country="Netherlands",
+                         jd="We need Kubernetes.", resume_text=RESUME, details=[], gaps=[],
+                         key="job1", name="Madeshwaran M")
+    assert letter.text.endswith("Kind regards,\nMadeshwaran M")
