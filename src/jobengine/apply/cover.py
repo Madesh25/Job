@@ -64,7 +64,14 @@ def pdf_text(pdf: bytes | None) -> str:
 
 
 def _names(term: str, text: str) -> bool:
-    return bool(re.search(rf"(?<![\w]){re.escape(term)}(?![\w])", text, re.I))
+    """The resume names the term, as words: "ci cd pipelines" is shown by "CI/CD pipelines"
+    (Phase 23 4-03, 8 Nov: it stayed in "not on it" after it was added)."""
+    if re.search(rf"(?<![\w]){re.escape(term)}(?![\w])", text, re.I):
+        return True
+    from jobengine.sweep.normalize import canon
+
+    wanted = canon(term)
+    return bool(wanted) and f" {wanted} " in f" {canon(text)} "
 
 
 def cover(terms: list[str], resume_text: str) -> tuple[list[str], list[str]]:

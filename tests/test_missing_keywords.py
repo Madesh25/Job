@@ -36,3 +36,23 @@ def test_at_most_eight_keywords(desk, monkeypatch):  # noqa: F811
     shown = preview(desk, monkeypatch, many)
     assert (f"Add {desk_mod.MAX_MISSING_TERMS} keywords", "mk:pl-clean") in shown.buttons
     assert desk.state.get(desk_mod.MISSING_KEY)["terms"] == many[:desk_mod.MAX_MISSING_TERMS]
+
+
+def test_a_term_map_word_is_never_a_keyword_you_have(desk, monkeypatch):  # noqa: F811
+    """Phase 23 4-03 (8 Nov): go, flux, rancher, elk and loki (Term Map rows for tools you do
+    not have) went into the resume through "Add 8 keywords", in lowercase."""
+    # GitHub Actions is a Term Map word (-> "CI/CD pipelines in GitLab CI"), not your skill.
+    assert desk.inventory_terms(["kubernetes", "GitHub Actions", "terraform", "Kubernetes"]) \
+        == ["Kubernetes", "Terraform"]
+    preview(desk, monkeypatch, ["kubernetes", "GitHub Actions"])
+    monkeypatch.setattr(type(desk), "resume_match", lambda self, outcome: (None, []))
+    note, *_ = desk.tap("mk:pl-clean")
+    assert note.text == "Rebuilding with Kubernetes (all in your Skills Inventory)."
+
+
+def test_a_keyword_with_a_slash_on_the_resume_counts_as_shown():
+    from jobengine.apply import cover
+
+    shown, left = cover.cover(["ci cd pipelines", "kubernetes", "istio"],
+                              "Built CI/CD pipelines on Kubernetes")
+    assert shown == ["ci cd pipelines", "kubernetes"] and left == ["istio"]
