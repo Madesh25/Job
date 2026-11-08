@@ -486,6 +486,10 @@ sweep:
     - electrical
     - mechanical
     - hvac
+    # Phase 23 2-05 (8 Nov): Intel "Facilities Industrial Waste Systems Engineer".
+    - facilities
+    - industrial
+    - waste
   # Country -> names and cities. City keys are the display names written to Notion;
   # aliases are canonical (lowercase ASCII, as produced by normalize.canon).
   locations:
