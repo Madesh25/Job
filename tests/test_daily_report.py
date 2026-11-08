@@ -245,3 +245,16 @@ def test_a_short_outage_is_tried_again_before_it_is_told():
     assert told.text.startswith("Auto-apply failed: POST") and len(d.mails) == 1
     assert tb._scheduled("Auto-apply", broken, d) == []  # counted again from zero
     assert tb._scheduled("Auto-apply", lambda: [], d) == [] and "Auto-apply" not in tb._passing
+
+
+def test_a_good_daily_check_pings_and_heartbeat_url_works_too():
+    """Phase 23 1-08 (8 Nov): the guide said HEARTBEAT_URL, and /today never pinged."""
+    assert settings(HEARTBEAT_URL="https://hc-ping.com/x").healthcheck_url == \
+        "https://hc-ping.com/x"
+    assert settings(HEALTHCHECK_URL="https://hc-ping.com/a",
+                    HEARTBEAT_URL="https://hc-ping.com/b").healthcheck_url == \
+        "https://hc-ping.com/a"
+    d = fake_desk(settings(), FAKE_TODAY, now=Clock())
+    d._track_now = lambda: datetime(2026, 10, 1, 9, 0)
+    d.today_command()
+    assert d.pings == [True]

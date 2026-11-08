@@ -203,6 +203,10 @@ def load_settings(env: str | None = None, environ: Mapping[str, str] | None = No
     # PROSPEO_API_KEY_2 failed with LocalProtocolError).
     secrets = {field: (environ.get(var) or "").strip().strip('"').strip("'").strip() or None
                for var, field in SECRET_VARS.items()}
+    # Phase 23 1-08 (8 Nov): the guide said HEARTBEAT_URL; that name works too.
+    if not secrets.get("healthcheck_url"):
+        alias = (environ.get("HEARTBEAT_URL") or "").strip().strip('"').strip("'").strip()
+        secrets["healthcheck_url"] = alias or None
 
     return Settings(
         app_env=env,
