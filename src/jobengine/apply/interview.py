@@ -131,6 +131,10 @@ def their_words(detail: str) -> str:
     """The job page speaks as "we": "moving our workloads to EKS" -> "moving your ..."."""
     for word, new in (("our", "your"), ("ours", "yours"), ("we", "you"), ("us", "you")):
         detail = re.sub(rf"\b{word}\b", new, detail)
+    # Phase 23 3-04 (8 Nov): "hearing about Secure the cloud-native platforms": a detail
+    # starts mid-sentence, so its first word is lowercase (not an acronym like "AWS").
+    if len(detail) > 1 and detail[0].isupper() and detail[1].islower():
+        detail = detail[0].lower() + detail[1:]
     return detail.rstrip(".")
 
 

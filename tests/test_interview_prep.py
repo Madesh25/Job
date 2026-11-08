@@ -77,3 +77,12 @@ def test_thanks_names_a_detail_that_is_no_gap():
 def test_commands_in_the_menu():
     names = [c["command"] for c in tb.bot_commands()]
     assert "prep" in names and "thanks" in names
+
+
+def test_the_detail_starts_lowercase_mid_sentence():
+    """Phase 23 3-04 (8 Nov): "hearing about Secure the cloud-native platforms"."""
+    from jobengine.apply.interview import their_words
+
+    assert their_words("Secure the cloud-native platforms behind our shop.") == \
+        "secure the cloud-native platforms behind your shop"
+    assert their_words("AWS migration of our workloads") == "AWS migration of your workloads"
