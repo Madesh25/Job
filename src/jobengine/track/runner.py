@@ -91,7 +91,7 @@ class Card:
 @dataclass
 class DailyReport:
     day: date
-    since: datetime
+    since: datetime  # where the mail search starts: the last check minus tracking.overlap_days
     tokens: dict[str, str | None] = field(default_factory=dict)
     sent: list[str] = field(default_factory=list)
     deleted_drafts: list[str] = field(default_factory=list)
@@ -110,6 +110,7 @@ class DailyReport:
     applied_jobs: list[str] = field(default_factory=list)  # marked Applied from a mail (A)
     errors: list[str] = field(default_factory=list)
     dry_run: bool = False
+    last_check: datetime | None = None  # shown in the heading (Phase 22 Q-24)
 
     @property
     def ok(self) -> bool:
@@ -117,8 +118,11 @@ class DailyReport:
 
     def text(self) -> str:
         lines = self.token_lines()
+        # 8 Nov (Q-24): the heading names the last check, not the search start one day
+        # earlier (the overlap only makes sure a late mail is not missed).
+        shown = self.last_check or self.since
         lines.append(f"Daily check {self.day.isoformat()} (since "
-                     f"{self.since.strftime('%Y-%m-%d %H:%M')})")
+                     f"{shown.strftime('%Y-%m-%d %H:%M')})")
         if self.sent:
             lines.append(f"Sent: {len(self.sent)} mails detected ({', '.join(self.sent)})")
         if self.deleted_drafts:
@@ -728,21 +732,32 @@ def list_retention(run: Run, report: DailyReport) -> None:
 # ---------------------------------------------------------------- the run
 
 
+def last_check_at(state: BotState) -> datetime | None:
+    """When the last daily check ran (Bot State), None before the first one."""
+    last = (state.get(MARKER) or {}).get("at")
+    if not last:
+        return None
+    try:
+        return datetime.fromisoformat(last)
+    except ValueError:
+        log.warning("bot_state %s is not a date: %s", MARKER, last)
+        return None
+
+
 def window_start(state: BotState, now: datetime, s: Settings) -> datetime:
     t = s.tracking
-    last = (state.get(MARKER) or {}).get("at")
-    if last:
-        try:
-            return datetime.fromisoformat(last) - timedelta(days=int(t.get("overlap_days", 1)))
-        except ValueError:
-            log.warning("bot_state %s is not a date: %s", MARKER, last)
+    last = last_check_at(state)
+    if last is not None:
+        return last - timedelta(days=int(t.get("overlap_days", 1)))
     return now - timedelta(days=int(t.get("first_run_days", 14)))
 
 
 def run_daily(deps: TrackDeps, now: datetime) -> DailyReport:
     since = window_start(deps.state, now, deps.s)
+    last = last_check_at(deps.state)
     report = DailyReport(day=now.date(), since=since.astimezone(now.tzinfo),
-                         dry_run=not gmail_write_allowed(deps.s))
+                         dry_run=not gmail_write_allowed(deps.s),
+                         last_check=last.astimezone(now.tzinfo) if last else None)
     for name in ("alerts", "sender"):
         report.tokens[name] = deps.token_check(name)
     run = Run(deps, now)
