@@ -275,3 +275,28 @@ def get_settings() -> Settings:
         dotenv = {k: v for k, v in dotenv_values(ROOT_DIR / ".env").items() if v is not None}
         environ = {**dotenv, **environ, **saved_gmail_env()}
     return load_settings(env, environ)
+
+
+def posix_zone(utc_offset: str) -> str:
+    """"+05:30" -> "UTC-05:30": the POSIX TZ form of a UTC offset (its sign is the other way
+    round), which needs no time zone files in the image."""
+    text = str(utc_offset or "+05:30").strip()
+    sign = "-" if text.startswith("-") else "+"
+    hours, _, minutes = text.lstrip("+-").partition(":")
+    flipped = "+" if sign == "-" else "-"
+    return f"UTC{flipped}{int(hours or 0):02d}:{int(minutes or 0):02d}"
+
+
+def use_local_time(s: Settings, environ: Any = None, tzset: Any = None) -> str | None:
+    """Phase 23 2-05 (9 Nov): in Docker and on Cloud Run the clock is UTC, so between 00:00
+    and 05:30 India time /fetch dated new jobs the day before (Swept date, "today" in /screen
+    and /pending). The process clock follows tracking.utc_offset (your clock, default
+    +05:30); a TZ already set in the environment wins. Returns the TZ set, or None."""
+    import time
+
+    environ = os.environ if environ is None else environ
+    if environ.get("TZ"):
+        return None
+    environ["TZ"] = posix_zone(str(s.tracking.get("utc_offset", "+05:30")))
+    (tzset or getattr(time, "tzset", lambda: None))()
+    return environ["TZ"]

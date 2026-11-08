@@ -8,13 +8,14 @@ import os
 import uvicorn
 
 from jobengine.main import banner
-from jobengine.settings import get_settings
+from jobengine.settings import get_settings, use_local_time
 from jobengine.web.app import build_app
 
 
 def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     s = get_settings()
+    use_local_time(s)  # dates by your clock, not Cloud Run's UTC (Phase 23 2-05)
     print(banner(s), flush=True)
     app = build_app(s)  # exits on an unsafe configuration
     uvicorn.run(app, host="0.0.0.0", port=int(os.environ.get("PORT", "8080")),
