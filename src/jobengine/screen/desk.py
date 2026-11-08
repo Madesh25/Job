@@ -2459,6 +2459,8 @@ class Desk:
         return [Reply("Tracking is not available in this bot.")] if self.track is None else None
 
     def report_replies(self, report: DailyReport) -> list[Reply]:
+        if report.ok:  # Phase 23 1-08: each good daily check (07:30, 21:30, /today) pings too
+            self.heartbeat(True)
         replies = [Reply(report.text()[:MAX_TEXT])]
         replies += [Reply(card.text[:MAX_TEXT], card.buttons) for card in report.cards]
         replies += self.add_applied_companies(report.applied_jobs)
