@@ -166,6 +166,9 @@ def test_skip_as_expired():
     replies = d.tap("xe:pl-clean")
     assert replies[0].text.startswith("Marked expired: ")
     assert d.repo.rows["pl-clean"]["Status"] == "Expired"
+    # Phase 23 3-01 (8 Nov): the reason and the date are filled too.
+    assert d.repo.rows["pl-clean"]["Skip reason"] == "Expired"
+    assert d.repo.rows["pl-clean"]["Last activity date"] == d.today()
 
 
 # ---------------------------------------------------------------- IND register

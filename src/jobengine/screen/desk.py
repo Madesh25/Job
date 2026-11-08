@@ -763,7 +763,9 @@ class Desk:
         page_id = next((r.page_id for r in before if same_page(r.page_id, arg)), arg)
         job = f"{values.get('Company')}, {values.get('Role')}"
         if action == "xe":  # "Skip as expired" under the closed-posting warning
-            self.repo.update(page_id, {"Status": "Expired"})
+            # Phase 23 3-01 (8 Nov): Skip reason and Last activity date stayed empty.
+            self.repo.update(page_id, {"Status": "Expired", "Skip reason": "Expired",
+                                       "Last activity date": self.today()})
             return [Reply(f"Marked expired: {job}"), *self.pending(position, rest)]
         if action == "ap":
             from jobengine.apply import link
@@ -3050,7 +3052,7 @@ class Desk:
         rows = [job_row(pid, values) for pid, values in self.repo.query_rows(
             select_filter("Status", *expired_check.OPEN_STATUSES))]
         result = expired_check.check(rows, self.get_page, now.date())
-        expired_check.expire(result, self.repo.update)
+        expired_check.expire(result, self.repo.update, now.date())
         return [Reply(result.text()[:MAX_TEXT])]
 
     def board_check_tick(self) -> list[Reply]:

@@ -120,6 +120,8 @@ def check(rows: Iterable[JobRow], get_page: link.PageGetter, today: date,
     return result
 
 
-def expire(result: Result, update: Callable[[str, dict[str, Any]], None]) -> None:
+def expire(result: Result, update: Callable[[str, dict[str, Any]], None],
+           today: Any = None) -> None:
     for row, _why in result.closed:
-        update(row.page_id, {"Status": "Expired"})
+        update(row.page_id, {"Status": "Expired", "Skip reason": "Expired",
+                             **({"Last activity date": today} if today else {})})
