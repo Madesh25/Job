@@ -569,7 +569,7 @@ def test_fetch_never_screens_by_itself():
 
 
 def test_desk_failures_are_reported_not_raised(desk):
-    def boom(index=0):
+    def boom(index=0, scope="all"):
         raise RuntimeError("notion down")
 
     desk.pending_command = boom

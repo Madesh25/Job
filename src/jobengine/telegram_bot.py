@@ -67,7 +67,7 @@ HELP_TEXT = (
     "/fetchreport - where the last /fetch's postings went and why jobs were dropped\n"
     "/alertcheck - the job alert mails the next /fetch reads, and their jobs\n"
     "\n🟢 Review and apply\n"
-    "/pending - review screened jobs one at a time; /pending poland, netherlands or "
+    "/pending - today's jobs one at a time (week, all); /pending poland, netherlands or "
     "ireland\n"
     "/applypack <url or id> - ready answers for a job's form (visa, notice, salary)\n"
     "/autofill - the bookmark that fills forms from the Apply pack code\n"
@@ -164,6 +164,7 @@ TAP_TOASTS = {"ap": "Checking the job link, then building your resume...",
               "xe": "Marking it expired...", "dm": "Using that domain...",
               "ln": "Writing the LinkedIn notes...",
               "nx": "Next job...", "pc": "Loading that country's jobs...",
+              "ps": "Loading those jobs...",
               "fg": "Adding it and rebuilding...", "mk": "Adding them and rebuilding...",
               "fc": "Adding it and rebuilding...", "ct": "Finding contacts...",
               "dr": "Writing Gmail drafts...", "fx": "Finding contacts and writing drafts...",
@@ -930,7 +931,11 @@ def desk_replies(update: dict[str, Any], s: Settings, desk: Desk | None) -> list
     if command == "next":
         return _guarded("/next", desk.next_command)
     if command == "pending":
-        return _guarded("/pending", lambda: desk.pending_command(args))
+        # Phase 23 3-01: a bare /pending shows today's jobs (/pending week or all for more).
+        from jobengine.screen.desk import PENDING_DEFAULT
+
+        return _guarded("/pending", lambda: desk.pending_command(
+            args, PENDING_DEFAULT if not args.strip() else "all"))
     if command == "agencies":
         return _guarded("/agencies", lambda: desk.agencies_command(args))
     if command == "gaps":
