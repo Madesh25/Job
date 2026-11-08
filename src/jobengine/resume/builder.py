@@ -614,6 +614,7 @@ def build_resume(
         if force_terms is not None:
             plan.correction_refused = None
             force_skills(plan, ctx.master, ctx.reference, correction or "", force_terms)
+        tidy_rows(plan, ctx.master)
         if plan.correction_refused and not correction:
             # Nothing was asked: on a retry the model sometimes explains its own earlier
             # attempt here. That is not a refusal; the rule check below decides.
@@ -759,12 +760,87 @@ def force_skills(
             continue
         present = [i for r in plan.skills_main + plan.skills_also for i in r.items
                    if gate.item_key(i) == gate.item_key(term)]
+        if not present and _shown_as_label(plan, term):
+            continue  # "CI/CD pipelines" is the "CI/CD Pipelines" row itself
         if not present and plan.skills_main:
-            plan.skills_main[-1].items.append(term)
+            _place(plan, term, reference)
             present = [term]
         forced += [i for i in present if gate.item_key(i) not in master_items
                    and not reference.lookup(i)]
     plan.forced_skills = list(dict.fromkeys(forced))
+
+
+# Phase 23 4-03 (8 Nov): an added keyword went to the last row (Systems & Scripting) although
+# it belongs to another one ("Kubernetes (AKS)" next to the Kubernetes items, "CI/CD
+# pipelines" is the CI/CD Pipelines row), and the plan moved Azure under GitOps & Registry.
+_WORD = re.compile(r"[a-z0-9+#]+")
+_SMALL = {"and", "or", "the", "of", "with", "in", "on", "for"}
+
+
+def _words(text: str) -> set[str]:
+    return {w for w in _WORD.findall(canon(text)) if w not in _SMALL}
+
+
+def _inner(term: str) -> str | None:
+    """"Kubernetes (AKS)" -> "AKS"."""
+    match = re.search(r"\(([^()]+)\)\s*$", term)
+    return match.group(1).strip() if match else None
+
+
+def _shown_as_label(plan: Plan, term: str) -> bool:
+    key = canon(term)
+    return any(canon(r.label) == key for r in plan.skills_main + plan.skills_also)
+
+
+def _place(plan: Plan, term: str, reference: Reference) -> None:
+    """Put an added skill in the row it belongs to: in place of its short form ("AKS" ->
+    "Kubernetes (AKS)"), else the row with an item or a label sharing a word with it, else
+    the row named like its Skills Inventory category, else the last row."""
+    rows = plan.skills_main
+    inner = _inner(term)
+    if inner:
+        for row in rows:
+            for n, item in enumerate(row.items):
+                if gate.item_key(item) == gate.item_key(inner):
+                    row.items[n] = term
+                    return
+    words = _words(term)
+    skill = next((s for s in reference.skills if gate.item_key(s.name) == gate.item_key(term)),
+                 None)
+    category = _words(skill.category or "") if skill is not None else set()
+    for test in (lambda r: any(words & _words(i) for i in r.items),
+                 lambda r: bool(words & _words(r.label)),
+                 lambda r: bool(category & _words(r.label))):
+        row = next((r for r in rows if test(r)), None)
+        if row is not None:
+            row.items.append(term)
+            return
+    rows[-1].items.append(term)
+
+
+def tidy_rows(plan: Plan, master: MasterResume) -> None:
+    """A skill from your Golden Master stays in its Golden Master row when the plan has that
+    row (Azure back under Cloud), and an item shown twice is kept once."""
+    home = {gate.item_key(i): r.label for r in master.skills_main + master.skills_also
+            for i in r.items}
+    rows = plan.skills_main + plan.skills_also
+    by_label = {gate.item_key(r.label): r for r in rows}
+    for row in rows:
+        for item in list(row.items):
+            label = home.get(gate.item_key(item))
+            target = by_label.get(gate.item_key(label)) if label else None
+            if target is not None and target is not row and len(row.items) > 2:
+                row.items.remove(item)  # never empties a row (the rules need items in it)
+                if all(gate.item_key(i) != gate.item_key(item) for i in target.items):
+                    target.items.append(item)
+    seen: set[str] = set()
+    for row in rows:
+        kept = []
+        for item in row.items:
+            if gate.item_key(item) not in seen:
+                seen.add(gate.item_key(item))
+                kept.append(item)
+        row.items[:] = kept
 
 
 # ---------------------------------------------------------------- salvage
