@@ -90,6 +90,7 @@ def test_the_bot_marks_closed_open_jobs_expired_once_a_week():
     text = d.expired_check_tick()[0].text
     assert text.startswith("🧹 Weekly link check: 1 of ")
     assert d.repo.rows["pl-clean"]["Status"] == "Expired"
+    assert d.repo.rows["pl-clean"]["Skip reason"] == "Expired"
     assert d.repo.rows["pl-b2b"]["Status"] == "Screened"
     assert d.repo.rows["pl-polish-required"]["Status"] == "New"  # not an open status
     assert "https://jobs.example.com/pl-polish-required" not in d.get_page.opened
