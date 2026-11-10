@@ -8,6 +8,11 @@ date has passed counts as closed without opening the link. LinkedIn and blocked 
 never opened. Anything unclear counts as open.
 
 Notion Config `schedule.expired_check` = `false` switches it off (default on).
+
+10 Nov (your request): the same check also runs in every /fetch (`after_fetch`, config
+sweep.link_check), so a closed job leaves /pending the same day: the jobs you will see
+first, at most `max_links` a /fetch, each job again after `recheck_days`. A LinkedIn job,
+which the bot never opens, counts as closed `linkedin_days` after it was posted.
 """
 
 from __future__ import annotations
@@ -96,8 +101,19 @@ def _day(value: Any) -> date | None:
         return None
 
 
+def linkedin_closed(row: JobRow, today: date, days: int | None) -> str | None:
+    """A LinkedIn job posted more than `days` ago (LinkedIn postings close by then)."""
+    host = (urlsplit(row.url or "").hostname or "").lower()
+    posted = _day(row.posted_date) or _day(row.swept_date)
+    if not days or "linkedin" not in host or posted is None:
+        return None
+    age = (today - posted).days
+    return (f"a LinkedIn job posted {age} days ago (LinkedIn postings close after {days})"
+            if age > days else None)
+
+
 def check(rows: Iterable[JobRow], get_page: link.PageGetter, today: date,
-          limit: int = MAX_LINKS) -> Result:
+          limit: int = MAX_LINKS, linkedin_days: int | None = None) -> Result:
     """Which rows look closed. A blocked host answers HttpError inside get_page and counts
     as open (closed_reason returns None)."""
     result = Result()
@@ -106,6 +122,10 @@ def check(rows: Iterable[JobRow], get_page: link.PageGetter, today: date,
         ends = _day(row.expires)
         if ends is not None and ends < today:
             result.closed.append((row, f"its Expires date {ends.isoformat()} has passed"))
+            continue
+        old = linkedin_closed(row, today, linkedin_days)
+        if old:
+            result.closed.append((row, old))
             continue
         if not openable(row.url):
             result.not_opened += 1
@@ -125,3 +145,67 @@ def expire(result: Result, update: Callable[[str, dict[str, Any]], None],
     for row, _why in result.closed:
         update(row.page_id, {"Status": "Expired", "Skip reason": "Expired",
                              **({"Last activity date": today} if today else {})})
+
+
+# ---------------------------------------------------------------- in every /fetch (10 Nov)
+
+FETCH_STATUSES = ("Screened", "Approved", "Resume built", "New")
+FETCH_KEY = "expired.fetch"  # bot_state: {page_id: iso date of its last check}
+DEFAULTS = {"enabled": True, "max_links": 150, "recheck_days": 3, "linkedin_days": 30,
+            "workers": 5}
+
+
+def fetch_settings(sweep: dict[str, Any]) -> dict[str, Any]:
+    return {**DEFAULTS, **(sweep.get("link_check") or {})}
+
+
+def _order(row: JobRow) -> tuple[int, int]:
+    """/pending first (what you see next), then your approved jobs, then the rest."""
+    rank = {"Screened": 0, "Approved": 1, "Resume built": 1}.get(row.status or "", 2)
+    if row.status == "Screened" and row.screen_verdict not in ("Apply", "Needs review"):
+        rank = 2
+    newest = _day(row.posted_date) or _day(row.swept_date) or date.min
+    return rank, -newest.toordinal()  # newest first in each group
+
+
+def after_fetch(rows: Iterable[JobRow], get_page: link.PageGetter, today: date,
+                state: Any, cfg: dict[str, Any],
+                update: Callable[[str, dict[str, Any]], None]) -> Result:
+    """The link check of one /fetch: closed jobs become Expired and leave /pending. Each job
+    is checked again after `recheck_days`; LinkedIn jobs by their age only."""
+    from datetime import timedelta
+
+    from jobengine.parallel import run_all
+
+    saved = dict((state.get(FETCH_KEY) if state is not None else None) or {})
+    cutoff = (today - timedelta(days=int(cfg["recheck_days"]))).isoformat()
+    saved = {k: v for k, v in saved.items() if str(v) > cutoff}
+    rows = sorted((r for r in rows if r.page_id not in saved), key=_order)
+    days = int(cfg["linkedin_days"] or 0) or None
+    result = Result()
+    to_open: list[JobRow] = []
+    for row in rows:
+        result.total += 1
+        ends = _day(row.expires)
+        why = (f"its Expires date {ends.isoformat()} has passed"
+               if ends is not None and ends < today else linkedin_closed(row, today, days))
+        if why:
+            result.closed.append((row, why))
+        elif not openable(row.url):
+            result.not_opened += 1
+            saved[row.page_id] = today.isoformat()
+        elif len(to_open) < int(cfg["max_links"]):
+            to_open.append(row)
+        else:
+            result.left += 1
+    reasons = run_all(lambda row: link.closed_reason(row.url or "", get_page, today), to_open,
+                      max(1, int(cfg["workers"])))
+    for row, why in zip(to_open, reasons, strict=True):
+        result.checked += 1
+        saved[row.page_id] = today.isoformat()
+        if why:
+            result.closed.append((row, why))
+    expire(result, update, today)
+    if state is not None:
+        state.set(FETCH_KEY, saved)
+    return result

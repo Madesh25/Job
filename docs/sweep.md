@@ -536,6 +536,25 @@ you (the autopilot stops there and says so).
   Unscreened row is skipped; a screened row keeps its verdict. The summary lists them the
   first time ("Alert jobs without a company name"); /add brings one back with its link.
 
+## Closed jobs leave the list in every /fetch (10 Nov)
+
+Your request: a job whose link gives "404" should not stay in /pending. After the direct
+links, every /fetch checks the open jobs (Status Screened, Approved, Resume built and New)
+with the same test as the weekly link check and the Approve button (track/expired_check.py,
+apply/link.py): HTTP 404 or 410, a "position closed" text, a JobPosting end date in the
+past, the link now opening the company's job list. A closed job gets Status Expired, Skip
+reason Expired and today's Last activity date, so it leaves /pending. No AI, plain page reads,
+5 at a time.
+
+- The /pending jobs (Screened, Apply or Needs review) first, then your approved ones, then
+  the rest, newest first; at most `sweep.link_check.max_links` (150) links a /fetch.
+- A job checked is checked again after `recheck_days` (3); the others come first.
+- LinkedIn links are never opened: a LinkedIn job counts as closed `linkedin_days` (30) after
+  its Posted date (else its Swept date), when LinkedIn closes its postings.
+- The /fetch summary: "Closed jobs taken off your list (Status Expired): N (M job links
+  checked)" and the first 10 with the reason. Wrong? Set the Status back in Notion.
+- `sweep.link_check.enabled: false` turns it off; the weekly Sunday check stays.
+
 ## Tidy job descriptions (2 Nov)
 
 Every description is written as tidy paragraphs (`src/jobengine/textblocks.py`): HTML left
