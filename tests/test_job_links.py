@@ -145,7 +145,8 @@ def test_the_company_job_board_comes_first_and_costs_no_search():
     assert search.calls == [] and result.searches == 0
 
 
-def test_rows_are_tried_again_after_three_days_and_closed_rows_never():
+def test_a_row_is_looked_up_once_and_closed_rows_never():
+    """10 Nov, your rule: one look-up per job is enough (each one costs Google searches)."""
     state = FakeBotState()
     search = Search()
     rows = [row(), row(company="Old Co", Status="Applied"), row(company="Skip Co",
@@ -153,10 +154,9 @@ def test_rows_are_tried_again_after_three_days_and_closed_rows_never():
     d = deps(rows, llm=search, state=state)
     assert job_links.run(d, BOARDS).tried == 1
     assert job_links.run(d, BOARDS).tried == 0  # remembered
-    next_day = job_links.Deps(**{**vars(d), "today": date(2026, 10, 29)})
-    assert job_links.run(next_day, BOARDS).tried == 0
-    later = job_links.Deps(**{**vars(d), "today": date(2026, 10, 31)})
-    assert job_links.run(later, BOARDS).tried == 1
+    for day in (date(2026, 10, 31), date(2026, 12, 31)):
+        later = job_links.Deps(**{**vars(d), "today": day})
+        assert job_links.run(later, BOARDS).tried == 0  # never again (until 10 Nov: 3 days)
 
 
 def test_search_budget_and_no_ai():
@@ -720,9 +720,9 @@ def board_get(titles):
     return get
 
 
-def test_a_job_not_on_the_company_job_list_is_skipped_at_the_second_check():
-    """2 Nov, your rule: a job the company does not put on its own site is likely a ghost
-    job. First miss: a note and a look again after RETRY_DAYS; second miss: skipped."""
+def test_a_job_not_on_the_company_job_list_waits_for_jd_and_is_not_looked_up_again():
+    """2 Nov: a job the company does not put on its own site is likely a ghost job. 10 Nov:
+    one check only; the note says so and the job waits for /jd (it is not skipped)."""
     state = FakeBotState()
     d = deps([row()], get=board_get(["Data Engineer"]), state=state)
     result = job_links.run(d, BOARDS)
@@ -730,29 +730,30 @@ def test_a_job_not_on_the_company_job_list_is_skipped_at_the_second_check():
     page = d.repo.rows["p0"]
     assert page["Screen verdict"] == "Unscreened"
     assert page["body"][-1].startswith("Company site check (2026-10-28): not on Dune Data's "
-                                       "own job list yet")
+                                       "own job list (likely a ghost job")
+    assert "not looked up again: it waits for /jd" in page["body"][-1]
     later = deps([row()], get=board_get(["Data Engineer"]), state=state)
-    later.repo, later.today = d.repo, TODAY + timedelta(days=job_links.RETRY_DAYS + 1)
-    result = job_links.run(later, BOARDS)
-    assert result.ghosts == ["Dune Data, DevOps Engineer"]
-    assert page["Screen verdict"] == "Skip"
-    assert "checked 2026-10-28, 2026-11-01" in page["body"][-1]
-    assert "likely a ghost job" in page["body"][-1] and "LinkedIn" in page["body"][-1]
-    # skipped rows are not looked up again
-    again = deps([row()], get=board_get(["Data Engineer"]), state=state)
-    again.repo, again.today = d.repo, TODAY + timedelta(days=10)
-    assert job_links.run(again, BOARDS).tried == 0
+    later.repo, later.today = d.repo, TODAY + timedelta(days=10)
+    assert job_links.run(later, BOARDS).tried == 0
+    assert len(page["body"]) == 1
 
 
-def test_a_screened_row_is_never_skipped_by_the_check():
+def test_a_row_with_its_description_is_not_looked_up_unless_approved():
+    """10 Nov, your rule: once the description is on the page, no look-up (a screened row had
+    one). An approved job is still looked up: its own link is where you apply."""
+    full = ["Description source: pasted (full)", TEXT]
     state = FakeBotState()
-    for day in (0, job_links.RETRY_DAYS + 1):
-        d = deps([row(**{"Screen verdict": "Needs review", "Status": "Screened"})],
-                 get=board_get(["Data Engineer"]), state=state)
-        d.today = TODAY + timedelta(days=day)
-        result = job_links.run(d, BOARDS)
-    assert result.ghosts == ["Dune Data, DevOps Engineer"]
-    assert d.repo.rows["p0"]["Screen verdict"] == "Needs review"
+    search = Search()
+    d = deps([row(**{"Screen verdict": "Needs review", "Status": "Screened"}),
+              row(company="Pasted Co", body=full),
+              row(company="Short Co", body=["Description source: adzuna (snippet only)", "Hi"]),
+              row(company="Approved Co", Status="Approved", body=full)],
+             llm=search, state=state)
+    result = job_links.run(d, BOARDS)
+    assert result.tried == 2  # the snippet row and the approved one
+    saved = state.get(job_links.KEY)
+    assert set(saved[job_links.DESCRIBED]) == {"p0", "p1"}
+    assert job_links.run(d, BOARDS).tried == 0
 
 
 def test_a_site_that_could_not_be_checked_is_noted_once_and_waits_for_jd():
@@ -793,7 +794,8 @@ def test_a_job_page_in_another_country_is_not_the_job():
 def test_the_summary_says_what_happened_to_the_jobs_not_found():
     text = SweepSummary(direct_links_tried=80, not_on_site_yet=12, site_unchecked=9,
                         ghost_jobs=["Acme, DevOps Engineer"]).friendly_text()
-    assert "12 not on the company's own job list yet: looked up again in 3 days" in text
+    assert ("12 not on the company's own job list (likely ghost jobs): not looked up again, "
+            "they wait for /jd") in text
     assert "9 whose company site could not be checked" in text
     assert ("Not on the company's own site at two checks, skipped as likely ghost jobs "
             "(noted on each page): 1") in text
@@ -901,7 +903,8 @@ def test_a_description_already_on_the_page_is_not_written_again():
     page = list_page("DevOps Engineer", "Data Engineer", "QA Engineer")
     job_url = "https://www.dunedata.com/careers/0"
     body = [f"Description source: ats (same job on Company site: {job_url})", TEXT]
-    d = deps([row(body=body)], pages={CAREERS: page, job_url: job_page("DevOps Engineer")},
+    d = deps([row(body=body, Status="Approved")],  # 10 Nov: else not looked up at all
+             pages={CAREERS: page, job_url: job_page("DevOps Engineer")},
              careers={"dune data": CAREERS})
     result = job_links.run(d, BOARDS)
     assert result.labels == ["Dune Data, DevOps Engineer (careers page)"]
@@ -1273,22 +1276,19 @@ def test_a_short_company_name_is_seen_in_its_web_address():
     assert job_links._company_host("https://www.pgcareers.com/global/en/job/R1", "P&G")
 
 
-def test_a_better_lookup_tries_the_jobs_not_found_before_once():
-    """4 Nov: after the fixes the jobs looked up in the morning waited 3 days; with a new
-    lookup version they are looked up again once (the ghost counts stay)."""
+def test_a_better_lookup_no_longer_looks_up_the_old_jobs_again():
+    """4 Nov: a new lookup version looked up every job not found before again; 10 Nov: that
+    cost most of the month's Google searches, so a job is looked up once whatever the version."""
     state = FakeBotState()
     state.set(job_links.KEY, {"tried": {"p0": TODAY.isoformat()},
                               "sites": {"dune data": {"url": "", "date": TODAY.isoformat()}},
-                              job_links.MISSES: {"p9": [TODAY.isoformat()]}})
+                              job_links.MISSES: {"p9": [TODAY.isoformat()]}, "version": 1})
     search = Search()
-    d = deps([row()], llm=search, state=state)
-    result = job_links.run(d, BOARDS)
-    assert result.tried == 1 and search.calls  # looked up again, its careers page searched
+    result = job_links.run(deps([row()], llm=search, state=state), BOARDS)
+    assert result.tried == 0 and not search.calls
     saved = state.get(job_links.KEY)
     assert saved["version"] == job_links.LOOKUP_VERSION
     assert saved[job_links.MISSES] == {"p9": [TODAY.isoformat()]}
-    again = job_links.run(deps([row()], llm=Search(), state=state), BOARDS)
-    assert again.tried == 0  # once only: now it waits its 3 days as before
 
 
 def test_a_close_title_in_the_same_place_is_the_same_job():

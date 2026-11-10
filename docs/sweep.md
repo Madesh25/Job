@@ -491,9 +491,13 @@ you (the autopilot stops there and says so).
   those jobs. A job board the bot may not open (Eightfold, safety.allowed_hosts) is skipped
   and the job goes on to the next step.
 - A row with no result waits for /jd; the log says "no direct link for Company, Role". It
-  is looked up again after 3 days (14 until 30 Oct). A row cut short because this sweep's
-  searches or browser pages ran out is looked up again at the next /fetch; the summary says
-  how many ("N not finished").
+  is never looked up again (10 Nov, your rule: one look-up per job; until then after 3
+  days). A row cut short because this sweep's searches or browser pages ran out is looked
+  up at the next /fetch (it was not really looked up); the summary says how many ("N not
+  finished"). A newer lookup no longer looks up the old jobs again.
+- A row whose full description is already on its page (pasted with /jd, read from another
+  board, or screened) is not looked up at all (10 Nov: each look-up costs Google searches),
+  unless it is Approved or Resume built: its own link is still wanted to apply.
 - `sweep.job_links.workers` (3; local and dev 5 until go-live, 2 Nov): companies looked up
   at the same time. All jobs of one
   company stay on one worker (its careers page is searched for once); Notion writes go one
@@ -504,9 +508,9 @@ you (the autopilot stops there and says so).
   its own site is likely a ghost job. Job boards are never opened for it. When the bot read
   the company's job list (its job board, or a careers page with jobs on it) and the job is
   not there, the page gets a note "Company site check (date): not on Acme's own job list
-  yet", and the job is looked up again after 3 days. Still missing then, the note says so
-  ("likely a ghost job") and an Unscreened row gets Screen verdict Skip; a screened row
-  keeps its verdict. When the company's site could not be checked (no careers page found,
+  (likely a ghost job, or not there yet)", and the job waits for /jd; it is not looked up
+  again and not skipped by itself (10 Nov; until then a second check after 3 days skipped
+  it). When the company's site could not be checked (no careers page found,
   no answer), the note says that once and the job waits for /jd. Screening never reads a
   note as a description. A job page for another country (its JobPosting country, or a
   country in its link, such as "...-india-...") is not the row's job.
