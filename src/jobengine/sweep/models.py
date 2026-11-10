@@ -342,8 +342,8 @@ class SweepSummary:
                 lines.append(f"- {self.direct_links_again} not finished (this /fetch's searches "
                              "or browser pages were used up): looked up again next /fetch")
             if self.not_on_site_yet:
-                lines.append(f"- {self.not_on_site_yet} not on the company's own job list yet: "
-                             "looked up again in 3 days, then skipped")
+                lines.append(f"- {self.not_on_site_yet} not on the company's own job list "
+                             "(likely ghost jobs): not looked up again, they wait for /jd")
             if self.site_unchecked:
                 lines.append(f"- {self.site_unchecked} whose company site could not be checked "
                              "(no careers page found, or no answer): they wait for /jd")

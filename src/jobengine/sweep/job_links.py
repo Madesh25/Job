@@ -18,11 +18,15 @@ job on the company's own site, never on LinkedIn, the way you would do it by han
 
 Only the company's own site counts (2 Nov, your rule): a job that a company does not put on
 its own site is likely a ghost job. When the bot read the company's job list and the job is
-not on it, the page gets a "Company site check" note and the job is looked up again after
-RETRY_DAYS; still missing then, the note says so and the row is skipped (Screen verdict
-Skip, only while it is Unscreened). When the company's site could not be checked (no careers
-page found, the site did not answer), the note says that and the job waits for /jd. Job
-boards (JustJoin IT, Pracuj.pl, theprotocol.it, IrishJobs, LinkedIn) are never opened.
+not on it, the page gets a "Company site check" note and the job waits for /jd (10 Nov,
+your rule: one look-up per job is enough, never again and again). When the company's site
+could not be checked (no careers page found, the site did not answer), the note says that
+and the job waits for /jd too. Job boards (JustJoin IT, Pracuj.pl, theprotocol.it,
+IrishJobs, LinkedIn) are never opened.
+
+A job whose full description is already on its page (pasted with /jd, read from another
+board, or screened) is not looked up at all (10 Nov: every look-up costs Google searches),
+unless you approved it: then its own link is still wanted, to apply.
 
 Every answer counts only after the bot read the page itself: an employer page (no job board
 or aggregator), whose job title is the row's title, with a full description. A recruitment
@@ -32,9 +36,9 @@ A found job gets its own link in URL and its description in the page body, so sc
 it and the autopilot can open its form. The old link stays on the page ("Earlier link"). The
 dedupe keeps an employer link: a later alert for the same job never puts LinkedIn back.
 Only an exact title counts: "Senior DevOps Engineer" is never used for "DevOps Engineer".
-A row that found nothing is tried again after RETRY_DAYS; it waits for /jd until then. A row
-that stopped because this sweep's searches or browser pages were used up is tried again at
-the next sweep.
+A row is looked up once (kept ONCE_DAYS, longer than a posting lives). Only a row that
+stopped because this sweep's searches or browser pages were used up is tried again at the
+next sweep: it was not really looked up.
 A form behind a login or a captcha is still yours to send: the autopilot stops there.
 """
 
@@ -70,7 +74,11 @@ KEY = "sweep.job_links"
 # copy): the jobs and companies not found before are looked up again once, not 3 or 14
 # days later. Ghost-job counts ("misses") are kept.
 LOOKUP_VERSION = 9  # 9: a job list the browser could not open is no check
-RETRY_DAYS = 3  # a job not found is looked up again after this (14 until 30 Oct)
+RETRY_DAYS = 3  # until 10 Nov a job not found was looked up again after this
+ONCE_DAYS = 120  # 10 Nov: a job is looked up once; kept this long (postings close sooner)
+DESCRIBED = "described"  # rows not looked up because their description is on the page
+WITH_LINK_STATUSES = ("Approved", "Resume built")  # their own link is wanted even so
+MAX_BODY_READS = 200  # pages read in one sweep to see whether a description is there
 NO_BOARD_DAYS = 14  # a company without a job board or careers page is asked again after
 MAX_RENDERS_PER_JOB = 2  # browser pages for one job: one site never uses the whole budget
 THIN_PAGE_CHARS = 3000  # a page with less text than this may fill itself with JavaScript
@@ -213,7 +221,7 @@ class Result:
     again: int = 0  # jobs tried again next sweep: this sweep's searches or browser ran out
     ghosts: list[str] = field(default_factory=list)  # not on the company's site twice: skipped
     no_company: list[str] = field(default_factory=list)  # the alert showed no company: noted
-    not_yet: int = 0  # not on the company's site at the first check: looked up again
+    not_yet: int = 0  # not on the company's site when checked: waits for /jd
     unchecked: int = 0  # the company's site could not be checked: waits for /jd
     deleted: list[str] = field(default_factory=list)  # reposted jobs deleted (4 Nov)
 
@@ -1185,9 +1193,10 @@ def from_search(deps: Deps, company: str, role: str, city: str | None,
 
 
 def _remembered(state: Any, today: date, part: str) -> dict[str, str]:
-    """The rows ("tried", RETRY_DAYS) or companies ("no_board", NO_BOARD_DAYS) still kept."""
+    """The rows ("tried" and "described", ONCE_DAYS) or companies ("no_board",
+    NO_BOARD_DAYS) still kept."""
     value = (state.get(KEY) if state is not None else None) or {}
-    days = RETRY_DAYS if part == "tried" else NO_BOARD_DAYS
+    days = ONCE_DAYS if part in ("tried", DESCRIBED) else NO_BOARD_DAYS
     cutoff = (today - timedelta(days=days)).isoformat()
     return {k: v for k, v in (value.get(part) or {}).items() if str(v) > cutoff}
 
@@ -1385,12 +1394,9 @@ def run(deps: Deps, boards: tuple[str, ...], with_body: set[str] | None = None,
     tried = _remembered(deps.state, deps.today, "tried")
     no_board = _remembered(deps.state, deps.today, "no_board")
     sites = _sites(deps.state, deps.today)
-    if int(saved.get("version") or 1) < LOOKUP_VERSION:
-        log.info("direct job links: the lookup is new (version %d): %d jobs and %d companies "
-                 "not found before are looked up again", LOOKUP_VERSION, len(tried),
-                 sum(1 for v in sites.values() if not v.get("url")))
-        tried = {}
-        sites = {k: v for k, v in sites.items() if v.get("url")}
+    described = _remembered(deps.state, deps.today, DESCRIBED)
+    # 10 Nov: a better lookup no longer looks up the jobs and companies not found before
+    # again (5 and 7 Nov: that cost most of the month's Google searches). One look-up a job.
     cutoff = (deps.today - timedelta(days=MISSES_KEEP_DAYS)).isoformat()
     misses: dict[str, list[str]] = {
         k: [d for d in v if str(d) > cutoff] for k, v in (saved.get(MISSES) or {}).items()
@@ -1404,11 +1410,36 @@ def run(deps: Deps, boards: tuple[str, ...], with_body: set[str] | None = None,
     searches = Budget(allowed)
     lock = threading.Lock()  # counters and Notion writes
 
+    body_reads = 0
+
+    def has_description(page_id: str, values: dict[str, Any]) -> bool:
+        """The full description is on the page already (a screened row had one)."""
+        nonlocal body_reads
+        if page_id in described:
+            return True
+        if str(values.get("Screen verdict") or "Unscreened") != "Unscreened":
+            return True
+        if body_reads >= MAX_BODY_READS:
+            return False
+        from jobengine.screen.runner import description
+
+        body_reads += 1
+        try:
+            texts = [text for _id, text in deps.repo.body_blocks(page_id)]
+        except Exception as exc:  # unreadable page: look it up as before
+            log.info("direct job links: page %s not read: %s", page_id, exc)
+            return False
+        return description(texts)[1] == "full"  # as screening reads it
+
     groups: dict[str, list[tuple[str, dict[str, Any]]]] = {}
     for page_id, values in rows:
         if result.tried >= max_rows:
             break
         if page_id in tried:
+            continue
+        if (values.get("Status") not in WITH_LINK_STATUSES
+                and has_description(page_id, values)):
+            described.setdefault(page_id, deps.today.isoformat())
             continue
         result.tried += 1
         tried[page_id] = deps.today.isoformat()
@@ -1519,8 +1550,9 @@ def run(deps: Deps, boards: tuple[str, ...], with_body: set[str] | None = None,
             if len(days) < MISSES_TO_SKIP:
                 result.not_yet += 1
                 deps.repo.append_body(page_id, [
-                    f"{NOTE} ({today}): not on {company}'s own job list yet. Looked up again "
-                    f"after {RETRY_DAYS} days; still missing then, it is skipped."])
+                    f"{NOTE} ({today}): not on {company}'s own job list (likely a ghost job, "
+                    "or not there yet). It is not looked up again: it waits for /jd (paste "
+                    "it or send its saved page), or skip it."])
                 return
             text = (f"{NOTE} ({today}): not on {company}'s own job list (checked "
                     f"{', '.join(days)}). It is only on {board}: likely a ghost job or one the "
@@ -1565,7 +1597,8 @@ def run(deps: Deps, boards: tuple[str, ...], with_body: set[str] | None = None,
     for labels in run_all(company_jobs, list(groups.values()), workers, done):
         result.labels.extend(labels)
     if deps.state is not None:
-        deps.state.set(KEY, {"tried": tried, "no_board": no_board, "sites": sites,
+        deps.state.set(KEY, {"tried": tried, DESCRIBED: described, "no_board": no_board,
+                             "sites": sites,
                              MISSES: misses, "noted": noted, "no_company": no_company,
                              "version": LOOKUP_VERSION})
     return result
