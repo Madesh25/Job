@@ -503,7 +503,8 @@ def test_jd_two_messages_then_done_screens_the_row(desk):
 
 def test_jd_for_a_new_url_creates_the_row(desk):
     talk(desk, "/jd https://www.irishjobs.ie/job/77\nCompany: Harbour Soft\nRole: SRE",
-         "We run Kubernetes.", "/done")
+         "We run Kubernetes and Terraform on AWS for our trading platform in Dublin, "
+         "with on-call shared across the team.", "/done")
     url = "https://www.irishjobs.ie/job/77"
     created = [r for r in desk.repo.rows.values() if r.get("URL") == url]
     assert len(created) == 1
@@ -1168,3 +1169,12 @@ def test_every_button_gets_a_working_note(desk):
     fake = talk(desk, tap(1, "zz:unknown"))
     answer = next(p for m, p in fake.calls if m == "answerCallbackQuery")
     assert answer["text"] == tb.TAP_DEFAULT
+
+
+def test_a_few_words_are_not_saved_as_a_description(desk):
+    """6-01 (10 Nov): "manychat.com", the answer to a domain question, was saved as a job's
+    description by an open /jd."""
+    fake = talk(desk, "/jd https://www.linkedin.com/jobs/view/4012345678", "manychat.com",
+                "/done")
+    assert "Only 12 characters collected: that is not a job description" in fake.sent[-1][1]
+    assert not desk.repo.rows["li-no-jd"].get("body")

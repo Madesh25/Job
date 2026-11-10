@@ -413,6 +413,14 @@ if a field or endpoint differs, the probe output shows it.
   optional). The job is saved with Board LinkedIn, then the 2 contacts and your LinkedIn
   connections there with their referral messages follow. `/contacts` alone shows the
   Contacts table in numbers (by Status, found and mailed this week).
+- **A Greenhouse job link** (10 Nov, Phase 23 6-01): job-boards.greenhouse.io answers a
+  script page that sends the bot to the company's board, so the role and country were
+  missing and the board page was saved. Now its public jobs API
+  (boards-api.greenhouse.io/v1/boards/<board>/jobs/<id>) gives the title, place and text,
+  and the job link itself is saved (`/add` reads it the same way).
+- **A bare domain answers the open domain question** even while a `/jd` paste is open (6-01:
+  "manychat.com" became another job's description), and `/done` with fewer than 80
+  characters saves nothing.
 - **The same link with or without tracking parts** (utm, trk, gclid ...) finds the same job.
 - **A job row without a Country** takes it from its City, else from its company's Region in
   Target Companies, so the strict location rule always applies (Comarch kept people of
