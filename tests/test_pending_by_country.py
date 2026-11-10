@@ -17,7 +17,7 @@ def test_pending_asks_for_a_country_first():
     assert menu.text == CHOOSE_COUNTRY
     assert menu.buttons == [("Poland (7)", "pc:Poland"), ("Netherlands (3)", "pc:Netherlands"),
                             ("Ireland (1)", "pc:Ireland"), ("All (11)", "pc:all"),
-                            ("This week (11)", "ps:week"), ("No description (2)", "li:next:0")]
+                            ("This week (11)", "ps:week"), ("No description (1)", "jd:menu")]
 
 
 def test_a_country_button_shows_only_that_country():
