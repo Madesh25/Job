@@ -305,6 +305,15 @@ sets `Status` to `Screened` only if it is `New` or `Screened`, so a row never mo
   (optionally `Country:` and `City:`). The paste is kept in Bot State (key `jd_capture`), so a
   bot restart does not lose it; after 20 minutes without `/done` it is discarded.
 - `/jd` alone lists the LinkedIn jobs waiting for a description.
+- A saved job page instead of the paste (10 Nov, your request): with the job open in your
+  browser press Ctrl+S, choose "Webpage, Single File" (.mhtml; "HTML only" or "Webpage,
+  Complete" work too, send the .html file), and send the file to the bot. It is the
+  description of the open `/jd` (or `/linkedin`) job; without one, of the job whose link the
+  page names (LinkedIn's job id, "saved from url", the canonical link). The bot reads only the
+  file, never the site. LinkedIn's "About the job" part is taken; other sites give their
+  JobPosting description or their longest text block. Saved as `Description source: saved
+  page (full)` and screened at once. A page without a description (a sign-in page) says so
+  and the `/jd` stays open.
 - `/linkedin` (or the "LinkedIn (N)" button in the /pending country menu) shows those jobs
   one at a time with their link and starts the paste for you: copy the description from
   LinkedIn, paste it, tap Done. It is saved and screened like `/jd` (one AI call), then the

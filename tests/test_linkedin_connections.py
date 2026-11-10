@@ -156,7 +156,7 @@ def test_sending_the_export_to_the_bot_updates_the_table(monkeypatch, capsys, tm
     assert tb.main(["--fake"]) == 0
     out = capsys.readouterr().out
     assert "LinkedIn connections updated from your export (2 people):" in out
-    assert "photo.png: the bot only reads your LinkedIn export" in out
+    assert "photo.png: the bot reads a job page you saved" in out
     assert "LinkedIn connections: 2 people from the export sent on" in out
 
 
