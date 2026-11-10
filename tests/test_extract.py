@@ -153,3 +153,15 @@ def test_missing_keys_mean_not_stated():
 def test_prompt_asks_for_a_short_reply():
     assert "compact JSON" in SYSTEM_PROMPT
     assert "Leave out every key whose" in SYSTEM_PROMPT
+
+
+def test_relocation_support_alone_is_not_sponsorship():
+    """Phase 23 3-06 (10 Nov): Swisscom's "Full relocation support" became Stated yes."""
+    jd = JD + "\nWe offer full relocation support. Visa sponsorship is available for this role."
+    moving, dropped = check_quotes(
+        raw(sponsorship={"value": "stated_yes", "quote": "full relocation support"}), jd)
+    assert moving.sponsorship_value == "not_mentioned" and "sponsorship" in dropped
+    visa, dropped = check_quotes(
+        raw(sponsorship={"value": "stated_yes",
+                         "quote": "Visa sponsorship is available for this role"}), jd)
+    assert visa.sponsorship_value == "stated_yes" and "sponsorship" not in dropped
