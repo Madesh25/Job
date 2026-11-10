@@ -309,17 +309,21 @@ sets `Status` to `Screened` only if it is `New` or `Screened`, so a row never mo
   once. If the job is not in Notion yet, start with `Company: ...` and `Role: ...` lines
   (optionally `Country:` and `City:`). The paste is kept in Bot State (key `jd_capture`), so a
   bot restart does not lose it; after 20 minutes without `/done` it is discarded.
-- `/jd` alone (10 Nov, your request: one flow for every board) shows the jobs without a
-  description one at a time, LinkedIn first, then JustJoin IT, Pracuj.pl, IrishJobs and the
-  others, with the link and the buttons Done, Next and Not interested. `/linkedin` and the
-  "No description (N)" button in the /pending country menu open the same flow. `/jd list`
-  lists them all.
+- `/jd` alone (10 Nov, your requests: one flow for every board; only recent jobs) shows a
+  button per board (LinkedIn first, then by count) with its jobs posted in the last 3 days
+  (`JD_DAYS`; the Swept date when there is no Posted date), and All. Older ones are not
+  shown (the menu says how many; `/jd list` lists them all). Tap a board: its jobs come one
+  at a time, the best /fetch match score first (they have no verdict before their
+  description), then the newest, with the link, the posted date and the buttons Done, Next
+  and Not interested. `/linkedin` opens the LinkedIn board; the "No description (N)" button
+  in the /pending country menu opens the board menu.
 - For each job: open the link, save the page (Ctrl+S; Chrome or Edge "Webpage, Single File",
   .mhtml; Firefox "Web Page, complete", send the .htm or .html file only, not its folder)
   and send the file to the bot. Or paste the text and tap Done. It is saved as
   `Description source: saved page (full)` (or `pasted (full)`), screened at once (one AI
-  call), the job's card comes, then "N more job(s) wait for a description" with a "Next job"
-  button. Done after a saved page shows the next job. "Not interested" Declines the job
+  call), the job's card comes with its buttons (also when the job is outside the /pending day
+  or country you chose; until 10 Nov only a line came), then "N more job(s) wait for a
+  description" with a "Next job" button. Done after a saved page shows the next job. "Not interested" Declines the job
   without any AI call. (Your idea of 1 Oct; one flow 10 Nov.)
 - The bot reads only the file, never the site. Without an open `/jd` the job is the one whose
   link the page names (LinkedIn's job id, "saved from url", the canonical link). From a

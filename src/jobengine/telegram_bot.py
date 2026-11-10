@@ -59,7 +59,7 @@ HELP_TEXT = (
     "/screen batch - send them at half price, answers later\n"
     "/screen collect - save the answers of that batch\n"
     "/jd <url> - paste a job's description, then /done; or send its saved page (a file)\n"
-    "/jd - jobs without a description one at a time, any board: send each saved page\n"
+    "/jd - jobs of the last 3 days without a description, by board: send each saved page\n"
     "/add <job link> - save a job from a company's own site, resume and Target Companies\n"
     "/newcompanies - companies hiring for your roles, not in Target Companies\n"
     "/fetchreport - where the last /fetch's postings went and why jobs were dropped\n"
@@ -166,7 +166,8 @@ TAP_TOASTS = {"ap": "Checking the job link, then building your resume...",
               "fg": "Adding it and rebuilding...", "mk": "Adding them and rebuilding...",
               "fc": "Adding it and rebuilding...", "ct": "Finding contacts...",
               "dr": "Writing Gmail drafts...", "fx": "Finding contacts and writing drafts...",
-              "fr": "Listing those jobs...", "li": "Working on the LinkedIn job...",
+              "fr": "Listing those jobs...", "li": "Working on that job...",
+              "jb": "Loading that board's jobs...", "jd": "Loading the boards...",
               "ra": "Saving the resume...", "rb": "Building the resume again...",
               "cl": "Building the resume again with Claude...",
               "rq": "Send what to change...", "ia": "Marking as applied...",

@@ -165,7 +165,8 @@ def test_firefox_keeps_the_whole_linkedin_page_and_only_the_job_is_taken():
 
 def test_a_saved_page_in_the_queue_brings_the_next_job():
     d = desk()
-    d.jd("")
+    d.tap("jb:")
     replies = d.saved_page_file("job.htm", linkedin_html(url="https://other.example/x").encode())
     assert replies[0].text.startswith("Saved the description (")
-    assert replies[-1].buttons == [("Next job", "li:next:0")]
+    assert replies[-1].text.endswith("wait for a description.")  # the queue goes on
+    assert any(r.buttons and r.buttons[0][1].startswith("ap:") for r in replies)  # its card
