@@ -530,8 +530,8 @@ def test_old_capture_is_discarded(desk):
     assert "body" not in desk.repo.rows["li-no-jd"] or not desk.repo.rows["li-no-jd"]["body"]
 
 
-def test_jd_without_url_lists_waiting_rows(desk):
-    fake = talk(desk, "/jd")
+def test_jd_list_lists_waiting_rows(desk):
+    fake = talk(desk, "/jd list")
     assert "2 jobs wait for a description (1 LinkedIn, 1 Company site)" in fake.sent[0][1]
     assert "https://www.linkedin.com/jobs/view/4012345678" in fake.sent[0][1]
     assert "Company site:\n- Northwind Cloud" in fake.sent[0][1]

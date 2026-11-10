@@ -304,21 +304,25 @@ sets `Status` to `Screened` only if it is `New` or `Screened`, so a row never mo
   once. If the job is not in Notion yet, start with `Company: ...` and `Role: ...` lines
   (optionally `Country:` and `City:`). The paste is kept in Bot State (key `jd_capture`), so a
   bot restart does not lose it; after 20 minutes without `/done` it is discarded.
-- `/jd` alone lists the LinkedIn jobs waiting for a description.
-- A saved job page instead of the paste (10 Nov, your request): with the job open in your
-  browser press Ctrl+S, choose "Webpage, Single File" (.mhtml; "HTML only" or "Webpage,
-  Complete" work too, send the .html file), and send the file to the bot. It is the
-  description of the open `/jd` (or `/linkedin`) job; without one, of the job whose link the
-  page names (LinkedIn's job id, "saved from url", the canonical link). The bot reads only the
-  file, never the site. LinkedIn's "About the job" part is taken; other sites give their
-  JobPosting description or their longest text block. Saved as `Description source: saved
-  page (full)` and screened at once. A page without a description (a sign-in page) says so
-  and the `/jd` stays open.
-- `/linkedin` (or the "LinkedIn (N)" button in the /pending country menu) shows those jobs
-  one at a time with their link and starts the paste for you: copy the description from
-  LinkedIn, paste it, tap Done. It is saved and screened like `/jd` (one AI call), then the
-  job's card comes for Approve or Skip, and a "Next LinkedIn job" button. "Not interested"
-  Declines the job without any AI call. (Your idea of 1 Oct.)
+- `/jd` alone (10 Nov, your request: one flow for every board) shows the jobs without a
+  description one at a time, LinkedIn first, then JustJoin IT, Pracuj.pl, IrishJobs and the
+  others, with the link and the buttons Done, Next and Not interested. `/linkedin` and the
+  "No description (N)" button in the /pending country menu open the same flow. `/jd list`
+  lists them all.
+- For each job: open the link, save the page (Ctrl+S; Chrome or Edge "Webpage, Single File",
+  .mhtml; Firefox "Web Page, complete", send the .htm or .html file only, not its folder)
+  and send the file to the bot. Or paste the text and tap Done. It is saved as
+  `Description source: saved page (full)` (or `pasted (full)`), screened at once (one AI
+  call), the job's card comes, then "N more job(s) wait for a description" with a "Next job"
+  button. Done after a saved page shows the next job. "Not interested" Declines the job
+  without any AI call. (Your idea of 1 Oct; one flow 10 Nov.)
+- The bot reads only the file, never the site. Without an open `/jd` the job is the one whose
+  link the page names (LinkedIn's job id, "saved from url", the canonical link). From a
+  LinkedIn page only the job is taken: the text after "About the job" up to "Set alert for
+  similar jobs", "About the company" or "More jobs" (3-06: Firefox keeps the whole page,
+  with Premium lines and 13 other jobs). Other sites give their JobPosting description or
+  their longest text block. A page without a description (a sign-in page) says so and the
+  `/jd` stays open.
 - `/screen` screens what is not screened yet; `/screen <url or id>` screens one job again.
 
 In the fake bot (`python -m jobengine.telegram_bot --fake`), `tap <data>` presses a button,

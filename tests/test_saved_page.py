@@ -64,7 +64,7 @@ def test_the_file_types_and_the_job_link_in_the_file():
 
 def test_only_the_job_description_is_taken_from_a_linkedin_page():
     text = saved_page.description(linkedin_html())
-    assert text.startswith("About the job\nNorthwind Cloud is hiring")
+    assert text.startswith("Northwind Cloud is hiring")
     assert "People also viewed" not in text and "My Network" not in text
     assert "repeat" not in text
 
@@ -84,7 +84,7 @@ def test_the_saved_page_of_the_open_jd_job_is_saved_and_screened():
                                 mhtml(linkedin_html(url="https://other.example/x")))
     body = d.repo.rows["li-no-jd"]["body"]
     assert body[0] == "Description source: saved page (full)"
-    assert body[1].startswith("About the job\nNorthwind Cloud is hiring")
+    assert body[1].startswith("Northwind Cloud is hiring")
     assert replies[0].text.startswith("Saved the description (")
     assert d.repo.rows["li-no-jd"]["Screen verdict"] != "Unscreened"
     assert d.captures.get() is None
@@ -99,7 +99,7 @@ def test_without_jd_the_job_comes_from_the_link_in_the_page():
 def test_a_page_of_no_known_job_or_without_a_description_says_what_to_do():
     d = desk()
     which = d.saved_page_file("job.html", linkedin_html(url="https://nowhere.example/1").encode())
-    assert "which job is it? Send /jd <the job's link> first" in which[0].text
+    assert "which job is it? Open it with /jd first" in which[0].text
     d.jd("https://www.linkedin.com/jobs/view/4012345678")
     empty = d.saved_page_file("login.html", b"<html><body>Sign in to LinkedIn</body></html>")
     assert "no job description found in it" in empty[0].text
@@ -132,3 +132,40 @@ def test_a_new_job_link_takes_company_and_role_from_the_page():
     created = [r for r in d.repo.rows.values() if r.get("URL") == "https://jobs.example.com/77"]
     assert len(created) == 1 and created[0]["Role"] == "Platform Engineer"
     assert created[0]["body"][0] == "Description source: saved page (full)"
+
+
+DRW_PAGE = """<html><body><main>
+<div>DRW</div><div>Trading Systems Engineer (Trading Platform)</div>
+<div>Amsterdam, North Holland, Netherlands · Reposted 1 day ago</div>
+<div>Use AI to assess how you fit</div>
+<div>Get AI-powered advice on this job and more exclusive features with Premium.</div>
+<ul><li>Show match details</li><li>Tailor my resume</li></ul>
+<h2>About the job</h2>
+<p>DRW is a diversified trading firm with over 3 decades of experience.</p>
+<p>""" + "You work closely with trading, infrastructure and software teams. " * 8 + """</p>
+<ul><li>Minimum of 5 years working in trade support or site reliability engineering</li>
+<li>Knowledge of Linux/Unix environments</li></ul>
+<div>Set alert for similar jobs</div><div>System Engineer, Amsterdam</div>
+<div>Unlock hiring insights on DRW</div><div>About the company</div>
+<div>116,986 followers</div><div>More jobs</div>
+<div>Trading Systems Engineer</div><div>Selby Jennings</div>
+</main></body></html>"""
+
+
+def test_firefox_keeps_the_whole_linkedin_page_and_only_the_job_is_taken():
+    """3-06 (10 Nov): the Firefox page kept Premium lines, About the company and 13 other
+    jobs in the description."""
+    text = saved_page.description(DRW_PAGE)
+    assert text.startswith("DRW is a diversified trading firm")
+    assert "Knowledge of Linux/Unix environments" in text
+    for junk in ("Premium", "Tailor my resume", "Set alert", "About the company",
+                 "Selby Jennings", "followers"):
+        assert junk not in text
+
+
+def test_a_saved_page_in_the_queue_brings_the_next_job():
+    d = desk()
+    d.jd("")
+    replies = d.saved_page_file("job.htm", linkedin_html(url="https://other.example/x").encode())
+    assert replies[0].text.startswith("Saved the description (")
+    assert replies[-1].buttons == [("Next job", "li:next:0")]
