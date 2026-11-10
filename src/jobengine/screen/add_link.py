@@ -83,6 +83,48 @@ def _meta(soup: BeautifulSoup, name: str) -> str:
     return str(tag.get("content") or "").strip() if tag else ""
 
 
+# A Greenhouse job link (10 Nov, Phase 23 6-01): job-boards.greenhouse.io answers a script page
+# that sends the bot to the company's board, so the job's title and place were missing and
+# the board page was saved. Its public jobs API gives the job itself.
+GREENHOUSE_JOB = re.compile(
+    r"^https?://(?:job-)?boards(?:\.eu)?\.greenhouse\.io/([\w-]+)/jobs/(\d+)", re.I)
+GREENHOUSE_JOB_API = "https://boards-api.greenhouse.io/v1/boards/{token}/jobs/{job}"
+
+
+def greenhouse_api(url: str) -> str | None:
+    """The public API address of a Greenhouse job link, else None."""
+    match = GREENHOUSE_JOB.match(url.strip())
+    if not match or match.group(1).lower() == "embed":
+        return None
+    return GREENHOUSE_JOB_API.format(token=match.group(1), job=match.group(2))
+
+
+def from_greenhouse(url: str, raw: str) -> PageJob | None:
+    """The job from Greenhouse's API answer (JSON text), None when it is not a job."""
+    import html as html_lib
+
+    try:
+        data = json.loads(raw)
+    except ValueError:
+        return None
+    if not isinstance(data, Mapping) or not data.get("title"):
+        return None
+    content = html_lib.unescape(str(data.get("content") or ""))
+    token = (GREENHOUSE_JOB.match(url.strip()) or [None, ""])[1]
+    company = _text(data.get("company_name")) or str(token).replace("-", " ").title()
+    return PageJob(url=url, title=_text(data.get("title")),
+                   company=short_company(company),
+                   location=_text(data.get("location")),
+                   description=fulltext.extract(f"<html><body>{content}</body></html>")
+                   or textblocks_text(content) or None)
+
+
+def textblocks_text(html_text: str) -> str:
+    from jobengine import textblocks
+
+    return textblocks.tidy(textblocks.text_of(BeautifulSoup(html_text, "html.parser")))
+
+
 def read_page(url: str, page: str) -> PageJob:
     """Title, company, place and description of a job page; empty fields when unknown."""
     soup = BeautifulSoup(page, "html.parser")

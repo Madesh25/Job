@@ -283,6 +283,7 @@ LINKEDIN_PASTE = ("Open the link, save the page (Ctrl+S; Chrome or Edge: \"Webpa
                   "File\"; Firefox: \"Web Page, complete\") and send the file here. Or copy the "
                   "description, paste it and tap Done. The bot saves it in Notion, screens the "
                   "job (one AI call), shows its card, then the next job.")
+MIN_PASTE_CHARS = 80  # a /done paste shorter than this is not a job description (10 Nov)
 JD_DAYS = 3  # /jd shows the jobs posted in the last 3 days (10 Nov, your request)
 JD_BOARD_KEY = "jd_board"  # bot_state: {"board": the /jd board you tapped, None for all}
 SAVED_PAGE_WHICH = ("{name}: which job is it? Open it with /jd first (or send /jd <the job's "
@@ -416,6 +417,9 @@ class Desk:
         self.get_slow_page: Callable[[str], tuple[str, str]] = \
             lambda url: http.get_page(url, s=self.s, blocked=blocked_hosts(self.s),
                                       timeout=ADD_TIMEOUT)
+        # A job board's public API (a Greenhouse job, 10 Nov): JSON instead of a page.
+        self.get_json_page: Callable[[str], tuple[str, str]] = \
+            lambda url: http.get_page(url, s=self.s, accept_json=True, timeout=ADD_TIMEOUT)
 
     @property
     def repo(self) -> JobsRepo | None:
@@ -2126,8 +2130,9 @@ class Desk:
                                    "screened; the bot never opens that site). Finding "
                                    "contacts and your LinkedIn connections there...")]
         self.say(Reply("Reading the job page..."))
+        gh = self._greenhouse_job(url)
         try:
-            final, page = self._read_add_page(url)
+            final, page = (url, "") if gh is not None else self._read_add_page(url)
         except http.HttpError as exc:
             if typed is not None:
                 company, country, role = typed
@@ -2138,7 +2143,9 @@ class Desk:
                                        f"{role} ({country}) from your message.")]
             return None, [Reply(f"Could not open the job page ({exc}). Send /contacts {url} "
                                 "<company>, <country> to find contacts without it.")]
-        job = add_link.read_page(final, page)
+        job = gh or add_link.read_page(final, page)
+        if gh is None and "/embed/" in final:
+            final = url  # 6-01: a script page sent the bot to the board, keep the job link
         rules = Rules.from_config(self.s.sweep)
         country, city = place(job.location, rules)
         if country is None and job.description:
@@ -3718,10 +3725,14 @@ class Desk:
 
     def text(self, message: str) -> list[Reply] | None:
         """A plain text message. None when no capture is active (the bot answers as usual)."""
+        # 10 Nov (6-01): the answer to a domain question went into an open /jd paste of
+        # another job and became its "description". A bare domain answers the question.
+        answer = self.domain_text(message)
+        if answer is not None:
+            return answer
         capture = self.captures.get()
         if capture is None:
-            return (self.domain_text(message) or self._rebuild_answer(message)
-                    or self.starter_text(message))
+            return self._rebuild_answer(message) or self.starter_text(message)
         if self.captures.expired(capture, self.now()):
             return [self._discarded(capture)]
         capture = self.captures.add(capture, message)
@@ -3758,6 +3769,10 @@ class Desk:
         text = capture.text()
         if not text:
             return [Reply("No description collected yet. Paste it, then send /done.")]
+        if len(text) < MIN_PASTE_CHARS:  # 10 Nov: "manychat.com" was saved as a description
+            return [Reply(f"Only {len(text)} characters collected: that is not a job "
+                          "description. Paste the whole text (or send the saved page), then "
+                          "/done.")]
         assert capture.page_id is not None
         self.captures.clear()
         return self._save_description(capture.page_id, text, "pasted")
@@ -3821,6 +3836,18 @@ class Desk:
         self.repo.update(row.page_id, {"Screen verdict": "Needs review", "Status": "Approved"})
         return self.on_job_approved(row.page_id, self.repo.get_values(row.page_id) or {})
 
+    def _greenhouse_job(self, url: str) -> add_link.PageJob | None:
+        """A Greenhouse job link read through its public API (10 Nov), None otherwise."""
+        api = add_link.greenhouse_api(url)
+        if api is None:
+            return None
+        try:
+            _final, raw = self.get_json_page(api)
+        except http.HttpError as exc:
+            log.info("greenhouse job not read through its API: %s", exc)
+            return None
+        return add_link.from_greenhouse(url, raw)
+
     def _read_add_page(self, url: str) -> tuple[str, str]:
         """The /add page, waiting up to ADD_TIMEOUT, with one more try after a time-out."""
         try:
@@ -3844,11 +3871,12 @@ class Desk:
         if "linkedin" in host or http.host_in(host, blocked_hosts(self.s)):
             return [Reply(ADD_BLOCKED.format(host=host, url=url))]
         self.say(Reply("Reading the job page..."))
+        gh = self._greenhouse_job(url)
         try:
-            final, page = self._read_add_page(url)
+            final, page = (url, "") if gh is not None else self._read_add_page(url)
         except http.HttpError as exc:
             return [Reply(f"Could not open the job page ({exc}).\n{ADD_PASTE.format(url=url)}")]
-        job = add_link.read_page(final, page)
+        job = gh or add_link.read_page(final, page)
         if not job.description or not job.title or not job.company:
             missing = "description" if not job.description else "company or role"
             return [Reply(f"The page does not show the job's {missing} in a way the bot can "
