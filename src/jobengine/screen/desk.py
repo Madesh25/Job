@@ -276,16 +276,17 @@ def _agency(values: dict[str, Any]) -> bool:
 REPORT_BUTTONS = 4  # reason buttons under /fetchreport
 MAX_SKILL_BUTTONS = 8  # skills offered under /gaps
 MAX_SKILL_WORDS = 3  # longer gaps are sentences ("Experience designing CI/CD pipelines")
-LINKEDIN_PASTE = ("Open the link, copy the whole job description and paste it here (several "
-                  "messages are fine), then tap Done. Or save the page in your browser (Ctrl+S, "
-                  "\"Webpage, Single File\") and send the file here. The bot saves it in Notion, "
-                  "screens the job (one AI call) and shows its card for Approve or Skip.")
-SAVED_PAGE_WHICH = ("{name}: which job is it? Send /jd <the job's link> first (or open it in "
-                    "/linkedin), then send the saved page again. The page itself did not name a "
-                    "job that is in Notion.")
+LINKEDIN_PASTE = ("Open the link, save the page (Ctrl+S; Chrome or Edge: \"Webpage, Single "
+                  "File\"; Firefox: \"Web Page, complete\") and send the file here. Or copy the "
+                  "description, paste it and tap Done. The bot saves it in Notion, screens the "
+                  "job (one AI call), shows its card, then the next job.")
+SAVED_PAGE_WHICH = ("{name}: which job is it? Open it with /jd first (or send /jd <the job's "
+                    "link>), then send the saved page again. The page itself did not name a job "
+                    "that is in Notion.")
 SAVED_PAGE_EMPTY = ("{name}: no job description found in it ({chars} characters). Save the page "
-                    "while the job is open and fully shown (\"Webpage, Single File\" in Chrome "
-                    "or Edge), or paste the text instead, then /done.")
+                    "while the job is open and fully shown (Chrome or Edge: \"Webpage, Single "
+                    "File\"; Firefox: \"Web Page, complete\"), or paste the text instead, then "
+                    "/done.")
 BUILD_FAILED_HINT = ("The job stays Approved without a resume. Tap Try again to build it again, "
                      "reply with a correction, or tap Not applying to drop it and see the next "
                      "job.")
@@ -527,9 +528,9 @@ class Desk:
         buttons = [(f"{country_label(c)} ({counts[c]})", f"pc:{c}") for c in order]
         buttons.append((f"All ({len(rows)})", "pc:all"))
         buttons += self.scope_buttons(everything)
-        linkedin = len(self.linkedin_rows()) if self.repo is not None else 0
-        if linkedin:  # LinkedIn jobs wait for their description before they can be reviewed
-            buttons.append((f"LinkedIn ({linkedin})", "li:next:0"))
+        waiting = len(self.jd_rows()) if self.repo is not None else 0
+        if waiting:  # jobs wait for their description before they can be reviewed (/jd)
+            buttons.append((f"No description ({waiting})", "li:next:0"))
         scope = self.chosen_scope()
         if scope != "all" and text == CHOOSE_COUNTRY:
             text = f"Jobs {scope_text(scope)}. {text}"
@@ -729,7 +730,7 @@ class Desk:
             return self.domain_tap(arg)
         if action == "fr" and arg:  # a reason button under /fetchreport
             return self.fetchreport_command(arg)
-        if action == "li" and arg:  # the LinkedIn queue (/linkedin)
+        if action == "li" and arg:  # the queue of jobs without a description (/jd)
             return self.linkedin_tap(arg)
         if action == "gs" and arg:  # a skill button under /gaps
             return self.skill_tap(arg)
@@ -3545,9 +3546,11 @@ class Desk:
             return [Reply(NO_TARGET)]
         url, rest = jd_capture.parse_jd_command(args)
         if url is None:
+            if rest.strip().lower() == "list":
+                return [self.waiting_list()]
             if rest:
                 return [Reply("Send /jd <job URL>, then paste the description.")]
-            return [self.waiting_list()]
+            return self.jd_walk(0)  # 10 Nov: one job at a time, every board
         row = self._find(url)
         capture = self.captures.start(url, self.now(), row.page_id if row else None)
         if rest:
@@ -3566,56 +3569,75 @@ class Desk:
         got = f" Got {capture.chars} characters so far." if capture.chars else ""
         return [Reply(f"Collecting the job description for {name}.{got} Paste the text "
                       "(several messages are fine), then send /done. Or send the page saved "
-                      "in your browser (Ctrl+S, \"Webpage, Single File\") as a file.")]
+                      "in your browser (Ctrl+S) as a file.")]
 
-    # ------------------------------------------------------------ LinkedIn jobs (1 Oct idea)
+    # ------------------------------------------------ jobs waiting for a description (/jd)
 
-    def linkedin_rows(self) -> list[JobRow]:
-        """LinkedIn jobs that wait for their description: new, never screened."""
+    def jd_rows(self) -> list[JobRow]:
+        """Jobs that wait for their description, new and never screened, every board (10 Nov,
+        your request: one flow for LinkedIn, JustJoin IT, Pracuj.pl, IrishJobs and the rest).
+        LinkedIn first, then by board, newest first in each."""
         assert self.repo is not None
-        rows = [r for r in waiting_for_jd(self.repo)
-                if r.board == "LinkedIn" and r.status in (None, "", "New")]
+        rows = [r for r in waiting_for_jd(self.repo, self.state)
+                if r.status in (None, "", "New")]
         rows.sort(key=lambda r: r.swept_date or date.min, reverse=True)
+        rows.sort(key=lambda r: (r.board != "LinkedIn", r.board or ""))
         return rows
 
-    def linkedin_command(self, index: int = 0) -> list[Reply]:
-        """/linkedin: the LinkedIn jobs one at a time. Each one opens a /jd capture, so you
-        only paste the description and tap Done (saved, screened, then its card)."""
+    def jd_walk(self, index: int = 0) -> list[Reply]:
+        """/jd (and /linkedin): the jobs without a description one at a time, any board.
+        Each one opens a /jd capture: send its saved page (or paste the text and tap Done);
+        it is saved, screened, then the next job comes."""
         if self.repo is None:
             return [Reply(NO_TARGET)]
-        rows = self.linkedin_rows()
+        rows = self.jd_rows()
         if not rows:
             self.captures.clear()
-            return [Reply("No LinkedIn jobs wait for a description. They come from the "
-                          "LinkedIn alert emails on each /fetch.")]
+            return [Reply("No jobs wait for a description. They come from the alert emails "
+                          "and the sites that block the bot, on each /fetch.")]
         i = index % len(rows)
         row = rows[i]
         self.captures.start(row.url or "", self.now(), row.page_id)
         place = ", ".join(p for p in (row.city, row.country) if p) or "place unknown"
-        text = (f"LinkedIn job {i + 1} of {len(rows)}:\n{row.company}, {row.role}\n{place}\n"
+        board = row.board or "Other"
+        text = (f"Job {i + 1} of {len(rows)} without a description ({board}):\n"
+                f"{row.company}, {row.role}\n{place}\n"
                 f"{short_link(row.url) or '(no link)'}\n\n{LINKEDIN_PASTE}")
         pid = short_id(row.page_id)
         buttons = [("Done", "li:done"), ("Next", f"li:next:{i + 1}"),
                    ("Not interested", f"li:skip:{pid}")]
         return [Reply(text, buttons)]
 
+    def linkedin_command(self, index: int = 0) -> list[Reply]:
+        """/linkedin: the same flow as /jd (10 Nov: one flow for every board)."""
+        return self.jd_walk(index)
+
+    def jd_left(self) -> list[Reply]:
+        """After a description was saved: the next job, one tap away."""
+        left = len(self.jd_rows()) if self.repo is not None else 0
+        if not left:
+            return [Reply("No more jobs wait for a description.")]
+        return [Reply(f"{left} more job(s) wait for a description.",
+                      [("Next job", "li:next:0")])]
+
     def linkedin_tap(self, arg: str) -> list[Reply]:
         action, _, rest = arg.partition(":")
         if action == "done":
-            replies = self.done()
-            left = len(self.linkedin_rows()) if self.repo is not None else 0
-            if left:
-                replies.append(Reply(f"{left} more LinkedIn job(s) wait for a description.",
-                                     [("Next LinkedIn job", "li:next:0")]))
-            return replies
+            capture = self.captures.get()
+            if capture is None or not capture.chars:
+                # 10 Nov: Done after a saved page said "Nothing to finish": the page was
+                # already saved, so the next job comes instead.
+                self.captures.clear()
+                return self.jd_walk(0)
+            return [*self.done(), *self.jd_left()]
         if action == "skip" and rest and self.repo is not None:
             from jobengine.resume.builder import notion_id
 
             self.captures.clear()
             self.repo.update(notion_id(rest), {"Status": "Declined", "Skip reason": "Other"})
-            return [Reply("Skipped that LinkedIn job."), *self.linkedin_command(0)]
+            return [Reply("Skipped that job."), *self.jd_walk(0)]
         index = int(rest) if rest.isdigit() else 0
-        return self.linkedin_command(index)
+        return self.jd_walk(index)
 
     def waiting_list(self) -> Reply:
         assert self.repo is not None
@@ -3734,7 +3756,8 @@ class Desk:
         assert page_id is not None
         if capture is not None:
             self.captures.clear()
-        return self._save_description(page_id, text, "saved page")
+        replies = self._save_description(page_id, text, "saved page")
+        return [*replies, *self.jd_left()] if capture is not None else replies
 
     # ------------------------------------------------------------ /add <job link> (23 Oct)
 

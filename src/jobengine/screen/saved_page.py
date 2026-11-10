@@ -7,9 +7,10 @@ reads the file you saved, which holds what you saw in your own browser.
 
 Accepted files:
 - "Webpage, Single File" (.mhtml or .mht, Chrome and Edge): best, one file;
-- "Webpage, Complete" or "HTML only" (.html or .htm): send the .html file only.
+- Firefox: "Web Page, complete" (.html or .htm): send that file only, not its folder;
+- "HTML only" (.html or .htm) works where the site puts the text in the page itself.
 
-The job is the one of the open /jd (after /jd <link> or in /linkedin), else the one whose
+The job is the one of the open /jd (after /jd <link>, or in the /jd queue), else the one whose
 link the saved page names ("saved from url", its canonical link or the MHTML address).
 The description is the job's own part of the page when the site is known (LinkedIn's "About
 the job"), else the description the page gives as JobPosting data, else its longest text
@@ -109,8 +110,36 @@ def page_url(html: str) -> str:
     return ""
 
 
+# LinkedIn's job view as you see it (10 Nov, 3-06: Firefox kept the whole page, so the
+# description had Premium lines, "About the company" and 13 other jobs): the job is the part
+# after the line "About the job", up to the first of these lines.
+JOB_START = re.compile(r"^\s*About the job\s*$", re.I | re.M)
+JOB_END = re.compile(
+    r"^\s*(?:Set alert for similar jobs|About the company|More jobs|See more jobs like this|"
+    r"Unlock hiring insights.*|Activate Premium.*|People also viewed|Similar jobs|"
+    r"Interested in working with us in the future\?|Show more|Show less|"
+    r"Job search faster with Premium.*|Looking for talent\?)\s*$", re.I | re.M)
+
+
+def job_part(text: str) -> str:
+    """The text between "About the job" and the first line after the job (LinkedIn); the
+    whole text when the page has no "About the job" line."""
+    start = JOB_START.search(text)
+    if start is None:
+        return text
+    rest = text[start.end():]
+    end = JOB_END.search(rest)
+    return (rest[:end.start()] if end else rest).strip()
+
+
 def description(html: str) -> str:
     """The job description in a saved page ("" when none is found)."""
+    text = _description(html)
+    part = job_part(text)
+    return part if len(part) >= MIN_PART else text
+
+
+def _description(html: str) -> str:
     if not html:
         return ""
     soup = BeautifulSoup(html, "html.parser")

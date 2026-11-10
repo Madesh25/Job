@@ -59,8 +59,7 @@ HELP_TEXT = (
     "/screen batch - send them at half price, answers later\n"
     "/screen collect - save the answers of that batch\n"
     "/jd <url> - paste a job's description, then /done; or send its saved page (a file)\n"
-    "/jd - list jobs waiting for a description\n"
-    "/linkedin - LinkedIn jobs one at a time: paste each description, tap Done\n"
+    "/jd - jobs without a description one at a time, any board: send each saved page\n"
     "/add <job link> - save a job from a company's own site, resume and Target Companies\n"
     "/newcompanies - companies hiring for your roles, not in Target Companies\n"
     "/fetchreport - where the last /fetch's postings went and why jobs were dropped\n"
@@ -805,7 +804,8 @@ def document_replies(client: TelegramClient, document: dict[str, Any],
             return [Reply("A saved job page needs Notion (NOTION_TOKEN): not available here.")]
         if int(document.get("file_size") or 0) > MAX_DOWNLOAD_BYTES:
             return [Reply(f"{name} is over 20 MB (Telegram's limit for bots). Save it as "
-                          "\"Webpage, Single File\" or \"HTML only\", or paste the text.")]
+                          "\"Webpage, Single File\" (Chrome, Edge) or \"Web Page, complete\" "
+                          "(Firefox), or paste the text.")]
         return desk.saved_page_file(name, client.download(str(document.get("file_id") or "")))
     if not name.lower().endswith(EXPORT_TYPES):
         return [Reply(f"{name}: the bot reads a job page you saved (.mhtml or .html, for /jd) "
