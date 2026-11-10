@@ -202,3 +202,25 @@ def test_domain_options_come_from_the_job_pages_only():
     assert options == ["acmecloud.com", "acme-cloud.nl"]
     assert domain_options("Nobody", [], "") == []
     assert base_domain("careers.example.com.pl") == "example.com.pl"
+
+
+def test_an_open_page_with_a_hidden_closed_message_stays_open():
+    """Phase 23 3-08 (10 Nov): eBay's open Cloud SRE job was marked Expired: its page also
+    carries the site's "no longer available" message, hidden, next to Apply Now."""
+    def get(page):
+        return lambda url: (url, page)
+
+    url = "https://jobs.ebayinc.com/us/en/job/R0077010/Software-Engineer-Cloud-SRE"
+    hidden = ('<div style="display: none">Sorry, this job is no longer available</div>'
+              "<h1>Software Engineer - Cloud SRE</h1><p>Dublin</p>")
+    assert link.closed_reason(url, get(hidden), TODAY) is None
+    aria = '<div aria-hidden="true">This job is no longer available</div><h1>SRE</h1>'
+    assert link.closed_reason(url, get(aria), TODAY) is None
+    shown = ("<p>This job is no longer available</p><h1>Software Engineer - Cloud SRE</h1>"
+             "<a>Apply Now</a><a>Save Job</a>")
+    assert link.closed_reason(url, get(shown), TODAY) is None
+    ld = ('<script type="application/ld+json">{"@type": "JobPosting", "title": "SRE"}'
+          "</script><p>Similar job no longer available</p>")
+    assert link.closed_reason(url, get(ld), TODAY) is None
+    closed = "<h1>Sorry, this job is no longer available</h1><a>Search jobs</a>"
+    assert "no longer available" in link.closed_reason(url, get(closed), TODAY)

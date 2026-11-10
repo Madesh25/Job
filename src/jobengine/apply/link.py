@@ -17,6 +17,7 @@ import re
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date, datetime
+from typing import Any
 from urllib.parse import quote_plus, urlsplit
 
 from bs4 import BeautifulSoup
@@ -115,11 +116,34 @@ def _valid_through(page: str) -> date | None:
     return None
 
 
+HIDDEN_STYLE = re.compile(r"display\s*:\s*none|visibility\s*:\s*hidden", re.I)
+# 10 Nov (Phase 23 3-08): eBay's open Cloud SRE job was marked Expired because its page also
+# carries the "no longer available" message the site shows when a job closes, hidden. An open
+# job page asks you to apply; a closed one does not.
+APPLY_WORDS = ("apply now", "apply for this job", "apply for this position", "apply online",
+               "submit application", "solliciteer nu", "solliciteer direct", "aplikuj teraz",
+               "aplikuj")
+
+
+def _hidden(tag: Any) -> bool:
+    attrs = getattr(tag, "attrs", None) or {}
+    return ("hidden" in attrs or str(attrs.get("aria-hidden", "")).lower() == "true"
+            or bool(HIDDEN_STYLE.search(str(attrs.get("style", "")))))
+
+
 def visible_text(page: str) -> str:
     soup = BeautifulSoup(page, "html.parser")
     for tag in soup.find_all(("script", "style", "noscript", "template")):
         tag.decompose()
+    for tag in [t for t in soup.find_all(True) if _hidden(t)]:
+        if not tag.decomposed:
+            tag.decompose()
     return " ".join(soup.get_text(" ").split()).lower()
+
+
+def _open_posting(page: str) -> bool:
+    """A schema.org JobPosting on the page (its end date was checked before)."""
+    return any('"jobposting"' in raw.lower().replace(" ", "") for raw in LD_JSON.findall(page))
 
 
 def closed_reason(url: str, get_page: PageGetter, today: date) -> str | None:
@@ -142,5 +166,8 @@ def closed_reason(url: str, get_page: PageGetter, today: date) -> str | None:
     text = visible_text(page)
     for words in CLOSED_WORDS:
         if words in text:
+            if _open_posting(page) or any(w in text for w in APPLY_WORDS):
+                log.info("open check: %s says %r but still offers to apply: open", host, words)
+                return None
             return f'the job page says "{words}"'
     return None

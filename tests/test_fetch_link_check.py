@@ -95,3 +95,12 @@ def test_the_fetch_runs_the_check_and_says_so():
     expired = [v for v in deps.repo.rows.values() if v.get("Status") == "Expired"]
     assert opened and len(expired) == len(summary.closed_jobs) == summary.closed_checked
     assert "Closed jobs taken off your list" in summary.friendly_text()
+
+
+def test_jobs_screened_skip_are_not_checked():
+    """3-08 (10 Nov): 6 of the 10 named closed jobs were Skip jobs /pending never shows."""
+    get, opened = pages()
+    rows = [row("skip", "https://skip.example/1", verdict="Skip"),
+            row("pending", "https://pending.example/1")]
+    result = expired_check.after_fetch(rows, get, TODAY, FakeBotState(), CFG, lambda *a: None)
+    assert opened == ["https://pending.example/1"] and result.total == 1
