@@ -10,7 +10,13 @@ from typing import Any
 
 from jobengine import http
 from jobengine.config_store import ConfigStore
-from jobengine.notion_repo import JobsRepo, NotionClient, NotionReader, jobs_repo_for
+from jobengine.notion_repo import (
+    JobsRepo,
+    NotionClient,
+    NotionReader,
+    jobs_repo_for,
+    select_filter,
+)
 from jobengine.parallel import run_all
 from jobengine.reference import Reference
 from jobengine.safety import notion_write_target
@@ -57,7 +63,7 @@ from jobengine.sweep.normalize import (
 )
 from jobengine.sweep.rank import Ranker
 from jobengine.sweep.sources import adzuna, ats, gmail_alerts, iamexpat, jooble, nofluffjobs
-from jobengine.track import day_ledger
+from jobengine.track import day_ledger, expired_check
 
 log = logging.getLogger("jobengine.sweep")
 
@@ -114,6 +120,8 @@ class SweepDeps:
     # (config, state, today, progress) -> company_details.Result: the empty columns of the
     # Target Companies rows the bot added (5 Nov). None: not filled.
     details: Callable[..., Any] | None = None
+    # Opens a job link for the closed-job check of each /fetch (10 Nov). None: no check.
+    closed_page: fulltext.PageGetter | None = None
 
 
 def fake_deps(s: Settings, repo: JobsRepo | None = None) -> SweepDeps:
@@ -162,6 +170,7 @@ def real_deps(s: Settings) -> SweepDeps:
         iamexpat=lambda: iamexpat.fetch(s),
         links=lambda *args: _find_links(s, *args),
         details=lambda *args: _fill_details(s, client, *args),
+        closed_page=lambda url: http.get_page(url, s=s, blocked=fulltext.blocked_hosts(s)),
     )
 
 
@@ -843,6 +852,25 @@ def run_sweep(
                 blocked=fulltext.blocked_hosts(s))
         except Exception:  # never fail a sweep over the backfill
             log.exception("descriptions for saved jobs failed")
+
+    # Pass 4b (10 Nov, your request): closed postings leave the list in every /fetch, not
+    # only in the weekly check: HTTP 404 or 410, a closed-posting text, a past end date, and
+    # LinkedIn jobs older than sweep.link_check.linkedin_days. No AI, plain page reads.
+    link_cfg = expired_check.fetch_settings(s.sweep)
+    if repo and deps.closed_page is not None and link_cfg.get("enabled", True):
+        try:
+            from jobengine.screen.runner import job_row
+
+            say("Checking which listed jobs closed")
+            open_rows = [job_row(pid, v) for pid, v in repo.query_rows(
+                select_filter("Status", *expired_check.FETCH_STATUSES))]
+            closed = expired_check.after_fetch(open_rows, deps.closed_page, today, state,
+                                               link_cfg, repo.update)
+            summary.closed_jobs = [f"{row.company}, {row.role}: {why}"
+                                   for row, why in closed.closed]
+            summary.closed_checked = closed.checked
+        except Exception:  # never fail a sweep over the link check
+            log.exception("closed job check failed")
 
     # Pass 5 (DEV only, 2 Nov): old descriptions rewritten tidy, a batch per /fetch.
     if repo and tidy_bodies.enabled(s):

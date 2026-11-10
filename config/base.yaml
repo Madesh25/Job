@@ -413,6 +413,16 @@ sweep:
     max_pages: 10
   # Alert rows (LinkedIn, blocked boards, Adzuna) get the same job's own page on the company's
   # site: the company job board first (free), else one AI web search (28 Oct, docs/sweep.md).
+  # Closed jobs leave the list in every /fetch (10 Nov, track/expired_check.py after_fetch):
+  # the /pending jobs first, plain page reads (no AI), each job again after recheck_days.
+  # LinkedIn links are never opened: a LinkedIn job counts as closed linkedin_days after
+  # it was posted.
+  link_check:
+    enabled: true
+    max_links: 150
+    recheck_days: 3
+    linkedin_days: 30
+    workers: 5
   job_links:
     enabled: true
     max_rows: 40

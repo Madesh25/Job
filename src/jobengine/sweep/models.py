@@ -244,6 +244,8 @@ class SweepSummary:
     direct_links_tried: int = 0
     direct_links_again: int = 0  # searches or browser pages ran out: next sweep
     ghost_jobs: list[str] = field(default_factory=list)  # not on the company's site: skipped
+    closed_jobs: list[str] = field(default_factory=list)  # closed postings, now Expired
+    closed_checked: int = 0  # job links opened by the link check of this /fetch
     no_company: list[str] = field(default_factory=list)  # the alert showed no company
     reposted: list[str] = field(default_factory=list)  # reposting sites' jobs deleted (4 Nov)
     details_filled: list[str] = field(default_factory=list)  # Target Companies columns (5 Nov)
@@ -361,6 +363,12 @@ class SweepSummary:
             lines.append(f"\U0001F5D1 Deleted from Notion, posted by a site that reposts other "
                          f"companies' jobs (not the employer): {len(self.reposted)}")
             lines.extend(f"- {job}" for job in self.reposted[:10])
+        if self.closed_jobs or self.closed_checked:
+            lines.append(f"\U0001F9F9 Closed jobs taken off your list (Status Expired): "
+                         f"{len(self.closed_jobs)} ({self.closed_checked} job links checked)")
+            lines.extend(f"- {job}" for job in self.closed_jobs[:10])
+            if len(self.closed_jobs) > 10:
+                lines.append(f"- and {len(self.closed_jobs) - 10} more")
         if self.ghost_jobs:
             lines.append(f"\U0001F47B Not on the company's own site at two checks, skipped as "
                          f"likely ghost jobs (noted on each page): {len(self.ghost_jobs)}")
