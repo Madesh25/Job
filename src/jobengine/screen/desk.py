@@ -52,7 +52,6 @@ from jobengine.screen.runner import (
     ScreenError,
     description,
     find_row,
-    in_scope,
     job_row,
     pending_rows,
     scope_text,
@@ -251,7 +250,11 @@ PENDING_COUNTRY = "pending.country"  # bot_state: {"country": <Country option> |
 # (274 waited, from every day); /pending week and /pending all, or the buttons, for more.
 PENDING_DEFAULT = "today"
 PENDING_SCOPES = {"today": "today", "week": "week", "all": "all", "whole": "all"}
-SCOPE_BUTTONS = {"today": "Today", "week": "This week", "all": "Everything"}
+SCOPE_BUTTONS = {"today": "Today", "week": "Last 3 days", "all": "Everything"}
+# /pending by the day a job was POSTED (10 Nov, your rule): Today = posted today, Last 3 days =
+# posted in the last 3 days (the Swept date only when a job has no Posted date). /screen keeps
+# the day a /fetch found the job (screen/runner.py in_scope).
+PENDING_RECENT_DAYS = 3
 REMOTE_EU = "Other"  # Country option of remote jobs open across the EU or Europe
 COUNTRY_ORDER = ("Poland", "Netherlands", "Ireland", REMOTE_EU)
 COUNTRY_WORDS = {"pl": "Poland", "poland": "Poland", "polska": "Poland",
@@ -496,7 +499,7 @@ class Desk:
         rows = self.all_ranked() if rows is None else rows
         scope = scope or self.chosen_scope()
         today = self.today()
-        return [r for r in rows if in_scope(r, scope, today)]
+        return [r for r in rows if pending_in_scope(r, scope, today)]
 
     def ranked(self) -> list[JobRow]:
         """The jobs to review, best first, only the chosen scope's and country's."""
@@ -533,7 +536,7 @@ class Desk:
             buttons.append((f"No description ({waiting})", "li:next:0"))
         scope = self.chosen_scope()
         if scope != "all" and text == CHOOSE_COUNTRY:
-            text = f"Jobs {scope_text(scope)}. {text}"
+            text = f"Jobs {pending_scope_text(scope)}. {text}"
         return Reply(text, buttons)
 
     def scope_start(self, scope: str) -> list[Reply]:
@@ -544,7 +547,7 @@ class Desk:
         rows = self.scoped(everything)
         if not rows:
             more = self.scope_buttons(everything)
-            text = (f"No job {scope_text(scope)} waits for review." if scope != "all"
+            text = (f"No job {pending_scope_text(scope)} waits for review." if scope != "all"
                     else "Nothing to review right now.")
             if more:
                 text += " Older jobs wait:"
@@ -664,7 +667,8 @@ class Desk:
                                                   "Pick the next country:")]
             scope = self.chosen_scope()
             more = self.scope_buttons(self.all_ranked()) if scope != "all" else []
-            text = (f"No more jobs {scope_text(scope)}." + (" Older jobs wait:" if more else "")
+            older = " Older jobs wait:" if more else ""
+            text = (f"No more jobs {pending_scope_text(scope)}.{older}"
                     if scope != "all" else "Nothing to review right now.")
             return [Reply("\n".join(t for t in (text, waiting) if t), more)]
         index = index % len(rows)
@@ -685,7 +689,7 @@ class Desk:
                 return [self.country_menu()]
             self.choose_country(None if arg == "all" else arg)
             return self.pending(0)
-        if action == "ps" and arg in SCOPE_BUTTONS:  # Today, This week, Everything (/pending)
+        if action == "ps" and arg in SCOPE_BUTTONS:  # Today, Last 3 days, Everything (/pending)
             return self.scope_start(arg)
         if action in ("ra", "rb", "cl", "rq", "ia", "na", "nr", "fg", "fc", "gp", "gt", "gr",
                       "gx", "mk") and arg:
@@ -4050,6 +4054,23 @@ class Desk:
         row = job_row(page_id, values)
         reason = f" ({values.get('Skip reason')})" if values.get("Skip reason") else ""
         return [Reply(f"{row.company}, {row.role}: {row.screen_verdict}{reason}")]
+
+
+def pending_in_scope(row: JobRow, scope: str, today: date | None) -> bool:
+    """/pending's Today and Last 3 days, by the day the job was posted (10 Nov)."""
+    if scope not in ("today", "week") or today is None:
+        return True
+    day = row.posted_date if isinstance(row.posted_date, date) else row.swept_date
+    if not isinstance(day, date):
+        return False
+    if scope == "today":
+        return day >= today
+    return day > today - timedelta(days=PENDING_RECENT_DAYS)
+
+
+def pending_scope_text(scope: str) -> str:
+    return {"today": "posted today",
+            "week": f"posted in the last {PENDING_RECENT_DAYS} days"}.get(scope, "")
 
 
 def tracking_zone(s: Settings) -> timezone:
