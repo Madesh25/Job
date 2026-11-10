@@ -41,6 +41,7 @@ from jobengine.screen import (
     jd_capture,
     keywords_report,
     learning,
+    saved_page,
     waiting,
 )
 from jobengine.screen.jd_capture import Capture, Captures
@@ -276,8 +277,15 @@ REPORT_BUTTONS = 4  # reason buttons under /fetchreport
 MAX_SKILL_BUTTONS = 8  # skills offered under /gaps
 MAX_SKILL_WORDS = 3  # longer gaps are sentences ("Experience designing CI/CD pipelines")
 LINKEDIN_PASTE = ("Open the link, copy the whole job description and paste it here (several "
-                  "messages are fine), then tap Done. The bot saves it in Notion, screens the "
-                  "job (one AI call) and shows its card for Approve or Skip.")
+                  "messages are fine), then tap Done. Or save the page in your browser (Ctrl+S, "
+                  "\"Webpage, Single File\") and send the file here. The bot saves it in Notion, "
+                  "screens the job (one AI call) and shows its card for Approve or Skip.")
+SAVED_PAGE_WHICH = ("{name}: which job is it? Send /jd <the job's link> first (or open it in "
+                    "/linkedin), then send the saved page again. The page itself did not name a "
+                    "job that is in Notion.")
+SAVED_PAGE_EMPTY = ("{name}: no job description found in it ({chars} characters). Save the page "
+                    "while the job is open and fully shown (\"Webpage, Single File\" in Chrome "
+                    "or Edge), or paste the text instead, then /done.")
 BUILD_FAILED_HINT = ("The job stays Approved without a resume. Tap Try again to build it again, "
                      "reply with a correction, or tap Not applying to drop it and see the next "
                      "job.")
@@ -3557,7 +3565,8 @@ class Desk:
         )
         got = f" Got {capture.chars} characters so far." if capture.chars else ""
         return [Reply(f"Collecting the job description for {name}.{got} Paste the text "
-                      "(several messages are fine), then send /done.")]
+                      "(several messages are fine), then send /done. Or send the page saved "
+                      "in your browser (Ctrl+S, \"Webpage, Single File\") as a file.")]
 
     # ------------------------------------------------------------ LinkedIn jobs (1 Oct idea)
 
@@ -3676,16 +3685,56 @@ class Desk:
         text = capture.text()
         if not text:
             return [Reply("No description collected yet. Paste it, then send /done.")]
+        assert capture.page_id is not None
+        self.captures.clear()
+        return self._save_description(capture.page_id, text, "pasted")
+
+    def _save_description(self, page_id: str, text: str, how: str) -> list[Reply]:
+        """The description on the job's page, then screening and the job's card."""
+        assert self.repo is not None
         size = int(self.s.screening.get("block_chars", 2000))
         limit = int(self.s.screening.get("max_blocks", 90))
         chunks = textblocks.chunks(textblocks.tidy(text), size, limit)
-        assert capture.page_id is not None
-        self.repo.append_body(capture.page_id, ["Description source: pasted (full)", *chunks])
-        self.captures.clear()
+        self.repo.append_body(page_id, [f"Description source: {how} (full)", *chunks])
         replies = [Reply(f"Saved the description ({len(text)} characters). Screening it now...")]
-        replies.append(Reply(self.screen(capture.page_id)))
-        replies.extend(self._card_for(capture.page_id))
+        replies.append(Reply(self.screen(page_id)))
+        replies.extend(self._card_for(page_id))
         return replies
+
+    def saved_page_file(self, name: str, data: bytes) -> list[Reply]:
+        """A job page you saved in the browser and sent as a file (10 Nov, screen/
+        saved_page.py): its description for the open /jd job, else for the job whose link
+        the page names. The site itself is never opened."""
+        if self.repo is None:
+            return [Reply(NO_TARGET)]
+        page = saved_page.read(name, data)
+        text = saved_page.description(page.html)
+        capture = self.captures.get()
+        if capture is not None and self.captures.expired(capture, self.now()):
+            self.captures.clear()
+            capture = None
+        row = None
+        if capture is None:
+            row = self._find(page.url) if page.url else None
+            if row is None:
+                return [Reply(SAVED_PAGE_WHICH.format(name=name))]
+        if len(text) < saved_page.MIN_PART:  # the /jd stays open: paste or send it again
+            return [Reply(SAVED_PAGE_EMPTY.format(name=name, chars=len(text)))]
+        if capture is not None and capture.page_id is None:
+            job = add_link.read_page(page.url or capture.url, page.html)
+            if job.company and "company" not in capture.fields:
+                capture.fields["company"] = job.company
+            if job.title and "role" not in capture.fields:
+                capture.fields["role"] = job.title
+            if self._create_row(capture) is None:
+                return [Reply("Send the company and role first, as two lines:\n"
+                              "Company: <name>\nRole: <title>\nThen send the saved page "
+                              "again.")]
+        page_id = capture.page_id if capture is not None else row.page_id if row else None
+        assert page_id is not None
+        if capture is not None:
+            self.captures.clear()
+        return self._save_description(page_id, text, "saved page")
 
     # ------------------------------------------------------------ /add <job link> (23 Oct)
 
