@@ -549,6 +549,11 @@ reason Expired and today's Last activity date, so it leaves /pending. No AI, pla
 - The /pending jobs (Screened, Apply or Needs review) first, then your approved ones, then
   the rest, newest first; at most `sweep.link_check.max_links` (150) links a /fetch.
 - A job checked is checked again after `recheck_days` (3); the others come first.
+- Jobs screened Skip are not checked (/pending never shows them; 10 Nov, 3-08: 6 of 10).
+- A closed-posting text counts only when it is shown and the page does not still offer to
+  apply: text hidden on the page (display none, hidden, aria-hidden) is not read, and a page
+  with "Apply now" or a schema.org JobPosting stays open (10 Nov, 3-08: eBay's open Cloud
+  SRE job carried the site's hidden "no longer available" message).
 - LinkedIn links are never opened: a LinkedIn job counts as closed `linkedin_days` (30) after
   its Posted date (else its Swept date), when LinkedIn closes its postings.
 - The /fetch summary: "Closed jobs taken off your list (Status Expired): N (M job links

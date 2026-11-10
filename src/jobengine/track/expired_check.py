@@ -180,7 +180,10 @@ def after_fetch(rows: Iterable[JobRow], get_page: link.PageGetter, today: date,
     saved = dict((state.get(FETCH_KEY) if state is not None else None) or {})
     cutoff = (today - timedelta(days=int(cfg["recheck_days"]))).isoformat()
     saved = {k: v for k, v in saved.items() if str(v) > cutoff}
-    rows = sorted((r for r in rows if r.page_id not in saved), key=_order)
+    # 10 Nov (3-08): 6 of the 10 named were jobs screened Skip, which /pending never shows;
+    # their checks are better spent on the jobs you will see.
+    rows = sorted((r for r in rows if r.page_id not in saved
+                   and (r.screen_verdict or "") != "Skip"), key=_order)
     days = int(cfg["linkedin_days"] or 0) or None
     result = Result()
     to_open: list[JobRow] = []
