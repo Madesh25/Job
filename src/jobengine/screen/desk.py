@@ -280,6 +280,8 @@ LINKEDIN_PASTE = ("Open the link, save the page (Ctrl+S; Chrome or Edge: \"Webpa
                   "File\"; Firefox: \"Web Page, complete\") and send the file here. Or copy the "
                   "description, paste it and tap Done. The bot saves it in Notion, screens the "
                   "job (one AI call), shows its card, then the next job.")
+JD_DAYS = 3  # /jd shows the jobs posted in the last 3 days (10 Nov, your request)
+JD_BOARD_KEY = "jd_board"  # bot_state: {"board": the /jd board you tapped, None for all}
 SAVED_PAGE_WHICH = ("{name}: which job is it? Open it with /jd first (or send /jd <the job's "
                     "link>), then send the saved page again. The page itself did not name a job "
                     "that is in Notion.")
@@ -530,7 +532,7 @@ class Desk:
         buttons += self.scope_buttons(everything)
         waiting = len(self.jd_rows()) if self.repo is not None else 0
         if waiting:  # jobs wait for their description before they can be reviewed (/jd)
-            buttons.append((f"No description ({waiting})", "li:next:0"))
+            buttons.append((f"No description ({waiting})", "jd:menu"))
         scope = self.chosen_scope()
         if scope != "all" and text == CHOOSE_COUNTRY:
             text = f"Jobs {scope_text(scope)}. {text}"
@@ -732,6 +734,10 @@ class Desk:
             return self.fetchreport_command(arg)
         if action == "li" and arg:  # the queue of jobs without a description (/jd)
             return self.linkedin_tap(arg)
+        if action == "jb":  # a board button under /jd
+            return self.jd_board_tap(arg)
+        if action == "jd":  # "No description (N)" under /pending: the /jd boards
+            return self.jd_menu()
         if action == "gs" and arg:  # a skill button under /gaps
             return self.skill_tap(arg)
         if action == "fx" and arg:  # "Go" under /fetchcontacts
@@ -3550,7 +3556,7 @@ class Desk:
                 return [self.waiting_list()]
             if rest:
                 return [Reply("Send /jd <job URL>, then paste the description.")]
-            return self.jd_walk(0)  # 10 Nov: one job at a time, every board
+            return self.jd_menu()  # 10 Nov: a board, then its jobs one at a time
         row = self._find(url)
         capture = self.captures.start(url, self.now(), row.page_id if row else None)
         if rest:
@@ -3573,35 +3579,76 @@ class Desk:
 
     # ------------------------------------------------ jobs waiting for a description (/jd)
 
-    def jd_rows(self) -> list[JobRow]:
-        """Jobs that wait for their description, new and never screened, every board (10 Nov,
-        your request: one flow for LinkedIn, JustJoin IT, Pracuj.pl, IrishJobs and the rest).
-        LinkedIn first, then by board, newest first in each."""
+    def jd_rows(self, board: str | None = None, recent: bool = True) -> list[JobRow]:
+        """Jobs that wait for their description, new and never screened (10 Nov, your
+        request: one flow for every board). Only those posted in the last JD_DAYS days
+        (older ones are not worth applying to), of one board when given; best /fetch match
+        score first (they have no verdict before their description), newest first."""
+        from jobengine.sweep import best
+
         assert self.repo is not None
+        today = self.today()
         rows = [r for r in waiting_for_jd(self.repo, self.state)
                 if r.status in (None, "", "New")]
-        rows.sort(key=lambda r: r.swept_date or date.min, reverse=True)
-        rows.sort(key=lambda r: (r.board != "LinkedIn", r.board or ""))
+        if recent:
+            rows = [r for r in rows if jd_recent(r, today)]
+        if board:
+            rows = [r for r in rows if (r.board or "Other") == board]
+        scores = best.scores(self.state, today)
+        rows.sort(key=lambda r: r.posted_date or r.swept_date or date.min, reverse=True)
+        rows.sort(key=lambda r: scores.get(r.page_id.replace("-", ""), float("-inf")),
+                  reverse=True)
         return rows
 
-    def jd_walk(self, index: int = 0) -> list[Reply]:
-        """/jd (and /linkedin): the jobs without a description one at a time, any board.
-        Each one opens a /jd capture: send its saved page (or paste the text and tap Done);
-        it is saved, screened, then the next job comes."""
+    def jd_board(self) -> str | None:
+        return (self.state.get(JD_BOARD_KEY) or {}).get("board")
+
+    def jd_menu(self) -> list[Reply]:
+        """/jd: one button per board with its jobs of the last JD_DAYS days (10 Nov)."""
         if self.repo is None:
             return [Reply(NO_TARGET)]
+        self.captures.clear()
         rows = self.jd_rows()
+        older = len(self.jd_rows(recent=False)) - len(rows)
+        old = (f" ({older} older one(s) not shown: /jd list lists them all)"
+               if older else "")
+        if not rows:
+            return [Reply(f"No jobs from the last {JD_DAYS} days wait for a description.{old}")]
+        counts: dict[str, int] = {}
+        for row in rows:
+            counts[row.board or "Other"] = counts.get(row.board or "Other", 0) + 1
+        order = sorted(counts, key=lambda b: (b != "LinkedIn", -counts[b], b))
+        buttons = [(f"{b} ({counts[b]})", f"jb:{b[:40]}") for b in order]
+        buttons.append((f"All ({len(rows)})", "jb:"))
+        return [Reply(f"{len(rows)} job(s) of the last {JD_DAYS} days wait for a description"
+                      f"{old}. Tap a board: its jobs come one at a time, best match first.",
+                      buttons)]
+
+    def jd_board_tap(self, board: str) -> list[Reply]:
+        self.state.set(JD_BOARD_KEY, {"board": board or None})
+        return self.jd_walk(0)
+
+    def jd_walk(self, index: int = 0) -> list[Reply]:
+        """The jobs without a description one at a time (of the board you tapped). Each one
+        opens a /jd capture: send its saved page (or paste the text and tap Done); it is
+        saved, screened, its card comes, then the next job."""
+        if self.repo is None:
+            return [Reply(NO_TARGET)]
+        board = self.jd_board()
+        rows = self.jd_rows(board)
         if not rows:
             self.captures.clear()
-            return [Reply("No jobs wait for a description. They come from the alert emails "
-                          "and the sites that block the bot, on each /fetch.")]
+            where = f" on {board}" if board else ""
+            return [Reply(f"No jobs from the last {JD_DAYS} days wait for a description"
+                          f"{where}. /jd shows the other boards.")]
         i = index % len(rows)
         row = rows[i]
         self.captures.start(row.url or "", self.now(), row.page_id)
         place = ", ".join(p for p in (row.city, row.country) if p) or "place unknown"
-        board = row.board or "Other"
-        text = (f"Job {i + 1} of {len(rows)} without a description ({board}):\n"
-                f"{row.company}, {row.role}\n{place}\n"
+        posted = row.posted_date or row.swept_date
+        when = f", posted {posted.isoformat()}" if isinstance(posted, date) else ""
+        text = (f"Job {i + 1} of {len(rows)} without a description ({row.board or 'Other'}"
+                f"{when}):\n{row.company}, {row.role}\n{place}\n"
                 f"{short_link(row.url) or '(no link)'}\n\n{LINKEDIN_PASTE}")
         pid = short_id(row.page_id)
         buttons = [("Done", "li:done"), ("Next", f"li:next:{i + 1}"),
@@ -3609,12 +3656,12 @@ class Desk:
         return [Reply(text, buttons)]
 
     def linkedin_command(self, index: int = 0) -> list[Reply]:
-        """/linkedin: the same flow as /jd (10 Nov: one flow for every board)."""
-        return self.jd_walk(index)
+        """/linkedin: the LinkedIn jobs of the /jd flow (10 Nov: one flow for every board)."""
+        return self.jd_board_tap("LinkedIn")
 
     def jd_left(self) -> list[Reply]:
         """After a description was saved: the next job, one tap away."""
-        left = len(self.jd_rows()) if self.repo is not None else 0
+        left = len(self.jd_rows(self.jd_board())) if self.repo is not None else 0
         if not left:
             return [Reply("No more jobs wait for a description.")]
         return [Reply(f"{left} more job(s) wait for a description.",
@@ -4040,7 +4087,9 @@ class Desk:
 
     def _card_for(self, page_id: str) -> list[Reply]:
         assert self.repo is not None
-        rows = self.ranked()
+        # 10 Nov (3-06): a job from /jd is often outside the /pending day or country you
+        # chose, and then only a line came, without the card's buttons.
+        rows = self.all_ranked()
         for i, row in enumerate(rows):
             if same_page(row.page_id, page_id):
                 return [self.card(row, i, len(rows))]
@@ -4050,6 +4099,12 @@ class Desk:
         row = job_row(page_id, values)
         reason = f" ({values.get('Skip reason')})" if values.get("Skip reason") else ""
         return [Reply(f"{row.company}, {row.role}: {row.screen_verdict}{reason}")]
+
+
+def jd_recent(row: JobRow, today: date) -> bool:
+    """Posted (else found) in the last JD_DAYS days."""
+    day = row.posted_date or row.swept_date
+    return isinstance(day, date) and day > today - timedelta(days=JD_DAYS)
 
 
 def tracking_zone(s: Settings) -> timezone:
