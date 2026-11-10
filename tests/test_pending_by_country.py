@@ -17,7 +17,7 @@ def test_pending_asks_for_a_country_first():
     assert menu.text == CHOOSE_COUNTRY
     assert menu.buttons == [("Poland (7)", "pc:Poland"), ("Netherlands (3)", "pc:Netherlands"),
                             ("Ireland (1)", "pc:Ireland"), ("All (11)", "pc:all"),
-                            ("This week (11)", "ps:week"), ("No description (1)", "jd:menu")]
+                            ("Last 3 days (8)", "ps:week"), ("No description (1)", "jd:menu")]
 
 
 def test_a_country_button_shows_only_that_country():
@@ -64,7 +64,7 @@ def test_labels_and_help():
     assert "/pending poland" in tb.HELP_TEXT
 
 
-def _found(d, today_ids, week_days=3, old_days=20):
+def _found(d, today_ids, week_days=2, old_days=20):
     from datetime import timedelta
 
     from test_review_one_at_a_time import FAKE_TODAY
@@ -72,6 +72,7 @@ def _found(d, today_ids, week_days=3, old_days=20):
     for n, (pid, row) in enumerate(d.repo.rows.items()):
         days = 0 if pid in today_ids else (week_days if n % 2 else old_days)
         row["Swept date"] = FAKE_TODAY - timedelta(days=days)
+        row["Posted date"] = FAKE_TODAY - timedelta(days=days)
 
 
 def test_bare_pending_in_telegram_shows_only_todays_jobs():
@@ -94,7 +95,7 @@ def test_no_job_found_today_offers_the_older_ones():
     d = make_desk()
     _found(d, set())
     [reply] = d.pending_command("", "today")
-    assert reply.text.startswith("No job found today waits for review.")
+    assert reply.text.startswith("No job posted today waits for review.")
     labels = [data for _, data in reply.buttons]
     assert "ps:week" in labels and "ps:all" in labels
     week = d.pending_command("week")
@@ -106,3 +107,25 @@ def test_pending_all_and_a_country_show_every_day():
     _found(d, set())
     [card] = d.pending_command("all")
     assert is_card(card) and d.chosen_scope() == "all"
+
+
+def test_today_means_posted_today_and_last_3_days_posted_since():
+    """10 Nov, your rule: Today showed jobs posted on 9 Nov that a /fetch found on 10 Nov."""
+    from datetime import timedelta
+
+    from test_review_one_at_a_time import FAKE_TODAY
+
+    from jobengine.screen.desk import pending_in_scope
+    from jobengine.screen.runner import job_row
+
+    def row(posted, swept=FAKE_TODAY):
+        return job_row("p", {"Posted date": posted, "Swept date": swept})
+
+    yesterday = FAKE_TODAY - timedelta(days=1)
+    assert pending_in_scope(row(FAKE_TODAY), "today", FAKE_TODAY)
+    assert not pending_in_scope(row(yesterday), "today", FAKE_TODAY)  # found today, posted 9th
+    assert pending_in_scope(row(yesterday), "week", FAKE_TODAY)
+    assert pending_in_scope(row(FAKE_TODAY - timedelta(days=2)), "week", FAKE_TODAY)
+    assert not pending_in_scope(row(FAKE_TODAY - timedelta(days=3)), "week", FAKE_TODAY)
+    assert pending_in_scope(row(None), "today", FAKE_TODAY)  # no Posted date: the Swept date
+    assert pending_in_scope(row(FAKE_TODAY - timedelta(days=40)), "all", FAKE_TODAY)
