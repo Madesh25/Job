@@ -64,8 +64,10 @@ Rules:
   one (5); for a range ("3-5 years") its lower number (3). Ignore nice-to-have years.
 - Salary, sponsorship and dates only when the description states them explicitly.
 - sponsorship: "stated_yes" only when visa sponsorship or relocation with a work permit is
-  offered; "stated_no" when the description says there is no sponsorship, or that only EU or
-  EEA nationals or citizens can apply (that rules out a candidate who needs a visa).
+  offered (relocation support alone, such as moving costs or a relocation package, is
+  "not_mentioned"); "stated_no" when the description says there is no sponsorship, or that
+  only EU or EEA nationals or citizens can apply (that rules out a candidate who needs a
+  visa).
 - agency_posting: only when the description says it is posted by a recruitment agency on
   behalf of a client.
 - specific_details: up to 3 short phrases (at most 8 words each) about concrete work in this
@@ -115,6 +117,21 @@ def _quoted(raw: Any, jd: str, empty: Any, dropped: list[str], name: str) -> Quo
     return item
 
 
+# A "stated_yes" quote must name a visa or a work permit (10 Nov, Phase 23 3-06: Swisscom's
+# "Full relocation support" was read as sponsorship, so the job ranked as a sponsor).
+VISA_WORDS = re.compile(r"visa|sponsor|work(?:ing)? permit|residence permit|permit to work|"
+                        r"right to work|immigration|kennismigrant|highly skilled migrant|"
+                        r"blue card|work authori[sz]ation|employment permit|critical skills",
+                        re.I)
+
+
+def _sponsorship(item: Quoted, dropped: list[str]) -> Quoted:
+    if item.value == "stated_yes" and not VISA_WORDS.search(str(item.quote or "")):
+        dropped.append("sponsorship")
+        return Quoted(value="not_mentioned")
+    return item
+
+
 def _items(raw: Any, model: type, jd: str, dropped: list[str], name: str,
            limit: int | None = None) -> list:
     out = []
@@ -161,7 +178,8 @@ def check_quotes(raw: dict[str, Any], jd: str) -> tuple[Extraction, list[str]]:
                                       dropped, "mandatory_requirements", MAX_REQUIREMENTS),
         nice_to_have=_items(raw.get("nice_to_have"), Requirement, jd, dropped, "nice_to_have",
                             MAX_NICE),
-        sponsorship=_quoted(raw.get("sponsorship"), jd, "not_mentioned", dropped, "sponsorship"),
+        sponsorship=_sponsorship(_quoted(raw.get("sponsorship"), jd, "not_mentioned", dropped,
+                                         "sponsorship"), dropped),
         work_mode=_quoted(raw.get("work_mode"), jd, "unknown", dropped, "work_mode"),
         salary_text=_quoted(raw.get("salary_text"), jd, None, dropped, "salary_text"),
         expires=_quoted(raw.get("expires"), jd, None, dropped, "expires"),
