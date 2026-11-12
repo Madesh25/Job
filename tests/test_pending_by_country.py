@@ -15,8 +15,8 @@ def test_pending_asks_for_a_country_first():
     d = make_desk()
     [menu] = d.pending_command()
     assert menu.text == CHOOSE_COUNTRY
-    assert menu.buttons == [("PL (7)", "pc:Poland"), ("NL (3)", "pc:Netherlands"),
-                            ("IE (1)", "pc:Ireland"), ("All (11)", "pc:all"),
+    assert menu.buttons == [("PL 7", "pc:Poland"), ("NL 3", "pc:Netherlands"),
+                            ("IE 1", "pc:Ireland"), ("All (11)", "pc:all"),
                             ("Last 3 days (1)", "ps:week"), ("No description (1)", "jd:menu")]
 
 
@@ -39,7 +39,7 @@ def test_the_next_job_after_skip_stays_in_the_country_then_offers_the_rest():
     replies = d.tap(f"sk:{pid}")
     assert replies[0].text.startswith("Skipped: ")
     assert replies[-1].text == "No more jobs for Ireland. Pick the next country:"
-    assert ("PL (7)", "pc:Poland") in replies[-1].buttons
+    assert ("PL 7", "pc:Poland") in replies[-1].buttons
 
 
 def test_pending_with_a_country_word():
@@ -87,7 +87,7 @@ def test_bare_pending_in_telegram_shows_the_countries_then_today():
     labels = dict((data, label) for label, data in menu.buttons)
     country = first.country
     short = {"Poland": "PL", "Netherlands": "NL", "Ireland": "IE"}[country]
-    assert labels[f"pc:{country}"].startswith(f"{short} (1 today, ")
+    assert labels[f"pc:{country}"] == f"{short} 1"
     assert all(f"pc:{c}" in labels for c in ("Poland", "Netherlands", "Ireland"))
     [card] = d.tap(f"pc:{country}")
     assert is_card(card) and card.text.startswith("[1/1]")
@@ -106,7 +106,7 @@ def test_no_job_found_today_offers_the_older_ones():
     d = make_desk()
     _found(d, set())
     [menu] = d.pending_command("", "today")
-    assert ("IE (0 today, 1 all)", "pc:Ireland") in menu.buttons
+    assert ("IE 0", "pc:Ireland") in menu.buttons
     [reply] = d.tap("pc:Ireland")
     assert reply.text.startswith("No more jobs for Ireland found today. Older jobs there:")
     labels = [data for _, data in reply.buttons]

@@ -565,10 +565,9 @@ class Desk:
             totals[key] = totals.get(key, 0) + 1
         order = [c for c in COUNTRY_ORDER if c in totals] + sorted(
             c for c in totals if c not in COUNTRY_ORDER)
-        short = {"today": "today", "week": "in 3 days"}.get(scope)
-        buttons = [(f"{country_short(c)} ({counts.get(c, 0)} {short}, {totals[c]} all)"
-                    if short else f"{country_short(c)} ({totals[c]})", f"pc:{c}")
-                   for c in order]
+        # 12 Nov, your request: "PL 5" (that day's count) is enough on the button.
+        buttons = [(f"{country_short(c)} {counts.get(c, 0) if scope != 'all' else totals[c]}",
+                    f"pc:{c}") for c in order]
         buttons.append((f"All ({len(rows)})", "pc:all"))
         buttons += self.scope_buttons(everything)
         waiting = len(self.jd_rows()) if self.repo is not None else 0
