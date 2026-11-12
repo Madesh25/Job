@@ -140,6 +140,15 @@ MAX_KEYWORDS = 6  # missing keywords shown on a /pending card
 MAX_REWORD = 4  # cards sent at once after a screening; the rest are in /pending
 
 
+class JobClosed(Exception):
+    """The job board says the job is gone (a Greenhouse 404, 11 Nov)."""
+
+
+# 6-01 (11 Nov): a closed Greenhouse job saved a row "Greenhouse, LearnUpon" with the board.
+JOB_CLOSED = ("This job is closed: the job board no longer has it ({url}). Nothing was "
+              "saved. Pick an open job from the company's careers page.")
+
+
 @dataclass
 class Reply:
     text: str
@@ -2132,9 +2141,13 @@ class Desk:
                                    "screened; the bot never opens that site). Finding "
                                    "contacts and your LinkedIn connections there...")]
         self.say(Reply("Reading the job page..."))
-        gh = self._greenhouse_job(url)
         try:
+            gh = self._greenhouse_job(url)
             final, page = (url, "") if gh is not None else self._read_add_page(url)
+            if gh is None and add_link.closed_board_page(final):
+                raise JobClosed(url)
+        except JobClosed:
+            return None, [Reply(JOB_CLOSED.format(url=url))]
         except http.HttpError as exc:
             if typed is not None:
                 company, country, role = typed
@@ -3846,6 +3859,8 @@ class Desk:
         try:
             _final, raw = self.get_json_page(api)
         except http.HttpError as exc:
+            if exc.status == 404:  # 6-01 (11 Nov): Greenhouse no longer has the job
+                raise JobClosed(url) from None
             log.info("greenhouse job not read through its API: %s", exc)
             return None
         return add_link.from_greenhouse(url, raw)
@@ -3873,9 +3888,13 @@ class Desk:
         if "linkedin" in host or http.host_in(host, blocked_hosts(self.s)):
             return [Reply(ADD_BLOCKED.format(host=host, url=url))]
         self.say(Reply("Reading the job page..."))
-        gh = self._greenhouse_job(url)
         try:
+            gh = self._greenhouse_job(url)
             final, page = (url, "") if gh is not None else self._read_add_page(url)
+            if gh is None and add_link.closed_board_page(final):
+                raise JobClosed(url)
+        except JobClosed:
+            return [Reply(JOB_CLOSED.format(url=url))]
         except http.HttpError as exc:
             return [Reply(f"Could not open the job page ({exc}).\n{ADD_PASTE.format(url=url)}")]
         job = gh or add_link.read_page(final, page)

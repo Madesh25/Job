@@ -45,3 +45,57 @@ def test_contacts_saves_the_greenhouse_job_with_its_role_place_and_link():
         "Manychat", "Senior Site Reliability Engineer", "Netherlands", "Amsterdam", LINK)
     assert replies[0].text.startswith("Saved Manychat, Senior Site Reliability Engineer "
                                       "(Amsterdam, Netherlands) as a new job")
+
+
+CLOSED = "https://job-boards.greenhouse.io/learnupon/jobs/7929249002"
+
+
+def _closed_api(url):
+    from jobengine import http
+
+    raise http.HttpError("GET boards-api.greenhouse.io failed: HTTP 404", 404,
+                         "boards-api.greenhouse.io")
+
+
+def test_a_closed_greenhouse_job_saves_nothing():
+    """6-01 (11 Nov): a closed job saved a row "Greenhouse, LearnUpon" with the board page
+    (error=true) as its link and greenhouse.io as the company's domain."""
+    from test_review_one_at_a_time import make_desk
+
+    d = make_desk()
+    d.say = lambda reply: None
+    before = len(d.repo.rows)
+    d.get_json_page = _closed_api
+
+    def no_page(url):
+        raise AssertionError("a closed job's page is not read")
+
+    d.get_slow_page = no_page
+    page_id, replies = d._save_job_for_contacts(CLOSED, "")
+    assert page_id is None and len(d.repo.rows) == before
+    assert replies[0].text.startswith("This job is closed")
+    [reply] = d.add_command(CLOSED)
+    assert reply.text.startswith("This job is closed") and len(d.repo.rows) == before
+
+
+def test_the_board_page_with_error_true_means_closed():
+    from test_review_one_at_a_time import make_desk
+
+    assert add_link.closed_board_page("https://job-boards.greenhouse.io/learnupon?error=true")
+    assert not add_link.closed_board_page("https://job-boards.greenhouse.io/learnupon")
+    assert not add_link.closed_board_page("https://acme.com/jobs?error=true")
+    d = make_desk()
+    d.say = lambda reply: None
+    before = len(d.repo.rows)
+
+    def api_down(url):
+        from jobengine import http
+
+        raise http.HttpError("GET boards-api.greenhouse.io failed: ReadTimeout")
+
+    d.get_json_page = api_down
+    d.get_slow_page = lambda url: ("https://job-boards.greenhouse.io/learnupon?error=true",
+                                   "<html><body>Current openings at LearnUpon</body></html>")
+    page_id, replies = d._save_job_for_contacts(CLOSED, "")
+    assert page_id is None and len(d.repo.rows) == before
+    assert replies[0].text.startswith("This job is closed")
