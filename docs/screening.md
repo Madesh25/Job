@@ -291,7 +291,7 @@ sets `Status` to `Screened` only if it is `New` or `Screened`, so a row never mo
   last 3 days, `/pending week`) and `Everything` (`/pending all`) show more. From 10 to 12 Nov
   Today meant posted today.
 - Country first, then the day (12 Nov): the bare `/pending` shows the country buttons in
-  short, with "N today, M all": `PL (5 today, 182 all)`, `NL`, `IE`, `EU` (remote jobs open
+  short, with that day's count: `PL 5`, `NL 5`, `IE 0`, `EU` (remote jobs open
   across Europe); a country with only older jobs is there too. Tap one: that country's
   jobs found today, one card at a time. Each card has `Last 3 days (n)` and `Everything (n)`
   for the same country and `Change country`; these buttons change the day, not the country.
