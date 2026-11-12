@@ -99,6 +99,14 @@ def greenhouse_api(url: str) -> str | None:
     return GREENHOUSE_JOB_API.format(token=match.group(1), job=match.group(2))
 
 
+def closed_board_page(final_url: str) -> bool:
+    """True when a job link ended on a Greenhouse board page with error=true: Greenhouse
+    sends a closed job's link there (6-01, 11 Nov)."""
+    parts = urlsplit(final_url)
+    host = (parts.hostname or "").lower()
+    return host.endswith("greenhouse.io") and "error=true" in parts.query.lower()
+
+
 def from_greenhouse(url: str, raw: str) -> PageJob | None:
     """The job from Greenhouse's API answer (JSON text), None when it is not a job."""
     import html as html_lib
