@@ -83,6 +83,9 @@ def test_bare_pending_in_telegram_shows_only_todays_jobs():
     [card] = d.pending_command("", "today")
     assert is_card(card) and card.text.startswith("[1/1]")
     assert d.chosen_scope() == "today"
+    # 5-01 (11 Nov): one card of today, and the older jobs one tap away.
+    scopes = [data for _, data in card.buttons if data.startswith("ps:")]
+    assert scopes == ["ps:week", "ps:all"]
     # The last of today's jobs: the other scopes are offered.
     [done] = d.tap(next(data for _, data in card.buttons if data.startswith("nx:")))
     assert is_card(done)  # Next wraps round within today's one job

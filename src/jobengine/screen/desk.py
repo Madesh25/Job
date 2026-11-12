@@ -679,6 +679,8 @@ class Desk:
             return [Reply("\n".join(t for t in (text, waiting) if t), more)]
         index = index % len(rows)
         reply = self.card(rows[index], index, len(rows))
+        if self.chosen_scope() != "all":  # 5-01 (11 Nov): the older jobs stay one tap away
+            reply.buttons += self.scope_buttons(self.all_ranked())
         if waiting:
             reply.text += f"\n\n{waiting}"
         return [reply]
