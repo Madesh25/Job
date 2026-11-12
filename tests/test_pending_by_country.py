@@ -17,7 +17,7 @@ def test_pending_asks_for_a_country_first():
     assert menu.text == CHOOSE_COUNTRY
     assert menu.buttons == [("Poland (7)", "pc:Poland"), ("Netherlands (3)", "pc:Netherlands"),
                             ("Ireland (1)", "pc:Ireland"), ("All (11)", "pc:all"),
-                            ("Last 3 days (8)", "ps:week"), ("No description (1)", "jd:menu")]
+                            ("Last 3 days (11)", "ps:week"), ("No description (1)", "jd:menu")]
 
 
 def test_a_country_button_shows_only_that_country():
@@ -75,32 +75,40 @@ def _found(d, today_ids, week_days=2, old_days=20):
         row["Posted date"] = FAKE_TODAY - timedelta(days=days)
 
 
-def test_bare_pending_in_telegram_shows_only_todays_jobs():
-    """Phase 23 3-01 (8 Nov): /pending offered all 274 waiting jobs; today's by default."""
+def test_bare_pending_in_telegram_shows_the_countries_then_today():
+    """Phase 23 3-01 (8 Nov): today's jobs by default. 12 Nov: the country first, then Today
+    (found today), Last 3 days and Everything inside that country."""
     d = make_desk()
-    pending = [r.page_id for r in d.all_ranked()]
-    _found(d, {pending[0]})
-    [card] = d.pending_command("", "today")
+    first = d.all_ranked()[0]
+    _found(d, {first.page_id})
+    [menu] = d.pending_command("", "today")
+    assert menu.text.startswith("Jobs found today. ") and d.chosen_scope() == "today"
+    labels = dict((data, label) for label, data in menu.buttons)
+    country = first.country
+    assert labels[f"pc:{country}"].startswith(f"{country} (1 today, ")
+    assert all(f"pc:{c}" in labels for c in ("Poland", "Netherlands", "Ireland"))
+    [card] = d.tap(f"pc:{country}")
     assert is_card(card) and card.text.startswith("[1/1]")
-    assert d.chosen_scope() == "today"
-    # 5-01 (11 Nov): one card of today, and the older jobs one tap away.
+    # 5-01 (11 Nov): the older jobs one tap away, now of the same country.
     scopes = [data for _, data in card.buttons if data.startswith("ps:")]
-    assert scopes == ["ps:week", "ps:all"]
-    # The last of today's jobs: the other scopes are offered.
+    assert scopes == ["ps:week", "ps:all"] and ("Change country", "pc:menu") in card.buttons
     [done] = d.tap(next(data for _, data in card.buttons if data.startswith("nx:")))
     assert is_card(done)  # Next wraps round within today's one job
-    [menu] = d.tap("ps:all")
-    assert d.chosen_scope() == "all"
-    assert any(data == "ps:today" for _, data in menu.buttons)
+    [card] = d.tap("ps:all")
+    assert d.chosen_scope() == "all" and d.chosen_country() == country
+    assert is_card(card) and card_country(d, card) == country
+    assert any(data == "ps:today" for _, data in card.buttons)
 
 
 def test_no_job_found_today_offers_the_older_ones():
     d = make_desk()
     _found(d, set())
-    [reply] = d.pending_command("", "today")
-    assert reply.text.startswith("No job posted today waits for review.")
+    [menu] = d.pending_command("", "today")
+    assert ("Ireland (0 today, 1 all)", "pc:Ireland") in menu.buttons
+    [reply] = d.tap("pc:Ireland")
+    assert reply.text.startswith("No more jobs for Ireland found today. Older jobs there:")
     labels = [data for _, data in reply.buttons]
-    assert "ps:week" in labels and "ps:all" in labels
+    assert "ps:all" in labels and "pc:menu" in labels
     week = d.pending_command("week")
     assert d.chosen_scope() == "week" and week
 
@@ -112,8 +120,9 @@ def test_pending_all_and_a_country_show_every_day():
     assert is_card(card) and d.chosen_scope() == "all"
 
 
-def test_today_means_posted_today_and_last_3_days_posted_since():
-    """10 Nov, your rule: Today showed jobs posted on 9 Nov that a /fetch found on 10 Nov."""
+def test_today_means_found_today_like_the_notion_view():
+    """12 Nov, your rule: Today is what today's /fetch found (the Notion Today view groups by
+    the Swept date); 10 Nov it was the posted day."""
     from datetime import timedelta
 
     from test_review_one_at_a_time import FAKE_TODAY
@@ -121,14 +130,14 @@ def test_today_means_posted_today_and_last_3_days_posted_since():
     from jobengine.screen.desk import pending_in_scope
     from jobengine.screen.runner import job_row
 
-    def row(posted, swept=FAKE_TODAY):
+    def row(swept, posted=FAKE_TODAY - timedelta(days=5)):
         return job_row("p", {"Posted date": posted, "Swept date": swept})
 
     yesterday = FAKE_TODAY - timedelta(days=1)
-    assert pending_in_scope(row(FAKE_TODAY), "today", FAKE_TODAY)
-    assert not pending_in_scope(row(yesterday), "today", FAKE_TODAY)  # found today, posted 9th
+    assert pending_in_scope(row(FAKE_TODAY), "today", FAKE_TODAY)  # found today, posted earlier
+    assert not pending_in_scope(row(yesterday), "today", FAKE_TODAY)
     assert pending_in_scope(row(yesterday), "week", FAKE_TODAY)
     assert pending_in_scope(row(FAKE_TODAY - timedelta(days=2)), "week", FAKE_TODAY)
     assert not pending_in_scope(row(FAKE_TODAY - timedelta(days=3)), "week", FAKE_TODAY)
-    assert pending_in_scope(row(None), "today", FAKE_TODAY)  # no Posted date: the Swept date
+    assert pending_in_scope(row(None, FAKE_TODAY), "today", FAKE_TODAY)  # no Swept: Posted
     assert pending_in_scope(row(FAKE_TODAY - timedelta(days=40)), "all", FAKE_TODAY)
