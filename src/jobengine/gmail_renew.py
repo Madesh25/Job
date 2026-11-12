@@ -163,8 +163,10 @@ def whoami(token: Mapping[str, Any], access_token: str) -> str:
 
 def finish(s: Settings, text: str, now: datetime, folder: Path = GMAIL_TOKEN_DIR,
            post: Callable[[str, Mapping[str, str]], Any] | None = None,
-           who: Callable[[Mapping[str, Any], str], str] = whoami) -> str:
-    """Exchange the pasted address for a token and save it; the answer for the chat."""
+           who: Callable[[Mapping[str, Any], str], str] = whoami,
+           days: int = DEFAULT_TOKEN_DAYS) -> str:
+    """Exchange the pasted address for a token and save it; the answer for the chat.
+    `days`: Config gmail.token_days (0 once the Google app is published)."""
     if s.app_env != "local":
         return NOT_LOCAL
     query = parse_qs(urlsplit(text.strip()).query)
@@ -218,11 +220,14 @@ def finish(s: Settings, text: str, now: datetime, folder: Path = GMAIL_TOKEN_DIR
         path.chmod(0o600)
     except OSError:  # a Windows folder mounted into Docker may refuse; the file is local
         pass
-    until = now.date() + timedelta(days=DEFAULT_TOKEN_DAYS)
-    return (f"✅ Saved the new Gmail token for {pending.account} ({email}). Send /restart "
-            "now to use it (about 10 seconds); no .env change is needed. While the Google "
-            f"app is in Testing it works until {until:%d %b}: the bot reminds you the day "
-            "before. Publishing the app stops this for good (Phase 9, P9-37).")
+    saved_text = (f"✅ Saved the new Gmail token for {pending.account} ({email}). Send "
+                  "/restart now to use it (about 10 seconds); no .env change is needed.")
+    if days <= 0:  # 12-04 (12 Nov): the app is published, the token does not expire
+        return saved_text
+    until = now.date() + timedelta(days=days)
+    return (f"{saved_text} While the Google app is in Testing it works until {until:%d %b}: "
+            "the bot reminds you the day before. Once the app is published (In production), "
+            "set Config gmail.token_days = 0.")
 
 
 def saved(account: str, folder: Path = GMAIL_TOKEN_DIR) -> dict[str, Any] | None:
@@ -263,8 +268,12 @@ def days_left(s: Settings, config: Any, today: date,
 
 
 def token_days(config: Any) -> int:
+    """Config gmail.token_days; 0 (the app is published) stays 0, an empty row is 7."""
+    value = config.get("gmail.token_days") if config is not None else None
+    if value is None or not str(value).strip():
+        return DEFAULT_TOKEN_DAYS
     try:
-        return int(str(config.get("gmail.token_days") or DEFAULT_TOKEN_DAYS).strip())
+        return int(float(str(value).strip()))
     except ValueError:
         return DEFAULT_TOKEN_DAYS
 
@@ -291,9 +300,10 @@ def status(s: Settings, config: Any, today: date, folder: Path = GMAIL_TOKEN_DIR
         else:
             where = f"renewed in Telegram on {issued:%d %b}"
         lines.append(f"- {account} ({expected_email(s, account)}): {state}; {where}")
-    lines += ["", "Renew one: /gmailtoken m02 or /gmailtoken mm (2 minutes). After the Google "
-              "app is published (Phase 9, P9-37) tokens stop expiring: then set Config "
-              "gmail.token_days = 0 to end the reminders."]
+    lines += ["", "Renew one: /gmailtoken m02 or /gmailtoken mm (2 minutes)."]
+    if days > 0:
+        lines[-1] += (" Once the Google app is published (In production) tokens stop "
+                      "expiring: then set Config gmail.token_days = 0 to end the reminders.")
     return "\n".join(lines)
 
 
@@ -330,7 +340,8 @@ PAGE = ("<!doctype html><html><head><meta charset=\"utf-8\"><title>Job Engine</t
 
 def listen(s: Settings, notify: Callable[[str], None],
            now: Callable[[], datetime] = datetime.now, port: int = LISTEN_PORT,
-           host: str = "0.0.0.0", folder: Path = GMAIL_TOKEN_DIR) -> int | None:
+           host: str = "0.0.0.0", folder: Path = GMAIL_TOKEN_DIR,
+           days: int = DEFAULT_TOKEN_DAYS) -> int | None:
     """Answer the page Google returns to after Allow (REDIRECT): the code is exchanged at once,
     the page shows the result and `notify` sends it to the chat. It stops when no sign-in waits
     any more, or after PENDING_MINUTES. Inside Docker it needs -p 127.0.0.1:8765:8765. The port
@@ -344,7 +355,8 @@ def listen(s: Settings, notify: Callable[[str], None],
                 self.send_response(404)
                 self.end_headers()
                 return
-            text = finish(s, f"{REDIRECT.rstrip('/')}{self.path}", now(), folder)
+            text = finish(s, f"{REDIRECT.rstrip('/')}{self.path}", now(), folder,
+                          days=days)
             ok = text.startswith("\u2705")
             body = PAGE.format(head="Done" if ok else "Not saved",
                                text=html.escape(text)).encode("utf-8")
