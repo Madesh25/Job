@@ -828,13 +828,20 @@ def gmail_token_message(client: TelegramClient, s: Settings, message: dict[str, 
     chat = str(s.telegram_chat_id)
     text = message.get("text") or ""
     now = datetime.now()
+    try:
+        config: Any = desk.deps.config() if desk is not None else {}
+    except Exception:  # Notion down: the 7-day wording, the token is still saved
+        log.warning("Config not read for /gmailtoken", exc_info=True)
+        config = {}
+    days = gmail_renew.token_days(config)
     if gmail_renew.looks_like_answer(text):
         try:
             client.delete_message(chat, int(message.get("message_id") or 0))
         except (TelegramError, ValueError) as exc:
             log.warning("could not delete the pasted sign-in address: %s", exc)
         with Typing(client, chat):
-            reply = _guarded("Gmail token", lambda: [Reply(gmail_renew.finish(s, text, now))])
+            reply = _guarded("Gmail token", lambda: [Reply(gmail_renew.finish(
+                s, text, now, days=days))])
         send_replies(client, s, chat, reply)
         return
     args = text.split()[1:]
@@ -842,13 +849,12 @@ def gmail_token_message(client: TelegramClient, s: Settings, message: dict[str, 
         account = args[0].lower()
         notify = lambda answer: send_replies(client, s, chat, [Reply(answer)])  # noqa: E731
         listening = (s.app_env == "local" and account in gmail_renew.ACCOUNTS
-                     and gmail_renew.listen(s, notify) is not None)
+                     and gmail_renew.listen(s, notify, days=days) is not None)
         reply = _guarded("Gmail token", lambda: [Reply(gmail_renew.start(
             s, account, now, listening))])
         if listening and not gmail_renew.PENDING:
             gmail_renew.stop()  # the link was refused (no OAuth client): nothing to wait for
     else:
-        config: Any = desk.deps.config() if desk is not None else {}
         with Typing(client, chat):
             reply = _guarded("Gmail token", lambda: [Reply(gmail_renew.status(
                 s, config, now.date()))])

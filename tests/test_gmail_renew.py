@@ -183,8 +183,8 @@ def test_telegram_routes_the_command_and_deletes_the_pasted_address(monkeypatch)
     s = settings()
     monkeypatch.setattr(gr, "start",
                         lambda s, account, now, listening: f"link for {account} {listening}")
-    monkeypatch.setattr(gr, "listen", lambda s, notify: 8765)
-    monkeypatch.setattr(gr, "finish", lambda s, text, now: "saved it")
+    monkeypatch.setattr(gr, "listen", lambda s, notify, days=7: 8765)
+    monkeypatch.setattr(gr, "finish", lambda s, text, now, days=7: "saved it")
     monkeypatch.setattr(gr, "status", lambda s, config, today: "status")
     message = {"chat": {"id": int(CHAT_ID)}, "message_id": 77}
     tb.handle_one(client, s, {"update_id": 1, "message": {**message, "text": "/gmailtoken MM"}})
@@ -218,7 +218,7 @@ def test_the_bot_answers_the_page_google_returns_to(monkeypatch, tmp_path):
     said = []
     q = link(gr.start(S, "m02", NOW, listening=True))
     seen = []
-    monkeypatch.setattr(gr, "finish", lambda s, url, now, folder: seen.append(url) or (
+    monkeypatch.setattr(gr, "finish", lambda s, url, now, folder, days=7: seen.append(url) or (
         gr.PENDING.clear() or "\u2705 Saved the new Gmail token for m02 <ok>"))
     port = gr.listen(S, said.append, lambda: NOW, port=0, host="127.0.0.1", folder=tmp_path)
     try:
@@ -250,3 +250,22 @@ def test_listen_says_none_when_the_port_is_taken():
         taken.listen()
         assert gr.listen(S, print, port=taken.getsockname()[1], host="127.0.0.1") is None
     assert gr._SERVER == {}
+
+
+def test_a_published_app_has_no_testing_dates(tmp_path):
+    """12-04 (12 Nov): after Publish app the Done page still said "While the Google app is
+    in Testing it works until 19 Nov", and a Config value 0 (a number) counted as 7."""
+    good = {"access_token": "a", "refresh_token": "r", "scope": " ".join(SENDER_SCOPES)}
+    q = link(gr.start(S, "m02", NOW))
+    text = gr.finish(S, answer_for(q), NOW, tmp_path, lambda u, d: good,
+                     lambda t, a: "madeshwaranm02@gmail.com", days=0)
+    assert text.startswith("✅ Saved the new Gmail token for m02")
+    assert "Testing" not in text and "works until" not in text
+    assert gr.token_days({"gmail.token_days": 0}) == 0
+    assert gr.token_days({"gmail.token_days": "0"}) == 0
+    assert gr.token_days({"gmail.token_days": 7.0}) == 7
+    assert gr.token_days({"gmail.token_days": ""}) == gr.DEFAULT_TOKEN_DAYS
+    assert gr.token_days({}) == gr.DEFAULT_TOKEN_DAYS
+    status = gr.status(S, {"gmail.token_days": 0}, date(2026, 11, 12), tmp_path,
+                       check=lambda token: None)
+    assert "Testing" not in status and "published" not in status
