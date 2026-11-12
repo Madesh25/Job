@@ -15,9 +15,9 @@ def test_pending_asks_for_a_country_first():
     d = make_desk()
     [menu] = d.pending_command()
     assert menu.text == CHOOSE_COUNTRY
-    assert menu.buttons == [("Poland (7)", "pc:Poland"), ("Netherlands (3)", "pc:Netherlands"),
-                            ("Ireland (1)", "pc:Ireland"), ("All (11)", "pc:all"),
-                            ("Last 3 days (11)", "ps:week"), ("No description (1)", "jd:menu")]
+    assert menu.buttons == [("PL (7)", "pc:Poland"), ("NL (3)", "pc:Netherlands"),
+                            ("IE (1)", "pc:Ireland"), ("All (11)", "pc:all"),
+                            ("Last 3 days (1)", "ps:week"), ("No description (1)", "jd:menu")]
 
 
 def test_a_country_button_shows_only_that_country():
@@ -39,7 +39,7 @@ def test_the_next_job_after_skip_stays_in_the_country_then_offers_the_rest():
     replies = d.tap(f"sk:{pid}")
     assert replies[0].text.startswith("Skipped: ")
     assert replies[-1].text == "No more jobs for Ireland. Pick the next country:"
-    assert ("Poland (7)", "pc:Poland") in replies[-1].buttons
+    assert ("PL (7)", "pc:Poland") in replies[-1].buttons
 
 
 def test_pending_with_a_country_word():
@@ -71,7 +71,8 @@ def _found(d, today_ids, week_days=2, old_days=20):
 
     for n, (pid, row) in enumerate(d.repo.rows.items()):
         days = 0 if pid in today_ids else (week_days if n % 2 else old_days)
-        row["Swept date"] = FAKE_TODAY - timedelta(days=days)
+        row["First seen"] = FAKE_TODAY - timedelta(days=days)
+        row["Swept date"] = FAKE_TODAY  # seen again today: not "today" in /pending
         row["Posted date"] = FAKE_TODAY - timedelta(days=days)
 
 
@@ -85,7 +86,8 @@ def test_bare_pending_in_telegram_shows_the_countries_then_today():
     assert menu.text.startswith("Jobs found today. ") and d.chosen_scope() == "today"
     labels = dict((data, label) for label, data in menu.buttons)
     country = first.country
-    assert labels[f"pc:{country}"].startswith(f"{country} (1 today, ")
+    short = {"Poland": "PL", "Netherlands": "NL", "Ireland": "IE"}[country]
+    assert labels[f"pc:{country}"].startswith(f"{short} (1 today, ")
     assert all(f"pc:{c}" in labels for c in ("Poland", "Netherlands", "Ireland"))
     [card] = d.tap(f"pc:{country}")
     assert is_card(card) and card.text.startswith("[1/1]")
@@ -104,7 +106,7 @@ def test_no_job_found_today_offers_the_older_ones():
     d = make_desk()
     _found(d, set())
     [menu] = d.pending_command("", "today")
-    assert ("Ireland (0 today, 1 all)", "pc:Ireland") in menu.buttons
+    assert ("IE (0 today, 1 all)", "pc:Ireland") in menu.buttons
     [reply] = d.tap("pc:Ireland")
     assert reply.text.startswith("No more jobs for Ireland found today. Older jobs there:")
     labels = [data for _, data in reply.buttons]
@@ -130,8 +132,9 @@ def test_today_means_found_today_like_the_notion_view():
     from jobengine.screen.desk import pending_in_scope
     from jobengine.screen.runner import job_row
 
-    def row(swept, posted=FAKE_TODAY - timedelta(days=5)):
-        return job_row("p", {"Posted date": posted, "Swept date": swept})
+    def row(first, posted=FAKE_TODAY - timedelta(days=5)):
+        return job_row("p", {"Posted date": posted, "First seen": first,
+                             "Swept date": FAKE_TODAY})
 
     yesterday = FAKE_TODAY - timedelta(days=1)
     assert pending_in_scope(row(FAKE_TODAY), "today", FAKE_TODAY)  # found today, posted earlier
@@ -139,5 +142,8 @@ def test_today_means_found_today_like_the_notion_view():
     assert pending_in_scope(row(yesterday), "week", FAKE_TODAY)
     assert pending_in_scope(row(FAKE_TODAY - timedelta(days=2)), "week", FAKE_TODAY)
     assert not pending_in_scope(row(FAKE_TODAY - timedelta(days=3)), "week", FAKE_TODAY)
-    assert pending_in_scope(row(None, FAKE_TODAY), "today", FAKE_TODAY)  # no Swept: Posted
+    # 12 Nov: seen again today (Swept today) but first found 2 days ago: not Today.
+    assert not pending_in_scope(row(FAKE_TODAY - timedelta(days=2)), "today", FAKE_TODAY)
+    no_first = job_row("p", {"Posted date": yesterday, "Swept date": FAKE_TODAY})
+    assert pending_in_scope(no_first, "today", FAKE_TODAY)  # no First seen: the Swept date
     assert pending_in_scope(row(FAKE_TODAY - timedelta(days=40)), "all", FAKE_TODAY)

@@ -284,12 +284,15 @@ sets `Status` to `Screened` only if it is `New` or `Screened`, so a row never mo
 - `/fetch` runs the sweep, then screening, and ends with `N ready to review: /pending`.
 - `/pending` shows one card at a time, best first, with `Approve`, `Skip` and `Next`.
 - Which days (8 Nov, #284; 12 Nov, your rule): Telegram's bare `/pending` shows the jobs
-  **found today** (Swept date = today, the same list as the Notion "Today" view; the Posted
-  date only when a job has no Swept date). The buttons `Last 3 days` (found in the last 3
-  days, `/pending week`) and `Everything` (`/pending all`) show more. From 10 to 12 Nov
-  Today meant posted today. `/screen` goes by the found day too.
-- Country first, then the day (12 Nov): the bare `/pending` shows the country buttons with
-  "N today, M all" (a country with only older jobs is there too). Tap one: that country's
+  **found today** (First seen = today, the same list as the Today group of the Notion "By
+  day" view; the Swept date, then the Posted date, only when First seen is empty). The Swept
+  date moves to today whenever a /fetch sees a job again, so it is not used first (12 Nov:
+  Poland showed 36 "today" against 6 in Notion). The buttons `Last 3 days` (first seen in the
+  last 3 days, `/pending week`) and `Everything` (`/pending all`) show more. From 10 to 12 Nov
+  Today meant posted today.
+- Country first, then the day (12 Nov): the bare `/pending` shows the country buttons in
+  short, with "N today, M all": `PL (5 today, 182 all)`, `NL`, `IE`, `EU` (remote jobs open
+  across Europe); a country with only older jobs is there too. Tap one: that country's
   jobs found today, one card at a time. Each card has `Last 3 days (n)` and `Everything (n)`
   for the same country and `Change country`; these buttons change the day, not the country.
   When the country has no more jobs that day, its older ones are offered.

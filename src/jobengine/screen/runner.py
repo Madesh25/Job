@@ -156,6 +156,7 @@ def job_row(page_id: str, values: dict[str, Any]) -> JobRow:
         contract_type=values.get("Contract type"),
         gaps=values.get("Gaps"),
         swept_date=values.get("Swept date"),
+        first_seen=values.get("First seen"),
     )
 
 
