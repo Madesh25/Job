@@ -288,6 +288,30 @@ reminder a day with `/gmailtoken <account>` (Config `gmail.token_days`, 7; set i
 app is published). The daily "A Gmail token has expired" alert points to `/gmailtoken` too.
 Only the bot on your PC renews tokens (APP_ENV local); on Cloud Run they are in Secret Manager.
 
+## Publish the app (12 Nov, Phase 23 item 12-04)
+
+Google asks for a home page and a privacy policy before Publish app works. Both are in `site/`
+and go to GitHub Pages through `.github/workflows/pages.yml` on every push to develop that
+changes them:
+
+- Home page: https://madesh25.github.io/Job/
+- Privacy policy: https://madesh25.github.io/Job/privacy.html
+
+1. Once, in GitHub: Settings > Pages > Source: **GitHub Actions**. Then Settings > Environments >
+   github-pages > Deployment branches and tags: add `develop` (by default only `main` may
+   deploy, and `main` must not be pushed for this: it deploys prod). Then Actions > Pages >
+   Run workflow on develop, and open both links.
+2. Google Cloud Console > Google Auth Platform (OAuth consent screen) > Branding: app name as it
+   is now, Application home page and Application privacy policy link = the two links above,
+   Authorised domain `madesh25.github.io`. If Google asks to verify the domain, add the
+   URL-prefix property `https://madesh25.github.io/Job/` in Search Console with the HTML tag
+   method; the tag goes into `site/index.html` (one PR).
+3. Audience > Publish app. For a personal app with fewer than 100 users Google does not need a
+   verification review: the sign-in shows "Google hasn't verified this app" (Advanced, Go to
+   Job), and tokens no longer stop after 7 days.
+4. `/gmailtoken m02` and `/gmailtoken mm` once more (a token made while the app was in Testing
+   still stops on its date), then Config `gmail.token_days` = `0`.
+
 ## Notion prerequisites
 
 Config rows: `mail.permit_word.poland` = `a Polish work permit`,
