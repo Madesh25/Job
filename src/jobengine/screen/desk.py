@@ -260,10 +260,11 @@ PENDING_COUNTRY = "pending.country"  # bot_state: {"country": <Country option> |
 PENDING_DEFAULT = "today"
 PENDING_SCOPES = {"today": "today", "week": "week", "all": "all", "whole": "all"}
 SCOPE_BUTTONS = {"today": "Today", "week": "Last 3 days", "all": "Everything"}
-# /pending by the day a /fetch FOUND the job (12 Nov, your rule; 10 Nov it was the posted day):
-# Today = found today, the same list as the Notion "Today" view (Swept date), Last 3 days =
-# found in the last 3 days; the Posted date only when a job has no Swept date. Country first,
-# then Today, Last 3 days and Everything inside that country.
+# /pending by the day a /fetch FIRST found the job (12 Nov, your rule; 10 Nov it was the posted
+# day): Today = First seen today, the same list as the Notion "By day" view's Today group,
+# Last 3 days = first seen in the last 3 days. The Swept date moves to today whenever a /fetch
+# sees a job again (36 "today" in Poland against 6 in Notion), so it is only a fallback, then
+# the Posted date. Country first, then Today, Last 3 days and Everything inside that country.
 PENDING_RECENT_DAYS = 3
 REMOTE_EU = "Other"  # Country option of remote jobs open across the EU or Europe
 COUNTRY_ORDER = ("Poland", "Netherlands", "Ireland", REMOTE_EU)
@@ -277,6 +278,14 @@ CHOOSE_COUNTRY = ("Which country do you want to review now? Only that country's 
 
 def country_label(country: str | None) -> str:
     return "Remote EU" if country in (None, "", REMOTE_EU) else country
+
+
+# The /pending country buttons in short (12 Nov, your request: PL instead of Poland).
+COUNTRY_SHORT = {"Poland": "PL", "Netherlands": "NL", "Ireland": "IE", REMOTE_EU: "EU"}
+
+
+def country_short(country: str | None) -> str:
+    return COUNTRY_SHORT.get(country or REMOTE_EU, country or "EU")
 
 
 def _agency(values: dict[str, Any]) -> bool:
@@ -557,8 +566,8 @@ class Desk:
         order = [c for c in COUNTRY_ORDER if c in totals] + sorted(
             c for c in totals if c not in COUNTRY_ORDER)
         short = {"today": "today", "week": "in 3 days"}.get(scope)
-        buttons = [(f"{country_label(c)} ({counts.get(c, 0)} {short}, {totals[c]} all)"
-                    if short else f"{country_label(c)} ({totals[c]})", f"pc:{c}")
+        buttons = [(f"{country_short(c)} ({counts.get(c, 0)} {short}, {totals[c]} all)"
+                    if short else f"{country_short(c)} ({totals[c]})", f"pc:{c}")
                    for c in order]
         buttons.append((f"All ({len(rows)})", "pc:all"))
         buttons += self.scope_buttons(everything)
@@ -4181,11 +4190,12 @@ class Desk:
 
 
 def pending_in_scope(row: JobRow, scope: str, today: date | None) -> bool:
-    """/pending's Today and Last 3 days, by the day a /fetch found the job (12 Nov, like the
-    Notion Today view); the Posted date only when there is no Swept date."""
+    """/pending's Today and Last 3 days, by the day a /fetch first found the job (12 Nov, like
+    the Notion "By day" view); else the Swept date, else the Posted date."""
     if scope not in ("today", "week") or today is None:
         return True
-    day = row.swept_date if isinstance(row.swept_date, date) else row.posted_date
+    day = next((d for d in (row.first_seen, row.swept_date, row.posted_date)
+                if isinstance(d, date)), None)
     if not isinstance(day, date):
         return False
     if scope == "today":

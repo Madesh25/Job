@@ -137,6 +137,7 @@ ROW_PROPERTIES = (
     "Sponsorship",
     "Gaps",
     "Swept date",
+    "First seen",  # /pending Today (12 Nov): the day a /fetch first found the job
     # Tracking (Module 07).
     "Applied date",
     "Last activity date",

@@ -169,6 +169,7 @@ class JobRow:
     contract_type: str | None = None
     gaps: str | None = None
     swept_date: date | None = None
+    first_seen: date | None = None  # the day a /fetch first found it (Swept: the last time)
 
 
 # ---------------------------------------------------------------- the Gaps column
