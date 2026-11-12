@@ -260,9 +260,10 @@ PENDING_COUNTRY = "pending.country"  # bot_state: {"country": <Country option> |
 PENDING_DEFAULT = "today"
 PENDING_SCOPES = {"today": "today", "week": "week", "all": "all", "whole": "all"}
 SCOPE_BUTTONS = {"today": "Today", "week": "Last 3 days", "all": "Everything"}
-# /pending by the day a job was POSTED (10 Nov, your rule): Today = posted today, Last 3 days =
-# posted in the last 3 days (the Swept date only when a job has no Posted date). /screen keeps
-# the day a /fetch found the job (screen/runner.py in_scope).
+# /pending by the day a /fetch FOUND the job (12 Nov, your rule; 10 Nov it was the posted day):
+# Today = found today, the same list as the Notion "Today" view (Swept date), Last 3 days =
+# found in the last 3 days; the Posted date only when a job has no Swept date. Country first,
+# then Today, Last 3 days and Everything inside that country.
 PENDING_RECENT_DAYS = 3
 REMOTE_EU = "Other"  # Country option of remote jobs open across the EU or Europe
 COUNTRY_ORDER = ("Poland", "Netherlands", "Ireland", REMOTE_EU)
@@ -518,32 +519,47 @@ class Desk:
 
     def ranked(self) -> list[JobRow]:
         """The jobs to review, best first, only the chosen scope's and country's."""
-        rows = self.scoped()
+        return self.in_country(self.scoped())
+
+    def in_country(self, rows: list[JobRow]) -> list[JobRow]:
+        """Only the chosen country's jobs (all of them when no country is chosen)."""
         country = self.chosen_country()
         if not country:
             return rows
         return [r for r in rows if (r.country or REMOTE_EU) == country]
 
     def scope_buttons(self, everything: list[JobRow]) -> list[tuple[str, str]]:
-        """Buttons for the other scopes, with their counts (none for an empty one)."""
+        """Buttons for the other scopes, with their counts (none for an empty one); inside a
+        chosen country, that country's counts (12 Nov: country first, then the day)."""
         current = self.chosen_scope()
+        mine = self.in_country(everything)
         out = []
         for scope, label in SCOPE_BUTTONS.items():
-            count = len(self.scoped(everything, scope))
+            count = len(self.scoped(mine, scope))
             if scope != current and count:
                 out.append((f"{label} ({count})", f"ps:{scope}"))
         return out
 
     def country_menu(self, rows: list[JobRow] | None = None, text: str = CHOOSE_COUNTRY) -> Reply:
+        """The country buttons. In Today or Last 3 days each shows that count and the
+        country's whole count, so a country with only older jobs is still there (12 Nov)."""
         everything = self.all_ranked()
         rows = self.scoped(everything) if rows is None else rows
+        scope = self.chosen_scope()
         counts: dict[str, int] = {}
+        totals: dict[str, int] = {}
         for row in rows:
             key = row.country or REMOTE_EU
             counts[key] = counts.get(key, 0) + 1
-        order = [c for c in COUNTRY_ORDER if c in counts] + sorted(
-            c for c in counts if c not in COUNTRY_ORDER)
-        buttons = [(f"{country_label(c)} ({counts[c]})", f"pc:{c}") for c in order]
+        for row in everything if scope != "all" else rows:
+            key = row.country or REMOTE_EU
+            totals[key] = totals.get(key, 0) + 1
+        order = [c for c in COUNTRY_ORDER if c in totals] + sorted(
+            c for c in totals if c not in COUNTRY_ORDER)
+        short = {"today": "today", "week": "in 3 days"}.get(scope)
+        buttons = [(f"{country_label(c)} ({counts.get(c, 0)} {short}, {totals[c]} all)"
+                    if short else f"{country_label(c)} ({totals[c]})", f"pc:{c}")
+                   for c in order]
         buttons.append((f"All ({len(rows)})", "pc:all"))
         buttons += self.scope_buttons(everything)
         waiting = len(self.jd_rows()) if self.repo is not None else 0
@@ -560,16 +576,17 @@ class Desk:
         self.choose_country(None, scope)
         everything = self.all_ranked()
         rows = self.scoped(everything)
+        if not everything:
+            return [Reply("Nothing to review right now.")]
+        if len({r.country or REMOTE_EU for r in everything}) > 1:
+            return [self.country_menu(rows)]  # 12 Nov: the country first, then the day
         if not rows:
             more = self.scope_buttons(everything)
-            text = (f"No job {pending_scope_text(scope)} waits for review." if scope != "all"
-                    else "Nothing to review right now.")
+            text = f"No job {pending_scope_text(scope)} waits for review."
             if more:
                 text += " Older jobs wait:"
             return [Reply(text, more)]
-        if len({r.country or REMOTE_EU for r in rows}) <= 1:
-            return self.pending(0, rows)
-        return [self.country_menu(rows)]
+        return self.pending(0, rows)
 
     def pending_command(self, args: str = "", scope: str = "all") -> list[Reply]:
         """/pending: the country buttons when the jobs are in more than one country, else the
@@ -672,24 +689,30 @@ class Desk:
         """The card at `index`. `rows` reuses a ranking already read (a button tap)."""
         if self.repo is None:
             return [Reply(NO_TARGET)]
-        rows = self.ranked() if rows is None else rows
+        everything = self.all_ranked()
+        rows = self.in_country(self.scoped(everything)) if rows is None else rows
         waiting = self.waiting_line()
+        country = self.chosen_country()
+        scope = self.chosen_scope()
         if not rows:
-            country = self.chosen_country()
-            others = self.scoped() if country else []
-            if others:
-                return [self.country_menu(others, f"No more jobs for {country_label(country)}. "
-                                                  "Pick the next country:")]
-            scope = self.chosen_scope()
-            more = self.scope_buttons(self.all_ranked()) if scope != "all" else []
+            more = self.scope_buttons(everything)
+            if country and more:  # 12 Nov: the country's older jobs, one tap away
+                text = (f"No more jobs for {country_label(country)} "
+                        f"{pending_scope_text(scope)}. Older jobs there:")
+                return [Reply("\n".join(t for t in (text, waiting) if t),
+                              more + [("Change country", "pc:menu")])]
+            others = [r for r in everything if (r.country or REMOTE_EU) != country]
+            if country and others:
+                return [self.country_menu(text=f"No more jobs for {country_label(country)}. "
+                                               "Pick the next country:")]
             older = " Older jobs wait:" if more else ""
             text = (f"No more jobs {pending_scope_text(scope)}.{older}"
                     if scope != "all" else "Nothing to review right now.")
             return [Reply("\n".join(t for t in (text, waiting) if t), more)]
         index = index % len(rows)
         reply = self.card(rows[index], index, len(rows))
-        if self.chosen_scope() != "all":  # 5-01 (11 Nov): the older jobs stay one tap away
-            reply.buttons += self.scope_buttons(self.all_ranked())
+        if scope != "all" or country:  # 5-01 (11 Nov), 12 Nov: the other days, one tap away
+            reply.buttons += self.scope_buttons(everything)
         if waiting:
             reply.text += f"\n\n{waiting}"
         return [reply]
@@ -707,6 +730,9 @@ class Desk:
             self.choose_country(None if arg == "all" else arg)
             return self.pending(0)
         if action == "ps" and arg in SCOPE_BUTTONS:  # Today, Last 3 days, Everything (/pending)
+            if self.chosen_country():  # 12 Nov: inside a country the day changes, not the country
+                self.choose_country(self.chosen_country(), arg)
+                return self.pending(0)
             return self.scope_start(arg)
         if action in ("ra", "rb", "cl", "rq", "ia", "na", "nr", "fg", "fc", "gp", "gt", "gr",
                       "gx", "mk") and arg:
@@ -4155,10 +4181,11 @@ class Desk:
 
 
 def pending_in_scope(row: JobRow, scope: str, today: date | None) -> bool:
-    """/pending's Today and Last 3 days, by the day the job was posted (10 Nov)."""
+    """/pending's Today and Last 3 days, by the day a /fetch found the job (12 Nov, like the
+    Notion Today view); the Posted date only when there is no Swept date."""
     if scope not in ("today", "week") or today is None:
         return True
-    day = row.posted_date if isinstance(row.posted_date, date) else row.swept_date
+    day = row.swept_date if isinstance(row.swept_date, date) else row.posted_date
     if not isinstance(day, date):
         return False
     if scope == "today":
@@ -4167,8 +4194,8 @@ def pending_in_scope(row: JobRow, scope: str, today: date | None) -> bool:
 
 
 def pending_scope_text(scope: str) -> str:
-    return {"today": "posted today",
-            "week": f"posted in the last {PENDING_RECENT_DAYS} days"}.get(scope, "")
+    return {"today": "found today",
+            "week": f"found in the last {PENDING_RECENT_DAYS} days"}.get(scope, "")
 
 
 def jd_recent(row: JobRow, today: date) -> bool:
