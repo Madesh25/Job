@@ -637,6 +637,15 @@ reads a learned board first, before guessing the board by the company's name and
 AI search (fetch idea 2). A board the lookup finds (the job's own link, or a careers page on
 a job system) is learned too, so that company's jobs come from its board in every /fetch.
 
+### Alerts that bring mostly old jobs (13 Nov, fetch idea 3)
+
+A new job older than `sweep.max_posted_age_days` is not saved. The /fetch summary now
+counts the new alert jobs per alert sender, and under "Posted before the last 3 days" names
+the senders whose new jobs were mostly too old (at least 5 jobs, at least half of them old):
+"Mostly old jobs from these alerts: LinkedIn 60 of 80. Set them to daily and "past 24
+hours" on the site." The alert's own settings are yours to change (LinkedIn, Glassdoor ...
+send weekly digests unless set to daily).
+
 ## Where the postings went (loss report)
 
 Every posting a `/fetch` reads lands in exactly one bucket, per source, so the buckets add up
