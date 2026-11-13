@@ -203,6 +203,10 @@ class LossReport:
                 "dropped": [list(item) for item in self.dropped]}
 
 
+# An alert sender is named as "mostly old jobs" from this many new jobs on (13 Nov).
+ALERT_AGE_MIN = 5
+
+
 @dataclass
 class SweepSummary:
     new: int = 0
@@ -257,9 +261,18 @@ class SweepSummary:
     site_missed: list[str] = field(default_factory=list)  # sweep/discover.py
     new_companies: int = 0  # new suggestions for /newcompanies (sweep/discover.py)
     learned_boards: int = 0  # learned job boards read in this /fetch (sweep/auto_boards.py)
+    # 13 Nov (fetch idea 3): new alert jobs per alert sender: [too old, all]
+    alert_age: dict[str, list[int]] = field(default_factory=dict)
     boards_learned: list[str] = field(default_factory=list)  # new ones this /fetch
     tidy: list[str] = field(default_factory=list)  # sweep/inbox_tidy.py
     watch: Watch = field(default_factory=Watch)  # dropped titles for the audit
+
+    def slow_alerts(self) -> list[tuple[str, int, int]]:
+        """Alert senders whose new jobs were mostly too old (at least ALERT_AGE_MIN jobs,
+        at least half of them too old), most old jobs first."""
+        slow = [(board, old, total) for board, (old, total) in self.alert_age.items()
+                if total >= ALERT_AGE_MIN and old * 2 >= total]
+        return sorted(slow, key=lambda item: (-item[1], item[0]))
 
     def _skipped_detail(self) -> str:
         if not self.skipped_by:
@@ -314,6 +327,11 @@ class SweepSummary:
             if self.ats_age_days:
                 when += f" (company sites: {self.ats_age_days} days)"
             lines.append(f"\U0001F5D3 Posted {when} (not saved): {self.too_old}")
+            slow = self.slow_alerts()
+            if slow:
+                lines.append("   Mostly old jobs from these alerts: " + ", ".join(
+                    f"{board} {old} of {total}" for board, old, total in slow)
+                    + ". Set them to daily and \"past 24 hours\" on the site.")
         if self.needs_language:
             lines.append(f"\U0001F5E3 Needs a language other than English (not saved): "
                          f"{self.needs_language}")

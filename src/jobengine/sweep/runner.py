@@ -719,8 +719,14 @@ def run_sweep(
                 continue
             seen.append(outcome)
             row = index.get(outcome.dedupe_key)
-            if row is None and too_old(outcome, today,
-                                       age_limit(outcome.source, max_age, ats_age)):
+            old = row is None and too_old(outcome, today,
+                                          age_limit(outcome.source, max_age, ats_age))
+            if outcome.source == gmail_alerts.SOURCE and row is None:
+                # 13 Nov (fetch idea 3): which alert brings old jobs (set it to daily)
+                counts = summary.alert_age.setdefault(outcome.board or "Alert", [0, 0])
+                counts[0] += 1 if old else 0
+                counts[1] += 1
+            if old:
                 summary.too_old += 1
                 loss.add(outcome.source, TOO_OLD, _label(outcome))
             elif row is None:
