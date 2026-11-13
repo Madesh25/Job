@@ -256,6 +256,8 @@ class SweepSummary:
     alert_emails: int | None = None  # email alerts read (None: the source did not run)
     site_missed: list[str] = field(default_factory=list)  # sweep/discover.py
     new_companies: int = 0  # new suggestions for /newcompanies (sweep/discover.py)
+    learned_boards: int = 0  # learned job boards read in this /fetch (sweep/auto_boards.py)
+    boards_learned: list[str] = field(default_factory=list)  # new ones this /fetch
     tidy: list[str] = field(default_factory=list)  # sweep/inbox_tidy.py
     watch: Watch = field(default_factory=Watch)  # dropped titles for the audit
 
@@ -416,6 +418,12 @@ class SweepSummary:
         if self.new_companies:
             lines += ["", f"\U0001F50E New companies hiring for your roles, not in Target "
                           f"Companies: {self.new_companies}. /newcompanies to add them"]
+        if self.learned_boards or self.boards_learned:
+            new = (f"; new: {', '.join(self.boards_learned[:5])}"
+                   + (f" and {len(self.boards_learned) - 5} more"
+                      if len(self.boards_learned) > 5 else "")) if self.boards_learned else ""
+            lines += ["", f"\U0001F4CB Company job boards learned from job links, read too: "
+                          f"{self.learned_boards}{new}"]
         if self.not_written:
             lines += ["", f"\u26A0\uFE0F Could not be saved to Notion (the rest were saved; "
                           f"details in the log): {len(self.not_written)}"]
