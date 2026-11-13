@@ -137,6 +137,23 @@ def index_key(dedupe: str, company: str | None) -> str:
     return f"{dedupe_company(company)}{sep}{rest}" if sep else dedupe
 
 
+# 13 Nov (fetch idea 6): one job under two titles was two rows (Lepaya "DevSecOps" from
+# Adzuna and "DevSecOps Engineer" from LinkedIn). These words are left out of the title part
+# when two keys are compared; the Dedupe key itself is not changed.
+VARIANT_WORDS = frozenset({"engineer", "inzynier"})
+
+
+def variant_key(key: str) -> str:
+    """A Dedupe key with "engineer" left out of its title part: "lepaya|devsecops|amsterdam"
+    for both "DevSecOps" and "DevSecOps Engineer". A title of only such words is kept."""
+    company, sep, rest = key.partition("|")
+    title, sep2, place = rest.partition("|")
+    if not sep or not sep2:
+        return key
+    words = [w for w in title.split() if w not in VARIANT_WORDS]
+    return f"{company}|{' '.join(words) or title}|{place}"
+
+
 def _has_term(text: str, terms: Iterable[str]) -> str | None:
     for term in terms:
         if re.search(rf"(?:^| ){re.escape(canon(term))}(?: |$)", text):

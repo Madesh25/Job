@@ -61,6 +61,7 @@ from jobengine.sweep.normalize import (
     remote_only,
     senior_in_text,
     title_scope,
+    variant_key,
 )
 from jobengine.sweep.rank import Ranker
 from jobengine.sweep.sources import adzuna, ats, gmail_alerts, iamexpat, jooble, nofluffjobs
@@ -572,6 +573,12 @@ def run_sweep(
         {index_key(row.dedupe_key, row.company): row for row in repo.load_index()} if repo else {}
     )
     log.info("index: %d existing rows", len(index))
+    # 13 Nov (fetch idea 6): the same job under a title with or without "Engineer" is the
+    # same row (only when that variant names one row: two rows stay two).
+    by_variant: dict[str, IndexRow | None] = {}
+    for key, row in index.items():
+        variant = variant_key(key)
+        by_variant[variant] = None if variant in by_variant else row
     companies = deps.companies() if "ats" in sources else []
     # 13 Nov: the job boards learned from earlier job links are read with Target Companies.
     learned = (auto_boards.companies(state, companies, discover.skipped(state))
@@ -718,7 +725,8 @@ def run_sweep(
                 log.debug("skipped %s: %s", raw.title, outcome.reason)
                 continue
             seen.append(outcome)
-            row = index.get(outcome.dedupe_key)
+            row = index.get(outcome.dedupe_key) or by_variant.get(
+                variant_key(outcome.dedupe_key))
             old = row is None and too_old(outcome, today,
                                           age_limit(outcome.source, max_age, ats_age))
             if outcome.source == gmail_alerts.SOURCE and row is None:
@@ -730,7 +738,7 @@ def run_sweep(
                 summary.too_old += 1
                 loss.add(outcome.source, TOO_OLD, _label(outcome))
             elif row is None:
-                candidates.setdefault(outcome.dedupe_key, []).append(outcome)
+                candidates.setdefault(variant_key(outcome.dedupe_key), []).append(outcome)
             else:
                 try:
                     update_existing(row, outcome)
