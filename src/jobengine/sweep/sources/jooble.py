@@ -85,7 +85,9 @@ def fetch(s: Settings, post: Poster | None = None) -> SourceResult:
     boards = dict((s.sweep.get("gmail") or {}).get("sender_boards") or {})
     seen: set[str] = set()
     for country in cfg.get("countries") or DEFAULT_COUNTRIES:
-        for term in cfg.get("search_terms") or DEFAULT_TERMS:
+        # 13 Nov (fetch idea 5): the country's own titles too ("inzynier devops" in Poland)
+        local = list((cfg.get("local_terms") or {}).get(country) or [])
+        for term in [*(cfg.get("search_terms") or DEFAULT_TERMS), *local]:
             body = {"keywords": term, "location": country, "page": "1",
                     "ResultOnPage": str(per_page)}
             try:

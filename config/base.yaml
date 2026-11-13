@@ -482,6 +482,13 @@ sweep:
     - devsecops
     - cloud ops
     - cloudops
+    # 13 Nov (fetch idea 5): Polish titles for cloud and platform jobs ("Inżynier ds.
+    # chmury", "Inżynier platformy chmurowej"); DevOps, SRE and Kubernetes titles are the
+    # same words in Polish and Dutch.
+    - chmury
+    - chmurowy
+    - chmurowej
+    - inzynier platformy
   title_exclude:
     - lead
     - principal
@@ -498,6 +505,15 @@ sweep:
     # 10 Oct: "systems engineer" above also matched engineering jobs outside IT (ABB "Power
     # Systems Engineer"). These name the other field.
     - power systems
+    # 13 Nov: the same in Polish, for the Polish titles searched since then (manager,
+    # director, architect, lead, intern).
+    - kierownik
+    - dyrektor
+    - architekt
+    - lider
+    - praktykant
+    - stazysta
+    - staz
     - control systems
     - embedded
     - electrical
@@ -735,6 +751,9 @@ sweep:
     results_per_page: 50
     max_days_old: 3
     what_or: "devops sre kubernetes platform cloud infrastructure devsecops"
+    # 13 Nov (fetch idea 5): the country's own words, added to what_or for that country.
+    what_or_local:
+      pl: "chmury chmurowy"
     max_calls_per_run: 12
   ats:
     # Company career sites list only jobs that are still open: their new jobs are saved when
@@ -783,6 +802,10 @@ sweep:
     countries: [Ireland, Poland, Netherlands]
     search_terms: [devops engineer, site reliability engineer, platform engineer, cloud engineer,
                    kubernetes engineer, infrastructure engineer, devsecops engineer]
+    # 13 Nov (fetch idea 5): Polish job titles, searched in Poland only. Dutch postings use the
+    # English titles above; a job that needs Polish or Dutch is still left out (language).
+    local_terms:
+      Poland: [inżynier devops, specjalista devops, inżynier ds. chmury, administrator chmury]
     results_per_page: 50
   # NoFluffJobs (FETCH 4, sweep/sources/nofluffjobs.py): the public search page, newest first,
   # `pages` pages per search term, one request a second, robots.txt respected. Poland only.

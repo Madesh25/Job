@@ -104,7 +104,10 @@ def fetch(s: Settings, get: Getter | None = None) -> SourceResult:
                 "app_key": s.adzuna_app_key or "",
                 "results_per_page": per_page,
                 "max_days_old": int(cfg.get("max_days_old", 3)),
-                "what_or": cfg.get("what_or", ""),
+                # 13 Nov (fetch idea 5): plus the country's own words (Polish "chmury")
+                "what_or": " ".join(w for w in (cfg.get("what_or", ""),
+                                                (cfg.get("what_or_local") or {}).get(cc, ""))
+                                    if w),
                 "content-type": "application/json",
             }
             try:
