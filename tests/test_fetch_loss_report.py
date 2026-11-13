@@ -113,7 +113,7 @@ def test_fetchreport_has_a_button_per_big_reason():
     d = fake_desk(settings(), FAKE_TODAY, now=Clock())
     summary, _ = sweep()
     d.state.set(LAST_REPORT, summary.loss.to_state("2026-10-01"))
-    [reply] = d.fetchreport_command()
+    reply, _sources = d.fetchreport_command()  # 13 Nov: then each source's results
     assert reply.buttons and all(data.startswith("fr:") for _, data in reply.buttons)
     reason = reply.buttons[0][1][3:]
     [detail] = d.tap(reply.buttons[0][1])

@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 from datetime import date, timedelta
 from typing import Any
 
-from jobengine.track.status import JOB_ORDER, REPLIED_OR_BETTER
+from jobengine.track.status import APPLIED_OR_LATER, JOB_ORDER, REPLIED_OR_BETTER
 
 SPLITS = ("Country", "Board", "Screen verdict", "Sponsorship")
 CONTACTED = ("Contacted", "Followed up", "Replied", "Ghosted", "Bounced", "Do not contact")
@@ -181,4 +181,59 @@ def replies_report(jobs: Iterable[dict[str, Any]], contacts: Iterable[dict[str, 
     else:
         lines.append(f"Not enough data for a tip yet (needs at least {min_sample} in two "
                      "groups).")
+    return "\n".join(lines)
+
+
+# ---------------------------------------------------------------- each board's results (13 Nov)
+
+ANSWERED = (*REPLIED_OR_BETTER, "Rejected")  # a rejection is an answer too
+BOARD_MIN = 3  # boards with fewer jobs go into "others"
+
+
+@dataclass
+class BoardRow:
+    found: int = 0
+    approved: int = 0
+    applied: int = 0
+    answered: int = 0
+    interview: int = 0
+
+
+def board_results(jobs: Iterable[dict[str, Any]]) -> dict[str, BoardRow]:
+    """Each board (source) from found to answered, from every job in Notion (fetch idea 4):
+    which source leads to applications and answers. Pure."""
+    rows: dict[str, BoardRow] = {}
+    for values in jobs:
+        status = values.get("Status")
+        applied = bool(values.get("Applied date")) or status in APPLIED_OR_LATER
+        row = rows.setdefault(str(values.get("Board") or "Unknown"), BoardRow())
+        row.found += 1
+        row.approved += applied or _at_least(status, "Approved")
+        row.applied += applied
+        row.answered += applied and status in ANSWERED
+        row.interview += _at_least(status, "Interview")
+    return rows
+
+
+def board_text(jobs: Iterable[dict[str, Any]]) -> str:
+    """The /fetchreport block: one line per board, most applications first."""
+    rows = board_results(jobs)
+    if not rows:
+        return ""
+    big = {k: r for k, r in rows.items() if r.found >= BOARD_MIN}
+    small = [r for k, r in rows.items() if k not in big]
+    order = sorted(big.items(), key=lambda kv: (-kv[1].applied, -kv[1].approved, -kv[1].found,
+                                                kv[0]))
+    if small:
+        rest = BoardRow(*(sum(getattr(r, f) for r in small)
+                          for f in ("found", "approved", "applied", "answered", "interview")))
+        order.append((f"others ({len(small)} boards)", rest))
+    lines = ["Each source, all jobs in Notion (found > approved > applied > answered):"]
+    for board, r in order:
+        line = f"- {board}: {r.found} > {r.approved} > {r.applied} > {r.answered}"
+        if r.interview:
+            line += f", {r.interview} interview{'s' if r.interview != 1 else ''}"
+        lines.append(line)
+    lines.append("A source with many found and none approved is a candidate to drop "
+                 "(decide in FETCH 11).")
     return "\n".join(lines)
