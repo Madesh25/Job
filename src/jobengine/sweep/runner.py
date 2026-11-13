@@ -893,8 +893,9 @@ def run_sweep(
             say("Checking which listed jobs closed")
             open_rows = [job_row(pid, v) for pid, v in repo.query_rows(
                 select_filter("Status", *expired_check.FETCH_STATUSES))]
-            closed = expired_check.after_fetch(open_rows, deps.closed_page, today, state,
-                                               link_cfg, repo.update)
+            closed = expired_check.after_fetch(
+                open_rows, deps.closed_page, today, state,
+                {**link_cfg, "blocked_hosts": fulltext.blocked_hosts(s)}, repo.update)
             summary.closed_jobs = [f"{row.company}, {row.role}: {why}"
                                    for row, why in closed.closed]
             summary.closed_checked = closed.checked
