@@ -40,8 +40,9 @@ def test_jooble_postings():
     assert first.description_is_snippet and "Kubernetes" in first.description
     assert (second.company, second.location_text, second.board, second.posted_date) == (
         "(unknown)", "Ireland", "Other", None)
-    # 3 countries x 4 terms, the same job twice is kept once
-    assert len(calls) == 21 and len(result.postings) == 2
+    # 3 countries x 7 terms, plus 4 Polish titles in Poland (13 Nov); the same job twice is
+    # kept once
+    assert len(calls) == 25 and len(result.postings) == 2
     assert calls[0][0] == "https://jooble.org/api/secret-key-123"
     assert calls[0][1] == {"keywords": "devops engineer", "location": "Ireland", "page": "1",
                            "ResultOnPage": "50"}

@@ -653,6 +653,16 @@ approved > applied > answered (a reply or a rejection), and interviews. Sources 
 than 3 jobs are added up as "others". A source with many found and none approved is a
 candidate to drop, decided in FETCH 11 with live numbers.
 
+### Polish job titles (13 Nov, fetch idea 5)
+
+Jooble also searches Polish titles in Poland (`sweep.jooble.local_terms`: inżynier devops,
+specjalista devops, inżynier ds. chmury, administrator chmury) and Adzuna adds the Polish
+words "chmury chmurowy" to its Poland search (`sweep.adzuna.what_or_local`). The title
+filter knows the Polish cloud and platform titles (chmury, chmurowy, chmurowej, inżynier
+platformy) and leaves out the Polish manager, director, architect, lead and intern titles.
+Dutch postings for these roles use the English titles, so nothing is added for the
+Netherlands. A job that needs Polish or Dutch is still left out by the language filter.
+
 ## Where the postings went (loss report)
 
 Every posting a `/fetch` reads lands in exactly one bucket, per source, so the buckets add up
