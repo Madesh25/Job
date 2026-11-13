@@ -2388,7 +2388,18 @@ class Desk:
         # reason opens it instead (1 Oct test R3).
         top = [] if args.strip() else report.reasons()[:REPORT_BUTTONS]
         buttons = [(f"{reason} ({n})", f"fr:{reason}"[:60]) for reason, n in top]
-        return [Reply(text[:MAX_TEXT], buttons)]
+        replies = [Reply(text[:MAX_TEXT], buttons)]
+        if not args.strip() and self.repo is not None:  # 13 Nov (fetch idea 4)
+            from jobengine.track.stats import board_text
+
+            try:
+                sources = board_text(v for _pid, v in self.repo.query_rows())
+            except Exception:  # the last /fetch's report still comes
+                log.warning("each source's results not read", exc_info=True)
+                sources = ""
+            if sources:
+                replies.append(Reply(sources[:MAX_TEXT]))
+        return replies
 
     def alertcheck_command(self) -> list[Reply]:
         """/alertcheck: the alert emails the next /fetch reads and the jobs in each."""

@@ -646,6 +646,13 @@ the senders whose new jobs were mostly too old (at least 5 jobs, at least half o
 hours" on the site." The alert's own settings are yours to change (LinkedIn, Glassdoor ...
 send weekly digests unless set to daily).
 
+### Each source's results (13 Nov, fetch idea 4)
+
+/fetchreport ends with one line per source (the Board of every job in Notion): found >
+approved > applied > answered (a reply or a rejection), and interviews. Sources with fewer
+than 3 jobs are added up as "others". A source with many found and none approved is a
+candidate to drop, decided in FETCH 11 with live numbers.
+
 ## Where the postings went (loss report)
 
 Every posting a `/fetch` reads lands in exactly one bucket, per source, so the buckets add up
