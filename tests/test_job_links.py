@@ -1452,3 +1452,36 @@ def test_first_url_takes_one_link_from_the_answer():
     assert first_url(two) == "https://boards.greenhouse.io/playstation/jobs/7949603002"
     assert first_url("See https://acme.com/jobs/1.") == "https://acme.com/jobs/1"
     assert first_url("") == first_url(None) == first_url("no link") == ""
+
+
+def test_a_learned_job_board_is_read_first_and_found_boards_are_learned():
+    """13 Nov (fetch idea 2): a board its name does not give (token "kd-jobs") is known from
+    an earlier job link; a board the lookup finds is read in every /fetch from then on."""
+    from jobengine.sweep import auto_boards
+
+    url = "https://boards.greenhouse.io/kd-jobs/jobs/3"
+
+    def get(api, params):
+        if "boards-api.greenhouse.io/v1/boards/kd-jobs/jobs" in api:
+            return {"jobs": [{"id": 3, "title": "DevOps Engineer",
+                              "location": {"name": "Amsterdam, Netherlands"},
+                              "absolute_url": url, "updated_at": "2026-10-27T10:00:00Z"}]}
+        raise http.HttpError("GET failed: HTTP 404", status=404)
+
+    state = FakeBotState()
+    auto_boards.learn(state, [("Kite Data", "https://boards.greenhouse.io/kd-jobs/jobs/1")],
+                      [], None, (), TODAY)
+    search = Search()
+    d = deps([row(company="Kite Data")], pages={url: job_page("DevOps Engineer",
+                                                              company="Kite Data")},
+             get=get, llm=search, state=state)
+    result = job_links.run(d, BOARDS)
+    assert result.labels == ["Kite Data, DevOps Engineer (company job board)"]
+    assert search.calls == [] and result.searches == 0
+
+    # The Dune Data board found by its name is learned.
+    url = "https://boards.greenhouse.io/dunedata/jobs/7"
+    get = board_api([("DevOps Engineer", "Amsterdam, Netherlands", url)])
+    d = deps([row()], pages={url: job_page("DevOps Engineer")}, get=get, llm=Search())
+    assert job_links.run(d, BOARDS).boards_learned == ["Dune Data"]
+    assert auto_boards.board_for(d.state, "Dune Data").token == "dunedata"

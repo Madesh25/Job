@@ -233,7 +233,8 @@ def _find_links(s: Settings, repo: JobsRepo, config: ConfigStore, state: Any, to
                 get=lambda url, params: http.get_json(url, params=params or None, s=s),
                 post=lambda url, body: http.post_json(url, json=body, s=s),
                 llm=make_llm(s, config) if llm_allowed(s) else None, state=state, today=today,
-                careers=job_links.careers_of(companies), render=browser),
+                careers=job_links.careers_of(companies), render=browser, config=config,
+                targets=companies),
             boards, with_body, progress)
     finally:
         if browser is not None:
@@ -840,6 +841,8 @@ def run_sweep(
             summary.ghost_jobs = list(getattr(found, "ghosts", []))
             summary.no_company = list(getattr(found, "no_company", []))
             summary.reposted = list(getattr(found, "deleted", []))
+            summary.boards_learned += [n for n in getattr(found, "boards_learned", [])
+                                       if n not in summary.boards_learned]
             summary.not_on_site_yet = getattr(found, "not_yet", 0)
             summary.site_unchecked = getattr(found, "unchecked", 0)
         except Exception:  # never fail a sweep over the link search
