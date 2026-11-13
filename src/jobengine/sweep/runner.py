@@ -23,6 +23,7 @@ from jobengine.safety import notion_write_target
 from jobengine.screen.visa import AGENCY, AGENCY_IE, agency_by_name, agency_flag
 from jobengine.settings import Settings
 from jobengine.sweep import (
+    auto_boards,
     backfill,
     best,
     company_details,
@@ -571,11 +572,15 @@ def run_sweep(
     )
     log.info("index: %d existing rows", len(index))
     companies = deps.companies() if "ats" in sources else []
+    # 13 Nov: the job boards learned from earlier job links are read with Target Companies.
+    learned = (auto_boards.companies(state, companies, discover.skipped(state))
+               if "ats" in sources and auto_boards.enabled(s) else [])
+    summary.learned_boards = len(learned)
 
     def collect(name: str) -> SourceResult:
         try:
             if name == "ats":
-                return deps.ats(companies, keep, state)
+                return deps.ats(companies + learned, keep, state)
             return getattr(deps, name)()
         except http.HttpError as exc:
             return SourceResult(name=name, skipped_reason=f"{name} failed: {exc}")
@@ -797,6 +802,13 @@ def run_sweep(
             summary.new_companies = discover.record(state, found, today)
         except Exception:  # never fail a sweep over the suggestions
             log.exception("company discovery failed")
+    if auto_boards.enabled(s):
+        try:
+            summary.boards_learned = auto_boards.from_jobs(
+                state, seen, companies or deps.companies(), config, discover.skipped(state),
+                today, s)
+        except Exception:  # never fail a sweep over the learned boards
+            log.exception("learning job boards failed")
 
     # Pass 3: alert rows (LinkedIn, blocked boards) without a description, from the same
     # job on another site.

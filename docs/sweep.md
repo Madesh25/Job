@@ -620,6 +620,18 @@ others, with a "Visa:" line (on the IND register, or the number of Irish permits
 names what was found; a week with nothing found sends nothing. Bot State `sponsors.checked`
 keeps the companies checked; Notion Config `discover.sponsors` = `off` stops it.
 
+### Job boards learned from job links (13 Nov, your idea)
+
+A company job board (Greenhouse, Lever, Ashby, Workable, SmartRecruiters, Personio,
+Recruitee, Teamtailor, Workday ...) seen in any job link of a /fetch is remembered in Bot
+State (`sweep.auto_boards`) and read in every later /fetch together with Target Companies:
+every open job with its full description and real link, free and without AI. Not learned:
+Target Companies (read from their own row), agencies, companies you turned down in
+/newcompanies, Amazon, Avature and Eightfold. Each board is kept `days` (60) after it was
+last seen, at most `max` (40), newest first (Config `sweep.auto_boards`). The /fetch summary
+says how many were read and names the new ones. Target Companies itself is not changed (it
+is shared with prod); /newcompanies still adds a company there with your tap.
+
 ## Where the postings went (loss report)
 
 Every posting a `/fetch` reads lands in exactly one bucket, per source, so the buckets add up

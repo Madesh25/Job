@@ -417,6 +417,13 @@ sweep:
   # the /pending jobs first, plain page reads (no AI), each job again after recheck_days.
   # LinkedIn links are never opened: a LinkedIn job counts as closed linkedin_days after
   # it was posted.
+  # A company job board (Greenhouse, Lever, Ashby ...) seen in any job link is remembered
+  # and read in every /fetch with Target Companies (13 Nov, sweep/auto_boards.py): at most
+  # max boards, each kept days after it was last seen. Target Companies is not changed.
+  auto_boards:
+    enabled: true
+    max: 40
+    days: 60
   link_check:
     enabled: true
     max_links: 150
