@@ -210,6 +210,8 @@ class Deps:
     careers: dict[str, str] = field(default_factory=dict)  # company key -> Careers URL
     render: fulltext.PageGetter | None = None  # a browser for JavaScript pages (render.py)
     feed: fulltext.PageGetter | None = None  # job feeds (RSS, XML): SuccessFactors, Personio
+    config: Any = None  # Notion Config (agency names) for the learned boards
+    targets: list[Any] = field(default_factory=list)  # Target Companies (never learned)
 
 
 @dataclass
@@ -224,6 +226,7 @@ class Result:
     not_yet: int = 0  # not on the company's site when checked: waits for /jd
     unchecked: int = 0  # the company's site could not be checked: waits for /jd
     deleted: list[str] = field(default_factory=list)  # reposted jobs deleted (4 Nov)
+    boards_learned: list[str] = field(default_factory=list)  # job boards learned (13 Nov)
 
 
 @dataclass
@@ -1466,12 +1469,45 @@ def run(deps: Deps, boards: tuple[str, ...], with_body: set[str] | None = None,
                 result.sites += 1
         return url
 
+    def learned_board(company: str, role: str) -> None:
+        """13 Nov (fetch idea 2): a job board learned from an earlier job link
+        (sweep/auto_boards.py) is the company's job list: read it first, free, no AI."""
+        from jobengine.sweep import auto_boards
+        from jobengine.sweep.sponsors import short_name
+
+        name = short_name(without_region(company))
+        key = canon_company(name)
+        if key in job_boards:
+            return
+        board = auto_boards.board_for(deps.state, company)
+        if board is not None:
+            job_boards[key] = _board_postings(deps, name, board, role)
+            log.info("job board of %s learned before: %s", company, board.ats)
+
+    def learn(company: str, urls: list[str]) -> None:
+        """A job board this lookup found (its job link or careers page): read in every
+        /fetch from now on (sweep/auto_boards.py)."""
+        from jobengine.sweep import auto_boards
+
+        pairs = [(company, u) for u in urls if u and auto_boards.board_of(u) is not None]
+        if not pairs or not auto_boards.enabled(deps.s):
+            return
+        with lock:
+            try:
+                learned = auto_boards.learn(deps.state, pairs[:1], deps.targets, deps.config,
+                                            (), deps.today, deps.s)
+            except Exception:  # never fail a lookup over the learned boards
+                log.exception("learning a job board failed")
+                return
+            result.boards_learned.extend(learned)
+
     def lookup(page_id: str, values: dict[str, Any]) -> str | None:
         """One job: its link on the company's site, written to Notion. The label or None."""
         # "DevOps Engineer @ Scalo" (Adzuna) is searched for as "DevOps Engineer"
         company, role = str(values["Company"]), plain_title(str(values["Role"]))
         city, country = values.get("City"), values.get("Country")
         careers = ""
+        learned_board(company, role)
         found = from_board(deps, company, role, city, country, job_boards, no_board)
         if found is None:
             careers = careers_page(company, country, page_id)
@@ -1503,6 +1539,7 @@ def run(deps: Deps, boards: tuple[str, ...], with_body: set[str] | None = None,
                      else "its site could not be checked", closest())
             missing(page_id, values, company, role, board)
             return None
+        learn(company, [found.url, careers])  # its job board is read in every /fetch now
         # The same text may be on the page already: the cross-match of this sweep read the
         # job on the company's job board (2 Nov: Snowflake's description twice).
         has_it = any(found.url in text for _id, text in deps.repo.body_blocks(page_id))

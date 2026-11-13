@@ -632,6 +632,11 @@ last seen, at most `max` (40), newest first (Config `sweep.auto_boards`). The /f
 says how many were read and names the new ones. Target Companies itself is not changed (it
 is shared with prod); /newcompanies still adds a company there with your tap.
 
+The direct-link lookup for alert rows (LinkedIn and blocked boards, sweep/job_links.py)
+reads a learned board first, before guessing the board by the company's name and before any
+AI search (fetch idea 2). A board the lookup finds (the job's own link, or a careers page on
+a job system) is learned too, so that company's jobs come from its board in every /fetch.
+
 ## Where the postings went (loss report)
 
 Every posting a `/fetch` reads lands in exactly one bucket, per source, so the buckets add up

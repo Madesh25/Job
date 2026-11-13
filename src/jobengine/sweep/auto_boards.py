@@ -79,7 +79,8 @@ def learn(state: Any, found: Iterable[tuple[str, str]], targets: list[TargetComp
         key = company_key(company)
         board = board_of(url)
         if (board is None or not key or key in ("unknown", "confidential") or key in known
-                or key in turned_down or agency_by_name(company, config)):
+                or key in turned_down
+                or (config is not None and agency_by_name(company, config))):
             continue
         old = items.get(key)
         if old is None:
