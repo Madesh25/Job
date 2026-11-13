@@ -3991,9 +3991,33 @@ class Desk:
         replies.extend(self.on_job_approved(page_id, values))
         return replies
 
+    def _same_job(self, company: str, title: str, country: str | None) -> str | None:
+        """A row of the same company and title in the same country, in any city or none
+        (13 Nov: /contacts with a LinkedIn link saved Capgemini's "DevOps Engineer - NL" in
+        the Netherlands next to its 2 Nov row in Utrecht). Its page id, else None."""
+        from jobengine.sweep.normalize import dedupe_company
+
+        assert self.repo is not None
+        if not country or not title or not company:
+            return None
+        try:
+            rows = self.repo.query_rows({"and": [
+                {"property": "Role", "rich_text": {"equals": title}},
+                select_filter("Country", country)]})
+        except Exception:  # a failed look-up never stops the save
+            log.warning("same-job look-up failed for %s, %s", company, title, exc_info=True)
+            return None
+        want = dedupe_company(company)
+        return next((pid for pid, v in rows if dedupe_company(v.get("Company")) == want), None)
+
     def _add_row(self, job: add_link.PageJob, url: str, country: str | None,
                  city: str | None, board: str = "Company site") -> str:
         assert self.repo is not None
+        same = self._same_job(job.company, job.title, country)
+        if same is not None:
+            log.info("%s, %s is in Notion already (%s): no second row", job.company,
+                     job.title, same)
+            return same
         today = self.today()
         plan: dict[str, Any] = {
             "Company": job.company, "Role": job.title, "URL": url, "Board": board,

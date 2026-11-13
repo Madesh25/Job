@@ -87,3 +87,19 @@ def test_the_jobs_own_notion_link_finds_it():
     for link in (f"https://app.notion.com/p/{raw}", f"https://www.notion.so/Job-{raw}?pvs=4"):
         assert find_row(d.repo, link).page_id == pid
     assert find_row(d.repo, "https://www.notion.so/Job-" + "0" * 32) is None
+
+
+def test_a_linkedin_job_already_in_notion_in_another_city_is_not_saved_again():
+    """13 Nov: /contacts <LinkedIn link> Capgemini, Netherlands, DevOps Engineer - NL saved
+    a second row next to the 2 Nov row in Utrecht (same company, title and country)."""
+    d = desk_with(PAGE)
+    d.get_slow_page = lambda url: None
+    d.repo.rows["old"] = {"Company": "Wisla Data Sp. z o.o.", "Role": "SRE", "City": "Kraków",
+                          "Country": "Poland", "Status": "New", "Board": "LinkedIn",
+                          "URL": "https://www.linkedin.com/jobs/view/4000000001"}
+    before = len(d.repo.rows)
+    d.contacts_command(f"{LINKEDIN} Wisla Data, Poland, SRE")
+    assert len(d.repo.rows) == before  # the 2 Nov row is used
+    # Another country is another job.
+    d.contacts_command(f"{LINKEDIN}2 Wisla Data, Netherlands, SRE")
+    assert len(d.repo.rows) == before + 1
