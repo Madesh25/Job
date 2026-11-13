@@ -1496,3 +1496,39 @@ def test_a_country_code_at_the_end_of_the_title_is_the_same_job():
                                 "Netherlands")
     assert job_links.same_title("Cloud Engineer (PL)", "Cloud Engineer", None, "Poland")
     assert not job_links.same_title("DevOps Engineer", "DevOps Engineer - NL", None, "Poland")
+
+
+def test_a_careers_page_opened_for_one_job_is_free_for_the_next(monkeypatch):
+    """13 Nov /fetch: Mindboxgroup's 4 jobs each needed its JavaScript careers page; from the
+    second job on the per-job browser pages were used up although the page was open already
+    and 63 of the /fetch's pages were left."""
+    monkeypatch.setattr(job_links, "MAX_RENDERS_PER_JOB", 0)  # no page of its own left
+    shell = "<html><body><div id='app'>Loading jobs...</div></body></html>"
+    sre = "https://www.dunedata.com/careers/sre-amsterdam"
+    rendered = careers_page(("/careers/devops-engineer-amsterdam", "DevOps Engineer"),
+                            ("/careers/sre-amsterdam", "Site Reliability Engineer"))
+    d = deps([row(), row(role="Site Reliability Engineer")],
+             pages={CAREERS: shell, JOB: job_page("DevOps Engineer"),
+                    sre: job_page("Site Reliability Engineer")},
+             careers={"dune data": CAREERS})
+
+    class Browser(Pages):
+        def __init__(self, pages):
+            super().__init__(pages)
+            self.left = 40
+            self.kept = {}
+
+        def has(self, url):
+            return url in self.kept
+
+        def __call__(self, url):
+            if url not in self.kept:
+                self.kept[url] = super().__call__(url)
+            return self.kept[url]
+
+    d.render = browser = Browser({CAREERS: rendered})
+    browser(CAREERS)  # opened earlier in this /fetch (another job of the company)
+    labels = job_links.run(d, BOARDS).labels
+    assert sorted(labels) == ["Dune Data, DevOps Engineer (careers page)",
+                              "Dune Data, Site Reliability Engineer (careers page)"]
+    assert browser.opened == [CAREERS]  # opened once, then kept

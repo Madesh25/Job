@@ -70,6 +70,11 @@ class Renderer:
         self._lock = threading.Lock()
         self._seen: dict[str, Any] = {}  # url -> (final, html) or the HttpError, this sweep
 
+    def has(self, url: str) -> bool:
+        """The page was opened in this sweep already (its answer is kept: no new page)."""
+        with self._lock:
+            return url in self._seen
+
     def __call__(self, url: str) -> tuple[str, str]:
         with self._lock:
             # One page once per sweep (4 Nov: CGI's, Apple's and Prism's careers pages were

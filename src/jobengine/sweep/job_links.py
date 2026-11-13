@@ -80,7 +80,10 @@ DESCRIBED = "described"  # rows not looked up because their description is on th
 WITH_LINK_STATUSES = ("Approved", "Resume built")  # their own link is wanted even so
 MAX_BODY_READS = 200  # pages read in one sweep to see whether a description is there
 NO_BOARD_DAYS = 14  # a company without a job board or careers page is asked again after
-MAX_RENDERS_PER_JOB = 2  # browser pages for one job: one site never uses the whole budget
+# Browser pages for one job: one site never uses the whole budget. 13 Nov: 2 -> 4 (11 jobs
+# stopped at 2 while 63 of the /fetch's pages were unused); a page opened before in the same
+# /fetch costs nothing (render.Renderer keeps it).
+MAX_RENDERS_PER_JOB = 4
 THIN_PAGE_CHARS = 3000  # a page with less text than this may fill itself with JavaScript
 THIN_PAGE_LINKS = 30
 MAX_LINE = 160  # longer link texts are whole cards or menus, not titles
@@ -1021,7 +1024,9 @@ def from_site(deps: Deps, careers: str, company: str, role: str, city: str | Non
         if (deps.render is not None and (depth or _careers_url(final))
                 and ats.board_in_page(final, html) is None
                 and (thin_page(html) or not job_list_page(html))):
-            if renders[0] <= 0 or getattr(deps.render, "left", 1) <= 0:
+            has = getattr(deps.render, "has", None)
+            kept = bool(has and has(url))  # opened for another job of this /fetch: free
+            if not kept and (renders[0] <= 0 or getattr(deps.render, "left", 1) <= 0):
                 _partial()
                 log.info("careers page not opened in the browser %s: no browser pages left "
                          "(this job: %d, this /fetch: %s)", urlsplit(url).hostname,
@@ -1029,7 +1034,8 @@ def from_site(deps: Deps, careers: str, company: str, role: str, city: str | Non
                 if getattr(deps.render, "left", 1) <= 0:
                     _short()  # the sweep's budget, not this job's: try it again next sweep
                 continue
-            renders[0] -= 1
+            if not kept:
+                renders[0] -= 1
             try:
                 final, html = deps.render(url)
             except http.HttpError as exc:
