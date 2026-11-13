@@ -1485,3 +1485,14 @@ def test_a_learned_job_board_is_read_first_and_found_boards_are_learned():
     d = deps([row()], pages={url: job_page("DevOps Engineer")}, get=get, llm=Search())
     assert job_links.run(d, BOARDS).boards_learned == ["Dune Data"]
     assert auto_boards.board_for(d.state, "Dune Data").token == "dunedata"
+
+
+def test_a_country_code_at_the_end_of_the_title_is_the_same_job():
+    """13 Nov /fetch: Capgemini's "DevOps Engineer - NL" was "not on its job list" although
+    its board lists "DevOps Engineer" in Utrecht (a ghost-job count by mistake)."""
+    assert job_links.same_title("DevOps Engineer", "DevOps Engineer - NL", "Utrecht",
+                                "Netherlands")
+    assert job_links.same_title("Platform Engineer", "Platform Engineer - NL", None,
+                                "Netherlands")
+    assert job_links.same_title("Cloud Engineer (PL)", "Cloud Engineer", None, "Poland")
+    assert not job_links.same_title("DevOps Engineer", "DevOps Engineer - NL", None, "Poland")

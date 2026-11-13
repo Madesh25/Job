@@ -59,11 +59,18 @@ def plain_title(title: str | None) -> str:
     return _AT_COMPANY.sub("", title or "").strip()
 
 
+COUNTRY_CODES = {"netherlands": "nl", "poland": "pl", "ireland": "ie"}
+
+
 def title_key(title: str | None, city: str | None = None, country: str | None = None) -> str:
     """The canonical title without work-mode words, the job's own city or country, and an
     "@ Company" ending."""
     words = canon_title(plain_title(title)).split()
     place = set(canon_city(city).split()) | set(canon(city).split()) | set(canon(country).split())
+    # 13 Nov: "DevOps Engineer - NL" (Capgemini's alert) is "DevOps Engineer" on its board.
+    code = COUNTRY_CODES.get(canon(country))
+    if code:
+        place.add(code)
     out: list[str] = []
     i = 0
     while i < len(words):
