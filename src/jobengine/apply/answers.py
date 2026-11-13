@@ -20,6 +20,7 @@ MAX_ANSWERS = 150
 MAX_IN_PACK = 25
 USAGE = ("Save an answer for application forms: /answer <question> = <answer>\n"
          "Example: /answer Years of Terraform? = 3 years in production\n"
+         "Several at once: one question = answer per line in the same message.\n"
          "/answers lists them, /answer delete 2 removes the second one.")
 
 
@@ -51,7 +52,12 @@ def _save(state: Any, rows: list[dict[str, str]]) -> None:
 
 
 def command(state: Any, args: str, bank: Any = None, today: Any = None) -> str:
-    """/answer: save, replace or delete one answer (also in the Notion Answer bank)."""
+    """/answer: save, replace or delete one answer (also in the Notion Answer bank). Several
+    lines of "question = answer" in one message save them all (13 Nov: the starter questions
+    in one paste)."""
+    lines = [line.strip() for line in args.splitlines() if line.strip()]
+    if len(lines) > 1:
+        return _many(state, lines, bank, today)
     text = args.strip()
     rows = items(state)
     delete = re.fullmatch(r"(?:delete|remove)\s+(\d+)", text, re.I)
@@ -78,6 +84,25 @@ def command(state: Any, args: str, bank: Any = None, today: Any = None) -> str:
     place = f" ({country})" if country else ""
     return (f"{verb}: {question}{place} = {answer}\nIt is in every Apply pack from now on "
             f"({len(rows)} saved). /answers lists them.")
+
+
+def _many(state: Any, lines: list[str], bank: Any, today: Any) -> str:
+    """One /answer per line; a line without "=" is left out and named."""
+    done, bad = [], []
+    for line in lines:
+        if "=" not in line or re.match(r"(?:delete|remove)\s+\d+$", line, re.I):
+            bad.append(line)
+            continue
+        said = command(state, line, bank, today)
+        if said == USAGE:
+            bad.append(line)
+        else:
+            done.append(said.split("\n", 1)[0])
+    out = [f"{len(done)} answer{'s' if len(done) != 1 else ''} saved:", *done]
+    if bad:
+        out += ["", "Not saved (each line needs question = answer):", *bad]
+    out += ["", f"{len(items(state))} saved in all. /answers lists them."]
+    return "\n".join(out)
 
 
 COUNTRIES = ("Poland", "Netherlands", "Ireland")

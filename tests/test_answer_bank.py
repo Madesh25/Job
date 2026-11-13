@@ -35,3 +35,20 @@ def test_commands_in_the_bot_and_the_apply_pack(desk):  # noqa: F811
     assert "1. Earliest interview date? = Any weekday" in talk(desk, "/answers").sent[0][1]
     pack = talk(desk, "/applypack pl-clean").sent[0][1]
     assert "Your saved answers (/answers)\n- Earliest interview date? Any weekday" in pack
+
+
+def test_many_lines_in_one_message():
+    """13 Nov: the starter questions answered in one paste, one answer per line."""
+    state = FakeBotState()
+    said = answers.command(state, "Years of experience with Kubernetes = 3\n\n"
+                                  "Your current employer? = Xerago\n"
+                                  "no equals sign here\n"
+                                  "Nationality = Indian")
+    assert said.startswith("3 answers saved:\nSaved: Years of experience with Kubernetes = 3")
+    assert "Not saved (each line needs question = answer):\nno equals sign here" in said
+    rows = {(r["q"], r["a"]) for r in answers.items(state)}
+    assert ("Years of experience with Kubernetes", "3") in rows
+    assert ("Nationality", "Indian") in rows and ("Citizenship", "Indian") in rows
+    assert ("Your current employer?", "Xerago") in rows
+    # One line is the old /answer.
+    assert answers.command(state, "Nationality = Indian").startswith("Replaced: Nationality")
