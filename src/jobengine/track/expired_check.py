@@ -87,9 +87,20 @@ class Result:
         return "\n".join(lines)
 
 
-def openable(url: str | None) -> bool:
+# 13 Nov /fetch: about 50 of the 150 links checked were sites that always refuse the bot
+# (justjoin.it, pracuj.pl, IrishJobs, theprotocol.it, Glassdoor) or Adzuna's own link pages
+# (HTTP 403): never a real check, and they took the place of links that can be checked.
+NEVER_OPENED = ("adzuna.",)
+
+
+def openable(url: str | None, blocked: Iterable[str] = ()) -> bool:
+    """A link the check can read: https, not LinkedIn, not a site that refuses the bot."""
     host = (urlsplit(url or "").hostname or "").lower()
-    return bool(url) and url.lower().startswith("https://") and "linkedin" not in host
+    if not url or not url.lower().startswith("https://") or "linkedin" in host:
+        return False
+    if any(part in host for part in NEVER_OPENED):
+        return False
+    return not any(host == h or host.endswith("." + h) for h in blocked)
 
 
 def _day(value: Any) -> date | None:
@@ -194,7 +205,7 @@ def after_fetch(rows: Iterable[JobRow], get_page: link.PageGetter, today: date,
                if ends is not None and ends < today else linkedin_closed(row, today, days))
         if why:
             result.closed.append((row, why))
-        elif not openable(row.url):
+        elif not openable(row.url, cfg.get("blocked_hosts") or ()):
             result.not_opened += 1
             saved[row.page_id] = today.isoformat()
         elif len(to_open) < int(cfg["max_links"]):

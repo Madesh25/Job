@@ -104,3 +104,18 @@ def test_jobs_screened_skip_are_not_checked():
             row("pending", "https://pending.example/1")]
     result = expired_check.after_fetch(rows, get, TODAY, FakeBotState(), CFG, lambda *a: None)
     assert opened == ["https://pending.example/1"] and result.total == 1
+
+
+def test_sites_that_refuse_the_bot_do_not_take_the_places_of_real_checks():
+    """13 Nov /fetch: about 50 of the 150 links were justjoin.it, pracuj.pl, IrishJobs or
+    Adzuna's link pages, which always refuse the bot."""
+    get, opened = pages()
+    rows = [row("jj", "https://justjoin.it/job-offer/acme-devops"),
+            row("pr", "https://www.pracuj.pl/praca/devops,oferta,1"),
+            row("ij", "https://click.irishjobs.ie/job/1"),
+            row("az", "https://www.adzuna.pl/land/ad/5914998945"),
+            row("ok", "https://careers.acme.example/jobs/7")]
+    cfg = {**CFG, "max_links": 1, "blocked_hosts": ("justjoin.it", "pracuj.pl", "irishjobs.ie")}
+    result = expired_check.after_fetch(rows, get, TODAY, FakeBotState(), cfg, lambda *a: None)
+    assert opened == ["https://careers.acme.example/jobs/7"]
+    assert result.checked == 1 and result.not_opened == 4 and result.left == 0
