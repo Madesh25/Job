@@ -663,6 +663,15 @@ platformy) and leaves out the Polish manager, director, architect, lead and inte
 Dutch postings for these roles use the English titles, so nothing is added for the
 Netherlands. A job that needs Polish or Dutch is still left out by the language filter.
 
+### One job under two titles (13 Nov, fetch idea 6)
+
+Lepaya's job came as "DevSecOps" from Adzuna and "DevSecOps Engineer" from LinkedIn: two
+rows. When a /fetch compares a job with the rows in Notion, and new jobs with each other,
+the word "Engineer" (and the Polish "Inżynier") is left out of the title: same company,
+same title otherwise and same city is the same row. Only when that names one row: two
+rows that already exist stay two. "Senior DevSecOps Engineer" is still another job. The
+Dedupe key itself is not changed.
+
 ## Where the postings went (loss report)
 
 Every posting a `/fetch` reads lands in exactly one bucket, per source, so the buckets add up
