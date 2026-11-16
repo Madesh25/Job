@@ -539,3 +539,47 @@ def test_a_job_that_now_opens_the_job_list_is_reported_closed(tmp_path, monkeypa
     assert result.stopped == ("the job looks closed: its link now opens "
                               "https://jobs.example.com/catawiki?error=true (not this job's "
                               "page). Nothing to fill.")
+
+
+ASHBY_LIKE = """<!doctype html><html><head><title>Apply</title></head><body><form>
+<div class="_fieldEntry_1"><label>Full name</label><div><input name="_systemfield_name"></div></div>
+<div class="_fieldEntry_2"><label>Location</label><div><input placeholder="Start typing..."></div>
+</div>
+<div class="_fieldEntry_3"><label>Team size*</label><div><input required></div></div>
+<div><p>Autofill from resume</p><p>Upload your resume here</p><input type="file"></div>
+</form></body></html>"""
+
+
+@browser
+def test_question_names_come_from_the_fields_box(tmp_path, monkeypatch):
+    """16 Nov, /dryrun test on real Ashby forms: "Location" is the label of the field's box and
+    the field only says "Start typing...", so the report asked "/answer Start typing... = ";
+    the "Autofill from resume" upload had no name at all."""
+    monkeypatch.setattr(form_bot, "SETTLE_MS", 100)
+    values = {**VALUES, "full_name": "Madeshwaran Example", "city": "Chennai, India"}
+    result = form_bot.dry_run(settings(), "https://jobs.example.com/apply", values, SAVED,
+                              folder=tmp_path, prepare=_serve(ASHBY_LIKE))
+    labels = [a.field.label for a in result.answers]
+    assert labels == ["Full name", "Location", "Team size*", "Autofill from resume"]
+    text = form_bot.report(result)
+    assert "/answer Team size = <your answer>" in text
+
+
+def test_the_answer_hint_has_no_required_marks():
+    assert form_bot.question("School*") == "School"
+    assert form_bot.question("Email* (required)") == "Email"
+    assert form_bot.question("Phone*Required") == "Phone"
+    assert form_bot.question("What is your current address?") == "What is your current address?"
+
+
+def test_the_resume_goes_to_the_resume_field_not_the_autofill_upload():
+    """16 Nov, /dryrun test on real Ashby forms (Nord Security): the "Autofill from resume"
+    upload, which reads a CV to fill the form, came first and got the resume."""
+    fields = [Field("0", "file", "Autofill from resume"), Field("1", "text", "Full name"),
+              Field("2", "file", "Resume", required=True)]
+    answers = form_bot.plan(fields, VALUES, SAVED, resume="cv.pdf")
+    assert [(a.field.label, a.source) for a in answers if a.field.kind == "file"] == [
+        ("Autofill from resume", ""), ("Resume", "resume")]
+    only = form_bot.plan([Field("0", "file", "Autofill from resume")], VALUES, SAVED,
+                         resume="cv.pdf")
+    assert only[0].source == "resume"  # the form has no other place for it
