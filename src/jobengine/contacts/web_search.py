@@ -183,7 +183,7 @@ def check(people: list[Person], search_urls: list[str], company: str, domain: st
         for url in person.sources:
             real = known.get(norm_url(url))
             host = (urlsplit(real or "").hostname or "").lower()
-            if not real or any(host == b or host.endswith("." + b) for b in blocked):
+            if not real or http.host_in(host, blocked):
                 continue
             if _linkedin(host):
                 if linkedin and (titles or {}).get(real):

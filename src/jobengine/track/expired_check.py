@@ -23,6 +23,7 @@ from datetime import date, datetime, time
 from typing import Any
 from urllib.parse import urlsplit
 
+from jobengine import http
 from jobengine.apply import link
 from jobengine.screen.models import JobRow
 
@@ -100,7 +101,7 @@ def openable(url: str | None, blocked: Iterable[str] = ()) -> bool:
         return False
     if any(part in host for part in NEVER_OPENED):
         return False
-    return not any(host == h or host.endswith("." + h) for h in blocked)
+    return not http.host_in(host, tuple(blocked))
 
 
 def _day(value: Any) -> date | None:

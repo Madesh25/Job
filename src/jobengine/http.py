@@ -62,9 +62,17 @@ class HttpError(Exception):
 
 
 def host_in(host: str, hosts: Collection[str]) -> bool:
-    """True when host is one of `hosts` or a subdomain of one (www.pracuj.pl, pracuj.pl)."""
+    """True when host is one of `hosts` or a subdomain of one (www.pracuj.pl, pracuj.pl).
+    An entry ending in ".*" is the site in every country: "glassdoor.*" is glassdoor.com,
+    www.glassdoor.co.in and so on (16 Nov: a glassdoor.co.in link was opened)."""
     host = host.lower().rstrip(".")
-    return any(host == h or host.endswith("." + h) for h in hosts)
+    for h in hosts:
+        if h.endswith(".*"):
+            if f".{h[:-2]}." in f".{host}":
+                return True
+        elif host == h or host.endswith("." + h):
+            return True
+    return False
 
 
 def set_transport(transport: httpx.BaseTransport | None) -> None:
