@@ -207,6 +207,8 @@ AUTOFILL_JS = r"""
     catch (e) { console.warn('autofill code not kept', e); }
   }
   const f = data.fields || {};
+  const NOT_SPONSOR = new RegExp('\\bauthori[sz]|\\beligib|\\bright to work\\b|\\blegally\\b|' +
+    '\\bpermitted to work\\b|\\bwithout (a |any |visa )*sponsor');
   const RULES = [
     [/\b(first|given) ?name\b|\bforename\b/, 'first_name', /\b(company|employer|refer)/],
     [/\b(last|family) ?name\b|\bsurname\b/, 'last_name', /\b(company|employer|refer)/],
@@ -216,12 +218,13 @@ AUTOFILL_JS = r"""
     [/\blinked ?in\b/, 'linkedin', null],
     [/\bgit ?hub\b/, 'github', null],
     [/\b(website|portfolio|personal (site|page)|blog)\b/, 'website', /\b(linked ?in|git ?hub)\b/],
-    [/\bsponsor/, 'sponsorship_needed', null],
+    [/\bsponsor/, 'sponsorship_needed',
+      NOT_SPONSOR],
     [/\bauthori[sz]|\bright to work\b|\beligible to work\b/, 'authorized_without_sponsorship',
-      /\bsponsor/],
+      /\b(requir|need)\w*\b.*\bsponsor/],
     [/\blegally (allowed|able|eligible|entitled)/,
-      'authorized_without_sponsorship', /\bsponsor/],
-    [/\bwork permit\b/, 'authorized_without_sponsorship', /\bsponsor/],
+      'authorized_without_sponsorship', /\b(requir|need)\w*\b.*\bsponsor/],
+    [/\bwork permit\b/, 'authorized_without_sponsorship', /\b(requir|need)\w*\b.*\bsponsor/],
     [/\bcurrent (salary|compensation|pay)\b/, 'current_salary', null],
     [/\b(salary|compensation|remuneration|pay expectation|expected pay)\b/, 'expected_salary',
       null],

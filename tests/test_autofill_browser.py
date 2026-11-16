@@ -64,5 +64,19 @@ def test_custom_dropdowns_get_their_option_or_are_named(tmp_path):
     assert s["q2-value"] == "No, I chose this"  # a dropdown you answered stays yours
     assert s["q4-value"] == ""  # "1 month" matches no option: nothing chosen, typing cleared
     alert = result["dialogs"][-1]["message"]
-    assert "1 required list question(s) still to choose" in alert
+    assert "2 required list question(s) still to choose" in alert  # q4, and q6 asks two things
     assert "choose yourself: what is your notice period" in alert
+
+
+@needs_browser
+def test_authorized_without_sponsorship_is_the_authorization_answer(tmp_path):
+    """16 Nov: "Are you authorized to work in Ireland without visa sponsorship?" got the
+    sponsorship-needed answer (the word "sponsor" was checked first). For someone who needs a
+    visa that is "Yes" to a question whose true answer is "No"."""
+    needs_visa = {**DATA, "fields": {**DATA["fields"], "sponsorship_needed": "Yes",
+                                     "authorized_without_sponsorship": "No"}}
+    s = run(tmp_path, needs_visa)["state"]
+    assert s["q5-value"] == "No"  # authorized without sponsorship: No
+    assert s["spon"] == "Yes"  # "Will you require visa sponsorship?": Yes
+    assert s["auth:No"] is True  # "Are you legally authorized to work in Ireland?": No
+    assert s["q6-value"] == ""  # asks both at once: left for you
