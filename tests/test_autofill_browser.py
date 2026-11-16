@@ -20,7 +20,8 @@ DATA = {"job": "Demo Co, DevOps Engineer", "fields": {
     "authorized_without_sponsorship": "Yes", "cover_letter": "Dear team, ...",
     "earliest_start": "1 month after an offer", "gender": "Prefer not to say",
     "why": "Your platform team works on what I do best."},
-    "answers": [["Years of experience with Kubernetes", "4"]]}
+    "answers": [["Years of experience with Kubernetes", "4"],
+                ["Where do you live", "Chennai, India"]]}
 
 
 def _browser() -> bool:
@@ -64,6 +65,8 @@ def test_custom_dropdowns_get_their_option_or_are_named(tmp_path):
     s = result["state"]
     assert s["q1-value"] == "Yes"  # the option was chosen from the dropdown's list
     assert s["q3-value"] == "Dublin, County Dublin, Ireland"  # "Dublin" picks the first match
+    # 16 Nov: "Chennai, India" picks the choice with both words
+    assert s["q7-value"] == "Chennai, Tamil Nadu, India"
     assert s["q2-value"] == "No, I chose this"  # a dropdown you answered stays yours
     assert s["q4-value"] == ""  # "1 month" matches no option: nothing chosen, typing cleared
     alert = result["dialogs"][-1]["message"]
