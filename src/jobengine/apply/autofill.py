@@ -357,6 +357,10 @@ AUTOFILL_JS = r"""
     if (i < 0 && two.includes(' ') && two.length > 5) {
       i = texts.findIndex(t => t.startsWith(two));
     }
+    const words = want.split(' ');
+    if (i < 0 && words.length > 1) {
+      i = texts.findIndex(t => words.every(w => t.split(' ').includes(w)));
+    }
     return i;
   };
   const pick = async (el, v) => {

@@ -457,3 +457,12 @@ def test_radios_under_styled_boxes_are_ticked(tmp_path, monkeypatch):
     [auth] = [a for a in result.answers if a.field.kind == "radio"]
     assert (auth.value, auth.note) == ("No", "")
     assert seen["auth"] == "false"
+
+
+def test_a_choice_with_every_word_of_the_answer():
+    """16 Nov, /dryrun test on real forms: "Chennai, India" never matched a location choice
+    like "Chennai, Tamil Nadu, India"."""
+    options = ["Chennai Central, Chennai", "Chennai, Tamil Nadu, India", "Indiana, US"]
+    assert form_bot.choice(options, "Chennai, India") == 1
+    assert form_bot.choice(["Yes", "No"], "Chennai, India") is None
+    assert form_bot.choice(["Male", "Female"], "Female") == 1  # one word: exact only

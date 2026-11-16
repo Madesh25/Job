@@ -46,7 +46,8 @@ function combo(id, label, options, required, chosen) {
   input.addEventListener('input', () => {
     setTimeout(() => {
       const typed = input.value.toLowerCase();
-      const shown = options.filter(o => o.toLowerCase().includes(typed));
+      const words = typed.split(/[ ,]+/).filter(Boolean);  /* a search by words, like a geocoder */
+      const shown = options.filter(o => words.every(w => o.toLowerCase().includes(w)));
       menu.innerHTML = shown.length ? `<div role="listbox" id="${id}-listbox">` +
         shown.map((o, i) => `<div role="option" id="${id}-opt-${i}">${o}</div>`).join('') + '</div>' : '';
       input.setAttribute('aria-controls', `${id}-listbox`);
@@ -63,6 +64,7 @@ function combo(id, label, options, required, chosen) {
 combo('q1', 'Are you legally authorized to work in Ireland? *', ['Yes', 'No'], true);
 combo('q2', 'Will you require visa sponsorship? *', ['Yes', 'No'], true, 'No, I chose this');
 combo('q3', 'Location (City) *', ['Dublin, County Dublin, Ireland', 'Dublin, Ohio, United States'], true);
+combo('q7', 'Where do you live? *', ['Chennai Central, Chennai', 'Chennai, Tamil Nadu, India'], true);
 combo('q5', 'Are you authorized to work in Ireland without visa sponsorship? *', ['Yes', 'No'], true);
 combo('q6', 'Are you legally authorized to work in Ireland, or will you require sponsorship? *', ['Yes', 'No'], true);
 combo('q4', 'What is your notice period? *', ['Immediately', '2 weeks', '3 months or more'], true);

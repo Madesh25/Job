@@ -222,6 +222,11 @@ def choice(options: Sequence[str], value: str) -> int | None:
         for i, text in enumerate(texts):
             if text.startswith(two):
                 return i
+    words = set(want.split(" "))
+    if len(words) > 1:  # "Chennai, India" picks "Chennai, Tamil Nadu, India" (16 Nov)
+        for i, text in enumerate(texts):
+            if words <= set(text.split(" ")):
+                return i
     return None
 
 
@@ -488,6 +493,10 @@ async ({ref, value}) => {
     const two = want.split(' ').slice(0, 2).join(' ');
     if (i < 0 && two.includes(' ') && two.length > 5) {
       i = texts.findIndex(t => t.startsWith(two));
+    }
+    const words = want.split(' ');
+    if (i < 0 && words.length > 1) {
+      i = texts.findIndex(t => words.every(w => t.split(' ').includes(w)));
     }
     return i;
   };
