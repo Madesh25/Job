@@ -16,7 +16,8 @@ DATA = {"job": "Demo Co, DevOps Engineer", "fields": {
     "first_name": "Test", "last_name": "Person", "email": "test@example.com",
     "phone": "+48 000 000 000", "linkedin": "https://www.linkedin.com/in/test", "city": "Dublin",
     "expected_salary": "EUR 60000", "notice_period": "1 month", "sponsorship_needed": "No",
-    "authorized_without_sponsorship": "Yes", "cover_letter": "Dear team, ..."},
+    "authorized_without_sponsorship": "Yes", "cover_letter": "Dear team, ...",
+    "earliest_start": "1 month after an offer"},
     "answers": [["Years of experience with Kubernetes", "4"]]}
 
 
@@ -94,3 +95,18 @@ def test_a_greenhouse_dropdown_opens_on_key_up_and_its_hidden_twin_is_not_counte
     assert s["gh2-value"] == "Yes"  # chosen by you before: never changed (16 Nov, BearingPoint)
     alert = result["dialogs"][-1]["message"]
     assert "1 required field is still empty" in alert  # only "other", not the hidden twin
+
+
+@needs_browser
+def test_a_phone_with_only_its_country_code_and_number_boxes_are_filled(tmp_path):
+    """16 Nov, real forms: Recruitee's phone box starts with "+31", so it counted as yours and
+    stayed unfilled (Xebia, Intelic); Teamtailor's salary box takes only numbers, refused
+    "EUR ..." and was still marked orange and counted (Zinkworks)."""
+    data = {**DATA, "fields": {**DATA["fields"], "expected_salary": "EUR 60 000 - 70 000"}}
+    result = run(tmp_path, data)
+    s = result["state"]
+    assert s["mob"] == "+48 000 000 000"  # "+31" alone is not your answer
+    assert s["num"] == "60000"
+    assert s["dt"] == ""  # a date box does not take "1 month after an offer"
+    alert = result["dialogs"][-1]["message"]
+    assert "did not take the answer, fill yourself: available to start" in alert

@@ -366,6 +366,7 @@ AUTOFILL_JS = r"""
   };
   const filled = [];
   const toChoose = [];
+  const refused = [];
   const mark = (el, name) => {
     el.style.outline = '3px solid #f59e0b';
     filled.push(name);
@@ -404,9 +405,20 @@ AUTOFILL_JS = r"""
       if (got) { mark(comboBox(el), got); } else { toChoose.push(partsOf(el)[0] || 'a list'); }
       continue;
     }
-    if ((el.value || '').trim()) { continue; }
-    const v = valueFor(el);
-    if (v) { setText(el, v); mark(el, partsOf(el)[0] || el.name || 'field'); }
+    const had = (el.value || '').trim();
+    if (had && !(el.type === 'tel' && /^\+?\d{1,4}$/.test(had))) { continue; }
+    let v = valueFor(el);
+    if (v && el.type === 'number') {
+      const n = String(v).replace(/(\d)[\s,.'](?=\d{3}\b)/g, '$1').match(/\d+(\.\d+)?/);
+      v = n ? n[0] : null;
+    }
+    if (!v) { continue; }
+    setText(el, v);
+    if ((el.value || '').trim() && el.value !== had) {
+      mark(el, partsOf(el)[0] || el.name || 'field');
+    } else if (!had) {
+      refused.push(partsOf(el)[0] || el.name || 'a field');
+    }
   }
   await sleep(300);
   const empty = inputs().filter(el =>
@@ -421,6 +433,8 @@ AUTOFILL_JS = r"""
     (lists ? lists + ' required list question(s) still to choose. ' : '') +
     (toChoose.length ? 'No matching choice, choose yourself: ' +
       toChoose.slice(0, 5).join('; ') + '. ' : '') +
+    (refused.length ? 'The form did not take the answer, fill yourself: ' +
+      refused.slice(0, 5).join('; ') + '. ' : '') +
     'Check every field, attach your resume and press Submit yourself.');
 } catch (e) { alert('Job Engine autofill stopped: ' + ((e && e.message) || e)); } })();
 """
