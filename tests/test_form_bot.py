@@ -498,3 +498,44 @@ def test_a_choice_with_every_word_of_the_answer():
     assert form_bot.choice(options, "Chennai, India") == 1
     assert form_bot.choice(["Yes", "No"], "Chennai, India") is None
     assert form_bot.choice(["Male", "Female"], "Female") == 1  # one word: exact only
+
+
+JOB_LIST = """<!doctype html><html><head><title>Jobs at Catawiki</title></head><body>
+<form action="/catawiki"><label for="s">Search</label><input id="s" name="q">
+<label for="d">Department</label><select id="d"><option>All</option></select></form>
+</body></html>"""
+
+
+def test_a_closed_job_is_known_by_its_address():
+    assert form_bot.closed("https://job-boards.greenhouse.io/catawiki/jobs/8346092",
+                           "https://job-boards.greenhouse.io/catawiki?error=true")
+    assert not form_bot.closed("https://job-boards.greenhouse.io/catawiki/jobs/8346092",
+                               "https://job-boards.greenhouse.io/catawiki/jobs/8346092#app")
+    assert not form_bot.closed("https://jobs.example.com/apply", "https://jobs.example.com/")
+    uuid = "https://jobs.ashbyhq.com/rentman/b796c722-4f18-4df0-807e-0dfe91f28a99"
+    assert not form_bot.closed(uuid, uuid + "/application")
+    assert form_bot.closed(uuid, "https://jobs.ashbyhq.com/rentman")
+
+
+@browser
+def test_a_job_that_now_opens_the_job_list_is_reported_closed(tmp_path, monkeypatch):
+    """16 Nov, /dryrun on real Greenhouse jobs (Rent The Runway, Catawiki): a closed job's
+    link opens the company's job list; the report said "send the form's own link"."""
+    monkeypatch.setattr(form_bot, "SETTLE_MS", 100)
+
+    def answer(route):
+        if route.request.url.endswith("/jobs/8346092"):  # as the board sends it on
+            route.fulfill(status=200, content_type="text/html", body=(
+                "<script>location.replace('https://jobs.example.com/catawiki?error=true')"
+                "</script>"))
+        else:
+            route.fulfill(status=200, body=JOB_LIST, content_type="text/html")
+
+    def prepare(context):
+        context.route(lambda url: "/catawiki" in url, answer)
+
+    result = form_bot.dry_run(settings(), "https://jobs.example.com/catawiki/jobs/8346092",
+                              VALUES, SAVED, folder=tmp_path, prepare=prepare)
+    assert result.stopped == ("the job looks closed: its link now opens "
+                              "https://jobs.example.com/catawiki?error=true (not this job's "
+                              "page). Nothing to fill.")

@@ -42,6 +42,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 from jobengine import safety
 from jobengine.settings import ROOT_DIR, Settings
@@ -167,6 +168,17 @@ class Sending:
     Submit on a form that passed every check."""
 
     on: bool = False
+
+
+JOB_ID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|\d{5,}", re.I)
+
+
+def closed(asked: str, opened: str) -> bool:
+    """The job's link now opens another page: the job's own id is gone from the address
+    (16 Nov, real Greenhouse jobs: a closed job goes to "<board>?error=true", the company's
+    job list)."""
+    ids = JOB_ID.findall(urlsplit(asked).path)
+    return bool(ids) and not any(i.lower() in opened.lower() for i in ids)
 
 
 def _words(text: str) -> list[str]:
@@ -782,6 +794,7 @@ def _run(s: Settings, url: str, values: Mapping[str, str], saved: Sequence[Mappi
             page.wait_for_timeout(SETTLE_MS)
             links: list[str] = []
             fields, blockers, result.title = _read_settled(page, links)
+            landed = page.url
             known = form_page(page.url)
             if known and known not in links:
                 links.append(known)  # 16 Nov: its own form page, when no Apply link leads there
@@ -800,6 +813,9 @@ def _run(s: Settings, url: str, values: Mapping[str, str], saved: Sequence[Mappi
             if blockers:
                 result.stopped = (f"the page asks for a {' and a '.join(blockers)}. The bot does "
                                   "not go past it: apply on this one yourself.")
+            elif not application_form(fields) and closed(url, landed):
+                result.stopped = (f"the job looks closed: its link now opens {landed} (not "
+                                  "this job's page). Nothing to fill.")
             elif not fields:
                 result.stopped = ("no form fields found on this page (the form may be behind an "
                                   "Apply button or on another page: send its own link).")
