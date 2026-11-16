@@ -230,6 +230,7 @@ class Result:
     unchecked: int = 0  # the company's site could not be checked: waits for /jd
     deleted: list[str] = field(default_factory=list)  # reposted jobs deleted (4 Nov)
     boards_learned: list[str] = field(default_factory=list)  # job boards learned (13 Nov)
+    same: list[str] = field(default_factory=list)  # the link is another row's: skipped (16 Nov)
 
 
 @dataclass
@@ -241,6 +242,16 @@ class Found:
 
 def settings(s: Any) -> dict[str, Any]:
     return dict(s.sweep.get("job_links") or {})
+
+
+def row_with_link(repo: JobsRepo, url: str, page_id: str) -> tuple[str, dict[str, Any]] | None:
+    """Another Job Opportunities row whose URL is `url` (the same job), or None."""
+    try:
+        rows = repo.query_rows({"property": "URL", "url": {"equals": url}})
+    except Exception:  # a failed look-up never stops the link from being saved
+        log.warning("same-link look-up failed for %s", url, exc_info=True)
+        return None
+    return next(((pid, v) for pid, v in rows if pid != page_id), None)
 
 
 def enabled(s: Any) -> bool:
@@ -1546,6 +1557,23 @@ def run(deps: Deps, boards: tuple[str, ...], with_body: set[str] | None = None,
             missing(page_id, values, company, role, board)
             return None
         learn(company, [found.url, careers])  # its job board is read in every /fetch now
+        other = row_with_link(deps.repo, found.url, page_id)
+        if other is not None and str(values.get("Screen verdict") or "Unscreened") == "Unscreened":
+            # 16 Nov: the alert's "Just Eat, Platform Engineer" led to the link of the 13 Nov
+            # row "Just Eat Takeaway.com, Platform Engineer": the same job, seen twice in
+            # /pending. This row is skipped; the other one keeps the job.
+            other_id, other_values = other
+            with lock:
+                deps.repo.update(page_id, {"Screen verdict": "Skip"})
+                deps.repo.append_body(page_id, [
+                    f"{NOTE} ({deps.today.isoformat()}): the same job as the row "
+                    f"\"{other_values.get('Company')}, {other_values.get('Role')}\" (its link "
+                    f"{found.url} is that row's link). Skipped here (Screen verdict Skip); "
+                    "the other row keeps the job."])
+                result.same.append(f"{company}, {role}")
+            log.info("%s row %s: its link %s is the link of row %s: the same job, skipped",
+                     board, page_id, found.url, other_id)
+            return None
         # The same text may be on the page already: the cross-match of this sweep read the
         # job on the company's job board (2 Nov: Snowflake's description twice).
         has_it = any(found.url in text for _id, text in deps.repo.body_blocks(page_id))
