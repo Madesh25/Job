@@ -427,3 +427,33 @@ def test_custom_dropdowns_get_an_option_or_count_as_unanswered(tmp_path, monkeyp
     gate = form_submit.blockers(result.answers, allowed_privacy=False)
     assert gate == ['required: "Gender*" (no option matches "Prefer not to say")',
                     "the resume is not attached"]  # this test page has no resume field
+
+
+STYLED_RADIOS = """<!doctype html><html><head><title>Apply</title><style>
+.choice{position:relative;display:inline-block;width:80px;height:24px}
+.choice input{position:absolute;width:1px;height:1px;margin:0}
+.choice span{position:absolute;inset:0;background:#eee}</style></head><body><form>
+<label for="fn">Full name</label><input id="fn" name="name">
+<fieldset><legend>Are you legally authorised to work in the Netherlands?</legend>
+<label class="choice"><input type="radio" name="auth" value="true"><span>Yes</span></label>
+<label class="choice"><input type="radio" name="auth" value="false"><span>No</span></label>
+</fieldset></form></body></html>"""
+
+
+@browser
+def test_radios_under_styled_boxes_are_ticked(tmp_path, monkeypatch):
+    """16 Nov, real Recruitee form (Intelic): the radio buttons are 1 px under styled boxes;
+    "the form did not take the answer" for the work permit question."""
+    monkeypatch.setattr(form_bot, "SETTLE_MS", 100)
+    seen = {}
+
+    def check(page):
+        seen["auth"] = page.evaluate(
+            "() => (document.querySelector('input[name=auth]:checked') || {}).value || ''")
+
+    values = {**VALUES, "authorized_without_sponsorship": "No"}
+    result = form_bot.dry_run(settings(), "https://jobs.example.com/apply", values, SAVED,
+                              folder=tmp_path, prepare=_serve(STYLED_RADIOS), check=check)
+    [auth] = [a for a in result.answers if a.field.kind == "radio"]
+    assert (auth.value, auth.note) == ("No", "")
+    assert seen["auth"] == "false"
