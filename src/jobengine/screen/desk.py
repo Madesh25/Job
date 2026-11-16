@@ -552,6 +552,11 @@ class Desk:
     def country_menu(self, rows: list[JobRow] | None = None, text: str = CHOOSE_COUNTRY) -> Reply:
         """The country buttons. In Today or Last 3 days each shows that count and the
         country's whole count, so a country with only older jobs is still there (12 Nov)."""
+        if self.chosen_country() is not None:
+            # 16 Nov: after "Change country" from Poland the menu said "Last 3 days (4)" and
+            # "Everything (183)", Poland's counts, next to "All (6)" for every country. The
+            # menu is for choosing a country: the one chosen before is forgotten.
+            self.choose_country(None)
         everything = self.all_ranked()
         rows = self.scoped(everything) if rows is None else rows
         scope = self.chosen_scope()
