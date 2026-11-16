@@ -1,0 +1,57 @@
+<!doctype html><html><head><meta charset="utf-8"><title>Autofill test form</title>
+<style>label{display:block;margin-top:8px}[role=listbox]{border:1px solid #999}</style></head><body>
+<form id="plain" onsubmit="window.SUBMITTED=1;return false">
+<label for="fn">First Name *</label><input id="fn" name="first_name" required>
+<label for="ln">Last Name *</label><input id="ln" name="last_name" required>
+<label for="em">Email *</label><input id="em" type="email" name="email" required>
+<label for="ph">Phone</label><input id="ph" type="tel" name="phone">
+<label for="li">LinkedIn Profile</label><input id="li" name="urls[LinkedIn]">
+<label for="loc">Current location</label><input id="loc" name="location" value="Typed by me">
+<label for="sal">What are your salary expectations?</label><input id="sal" name="salary">
+<label for="spon">Will you now or in the future require visa sponsorship?</label>
+<select id="spon" name="sponsor" required><option value="">Select...</option><option>Yes</option><option>No</option></select>
+<fieldset><legend>Are you legally authorized to work in Ireland?</legend>
+<label><input type="radio" name="auth" value="Yes">Yes</label><label><input type="radio" name="auth" value="No">No</label></fieldset>
+<label for="cl">Cover letter</label><textarea id="cl" name="cover"></textarea>
+<label for="yrs">How many years of experience do you have with Kubernetes?</label><input id="yrs" name="q_k8s" required>
+<label for="why">Portfolio or anything else? (required, no answer)</label><input id="other" name="other_q" required>
+<label><input type="checkbox" id="consent" name="consent" required> I agree to the privacy policy</label>
+<button type="submit" id="submit" onclick="window.CLICKED=1">Submit application</button>
+</form>
+<div id="combos"></div>
+<script>
+/* A dropdown like Greenhouse's new forms (react-select): the options show while you type,
+   filtered; a choice shows in a single-value box; the typed text is cleared on blur. */
+function combo(id, label, options, required, chosen) {
+  const box = document.createElement('div');
+  box.className = 'select__container field';
+  box.innerHTML = `<label id="${id}-label" for="${id}">${label}</label>
+    <div class="select__control"><div class="select__single-value" id="${id}-value">${chosen || ''}</div>
+    <input id="${id}" role="combobox" aria-autocomplete="list" aria-expanded="false"
+      aria-labelledby="${id}-label" ${required ? 'aria-required="true"' : ''} class="select__input"></div>
+    <div class="select__menu"></div>`;
+  document.getElementById('combos').appendChild(box);
+  const input = box.querySelector('input'), menu = box.querySelector('.select__menu');
+  input.addEventListener('input', () => {
+    setTimeout(() => {
+      const typed = input.value.toLowerCase();
+      const shown = options.filter(o => o.toLowerCase().includes(typed));
+      menu.innerHTML = shown.length ? `<div role="listbox" id="${id}-listbox">` +
+        shown.map((o, i) => `<div role="option" id="${id}-opt-${i}">${o}</div>`).join('') + '</div>' : '';
+      input.setAttribute('aria-controls', `${id}-listbox`);
+      for (const opt of menu.querySelectorAll('[role=option]')) {
+        opt.addEventListener('click', () => {
+          box.querySelector('.select__single-value').textContent = opt.textContent;
+          input.value = ''; menu.innerHTML = '';
+        });
+      }
+    }, 50);
+  });
+  input.addEventListener('blur', () => setTimeout(() => { input.value = ''; menu.innerHTML = ''; }, 400));
+}
+combo('q1', 'Are you legally authorized to work in Ireland? *', ['Yes', 'No'], true);
+combo('q2', 'Will you require visa sponsorship? *', ['Yes', 'No'], true, 'No, I chose this');
+combo('q3', 'Location (City) *', ['Dublin, County Dublin, Ireland', 'Dublin, Ohio, United States'], true);
+combo('q4', 'What is your notice period? *', ['Immediately', '2 weeks', '3 months or more'], true);
+</script>
+</body></html>
