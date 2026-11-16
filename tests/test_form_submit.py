@@ -145,3 +145,24 @@ def test_dryrun_command_never_submits(monkeypatch):
     d, job_id, seen = desk_with_result(monkeypatch, "")
     d.dryrun_command(job_id)
     assert seen["finish"] is None
+
+
+@browser
+def test_the_submit_button_is_the_one_in_the_form(tmp_path, monkeypatch):
+    """16 Nov, real Greenhouse forms: the page's own "Apply" button above the form and the
+    form's "Submit application" were two Submit-like buttons, so no Greenhouse form could be
+    submitted. The button is looked for in the form the answers are in."""
+    monkeypatch.setattr(form_bot, "SETTLE_MS", 100)
+    monkeypatch.setattr(form_submit, "CONFIRM_WAIT_MS", 5_000)
+    page = FORM.replace("<body>", '<body><button type="button">Apply</button>', 1)
+    serve = _serve(page)
+
+    def prepare(context):
+        serve(context)
+        _thanks(context)
+
+    result = form_bot.dry_run(settings(), "https://jobs.example.com/apply", VALUES, SAVED,
+                              folder=tmp_path, prepare=prepare,
+                              resume=("Madeshwaran_DevOps.pdf", b"%PDF-1.4 x"),
+                              finish=form_submit.finisher(True))
+    assert result.submitted == "confirmed", result.submitted
