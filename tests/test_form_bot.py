@@ -355,3 +355,74 @@ def test_the_question_rules_found_on_real_forms(label, key):
 
 def test_prefer_not_to_answer_is_prefer_not_to_say():
     assert form_bot.choice(["Male", "Female", "Prefer not to answer"], "Prefer not to say") == 2
+
+
+DROPDOWN_FORM = """<!doctype html><html><head><title>Apply</title></head><body><form>
+<label for="fn">First Name*</label><input id="fn" name="first_name" required>
+<div id="boxes"></div>
+<button type="submit">Submit application</button></form>
+<script>
+/* Like Greenhouse's dropdowns (16 Nov): the list opens on key-up only, its options have ids
+   react-select-<input id>-option-N, the choice shows in a single-value box and typed text is
+   cleared when the box loses focus. */
+function combo(id, label, options, chosen) {
+  const box = document.createElement('div');
+  box.innerHTML = `<label id="${id}-l" for="${id}">${label}</label><div class="wrap">
+    <div class="select__control"><div class="select__value-container">
+    <div class="select__single-value" id="${id}-v">${chosen || ''}</div>
+    <div class="select__input-container"><input id="${id}" role="combobox"
+      aria-autocomplete="list" aria-labelledby="${id}-l" aria-required="true"></div></div></div>
+    <div class="menu"></div></div>`;
+  document.getElementById('boxes').appendChild(box);
+  const input = box.querySelector('input'), menu = box.querySelector('.menu');
+  let open = false;
+  const draw = () => {
+    const typed = input.value.toLowerCase();
+    menu.innerHTML = (open ? options.filter(o => o.toLowerCase().includes(typed)) : [])
+      .map((o, i) => `<div role="option" id="react-select-${id}-option-${i}">${o}</div>`).join('');
+    for (const o of menu.querySelectorAll('[role=option]')) {
+      o.addEventListener('click', () => { box.querySelector('.select__single-value')
+        .textContent = o.textContent; input.value = ''; open = false; draw(); });
+    }
+  };
+  input.addEventListener('input', draw);
+  box.querySelector('.wrap').addEventListener('keyup', () => { open = true; draw(); });
+  input.addEventListener('blur', () => setTimeout(() => { input.value = ''; open = false;
+    draw(); }, 100));
+}
+combo('q1', 'Will you require visa sponsorship?*', ['Yes', 'No']);
+combo('q2', 'Country*', ['+48', '+91'], '+91');
+combo('q3', 'Gender*', ['Female', 'Male', "I don't wish to answer"]);
+combo('q4', 'Dial code*', ['+48', '+91']);
+document.getElementById('fn').addEventListener('input', () => {  /* set by the form itself */
+  document.getElementById('q4-v').textContent = '+91'; });
+</script></body></html>"""
+
+
+@browser
+def test_custom_dropdowns_get_an_option_or_count_as_unanswered(tmp_path, monkeypatch):
+    """16 Nov, real Greenhouse forms: the bot typed the answer into a dropdown and reported it
+    filled; the dropdown cleared it, so the gate counted answers that were not there."""
+    from jobengine.apply import form_submit
+
+    monkeypatch.setattr(form_bot, "SETTLE_MS", 100)
+    seen = {}
+
+    def check(page):
+        page.wait_for_timeout(300)
+        seen.update(page.evaluate("""() => ({q1: document.getElementById('q1-v').textContent,
+          q2: document.getElementById('q2-v').textContent,
+          q3: document.getElementById('q3-v').textContent})"""))
+
+    values = {**VALUES, "sponsorship_needed": "No", "gender": "Prefer not to say"}
+    result = form_bot.dry_run(settings(), "https://jobs.example.com/apply", values, SAVED,
+                              folder=tmp_path, prepare=_serve(DROPDOWN_FORM), check=check)
+    assert not result.stopped, result.stopped
+    assert seen == {"q1": "No", "q2": "+91", "q3": ""}
+    got = {a.field.label: a for a in result.answers}
+    assert got["Will you require visa sponsorship?*"].value == "No"
+    assert got["Country*"].source == "form"  # it showed an answer: left as it is
+    assert got["Gender*"].note == 'no option matches "Prefer not to say"'
+    assert (got["Dial code*"].value, got["Dial code*"].source) == ("+91", "form")
+    gate = form_submit.blockers(result.answers, allowed_privacy=False)
+    assert gate == ['required: "Gender*" (no option matches "Prefer not to say")']

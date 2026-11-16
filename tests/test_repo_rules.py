@@ -365,7 +365,16 @@ def test_the_page_reader_only_reads():
 
 def test_the_form_bot_never_presses_a_button_or_submits():
     text = (ROOT / FORM_BOT).read_text(encoding="utf-8")
-    assert FORM_BOT_FORBIDDEN.findall(text) == []
+    # 16 Nov, real forms: a custom dropdown is answered by choosing one of its own options
+    # (like ticking a radio button). CHOOSE_JS is the one place that clicks, and only an
+    # element with role="option"; no button, no key, no submit.
+    start = text.index('CHOOSE_JS = r"""')
+    end = text.index('"""', start + len('CHOOSE_JS = r"""')) + 3
+    choose, rest = text[start:end], text[:start] + text[end:]
+    assert FORM_BOT_FORBIDDEN.findall(rest) == []
+    assert re.findall(r"\.click\(", choose) == [".click("]
+    assert "opts[i].click()" in choose and "role') === 'option'" in choose
+    assert not re.search(r"button|submit|Enter|\.press|keydown", choose, re.I)
     assert 'context.route("**/*", _guard(' in text  # every request goes through the guard
     assert ".on = True" not in text  # only form_submit opens Sending
 

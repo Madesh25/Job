@@ -109,6 +109,7 @@ RESUME = re.compile(r"\b(resume|cv|curriculum)\b")
 STOP = {"the", "and", "you", "your", "are", "for", "with", "have", "what", "how", "many",
         "any", "this", "that", "our", "please", "did", "does", "will", "can"}
 SOURCES = {"profile": "your profile and Apply pack", "saved": "your saved answer",
+           "form": "shown on the form already",
            "resume": "the approved resume for this job",
            "ai": "🤖 AI from your facts: check it"}
 
@@ -242,6 +243,9 @@ def plan(fields: Sequence[Field], values: Mapping[str, str],
             continue
         if f.kind == "checkbox" and CONSENT.search(norm(f.label)):
             out.append(Answer(f, note="a consent box: you tick it yourself"))
+            continue
+        if f.kind == "combobox" and f.options:
+            out.append(Answer(f, value=f.options[0], source="form"))
             continue
         value, source = saved_for(f.label, saved), "saved"
         if value is None:
@@ -418,14 +422,106 @@ READ_JS = r"""
     }
     const ref = String(n++);
     el.setAttribute('data-je-field', ref);
+    const combo = el.getAttribute('role') === 'combobox' ||
+      el.getAttribute('aria-autocomplete') === 'list';
     const kind = el.tagName === 'SELECT' ? 'select' : el.tagName === 'TEXTAREA' ? 'textarea' :
-      (type || 'text');
-    const options = kind === 'select' ? [...el.options].map(o => text(o)) : [];
+      combo ? 'combobox' : (type || 'text');
+    let options = kind === 'select' ? [...el.options].map(o => text(o)) : [];
+    if (combo) {  // the answer it shows already (chosen by you, or set from the phone number)
+      for (let p = el.parentElement, d = 0; p && d < 6; p = p.parentElement, d++) {
+        if (p.querySelectorAll('[role=combobox]').length > 1) { break; }
+        const shownValue = p.querySelector('[class*=single-value], [class*=singleValue]');
+        if (shownValue) { options = text(shownValue) ? [text(shownValue)] : []; break; }
+      }
+    }
     fields.push({ref: ref, kind: kind, label: label, options: options, required: required,
       hint: hint});
   }
   return {fields: fields, blockers: blockers, title: document.title || '',
           applyLinks: applyLinks};
+}
+"""
+
+
+# A custom dropdown (16 Nov, real forms: Greenhouse, Ashby): a text box whose answer is one
+# of a list that shows while you type. Typed text alone is cleared when the box loses focus,
+# so the bot chooses the matching option, the way it ticks a radio button. The one exception
+# to "no click" in this module (tests/test_repo_rules.py): only an element with
+# role="option" of this dropdown's own list; never a button, never a key, never Submit.
+# Greenhouse opens its list on key-up only, so a key-up event is sent to the text box.
+CHOOSE_JS = r"""
+async ({ref, value}) => {
+  const el = document.querySelector('[data-je-field="' + ref + '"]');
+  if (!el) { return null; }
+  const norm = s => String(s || '').replace(/([a-z])([A-Z])/g, '$1 $2').toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ').trim();
+  const shown = n => !!(n.offsetWidth || n.offsetHeight || n.getClientRects().length);
+  const sleep = ms => new Promise(r => setTimeout(r, ms));
+  const setText = v => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(el, v);
+    el.dispatchEvent(new Event('input', {bubbles: true}));
+  };
+  const options = () => {
+    let opts = [];
+    const ids = [el.getAttribute('aria-controls'), el.getAttribute('aria-owns')]
+      .filter(Boolean).join(' ').split(/\s+/).filter(Boolean);
+    for (const id of ids) {
+      const list = document.getElementById(id);
+      if (list) { opts = opts.concat([...list.querySelectorAll('[role=option]')]); }
+    }
+    if (!opts.length && el.id) {
+      opts = [...document.querySelectorAll('[role=option]')]
+        .filter(o => o.id.startsWith('react-select-' + el.id + '-option'));
+    }
+    if (!opts.length) {
+      opts = [...document.querySelectorAll('[role=listbox] [role=option]')]
+        .filter(o => !o.closest('.iti') && !o.hasAttribute('data-dial-code'));
+    }
+    return opts.filter(o => o.getAttribute('role') === 'option' && shown(o));
+  };
+  const choice = (texts, v) => {
+    const want = norm(v);
+    const first = want.split(' ')[0];
+    let i = texts.findIndex(t => t === want);
+    if (i < 0) { i = texts.findIndex(t => want.length > 2 && t.startsWith(want)); }
+    if (i < 0 && /^(yes|no)$/.test(first)) { i = texts.findIndex(t => t.split(' ')[0] === first); }
+    const two = want.split(' ').slice(0, 2).join(' ');
+    if (i < 0 && two.includes(' ') && two.length > 5) {
+      i = texts.findIndex(t => t.startsWith(two));
+    }
+    return i;
+  };
+  el.focus();
+  setText(value);
+  el.dispatchEvent(new KeyboardEvent('keyup', {key: 'Unidentified', bubbles: true}));
+  for (let n = 0; n < 12; n++) {
+    await sleep(150);
+    const opts = options();
+    if (!opts.length) { continue; }
+    const i = choice(opts.map(o => norm(o.innerText)), value);
+    if (i < 0) { break; }
+    const chosen = opts[i].innerText.trim();
+    opts[i].click();
+    await sleep(200);
+    return chosen;
+  }
+  setText('');
+  return null;
+}
+"""
+
+
+# The answer a custom dropdown shows (reads only): Greenhouse sets "Country" from the phone
+# number once the phone is typed, after the form was read (16 Nov).
+SHOWN_JS = r"""
+(ref) => {
+  const el = document.querySelector('[data-je-field="' + ref + '"]');
+  for (let p = el && el.parentElement, d = 0; p && d < 6; p = p.parentElement, d++) {
+    if (p.querySelectorAll('[role=combobox]').length > 1) { break; }
+    const v = p.querySelector('[class*=single-value], [class*=singleValue]');
+    if (v) { return (v.innerText || '').trim(); }
+  }
+  return '';
 }
 """
 
@@ -575,11 +671,27 @@ def _fill(page: Any, answers: Sequence[Answer], resume: Path | None = None) -> N
             elif f.kind == "select":
                 frame.locator(f'[data-je-field="{f.ref}"]').select_option(index=a.option,
                                                                           timeout=3_000)
+            elif f.kind == "combobox":
+                if a.source == "form":
+                    continue  # it shows an answer already: left as it is
+                chosen = frame.evaluate(CHOOSE_JS, {"ref": f.ref, "value": a.value or ""})
+                if chosen:
+                    a.value = str(chosen)
+                else:  # 16 Nov: typed text alone is lost; it is not an answer
+                    a.note = f'no option matches "{a.value}"'
             else:
                 frame.locator(f'[data-je-field="{f.ref}"]').fill(a.value or "", timeout=3_000)
         except Exception as exc:  # one field that will not take a value: listed, go on
             log.info("dry run: %s not filled: %s", f.label, exc)
             a.note = "the form did not take the answer"
+    for a in answers:  # a dropdown the form filled by itself meanwhile (Country from the phone)
+        if a.field.kind == "combobox" and a.value is None:
+            try:
+                shown = page.frames[a.field.frame].evaluate(SHOWN_JS, a.field.ref)
+            except Exception:
+                continue
+            if shown:
+                a.value, a.source, a.note = str(shown), "form", ""
 
 
 def dry_run(s: Settings, url: str, values: Mapping[str, str],
