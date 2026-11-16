@@ -57,14 +57,19 @@ def _limit(config: Any) -> int:
         return DAILY_LIMIT
 
 
-def add(state: Any, config: Any, job_ids: Sequence[str], now: datetime) -> tuple[int, int]:
-    """Queue jobs not queued yet, within today's limit. (added, left today)."""
+def add(state: Any, config: Any, job_ids: Sequence[str], now: datetime,
+        gate_open: bool = False) -> tuple[int, int]:
+    """Queue jobs not queued yet, within today's limit. (added, left today).
+    16 Nov: a job already filled stays out (a dry run leaves it "Resume built"; it was
+    filled again at every tick). It gets one more run only when auto-submit (`gate_open`)
+    opened after its last run, so it can be submitted."""
     value = _get(state)
     items = list(value.get("items") or [])
     day = value.get("day") or {}
     count = int(day.get("count") or 0) if day.get("date") == now.date().isoformat() else 0
     room = max(_limit(config) - count, 0)
-    known = {i["job"] for i in items if i.get("state") != DONE}
+    known = {i["job"] for i in items
+             if i.get("state") != DONE or i.get("gate") or not gate_open}
     added = 0
     for job in job_ids:
         if added >= room:
@@ -109,9 +114,10 @@ def take(state: Any, by: str, now: datetime, n: int = PARALLEL) -> list[str]:
     return free
 
 
-def finish(state: Any, job: str) -> None:
+def finish(state: Any, job: str, gate_open: bool = False) -> None:
+    """The job is filled; `gate_open`: auto-submit was open for this run."""
     value = _get(state)
-    value["items"] = [{**i, "state": DONE} if i["job"] == job else i
+    value["items"] = [{**i, "state": DONE, "gate": gate_open} if i["job"] == job else i
                       for i in value.get("items") or []]
     _set(state, value)
 
