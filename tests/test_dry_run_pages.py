@@ -38,7 +38,11 @@ def serve(pages):
 
 def test_what_counts_as_an_application_form():
     assert form_bot.application_form([Field("1", "text", "First name")])
-    assert form_bot.application_form([Field("1", "file", "Attach")])
+    # 16 Nov, real forms: an upload field alone is not a form (Recruitee's job page has a
+    # hidden one); with a name or an email and more questions it is.
+    assert not form_bot.application_form([Field("1", "file", "Attach")])
+    assert form_bot.application_form([Field("1", "file", "Attach"),
+                                      Field("2", "text", "Full name")])
     assert not form_bot.application_form([Field("1", "text", "Search for jobs by keyword"),
                                            Field("2", "text", "country")])
 
