@@ -124,3 +124,31 @@ def test_nothing_queued_and_auto_off_touches_nothing():
     d.state.set = lambda key, value: calls.append(("set", key))
     assert d.autoapply_tick() == []
     assert calls == [("get", queue.KEY)]
+
+
+def test_a_job_filled_once_is_not_queued_again():
+    """16 Nov, Claude's /autoapply test on real forms: a dry run leaves the job "Resume built",
+    so the next /autoapply, and every tick with apply.auto = true, queued and filled the same
+    jobs again (5 forms every few minutes, up to the 50 a day)."""
+    state = FakeBotState()
+    queue.add(state, CONFIG, ["a", "b"], NOW)
+    for job in queue.take(state, "laptop", NOW):
+        queue.finish(state, job)
+    assert queue.add(state, CONFIG, ["a", "b", "c"], NOW) == (1, 47)  # only the new job
+    later = NOW + timedelta(days=1)
+    assert queue.add(state, CONFIG, ["a", "b"], later) == (0, 50)
+    # Auto-submit opened since their dry run: one more run each, which may submit.
+    assert queue.add(state, CONFIG, ["a", "b"], later, gate_open=True) == (2, 48)
+    assert queue.take(state, "laptop", later) == ["c", "a", "b"]
+    for job in ("a", "b"):
+        queue.finish(state, job, gate_open=True)
+    assert queue.add(state, CONFIG, ["a", "b"], later, gate_open=True) == (0, 48)
+
+
+def test_auto_apply_fills_each_job_once():
+    d = make_desk()
+    d.deps.config = lambda: ConfigStore.from_values({"apply.auto": "true"})
+    assert len(d.autoapply_tick()) == 3
+    assert len(d.autoapply_tick()) == 1
+    assert d.autoapply_tick() == []
+    assert d.autoapply_command("")[0].text.startswith("Queued 0 job(s)")

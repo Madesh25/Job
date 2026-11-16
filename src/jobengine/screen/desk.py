@@ -1360,7 +1360,8 @@ class Desk:
         now = self.tracking_now()
         config = self.deps.config()
         if args.strip().lower() != "status":
-            added, left = queue.add(self.state, config, self._ready(), now)
+            added, left = queue.add(self.state, config, self._ready(), now,
+                                    gate_open=self._submit_open(config, now))
             head = (f"Queued {added} job(s) to fill (submitted only when auto-submit is on, "
                     f"else a dry run); {left} more allowed today.")
         else:
@@ -1370,6 +1371,17 @@ class Desk:
                  else "your laptop if it is on, else Cloud Run, 3 at a time")
         return [Reply(f"{head}\n{waiting} waiting: {where}. Each result comes with Answers OK "
                       f"and Something is wrong.\n{self._submit_status()}")]
+
+    def _submit_open(self, config: Any, now: datetime) -> bool:
+        """Auto-submit is open here (any site type): a job only dry run before gets one
+        more run, which may submit it."""
+        from jobengine.apply import form_review, queue
+
+        runs = (self.state.get(form_review.KEY) or {}).get("items") or []
+        wrong = sum(1 for r in runs[-10:] if r.get("status") == "wrong")
+        return queue.submit_block(
+            self.s, config, form_review.approved_count(self.state), wrong,
+            queue.submitted_today(self.state, now.date().isoformat())) is None
 
     def _submit_status(self) -> str:
         from jobengine.apply import form_review, queue
@@ -1389,7 +1401,8 @@ class Desk:
         now = self.tracking_now()
         config = self.deps.config()
         if (config.get("apply.auto") or "false").strip().lower() == "true":
-            queue.add(self.state, config, self._ready(), now)
+            queue.add(self.state, config, self._ready(), now,
+                      gate_open=self._submit_open(config, now))
         elif not queue.waiting(self.state, now):
             return []  # auto-apply off and nothing queued by /autoapply: no Bot State writes
         if self.on_holiday():  # /pause: the queue waits (I8)
@@ -1412,10 +1425,13 @@ class Desk:
         from jobengine.apply import queue
 
         jobs = queue.take(self.state, by, now)
+        if not jobs:
+            return []
+        gate = self._submit_open(self.deps.config(), now)
         replies: list[Reply] = []
         fill = lambda job: self.dry_run_job(job, submit=True)  # noqa: E731
         for job, got in zip(jobs, queue.run_parallel(jobs, fill), strict=True):
-            queue.finish(self.state, job)
+            queue.finish(self.state, job, gate_open=gate)
             if isinstance(got, Exception):
                 replies.append(Reply(f"Dry run of {job} failed: {got}"))
             else:
