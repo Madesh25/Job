@@ -147,3 +147,18 @@ def test_today_means_found_today_like_the_notion_view():
     no_first = job_row("p", {"Posted date": yesterday, "Swept date": FAKE_TODAY})
     assert pending_in_scope(no_first, "today", FAKE_TODAY)  # no First seen: the Swept date
     assert pending_in_scope(row(FAKE_TODAY - timedelta(days=40)), "all", FAKE_TODAY)
+
+
+def test_change_country_shows_the_same_menu_as_the_first_one():
+    """16 Nov: after Change country from Poland the menu's Last 3 days and Everything counted
+    Poland only, next to All for every country."""
+    d = make_desk()
+    first = d.all_ranked()[0]
+    _found(d, {first.page_id})
+    [menu] = d.pending_command("", "today")
+    [card] = d.tap("pc:Poland")
+    [again] = d.tap("pc:menu")
+    assert again.buttons == menu.buttons
+    assert d.chosen_country() is None and d.chosen_scope() == "today"
+    [reply] = d.tap("ps:all")  # from the menu: every country's jobs, the country asked first
+    assert reply.text == CHOOSE_COUNTRY and d.chosen_scope() == "all"
