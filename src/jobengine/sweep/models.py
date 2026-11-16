@@ -248,6 +248,7 @@ class SweepSummary:
     direct_links_tried: int = 0
     direct_links_again: int = 0  # searches or browser pages ran out: next sweep
     ghost_jobs: list[str] = field(default_factory=list)  # not on the company's site: skipped
+    same_link_jobs: list[str] = field(default_factory=list)  # link of another row: skipped
     closed_jobs: list[str] = field(default_factory=list)  # closed postings, now Expired
     closed_checked: int = 0  # job links opened by the link check of this /fetch
     no_company: list[str] = field(default_factory=list)  # the alert showed no company
@@ -369,6 +370,11 @@ class SweepSummary:
             if self.site_unchecked:
                 lines.append(f"- {self.site_unchecked} whose company site could not be checked "
                              "(no careers page found, or no answer): they wait for /jd")
+            if self.same_link_jobs:
+                lines.append(f"- {len(self.same_link_jobs)} the same job as a row already in "
+                             "Notion (its link is that row's link): skipped, the other row "
+                             "keeps it")
+                lines.extend(f"  - {job}" for job in self.same_link_jobs[:10])
         if self.details_filled:
             lines.append(f"\U0001F3E2 Target Companies details filled (empty columns of the "
                          f"companies the bot added): {len(self.details_filled)}")

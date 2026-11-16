@@ -1532,3 +1532,24 @@ def test_a_careers_page_opened_for_one_job_is_free_for_the_next(monkeypatch):
     assert sorted(labels) == ["Dune Data, DevOps Engineer (careers page)",
                               "Dune Data, Site Reliability Engineer (careers page)"]
     assert browser.opened == [CAREERS]  # opened once, then kept
+
+
+def test_a_link_that_is_another_rows_link_skips_the_alert_row():
+    """16 Nov: the alert's "Just Eat, Platform Engineer" led to the link of the 13 Nov row
+    "Just Eat Takeaway.com, Platform Engineer": the same job, twice in /pending."""
+    page = careers_page(("/careers/devops-engineer-amsterdam", "DevOps Engineer"))
+    older = {"Company": "Dune Data B.V.", "Role": "DevOps Engineer", "City": "Amsterdam",
+             "Country": "Netherlands", "Board": "Company site", "Status": "Screened",
+             "Screen verdict": "Apply", "URL": JOB}
+    d = deps([row(), older], pages={CAREERS: page, JOB: job_page("DevOps Engineer")},
+             llm=Search(), careers={"dune data": CAREERS})
+    result = job_links.run(d, BOARDS)
+    assert result.labels == [] and result.same == ["Dune Data, DevOps Engineer"]
+    assert d.repo.rows["p0"]["Screen verdict"] == "Skip"
+    assert d.repo.rows["p0"]["URL"] == LINKEDIN  # not given the other row's link
+    assert any("the same job as the row \"Dune Data B.V., DevOps Engineer\"" in text
+               for text in d.repo.rows["p0"]["body"])
+    assert d.repo.rows["p1"]["Screen verdict"] == "Apply"  # the other row is left as it was
+    summary = SweepSummary(direct_links_tried=1, same_link_jobs=result.same)
+    assert "1 the same job as a row already in Notion" in summary.friendly_text()
+

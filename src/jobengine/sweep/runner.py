@@ -853,6 +853,7 @@ def run_sweep(
             summary.direct_links_tried = found.tried
             summary.direct_links_again = getattr(found, "again", 0)
             summary.ghost_jobs = list(getattr(found, "ghosts", []))
+            summary.same_link_jobs = list(getattr(found, "same", []))
             summary.no_company = list(getattr(found, "no_company", []))
             summary.reposted = list(getattr(found, "deleted", []))
             summary.boards_learned += [n for n in getattr(found, "boards_learned", [])
