@@ -651,6 +651,18 @@ def _read(page: Any, links: list[str] | None = None) -> tuple[list[Field], list[
     return best, sorted(blockers), title
 
 
+def _tick(box: Any) -> None:
+    """Tick a radio button or a checkbox. 16 Nov, real Recruitee form: its real radio buttons
+    are 1 px under styled ones, so a normal tick waits for a visible box that never comes;
+    the box itself is then ticked without that wait (a tick, never a button)."""
+    try:
+        box.check(timeout=3_000)
+    except Exception:
+        box.check(force=True, timeout=3_000)
+        if not box.is_checked():
+            raise
+
+
 def _fill(page: Any, answers: Sequence[Answer], resume: Path | None = None) -> None:
     """Type, choose and attach; never a button, never Enter, never submit."""
     for a in filled(answers):
@@ -663,11 +675,11 @@ def _fill(page: Any, answers: Sequence[Answer], resume: Path | None = None) -> N
                 frame.locator(f'[data-je-field="{f.ref}"]').set_input_files(str(resume),
                                                                             timeout=3_000)
             elif f.kind == "radio":
-                frame.locator(f'[data-je-field="{f.ref}-{a.option}"]').check(timeout=3_000)
+                _tick(frame.locator(f'[data-je-field="{f.ref}-{a.option}"]'))
             elif f.kind == "checkbox":
                 if a.option is None:  # your answer is no: it stays unticked
                     continue
-                frame.locator(f'[data-je-field="{f.ref}"]').check(timeout=3_000)
+                _tick(frame.locator(f'[data-je-field="{f.ref}"]'))
             elif f.kind == "select":
                 frame.locator(f'[data-je-field="{f.ref}"]').select_option(index=a.option,
                                                                           timeout=3_000)
