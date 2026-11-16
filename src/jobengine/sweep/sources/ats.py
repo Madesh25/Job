@@ -489,9 +489,18 @@ def workday(
         everything = post(f"{base}/jobs", {"appliedFacets": {}, "limit": WD_PAGE_SIZE,
                                            "offset": 0, "searchText": ""}) or {}
         countries = _country_facets(everything.get("facets")) or None
-    except http.HttpError:
+    except http.HttpError as exc:
         countries = None  # read from the first search word's answer below
+        limited = exc.status == 429  # the site said "too many requests"
+        if limited:
+            log.info("workday site of %s is busy (HTTP 429): left for this /fetch",
+                     company.name)
+            failed.append(exc)
+    else:
+        limited = False
     for term in terms:
+        if limited:
+            break
         if countries is None:
             try:
                 first = post(f"{base}/jobs", {"appliedFacets": {}, "limit": WD_PAGE_SIZE,
@@ -510,11 +519,29 @@ def workday(
                     first = None
                     data = post(f"{base}/jobs", body) or {}
             except http.HttpError as exc:
-                # One search word the site refuses (Dell answered HTTP 422 on 1 Oct) must
-                # not lose the other words' jobs; only all words failing is an error.
-                log.info("workday search %r failed for %s: %s", term, company.name, exc)
-                failed.append(exc)
-                break
+                data = None
+                if exc.status == 422 and countries:
+                    # 16 Nov: NXP answered HTTP 422 to every word with its own country
+                    # filter: once more without it, then every word searches without it.
+                    try:
+                        data = post(f"{base}/jobs", {**body, "appliedFacets": {}}) or {}
+                    except http.HttpError:
+                        data = None
+                    if data is not None:
+                        log.info("workday search for %s works without its country filter",
+                                 company.name)
+                        countries = {}
+                if data is None:
+                    # One search word the site refuses (Dell answered HTTP 422 on 1 Oct) must
+                    # not lose the other words' jobs; only all words failing is an error.
+                    log.info("workday search %r failed for %s: %s", term, company.name, exc)
+                    failed.append(exc)
+                    if exc.status == 429:
+                        # 16 Nov: Accenture and Salesforce answered "too many requests" to
+                        # every word, 22 seconds of retries each: the site is left alone
+                        # for the rest of this /fetch.
+                        limited = True
+                    break
             items = data.get("jobPostings") or []
             for item in items:
                 if item.get("externalPath"):
@@ -522,7 +549,7 @@ def workday(
             offset += len(items)
             if not items or offset >= int(data.get("total") or 0):
                 break
-    if failed and len(failed) == len(terms):
+    if failed and (len(failed) == len(terms) or (limited and not listed)):
         raise failed[-1]
 
     postings, dropped, calls = [], 0, 0

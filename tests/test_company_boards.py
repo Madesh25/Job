@@ -711,3 +711,54 @@ def test_check_tries_the_eightfold_board_of_an_own_site_company(tmp_path):
     assert rows[0].link == "https://jobs.ericsson.com/careers?domain=ericsson.com"
     assert (rows[0].result, rows[0].platform, rows[0].jobs) == ("OK", "eightfold", 1)
     assert asked[0] == "https://jobs.ericsson.com/api/apply/v2/jobs"
+
+
+def test_a_workday_site_refusing_its_country_filter_is_searched_without_it():
+    # NXP (16 Nov): HTTP 422 to every word with its own country filter.
+    bodies = []
+    facets = [{"facetParameter": "locationCountry", "values": [
+        {"descriptor": "Netherlands", "id": "nl"}]}]
+
+    def post(url, body):
+        bodies.append(body)
+        if body["appliedFacets"]:
+            raise http.HttpError("POST failed: HTTP 422", 422)
+        return {"total": 1, "facets": facets, "jobPostings": [
+            {"title": f"{body['searchText']} Engineer", "locationsText": "Eindhoven, Netherlands",
+             "externalPath": f"/job/{body['searchText']}", "postedOn": "Posted Today"}]}
+
+    postings, _, _ = ats.workday(DELL, WD, lambda u, p: {}, post, keep_all, 0, TODAY,
+                                 ("devops", "sre"), 1)
+    assert sorted(p.title for p in postings) == ["devops Engineer", "sre Engineer"]
+    # The filter is tried once: the second word searches without it at once.
+    assert [b["appliedFacets"] for b in bodies[1:]] == [{"locationCountry": ["nl"]}, {}, {}]
+
+
+def test_a_busy_workday_site_is_left_after_its_first_too_many_requests():
+    # Accenture and Salesforce (16 Nov): HTTP 429 to every word, 22 seconds of retries each.
+    asked = []
+
+    def busy(url, body):
+        asked.append(body["searchText"])
+        raise http.HttpError("POST failed: HTTP 429", 429)
+
+    with pytest.raises(http.HttpError):
+        ats.workday(DELL, WD, lambda u, p: {}, busy, keep_all, 0, TODAY,
+                    ("devops", "sre", "cloud"), 1)
+    assert asked == [""]  # only the whole-list call
+
+    def busy_later(url, body):
+        asked.append(body["searchText"])
+        if body["searchText"] == "devops":
+            return {"total": 1, "jobPostings": [
+                {"title": "DevOps Engineer", "externalPath": "/job/1",
+                 "locationsText": "Krakow, Poland", "postedOn": "Posted Today"}]}
+        if body["searchText"]:
+            raise http.HttpError("POST failed: HTTP 429", 429)
+        return {"total": 0, "jobPostings": []}
+
+    asked.clear()
+    postings, _, _ = ats.workday(DELL, WD, lambda u, p: {}, busy_later, keep_all, 0, TODAY,
+                                 ("devops", "sre", "cloud"), 1)
+    assert [p.title for p in postings] == ["DevOps Engineer"]  # what it gave is kept
+    assert "cloud" not in asked
