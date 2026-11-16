@@ -52,6 +52,7 @@ def test_the_bookmark_fills_a_form_and_never_submits(tmp_path):
     s = result["state"]
     assert (s["fn"], s["ln"], s["em"], s["sal"], s["yrs"]) == (
         "Test", "Person", "test@example.com", "EUR 60000", "4")
+    assert s["cur"] == ""  # 16 Nov (Qube): a currency question is not the salary amount
     assert s["loc"] == "Typed by me"  # a field you filled stays yours
     assert s["spon"] == "No" and s["auth:Yes"] is True
     assert s["consent"] is False and not s["SUBMITTED"] and not s["CLICKED"]
