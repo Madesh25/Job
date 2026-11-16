@@ -843,8 +843,10 @@ sweep:
     # get the description from the same job on another site (sweep/crossmatch.py).
     # 23 Oct: the new alert boards are never opened either until their terms are checked
     # (Glassdoor's terms forbid scraping; RocketJobs is JustJoin IT's sister site).
+    # 16 Nov: "glassdoor.*" is Glassdoor in every country (a glassdoor.co.in link was opened).
     blocked_hosts: [pracuj.pl, irishjobs.ie, jobs.ie, justjoin.it, theprotocol.it,
-                    glassdoor.com, glassdoor.nl, glassdoor.ie, glassdoor.co.uk, solid.jobs,
+                    glassdoor.com, glassdoor.nl, glassdoor.ie, glassdoor.co.uk, glassdoor.*,
+                    solid.jobs,
                     rocketjobs.pl, welcometothejungle.com, monsterboard.nl, recruitireland.com]
     # gmail: the job links in alert emails (JustJoin IT, NoFluffJobs, Pracuj.pl, ...) are
     # followed to the real job page, whose link and full description are kept. LinkedIn is
