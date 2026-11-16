@@ -542,3 +542,15 @@ def test_the_resume_goes_to_the_resume_field_not_the_autofill_upload():
     only = form_bot.plan([Field("0", "file", "Autofill from resume")], VALUES, SAVED,
                          resume="cv.pdf")
     assert only[0].source == "resume"  # the form has no other place for it
+
+
+def test_the_autofill_upload_note_does_not_say_there_is_no_resume():
+    """16 Nov, /dryrun on Nord Security (Ashby): "Autofill from resume: your resume: no
+    approved resume for this job", while the resume went to the Resume field."""
+    fields = [Field("0", "file", "Autofill from resume"), Field("1", "file", "Resume")]
+    autofill, real = form_bot.plan(fields, VALUES, SAVED, resume="cv.pdf")
+    assert real.source == "resume"
+    assert autofill.note == ("an upload that fills the form from a resume: left empty (the "
+                             "resume goes to the resume field)")
+    [none] = form_bot.plan(fields[1:], VALUES, SAVED)
+    assert none.note == "your resume: no approved resume for this job"
