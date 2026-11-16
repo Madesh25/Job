@@ -298,6 +298,12 @@ def plan(fields: Sequence[Field], values: Mapping[str, str],
         if value is None:
             out.append(Answer(f, note="no answer yet"))
             continue
+        if f.kind == "number" and not re.search(r"\d", value):
+            # 16 Nov, real Teamtailor form: a salary box that takes only a number got the
+            # words of your salary answer, and "the form did not take the answer".
+            out.append(Answer(f, note=f"no answer yet (a number field: \"{_short(value, 40)}\" "
+                                      "has no number)"))
+            continue
         if f.kind == "checkbox":
             yes = norm(value).split(" ")[0] == "yes"
             out.append(Answer(f, value="yes" if yes else "no (left unticked)",
