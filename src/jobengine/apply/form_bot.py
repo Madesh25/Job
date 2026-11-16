@@ -118,6 +118,13 @@ class Field:
     options: tuple[str, ...] = ()
     required: bool = False
     frame: int = 0  # index in page.frames (a form inside an iframe)
+    hint: str = ""  # the field's own name, id and autocomplete ("first_name", "resume")
+
+
+def words_of(f: Field) -> str:
+    """The label and the field's own name: 16 Nov, real forms asked "First", "Last" (Personio)
+    and "Attach" (Greenhouse's resume) with names first_name, last_name, resume."""
+    return norm(f"{f.label} {f.hint}")
 
 
 @dataclass
@@ -210,12 +217,12 @@ def plan(fields: Sequence[Field], values: Mapping[str, str],
     attached = False
     for f in fields:
         if f.kind == "file":
-            if RESUME.search(norm(f.label)) and resume and not attached:
+            if RESUME.search(words_of(f)) and resume and not attached:
                 out.append(Answer(f, value=resume, source="resume"))
                 attached = True
                 continue
             note = ("your resume: no approved resume for this job" if RESUME.search(
-                norm(f.label)) else "a file: you attach it")
+                words_of(f)) else "a file: you attach it")
             out.append(Answer(f, note=note))
             continue
         if f.kind == "checkbox" and CONSENT.search(norm(f.label)):
@@ -224,6 +231,9 @@ def plan(fields: Sequence[Field], values: Mapping[str, str],
         value, source = saved_for(f.label, saved), "saved"
         if value is None:
             value, source = rule_for(f.label, values, f.kind), "profile"
+        if value is None and f.hint and not _words(f.label)[1:]:
+            # A one-word label ("First", "Last"): the field's own name says what it asks.
+            value = rule_for(norm(f.hint), values, f.kind)
         if value is None:
             out.append(Answer(f, note="no answer yet"))
             continue
@@ -371,13 +381,18 @@ READ_JS = r"""
     }
     if (type !== 'file' && !shown(el)) { continue; }
     if (siteSearch(el)) { continue; }
-    const required = el.required || el.getAttribute('aria-required') === 'true';
+    const label = labelOf(el);
+    const hint = [el.name, el.id, el.getAttribute('autocomplete')].filter(Boolean).join(' ');
+    // 16 Nov, real forms: Personio and Teamtailor mark required questions only in the text
+    // ("Email* (required)", "Phone*Required").
+    const required = el.required || el.getAttribute('aria-required') === 'true' ||
+      /\(required\)|\*\s*(required)?\s*$/i.test(label);
     if (type === 'radio') {
       const key = el.name || ('je-radio-' + n);
       if (!radios.has(key)) {
         const ref = String(n++);
-        radios.set(key, {ref: ref, kind: 'radio', label: labelOf(el), options: [],
-          required: required});
+        radios.set(key, {ref: ref, kind: 'radio', label: label, options: [],
+          required: required, hint: hint});
         fields.push(radios.get(key));
       }
       const group = radios.get(key);
@@ -391,7 +406,8 @@ READ_JS = r"""
     const kind = el.tagName === 'SELECT' ? 'select' : el.tagName === 'TEXTAREA' ? 'textarea' :
       (type || 'text');
     const options = kind === 'select' ? [...el.options].map(o => text(o)) : [];
-    fields.push({ref: ref, kind: kind, label: labelOf(el), options: options, required: required});
+    fields.push({ref: ref, kind: kind, label: label, options: options, required: required,
+      hint: hint});
   }
   return {fields: fields, blockers: blockers, title: document.title || '',
           applyLinks: applyLinks};
@@ -454,9 +470,9 @@ def application_form(fields: Sequence[Field]) -> bool:
     and its job-alert email box (Teamtailor) were taken for the application form, so the
     bot never opened the real one."""
     seen = [f for f in fields if f.kind != "file"]
-    if any(NAME_FIELD.search(norm(f.label)) for f in seen):
+    if any(NAME_FIELD.search(words_of(f)) for f in seen):
         return True
-    contact = any(f.kind in ("email", "tel") or CONTACT_FIELD.search(norm(f.label))
+    contact = any(f.kind in ("email", "tel") or CONTACT_FIELD.search(words_of(f))
                   for f in seen)
     papers = any(PAPERS_FIELD.search(norm(f.label)) for f in seen)  # upload fields hide
     return contact and (papers or len(seen) >= 3)
@@ -517,7 +533,8 @@ def _read(page: Any, links: list[str] | None = None) -> tuple[list[Field], list[
             title = found.get("title") or ""
         fields = [Field(ref=f["ref"], kind=f["kind"], label=f["label"],
                         options=tuple(f.get("options") or ()), required=bool(f.get("required")),
-                        frame=index) for f in found.get("fields") or []]
+                        frame=index, hint=str(f.get("hint") or ""))
+                  for f in found.get("fields") or []]
         if len(fields) > len(best):
             best = fields
     return best, sorted(blockers), title

@@ -297,3 +297,35 @@ def test_only_named_read_requests_pass_the_guard():
     assert passed == [read]
     assert [b.split(" ", 1)[1] for b in blocked] == [send,
                                                      "https://jobs.ashbyhq.com/api/non-user-graphql"]
+
+
+NAMED_FORM = """<!doctype html><html><head><title>Apply</title></head><body><form>
+  <label for="a">First</label><input id="a" name="first_name">
+  <label for="b">Last</label><input id="b" name="last_name">
+  <label for="c">Email* (required)</label><input id="c" name="email" type="email">
+  <label for="d">Are you based in Amsterdam?* (required)</label>
+  <select id="d" name="custom_1"><option>Please select</option><option>Yes</option>
+    <option>No</option></select>
+  <div class="label" id="up">Resume/CV</div><button type="button">Attach</button>
+  <input id="resume" name="resume" type="file" aria-label="Attach">
+  <button type="submit">Submit application</button></form></body></html>"""
+
+
+@browser
+def test_field_names_and_required_marks_in_the_text_are_read(tmp_path, monkeypatch):
+    """16 Nov, real forms: Personio labels "First" and "Last" (names first_name, last_name)
+    and marks required questions only in the text ("Email* (required)"); Greenhouse's resume
+    field says "Attach" (name resume). The resume was never attached there and the gate saw
+    no missing required question."""
+    from jobengine.apply import form_submit
+
+    monkeypatch.setattr(form_bot, "SETTLE_MS", 100)
+    result = form_bot.dry_run(settings(), "https://jobs.example.com/apply", VALUES, SAVED,
+                              folder=tmp_path, prepare=_serve(NAMED_FORM),
+                              resume=("Madeshwaran_DevOps.pdf", b"%PDF-1.4 x"))
+    got = {a.field.label: a for a in result.answers}
+    assert got["First"].value == VALUES["first_name"] and got["Last"].value
+    assert got["Email* (required)"].field.required
+    assert got["Attach"].source == "resume"
+    gate = form_submit.blockers(result.answers, allowed_privacy=False)
+    assert gate == ['required: "Are you based in Amsterdam?* (required)" (no answer yet)']
