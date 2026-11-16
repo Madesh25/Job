@@ -511,6 +511,13 @@ def _read_saved(s: Settings, deps: SweepDeps, cfg: fulltext.Config, rules: FitRu
     return [jobs for jobs in result if id(jobs) not in dropped]
 
 
+def _real_ref(ref: str) -> bool:
+    """A posting reference that names one posting: "source:id" with a real id (a source
+    without an id gives "jooble:" or "jooble:None", the same for every job)."""
+    _source, _, posting = ref.partition(":")
+    return posting.strip().lower() not in ("", "none", "null")
+
+
 def run_sweep(
     s: Settings,
     deps: SweepDeps,
@@ -579,6 +586,14 @@ def run_sweep(
     for key, row in index.items():
         variant = variant_key(key)
         by_variant[variant] = None if variant in by_variant else row
+    # 16 Nov: Motorola renamed a job on its job board ("Junior" added); the new title made a
+    # new Dedupe key and a second row, although the old row named the same posting. A posting
+    # already on a row is that row (the first row that names it).
+    by_posting: dict[str, IndexRow] = {}
+    for row in index.values():
+        for ref in row.posting_ids:
+            if _real_ref(ref):
+                by_posting.setdefault(ref, row)
     companies = deps.companies() if "ats" in sources else []
     # 13 Nov: the job boards learned from earlier job links are read with Target Companies.
     learned = (auto_boards.companies(state, companies, discover.skipped(state))
@@ -725,8 +740,10 @@ def run_sweep(
                 log.debug("skipped %s: %s", raw.title, outcome.reason)
                 continue
             seen.append(outcome)
-            row = index.get(outcome.dedupe_key) or by_variant.get(
-                variant_key(outcome.dedupe_key))
+            row = (index.get(outcome.dedupe_key)
+                   or (by_posting.get(outcome.posting_ref) if _real_ref(outcome.posting_ref)
+                       else None)
+                   or by_variant.get(variant_key(outcome.dedupe_key)))
             old = row is None and too_old(outcome, today,
                                           age_limit(outcome.source, max_age, ats_age))
             if outcome.source == gmail_alerts.SOURCE and row is None:
