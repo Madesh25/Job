@@ -329,3 +329,29 @@ def test_field_names_and_required_marks_in_the_text_are_read(tmp_path, monkeypat
     assert got["Attach"].source == "resume"
     gate = form_submit.blockers(result.answers, allowed_privacy=False)
     assert gate == ['required: "Are you based in Amsterdam?* (required)" (no answer yet)']
+
+
+@pytest.mark.parametrize("label,key", [
+    ("Do you have any connections within Lepaya? if so, share their full name.", None),
+    ("Full name", "full_name"),
+    ("Are you authorized to work in Ireland without visa sponsorship?",
+     "authorized_without_sponsorship"),
+    ("Will you now or in the future require visa sponsorship?", "sponsorship_needed"),
+    ("Are you legally authorized to work in Ireland, or will you require sponsorship?", None),
+    ("Allowed to work?* (required)", "authorized_without_sponsorship"),
+    ("Available from* (required)", "earliest_start"),
+    ("Where are you currently located?", "city"),
+    ("Motivate why you are interested in this particular role", "why"),
+    ("Data Protection Information Notice*", None),
+    ("What is your current notice period?", "notice_period"),
+])
+def test_the_question_rules_found_on_real_forms(label, key):
+    """16 Nov: the same corrections as the bookmark (apply/autofill.py, #330 and #333)."""
+    values = {k: k for k in ("full_name", "authorized_without_sponsorship", "sponsorship_needed",
+                             "earliest_start", "city", "why", "notice_period")}
+    kind = "textarea" if key == "why" else "text"
+    assert form_bot.rule_for(label, values, kind) == key
+
+
+def test_prefer_not_to_answer_is_prefer_not_to_say():
+    assert form_bot.choice(["Male", "Female", "Prefer not to answer"], "Prefer not to say") == 2

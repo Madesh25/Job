@@ -59,37 +59,47 @@ NO_PLAYWRIGHT = ("The dry run needs Playwright on this machine: pip install -e \
 
 # Label words -> the answer key in apply/autofill.fields; the same rules as the bookmark
 # (apply/autofill.py AUTOFILL_JS RULES): (pattern, key, not when this also matches).
+# 16 Nov: the corrections found on real forms (bookmark #330, #333) apply here too.
+OTHER_PERSON = (r"\b(company|employer|refer\w*|their|connections?|contact person|reference|"
+                r"emergency|manager|recruiter)\b")
+NOT_SPONSOR = (r"\bauthori[sz]|\beligib|\bright to work\b|\blegally\b|\bpermitted to work\b|"
+               r"\bwithout (a |any |visa )*sponsor")
+NEEDS_SPONSOR = r"\b(requir|need)\w*\b.*\bsponsor"
 RULES: tuple[tuple[re.Pattern[str], str, re.Pattern[str] | None], ...] = tuple(
     (re.compile(p), key, re.compile(n) if n else None) for p, key, n in (
-        (r"\b(first|given) ?name\b|\bforename\b", "first_name", r"\b(company|employer|refer)"),
-        (r"\b(last|family) ?name\b|\bsurname\b", "last_name", r"\b(company|employer|refer)"),
-        (r"^(full |your |legal )?name$|\bfull name\b", "full_name", None),
+        (r"\b(first|given) ?name\b|\bforename\b", "first_name", OTHER_PERSON),
+        (r"\b(last|family) ?name\b|\bsurname\b", "last_name", OTHER_PERSON),
+        (r"^(full |your |legal )?name$|\bfull name\b", "full_name", OTHER_PERSON),
         (r"\be ?mail\b", "email", None),
         (r"\b(phone|mobile|telephone)\b", "phone", r"\b(type|code|extension|device)\b"),
         (r"\blinked ?in\b", "linkedin", None),
         (r"\bgit ?hub\b", "github", None),
         (r"\b(website|portfolio|personal (site|page)|blog)\b", "website",
          r"\b(linked ?in|git ?hub)\b"),
-        (r"\bsponsor", "sponsorship_needed", None),
-        (r"\bauthori[sz]|\bright to work\b|\beligible to work\b",
-         "authorized_without_sponsorship", r"\bsponsor"),
+        (r"\bsponsor", "sponsorship_needed", NOT_SPONSOR),
+        (r"\bauthori[sz]|\bright to work\b|\beligible to work\b|\b(allowed|permitted) to work\b",
+         "authorized_without_sponsorship", NEEDS_SPONSOR),
         (r"\blegally (allowed|able|eligible|entitled)", "authorized_without_sponsorship",
-         r"\bsponsor"),
-        (r"\bwork permit\b", "authorized_without_sponsorship", r"\bsponsor"),
+         NEEDS_SPONSOR),
+        (r"\bwork permit\b", "authorized_without_sponsorship", NEEDS_SPONSOR),
         (r"\bcurrent (salary|compensation|pay)\b", "current_salary", None),
         (r"\b(salary|compensation|remuneration|pay expectation|expected pay)\b",
          "expected_salary", None),
-        (r"\bnotice\b", "notice_period", None),
+        (r"\bnotice\b", "notice_period",
+         r"\b(privacy|data protection|policy|information notice)\b"),
         (r"\bstart date\b|\bearliest start\b|\bwhen can you start\b|\bavailable to start\b",
          "earliest_start", None),
+        (r"\bavailable from\b|\bwhen are you available\b", "earliest_start", None),
         (r"\bjoining date\b", "earliest_start", None),
         (r"\brelocat", "relocation", None),
         (r"\benglish\b", "english", None),
         (r"\bgender\b", "gender", None),
-        (r"\b(city|town)\b|\bcurrent location\b|^location$|\bwhere are you (based|located)\b",
+        (r"\b(city|town)\b|\bcurrent location\b|^location$|\bwhere are you (currently )?based\b",
          "city", r"\b(relocat|prefer|willing|office|desired)"),
-        (r"\bwhy (do you want|are you interested|this (company|role)|us|join)\b|\bmotivation\b",
+        (r"\bwhere are you (currently )?located\b", "city", r"\b(relocat|prefer|willing|office)"),
+        (r"\bwhy (do you want|are you interested|this (company|role)|us|join)\b|\bmotivat",
          "why", None),
+        (r"\bwhy you (are|would be) interested\b|\bwhy are you applying\b", "why", None),
         (r"\bcover ?letter\b|\badditional information\b|\banything else\b"
          r"|\bmessage to (the )?hiring\b", "cover_letter", None),
     ))
@@ -205,6 +215,11 @@ def choice(options: Sequence[str], value: str) -> int | None:
     if first in ("yes", "no"):
         for i, text in enumerate(texts):
             if text.split(" ")[0] == first:
+                return i
+    two = " ".join(want.split(" ")[:2])
+    if " " in two and len(two) > 5:  # "Prefer not to say" picks "Prefer not to answer"
+        for i, text in enumerate(texts):
+            if text.startswith(two):
                 return i
     return None
 
