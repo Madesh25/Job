@@ -304,6 +304,28 @@ AUTOFILL_JS = r"""
     Object.getOwnPropertyDescriptor(proto, 'value').set.call(el, v);
     fire(el);
   };
+  const isCombo = el => el.getAttribute('role') === 'combobox' ||
+    el.getAttribute('aria-autocomplete') === 'list';
+  const sleep = ms => new Promise(r => setTimeout(r, ms));
+  const comboBox = el => el.closest('[class*=container], [class*=control], .field, ' +
+    '.application-question') || el.parentElement || el;
+  const chosenIn = el => {
+    const box = comboBox(el);
+    const shownValue = box && box.querySelector('[class*=single-value], [class*=singleValue], ' +
+      '[class*=multi-value], [class*=multiValue]');
+    return !!(shownValue && shownValue.innerText.trim());
+  };
+  const optionsOf = el => {
+    const ids = [el.getAttribute('aria-controls'), el.getAttribute('aria-owns')]
+      .filter(Boolean).join(' ').split(/\s+/).filter(Boolean);
+    let opts = [];
+    for (const id of ids) {
+      const list = document.getElementById(id);
+      if (list) { opts = opts.concat([...list.querySelectorAll('[role=option]')]); }
+    }
+    if (!opts.length) { opts = [...document.querySelectorAll('[role=option]')]; }
+    return opts.filter(shown);
+  };
   const choice = (texts, v) => {
     const want = norm(v);
     const first = want.split(' ')[0];
@@ -312,7 +334,23 @@ AUTOFILL_JS = r"""
     if (i < 0 && /^(yes|no)$/.test(first)) { i = texts.findIndex(t => t.split(' ')[0] === first); }
     return i;
   };
+  const pick = async (el, v) => {
+    setText(el, v);
+    for (let n = 0; n < 12; n++) {
+      await sleep(150);
+      const opts = optionsOf(el);
+      if (!opts.length) { continue; }
+      const i = choice(opts.map(o => norm(o.innerText)), v);
+      if (i < 0) { break; }
+      const text = norm(opts[i].innerText);
+      opts[i].click();
+      return text;
+    }
+    setText(el, '');
+    return null;
+  };
   const filled = [];
+  const toChoose = [];
   const mark = (el, name) => {
     el.style.outline = '3px solid #f59e0b';
     filled.push(name);
@@ -343,16 +381,31 @@ AUTOFILL_JS = r"""
       }
       continue;
     }
+    if (isCombo(el)) {
+      if ((el.value || '').trim() || chosenIn(el)) { continue; }
+      const v = valueFor(el);
+      if (!v) { continue; }
+      const got = await pick(el, v);
+      if (got) { mark(comboBox(el), got); } else { toChoose.push(partsOf(el)[0] || 'a list'); }
+      continue;
+    }
     if ((el.value || '').trim()) { continue; }
     const v = valueFor(el);
     if (v) { setText(el, v); mark(el, partsOf(el)[0] || el.name || 'field'); }
   }
+  await sleep(300);
   const empty = inputs().filter(el =>
     (el.required || el.getAttribute('aria-required') === 'true') &&
-    !(el.value || '').trim() && el.type !== 'radio').length;
+    !(el.value || '').trim() && el.type !== 'radio' && !isCombo(el)).length;
+  const lists = inputs().filter(el => isCombo(el) && !chosenIn(el) &&
+    !(el.value || '').trim() && (el.required || el.getAttribute('aria-required') === 'true'))
+    .length;
   alert('Job Engine autofill (' + data.job + '): filled ' + filled.length + ' fields, marked in ' +
     'orange. ' + (empty === 1 ? '1 required field is still empty. ' :
     empty ? empty + ' required fields are still empty. ' : '') +
+    (lists ? lists + ' required list question(s) still to choose. ' : '') +
+    (toChoose.length ? 'No matching choice, choose yourself: ' +
+      toChoose.slice(0, 5).join('; ') + '. ' : '') +
     'Check every field, attach your resume and press Submit yourself.');
 } catch (e) { alert('Job Engine autofill stopped: ' + ((e && e.message) || e)); } })();
 """
