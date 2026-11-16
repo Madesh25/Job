@@ -653,14 +653,23 @@ def _read(page: Any, links: list[str] | None = None) -> tuple[list[Field], list[
 
 def _tick(box: Any) -> None:
     """Tick a radio button or a checkbox. 16 Nov, real Recruitee form: its real radio buttons
-    are 1 px under styled ones, so a normal tick waits for a visible box that never comes;
-    the box itself is then ticked without that wait (a tick, never a button)."""
+    are 1 px boxes clipped to nothing under styled ones, so a normal tick waits for a visible
+    box that never comes. Its own label is ticked instead (the browser ticks the box the label
+    names), then the box itself without that wait. A tick, never a button."""
     try:
         box.check(timeout=3_000)
+        return
+    except Exception:
+        pass
+    ident = (box.get_attribute("id", timeout=3_000) or "").replace("'", "")
+    label = box.locator(f"xpath=(ancestor::label | ancestor::*[last()]//label[@for='{ident}'])"
+                        if ident else "xpath=ancestor::label").first
+    try:
+        label.check(timeout=3_000)
     except Exception:
         box.check(force=True, timeout=3_000)
-        if not box.is_checked():
-            raise
+    if not box.is_checked():
+        raise RuntimeError("the box stayed unticked")
 
 
 def _fill(page: Any, answers: Sequence[Answer], resume: Path | None = None) -> None:

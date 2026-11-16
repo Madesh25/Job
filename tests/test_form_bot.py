@@ -457,3 +457,35 @@ def test_radios_under_styled_boxes_are_ticked(tmp_path, monkeypatch):
     [auth] = [a for a in result.answers if a.field.kind == "radio"]
     assert (auth.value, auth.note) == ("No", "")
     assert seen["auth"] == "false"
+
+
+CLIPPED_RADIOS = """<!doctype html><html><head><title>Apply</title><style>
+.r{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0)}
+</style></head><body><form>
+<label for="fn">Full name</label><input id="fn" name="name">
+<fieldset><legend>Are you legally authorised to work in the Netherlands?</legend>
+<input class="r" type="radio" id="auth:R1:-0" name="auth" value="true">
+<label for="auth:R1:-0">Yes</label>
+<input class="r" type="radio" id="auth:R1:-1" name="auth" value="false">
+<label for="auth:R1:-1">No</label>
+</fieldset></form></body></html>"""
+
+
+@browser
+def test_radios_clipped_to_nothing_are_ticked_by_their_label(tmp_path, monkeypatch):
+    """16 Nov, /dryrun on the real Recruitee form (Intelic) with a resume: the radio buttons
+    are clipped to nothing and named by a label beside them; the tick failed with "Element is
+    outside of the viewport"."""
+    monkeypatch.setattr(form_bot, "SETTLE_MS", 100)
+    seen = {}
+
+    def check(page):
+        seen["auth"] = page.evaluate(
+            "() => (document.querySelector('input[name=auth]:checked') || {}).value || ''")
+
+    values = {**VALUES, "authorized_without_sponsorship": "No"}
+    result = form_bot.dry_run(settings(), "https://jobs.example.com/apply", values, SAVED,
+                              folder=tmp_path, prepare=_serve(CLIPPED_RADIOS), check=check)
+    [auth] = [a for a in result.answers if a.field.kind == "radio"]
+    assert (auth.value, auth.note) == ("No", "")
+    assert seen["auth"] == "false"
