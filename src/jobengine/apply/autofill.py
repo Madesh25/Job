@@ -212,6 +212,8 @@ AUTOFILL_JS = r"""
     '\\bpermitted to work\\b|\\bwithout (a |any |visa )*sponsor');
   const OTHER_PERSON = new RegExp('\\b(company|employer|refer\\w*|their|connections?|' +
     'contact person|reference|emergency|manager|recruiter)\\b');
+  /* 16 Nov, real Greenhouse form (Qube): "Base Salary Currency" is not a salary amount. */
+  const NOT_PAY = /\b(currency|bonus|deferred|claw ?back|equity|stock|commission)\b/;
   const RULES = [
     [/\b(first|given) ?name\b|\bforename\b/, 'first_name', OTHER_PERSON],
     [/\b(last|family) ?name\b|\bsurname\b/, 'last_name', OTHER_PERSON],
@@ -229,9 +231,9 @@ AUTOFILL_JS = r"""
     [/\blegally (allowed|able|eligible|entitled)/,
       'authorized_without_sponsorship', /\b(requir|need)\w*\b.*\bsponsor/],
     [/\bwork permit\b/, 'authorized_without_sponsorship', /\b(requir|need)\w*\b.*\bsponsor/],
-    [/\bcurrent (salary|compensation|pay)\b/, 'current_salary', null],
+    [/\bcurrent (salary|compensation|pay)\b/, 'current_salary', NOT_PAY],
     [/\b(salary|compensation|remuneration|pay expectation|expected pay)\b/, 'expected_salary',
-      null],
+      NOT_PAY],
     [/\bnotice\b/, 'notice_period', /\b(privacy|data protection|policy|information notice)\b/],
     [/\bstart date\b|\bearliest start\b|\bwhen can you start\b|\bavailable to start\b/,
       'earliest_start', null],
