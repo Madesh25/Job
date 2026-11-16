@@ -106,6 +106,7 @@ RULES: tuple[tuple[re.Pattern[str], str, re.Pattern[str] | None], ...] = tuple(
 CONSENT = re.compile(r"\b(consent|privacy|gdpr|terms|agree|policy|data protection|"
                      r"marketing|newsletter|talent (pool|community))\b")
 RESUME = re.compile(r"\b(resume|cv|curriculum)\b")
+AUTOFILL_UPLOAD = re.compile(r"\b(autofill|auto fill|import|parse|prefill|pre fill)\b")
 STOP = {"the", "and", "you", "your", "are", "for", "with", "have", "what", "how", "many",
         "any", "this", "that", "our", "please", "did", "does", "will", "can"}
 SOURCES = {"profile": "your profile and Apply pack", "saved": "your saved answer",
@@ -236,9 +237,14 @@ def plan(fields: Sequence[Field], values: Mapping[str, str],
     `resume` is the file name of the job's approved resume (attached to a resume field)."""
     out = []
     attached = False
+    # 16 Nov, real Ashby forms: "Autofill from resume" is an upload that reads a CV to fill
+    # the form, not the resume field; it gets the resume only when the form has no other.
+    real = [f for f in fields if f.kind == "file" and RESUME.search(words_of(f))
+            and not AUTOFILL_UPLOAD.search(words_of(f))]
     for f in fields:
         if f.kind == "file":
-            if RESUME.search(words_of(f)) and resume and not attached:
+            if (RESUME.search(words_of(f)) and resume and not attached
+                    and (f in real or not real)):
                 out.append(Answer(f, value=resume, source="resume"))
                 attached = True
                 continue
@@ -305,11 +311,19 @@ def report(result: Result, job: str = "") -> str:
     open_questions = [a for a in left if a.note.startswith("no answer yet")]
     if open_questions:
         lines += ["", "Answer a question once and every later form gets it, in your words:",
-                  f"/answer {_short(open_questions[0].field.label)} = <your answer>"]
+                  f"/answer {_short(question(open_questions[0].field.label))} = <your answer>"]
     if result.blocked:
         lines += ["", f"🛡 Blocked {len(result.blocked)} request(s) the page tried to send "
                   "(nothing reaches the company in a dry run)."]
     return "\n".join(lines)
+
+
+def question(label: str) -> str:
+    """A label as a question for /answer, without the form's required marks (16 Nov:
+    "/answer School* = ..." and "Phone*Required")."""
+    text = re.sub(r"\s*(\*\s*)?(\(required\)|required)?\s*$", "", " ".join(label.split()),
+                  flags=re.I)
+    return text.rstrip("* ").strip() or label
 
 
 def _short(text: str, limit: int = 80) -> str:
@@ -361,13 +375,24 @@ READ_JS = r"""
     if (el.labels) { for (const l of el.labels) { parts.push(text(l)); } }
     const by = el.getAttribute('aria-labelledby');
     if (by) { for (const id of by.split(/\s+/)) { parts.push(text(document.getElementById(id))); } }
-    parts.push(el.getAttribute('aria-label') || '', el.getAttribute('placeholder') || '');
+    parts.push(el.getAttribute('aria-label') || '');
     let label = parts.filter(Boolean)[0] || '';
     if (!label || el.type === 'radio') {
+      // 16 Nov, real Ashby form: "Location" is the label of the field's box, the field itself
+      // only has the hint "Start typing...".
       const box = el.closest('fieldset, [role=radiogroup], [role=group], .application-question, ' +
-        '.field, [data-automation-id^=formField]');
-      const legend = box && box.querySelector('legend, label, .application-label, .text');
-      if (legend && (el.type === 'radio' || !label)) { label = text(legend); }
+        '.field, [class*=fieldEntry], [class*=field-entry], [data-automation-id^=formField]');
+      const many = box && box.querySelectorAll('input:not([type=hidden]), textarea, select')
+        .length > 2 && el.type !== 'radio';
+      const legend = box && !many && box.querySelector('legend, label, .application-label, .text');
+      if (legend && text(legend)) { label = text(legend); }
+    }
+    if (!label) { label = el.getAttribute('placeholder') || ''; }
+    if (!label && el.type === 'file') {  // an upload with no name: the first line of its box
+      const near = el.closest('div');
+      const lines = near ? (near.innerText || '').split('\n').map(s => s.trim()).filter(Boolean)
+        : [];
+      label = (lines[0] || '').slice(0, 60);
     }
     return label || el.name || el.id || '';
   };
