@@ -66,6 +66,7 @@ OTHER_PERSON = (r"\b(company|employer|refer\w*|their|connections?|contact person
 NOT_SPONSOR = (r"\bauthori[sz]|\beligib|\bright to work\b|\blegally\b|\bpermitted to work\b|"
                r"\bwithout (a |any |visa )*sponsor")
 NEEDS_SPONSOR = r"\b(requir|need)\w*\b.*\bsponsor"
+NOT_PAY = r"\b(currency|bonus|deferred|claw ?back|equity|stock|commission)\b"
 RULES: tuple[tuple[re.Pattern[str], str, re.Pattern[str] | None], ...] = tuple(
     (re.compile(p), key, re.compile(n) if n else None) for p, key, n in (
         (r"\b(first|given) ?name\b|\bforename\b", "first_name", OTHER_PERSON),
@@ -83,9 +84,11 @@ RULES: tuple[tuple[re.Pattern[str], str, re.Pattern[str] | None], ...] = tuple(
         (r"\blegally (allowed|able|eligible|entitled)", "authorized_without_sponsorship",
          NEEDS_SPONSOR),
         (r"\bwork permit\b", "authorized_without_sponsorship", NEEDS_SPONSOR),
-        (r"\bcurrent (salary|compensation|pay)\b", "current_salary", None),
+        # 16 Nov, real Greenhouse form (Qube): "Base Salary Currency" and "deferred
+        # compensation or claw back" are not a salary amount.
+        (r"\bcurrent (salary|compensation|pay)\b", "current_salary", NOT_PAY),
         (r"\b(salary|compensation|remuneration|pay expectation|expected pay)\b",
-         "expected_salary", None),
+         "expected_salary", NOT_PAY),
         (r"\bnotice\b", "notice_period",
          r"\b(privacy|data protection|policy|information notice)\b"),
         (r"\bstart date\b|\bearliest start\b|\bwhen can you start\b|\bavailable to start\b",
@@ -279,8 +282,15 @@ def plan(fields: Sequence[Field], values: Mapping[str, str],
                 out.append(Answer(f, value=resume, source="resume"))
                 attached = True
                 continue
-            note = ("your resume: no approved resume for this job" if RESUME.search(
-                words_of(f)) else "a file: you attach it")
+            if not RESUME.search(words_of(f)):
+                note = "a file: you attach it"
+            elif not resume:
+                note = "your resume: no approved resume for this job"
+            elif real and f not in real:  # 16 Nov: was "no approved resume" on Ashby forms
+                note = "an upload that fills the form from a resume: left empty (the resume " \
+                       "goes to the resume field)"
+            else:
+                note = "left empty: the resume is attached once"
             out.append(Answer(f, note=note))
             continue
         if f.kind == "checkbox" and CONSENT.search(norm(f.label)):

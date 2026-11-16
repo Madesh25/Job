@@ -344,11 +344,15 @@ def test_field_names_and_required_marks_in_the_text_are_read(tmp_path, monkeypat
     ("Motivate why you are interested in this particular role", "why"),
     ("Data Protection Information Notice*", None),
     ("What is your current notice period?", "notice_period"),
+    ("What is your expected salary?", "expected_salary"),
+    ("Base Salary Currency *", None),
+    ("Are you subject to any deferred compensation or potential claw back?*", None),
 ])
 def test_the_question_rules_found_on_real_forms(label, key):
     """16 Nov: the same corrections as the bookmark (apply/autofill.py, #330 and #333)."""
     values = {k: k for k in ("full_name", "authorized_without_sponsorship", "sponsorship_needed",
-                             "earliest_start", "city", "why", "notice_period")}
+                             "earliest_start", "city", "why", "notice_period",
+                             "expected_salary", "current_salary")}
     kind = "textarea" if key == "why" else "text"
     assert form_bot.rule_for(label, values, kind) == key
 
@@ -616,6 +620,18 @@ def test_a_number_field_never_gets_words():
     assert (first.value, first.note) == (None, 'no answer yet (a number field: "Open, any '
                                                'range at or above the visa..." has no number)')
     assert (second.value, second.source) == ("4", "saved")
+
+
+def test_the_autofill_upload_note_does_not_say_there_is_no_resume():
+    """16 Nov, /dryrun on Nord Security (Ashby): "Autofill from resume: your resume: no
+    approved resume for this job", while the resume went to the Resume field."""
+    fields = [Field("0", "file", "Autofill from resume"), Field("1", "file", "Resume")]
+    autofill, real = form_bot.plan(fields, VALUES, SAVED, resume="cv.pdf")
+    assert real.source == "resume"
+    assert autofill.note == ("an upload that fills the form from a resume: left empty (the "
+                             "resume goes to the resume field)")
+    [none] = form_bot.plan(fields[1:], VALUES, SAVED)
+    assert none.note == "your resume: no approved resume for this job"
 
 
 UBIOPS_PERMIT = ("Please select", "Yes, I am a NL/EU citizen",
