@@ -170,6 +170,7 @@ AUTOFILL_JS = r"""
   const shown = el => !!(el.offsetWidth || el.offsetHeight || el.getClientRects().length);
   const inputs = () => [...document.querySelectorAll('input, textarea, select')]
     .filter(el => shown(el) && !el.disabled && !el.readOnly &&
+      el.getAttribute('aria-hidden') !== 'true' && !el.closest('[aria-hidden=true]') &&
       !/^(hidden|file|submit|button|reset|image|password|checkbox|search)$/i.test(el.type || ''));
   const frame = [...document.querySelectorAll('iframe')].map(f => f.src || '')
     .find(src => /greenhouse|lever\.co|workday|smartrecruiters|ashby|recruitee|personio/i
@@ -310,13 +311,16 @@ AUTOFILL_JS = r"""
   const isCombo = el => el.getAttribute('role') === 'combobox' ||
     el.getAttribute('aria-autocomplete') === 'list';
   const sleep = ms => new Promise(r => setTimeout(r, ms));
-  const comboBox = el => el.closest('[class*=container], [class*=control], .field, ' +
-    '.application-question') || el.parentElement || el;
+  const comboBox = el => el.closest('[class*=control]') || el.closest('[class*=container], ' +
+    '.field, .application-question') || el.parentElement || el;
   const chosenIn = el => {
-    const box = comboBox(el);
-    const shownValue = box && box.querySelector('[class*=single-value], [class*=singleValue], ' +
-      '[class*=multi-value], [class*=multiValue]');
-    return !!(shownValue && shownValue.innerText.trim());
+    for (let n = el.parentElement, d = 0; n && d < 6; n = n.parentElement, d++) {
+      if (n.querySelectorAll('[role=combobox]').length > 1) { break; }
+      const shownValue = n.querySelector('[class*=single-value], [class*=singleValue], ' +
+        '[class*=multi-value], [class*=multiValue]');
+      if (shownValue) { return !!shownValue.innerText.trim(); }
+    }
+    return false;
   };
   const optionsOf = el => {
     const ids = [el.getAttribute('aria-controls'), el.getAttribute('aria-owns')]
@@ -326,7 +330,14 @@ AUTOFILL_JS = r"""
       const list = document.getElementById(id);
       if (list) { opts = opts.concat([...list.querySelectorAll('[role=option]')]); }
     }
-    if (!opts.length) { opts = [...document.querySelectorAll('[role=option]')]; }
+    if (!opts.length && el.id) {
+      opts = [...document.querySelectorAll('[role=option]')]
+        .filter(o => o.id.startsWith('react-select-' + el.id + '-option'));
+    }
+    if (!opts.length) {
+      opts = [...document.querySelectorAll('[role=listbox] [role=option]')]
+        .filter(o => !o.closest('.iti') && !o.hasAttribute('data-dial-code'));
+    }
     return opts.filter(shown);
   };
   const choice = (texts, v) => {
@@ -339,6 +350,7 @@ AUTOFILL_JS = r"""
   };
   const pick = async (el, v) => {
     setText(el, v);
+    el.dispatchEvent(new KeyboardEvent('keyup', {key: 'Unidentified', bubbles: true}));
     for (let n = 0; n < 12; n++) {
       await sleep(150);
       const opts = optionsOf(el);
