@@ -32,7 +32,7 @@ import re
 from collections.abc import Callable, Sequence
 from typing import Any
 
-from jobengine.apply.form_bot import CONSENT, RESUME, Answer, Result, Sending, norm
+from jobengine.apply.form_bot import CONSENT, RESUME, Answer, Result, Sending, norm, words_of
 
 log = logging.getLogger("jobengine.apply")
 
@@ -75,7 +75,7 @@ def blockers(answers: Sequence[Answer], allowed_privacy: bool) -> list[str]:
         if a.source == "ai" and a.value is not None:
             out.append(f"a new AI answer for \"{label}\" (approve the dry run first)")
             continue
-        if f.kind == "file" and RESUME.search(norm(f.label)) and a.source != "resume":
+        if f.kind == "file" and RESUME.search(words_of(f)) and a.source != "resume":
             out.append("the resume is not attached")
             continue
         answered = a.value is not None and not a.note
