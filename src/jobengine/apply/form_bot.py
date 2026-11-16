@@ -217,6 +217,25 @@ def rule_for(label: str, values: Mapping[str, str], kind: str) -> str | None:
     return None
 
 
+NEEDS_PERMIT = re.compile(r"\b(need|require)\w*\b.*\b(permit|sponsor\w*|visa)\b|^not yet\b")
+
+
+def permit_choice(label: str, options: Sequence[str], value: str) -> int | None:
+    """16 Nov, real Personio form (UbiOps): "Allowed to work?" offers statements ("Yes, I am
+    a NL/EU citizen", "Not yet, I need a residence permit for highly skilled migrant"), not
+    Yes or No. Your answer "No" (not allowed without sponsorship) is the one option that says
+    a permit or sponsorship is still needed; none or more than one: no choice."""
+    text = norm(label)
+    key = next((k for pattern, k, unless in RULES if pattern.search(text)
+                and not (unless is not None and unless.search(text))), None)
+    first = (norm(value).split(" ") or [""])[0]
+    if not ((key == "authorized_without_sponsorship" and first == "no")
+            or (key == "sponsorship_needed" and first == "yes")):
+        return None
+    hits = [i for i, option in enumerate(options) if NEEDS_PERMIT.search(norm(option))]
+    return hits[0] if len(hits) == 1 else None
+
+
 def choice(options: Sequence[str], value: str) -> int | None:
     """The option that matches the answer: the same text, then one starting with it, then
     Yes or No by the answer's first word ("No, I need sponsorship" picks "No")."""
@@ -303,6 +322,8 @@ def plan(fields: Sequence[Field], values: Mapping[str, str],
         if f.kind in ("select", "radio"):
             options = f.options
             index = choice(options, value)
+            if index is None and source == "profile":
+                index = permit_choice(f.label, options, value)
             if index is None:
                 out.append(Answer(f, value=value, source=source,
                                   note=f"no option matches \"{value}\""))

@@ -632,3 +632,24 @@ def test_the_autofill_upload_note_does_not_say_there_is_no_resume():
                              "resume goes to the resume field)")
     [none] = form_bot.plan(fields[1:], VALUES, SAVED)
     assert none.note == "your resume: no approved resume for this job"
+
+
+UBIOPS_PERMIT = ("Please select", "Yes, I am a NL/EU citizen",
+                 "Yes, I have a residence permit for orientation year",
+                 "Yes, I already have a residence permit for highly skilled migrant",
+                 "Not yet, I need a residence permit for highly skilled migrant", "Other")
+
+
+def test_a_work_permit_question_with_statements_gets_the_one_that_needs_a_permit():
+    """16 Nov, /dryrun on the real Personio form of UbiOps: "Allowed to work?" offers
+    statements, not Yes or No; your "No" matched none ("no option matches")."""
+    fields = [Field("0", "select", "Allowed to work?* (required)", UBIOPS_PERMIT),
+              Field("1", "select", "Will you require visa sponsorship?",
+                    ("Select...", "I am an EU citizen", "I will require sponsorship"))]
+    values = {**VALUES, "authorized_without_sponsorship": "No", "sponsorship_needed": "Yes"}
+    allowed, sponsor = form_bot.plan(fields, values, [])
+    assert (allowed.value, allowed.option) == (UBIOPS_PERMIT[4], 4)
+    assert (sponsor.value, sponsor.option) == ("I will require sponsorship", 2)
+    assert form_bot.permit_choice("Allowed to work?", UBIOPS_PERMIT, "Yes") is None
+    two = ("I need a visa", "I require a work permit")
+    assert form_bot.permit_choice("Allowed to work?", two, "No") is None  # not sure: none
