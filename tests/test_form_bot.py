@@ -607,3 +607,16 @@ def test_a_company_name_with_search_in_it_is_not_a_search_form(tmp_path, monkeyp
                               folder=tmp_path, prepare=_serve(SEARCH_IN_NAME))
     assert not result.stopped, result.stopped
     assert [a.field.label for a in result.answers] == ["First Name", "Email"]  # no Keywords
+
+
+def test_a_number_field_never_gets_words():
+    """16 Nov, /dryrun on the real Zinkworks (Teamtailor) form: the salary box takes only a
+    number; it got "Open, any range ..." and "the form did not take the answer"."""
+    fields = [Field("0", "number", "What is your expected salary range for this role?"),
+              Field("1", "number", "Years of experience with Kubernetes")]
+    saved = [{"q": "Years of experience with Kubernetes", "a": "4"}]
+    values = {**VALUES, "expected_salary": "Open, any range at or above the visa minimum"}
+    first, second = form_bot.plan(fields, values, saved)
+    assert (first.value, first.note) == (None, 'no answer yet (a number field: "Open, any '
+                                               'range at or above the visa..." has no number)')
+    assert (second.value, second.source) == ("4", "saved")
