@@ -425,4 +425,5 @@ def test_custom_dropdowns_get_an_option_or_count_as_unanswered(tmp_path, monkeyp
     assert got["Gender*"].note == 'no option matches "Prefer not to say"'
     assert (got["Dial code*"].value, got["Dial code*"].source) == ("+91", "form")
     gate = form_submit.blockers(result.answers, allowed_privacy=False)
-    assert gate == ['required: "Gender*" (no option matches "Prefer not to say")']
+    assert gate == ['required: "Gender*" (no option matches "Prefer not to say")',
+                    "the resume is not attached"]  # this test page has no resume field
