@@ -350,7 +350,9 @@ READ_JS = r"""
   };
   // The site's own job search, menus and header are not the application form.
   const siteSearch = el => !!el.closest('[role=search], nav, header, footer') ||
-    (el.form && /search|zoek|szukaj/i.test(el.form.getAttribute('action') || '')) ||
+    // 16 Nov: "search" as a word of the address, not inside a name ("quberesearch...").
+    (el.form && /(^|[\/?&=_.-])(search|zoek|zoeken|szukaj|suche)($|[\/?&=_.-])/i.test(
+      el.form.getAttribute('action') || '')) ||
     /search (for )?jobs?|search job|keyword/i.test(el.getAttribute('aria-label') || '') ||
     /search (for )?jobs?|search job|keyword/i.test(el.getAttribute('placeholder') || '');
   const text = n => (n && (n.innerText || n.textContent) || '').replace(/\s+/g, ' ').trim();
