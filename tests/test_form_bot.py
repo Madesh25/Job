@@ -583,3 +583,23 @@ def test_the_resume_goes_to_the_resume_field_not_the_autofill_upload():
     only = form_bot.plan([Field("0", "file", "Autofill from resume")], VALUES, SAVED,
                          resume="cv.pdf")
     assert only[0].source == "resume"  # the form has no other place for it
+
+
+SEARCH_IN_NAME = """<!doctype html><html><head><title>Apply</title></head><body>
+<form action="/jobs/search"><label for="q">Keywords</label><input id="q" name="q"></form>
+<form id="application-form" action="/quberesearchandtechnologies/jobs/8852110002">
+<label for="first_name">First Name</label><input id="first_name">
+<label for="email">Email</label><input id="email">
+</form></body></html>"""
+
+
+@browser
+def test_a_company_name_with_search_in_it_is_not_a_search_form(tmp_path, monkeypatch):
+    """16 Nov, /dryrun on the real Greenhouse form of Qube Research & Technologies: its form
+    address "/quberesearchandtechnologies/jobs/..." has "search" inside "research", so every
+    field was taken for the site's job search: "no form fields found"."""
+    monkeypatch.setattr(form_bot, "SETTLE_MS", 100)
+    result = form_bot.dry_run(settings(), "https://jobs.example.com/apply", VALUES, SAVED,
+                              folder=tmp_path, prepare=_serve(SEARCH_IN_NAME))
+    assert not result.stopped, result.stopped
+    assert [a.field.label for a in result.answers] == ["First Name", "Email"]  # no Keywords
