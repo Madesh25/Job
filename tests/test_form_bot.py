@@ -209,3 +209,91 @@ def test_the_approved_resume_is_attached(tmp_path, monkeypatch):
     [cv] = [a for a in result.answers if a.field.kind == "file"]
     assert (cv.value, cv.source) == ("Madeshwaran_DevOps.pdf", "resume")
     assert not (tmp_path / "upload").exists() or not any((tmp_path / "upload").iterdir())
+
+
+JOB_PAGE = """<!doctype html><html><head><title>DevOps Engineer - Northwind</title></head><body>
+<h1>DevOps Engineer</h1><p>Run our cloud.</p>
+<input type="file" name="hidden_cv" style="display:none">
+<form><label for="alert">Email address without domain</label><input id="alert" type="email">
+  <button>Get job alerts</button></form>
+<a href="https://jobs.example.com/apply">Apply for this job</a></body></html>"""
+TAB_PAGE = """<!doctype html><html><head><title>DevOps Engineer @ Northwind</title></head><body>
+<nav class="tabs"><a href="https://jobs.example.com/job/1">Overview</a>
+<a href="https://jobs.example.com/apply">Application</a></nav><p>Run our cloud.</p></body></html>"""
+
+
+def _serve_pages(pages):
+    def page(html):
+        return lambda route: route.fulfill(status=200, body=html, content_type="text/html")
+
+    def prepare(context):
+        for url, html in pages.items():
+            context.route(url, page(html))
+    return prepare
+
+
+@browser
+@pytest.mark.parametrize("page", [JOB_PAGE, TAB_PAGE])
+def test_the_job_page_is_not_taken_for_the_form(tmp_path, monkeypatch, page):
+    """16 Nov, real forms: Recruitee's job page has a hidden upload field and Teamtailor's a
+    job-alert email box; both were taken for the application form, so the bot never opened
+    the real one. Ashby links its form from an "Application" tab."""
+    monkeypatch.setattr(form_bot, "SETTLE_MS", 100)
+    result = form_bot.dry_run(settings(), "https://jobs.example.com/job/1", VALUES, SAVED,
+                              folder=tmp_path,
+                              prepare=_serve_pages({"https://jobs.example.com/job/1": page,
+                                                    "https://jobs.example.com/apply": FORM}))
+    assert not result.stopped, result.stopped
+    assert result.opened == "https://jobs.example.com/apply"
+    assert result.title == "Apply: DevOps Engineer"
+
+
+def test_what_counts_as_an_application_form():
+    alert = [Field("0", "email", "Email address without domain")]
+    assert not form_bot.application_form(alert)
+    assert not form_bot.application_form([Field("0", "file", "CV or resume *")])
+    assert form_bot.application_form([Field("0", "text", "First name")])
+    assert form_bot.application_form([Field("0", "email", "Email"),
+                                      Field("1", "text", "LinkedIn profile")])
+    assert not form_bot.application_form([Field("0", "email", "Email"),
+                                          Field("1", "file", "CV")])  # a job page's hidden one
+
+
+def test_known_job_boards_give_their_form_page():
+    """16 Nov, real forms: Recruitee and Teamtailor open the form with a button the bot never
+    presses; the form has its own address."""
+    page = form_bot.form_page
+    assert page("https://intelic.recruitee.com/o/devops-engineer") == \
+        "https://intelic.recruitee.com/o/devops-engineer/c/new"
+    assert page("https://zinkworks.teamtailor.com/jobs/7774951-devops-engineer") == \
+        "https://zinkworks.teamtailor.com/jobs/7774951-devops-engineer/applications/new"
+    ashby = "https://jobs.ashbyhq.com/rentman/b796c722-4f18-4df0-807e-0dfe91f28a99"
+    assert page(ashby) == ashby + "/application"
+    assert page(ashby + "/application") is None  # already the form
+    assert page("https://apply.workable.com/keylane/j/8DFC2B6474/") == \
+        "https://apply.workable.com/keylane/j/8DFC2B6474/apply/"
+    assert page("https://jobs.lever.co/acme/0b5d1d8e-1c2b-4a1e-9d3a-1234567890ab") == \
+        "https://jobs.lever.co/acme/0b5d1d8e-1c2b-4a1e-9d3a-1234567890ab/apply"
+    assert page("https://www.example.com/careers/devops") is None
+
+
+def test_only_named_read_requests_pass_the_guard():
+    """16 Nov: Ashby builds its form from two POSTs that only read the job; every other POST
+    (an autosave, the application itself) stays blocked in a dry run."""
+    from types import SimpleNamespace
+
+    blocked, passed = [], []
+    guard = form_bot._guard(settings(), blocked)
+
+    def route(method, url):
+        return SimpleNamespace(request=SimpleNamespace(method=method, url=url),
+                               continue_=lambda: passed.append(url), abort=lambda: None)
+
+    read = "https://jobs.ashbyhq.com/api/non-user-graphql?op=ApiJobPosting"
+    send = "https://jobs.ashbyhq.com/api/non-user-graphql?op=ApiSubmitSingleApplicationFormAction"
+    guard(route("POST", read))
+    guard(route("POST", send))
+    guard(route("POST", "https://jobs.ashbyhq.com/api/non-user-graphql"))
+    assert passed == [read]
+    assert [b.split(" ", 1)[1] for b in blocked] == [send,
+                                                     "https://jobs.ashbyhq.com/api/non-user-graphql"]

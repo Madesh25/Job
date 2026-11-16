@@ -355,7 +355,8 @@ READ_JS = r"""
   for (const a of document.querySelectorAll('a[href]')) {
     const words = text(a) || a.getAttribute('aria-label') || '';
     const apply = new RegExp('^\\s*(apply( now| for this (job|role|position)| here| online)?|' +
-      'aplikuj( teraz)?|solliciteer( nu| direct)?|bewerben|jetzt bewerben|postuler)\\s*$', 'i');
+      'application|aplikuj( teraz)?|solliciteer( nu| direct)?|bewerben|jetzt bewerben|' +
+      'postuler)\\s*$', 'i');
     if (shown(a) && apply.test(words) && /^https?:/i.test(a.href)) {
       applyLinks.push(a.href);
     }
@@ -403,6 +404,15 @@ def _launch(playwright: Any) -> Any:
     return playwright.chromium.launch(headless=True, executable_path=path)
 
 
+# Requests that only read the job and build the form, though they are POSTs (16 Nov, real
+# forms: Ashby showed no form while they were blocked). Exactly these, nothing else: they are
+# sent when the page opens, before anything is filled, and carry none of your answers.
+READ_ONLY_POSTS = frozenset({
+    "https://jobs.ashbyhq.com/api/non-user-graphql?op=ApiJobPosting",
+    "https://jobs.ashbyhq.com/api/non-user-graphql?op=ApiOrganizationFromHostedJobsPageName",
+})
+
+
 def _guard(s: Settings, blocked: list[str],
            sending: Sending | None = None) -> Callable[[Any], None]:
     """Every request of the page: a plain GET to a public https host, else blocked. While
@@ -414,7 +424,8 @@ def _guard(s: Settings, blocked: list[str],
         if url.startswith(("data:", "blob:", "about:")):
             route.continue_()
             return
-        if request.method.upper() not in SAFE_METHODS and not (sending and sending.on):
+        if (request.method.upper() not in SAFE_METHODS and url not in READ_ONLY_POSTS
+                and not (sending and sending.on)):
             blocked.append(f"{request.method} {url}")
             route.abort()
             return
@@ -429,17 +440,62 @@ def _guard(s: Settings, blocked: list[str],
     return handle
 
 
-# What only an application form asks (Phase 19, 3 Nov): a page without any of these is a job
+# What only an application form asks (Phase 19, 3 Nov): a page without these is a job
 # description, a search page or a menu, not the form.
-APPLICATION_FIELD = re.compile(r"\b(first|last|full|given|family|sur) ?name\b|^name$|\be ?mail\b|"
-                               r"\bphone\b|\bmobile\b|\bresume\b|\bcv\b|\bcover ?letter\b|"
-                               r"\blinked ?in\b|\bimi[eę]\b|\bnazwisko\b|\bvoornaam\b|"
-                               r"\bachternaam\b")
+NAME_FIELD = re.compile(r"\b(first|last|full|given|family|sur) ?name\b|^name$|\bimi[eę]\b|"
+                        r"\bnazwisko\b|\bvoornaam\b|\bachternaam\b")
+CONTACT_FIELD = re.compile(r"\be ?mail\b|\bphone\b|\bmobile\b")
+PAPERS_FIELD = re.compile(r"\bresume\b|\bcv\b|\bcover ?letter\b|\blinked ?in\b")
 
 
 def application_form(fields: Sequence[Field]) -> bool:
-    return any(f.kind in ("file", "email", "tel") or APPLICATION_FIELD.search(norm(f.label))
-               for f in fields)
+    """A form that asks for you: a name, or a way to reach you together with your papers or
+    a few more questions. 16 Nov, real forms: a job page's hidden upload field (Recruitee)
+    and its job-alert email box (Teamtailor) were taken for the application form, so the
+    bot never opened the real one."""
+    seen = [f for f in fields if f.kind != "file"]
+    if any(NAME_FIELD.search(norm(f.label)) for f in seen):
+        return True
+    contact = any(f.kind in ("email", "tel") or CONTACT_FIELD.search(norm(f.label))
+                  for f in seen)
+    papers = any(PAPERS_FIELD.search(norm(f.label)) for f in seen)  # upload fields hide
+    return contact and (papers or len(seen) >= 3)
+
+
+# A job board's own application page (16 Nov, real forms): Recruitee and Teamtailor open
+# their form with a button the bot never presses, but the form has its own address.
+FORM_PAGES = (
+    (re.compile(r"^(https://[^/]+\.recruitee\.com/o/[^/?#]+)/?(?:[?#].*)?$"), r"\1/c/new"),
+    (re.compile(r"^(https://[^/]+\.teamtailor\.com/(?:[a-z]{2}/)?jobs/[^/?#]+)/?(?:[?#].*)?$"),
+     r"\1/applications/new"),
+    (re.compile(r"^(https://jobs\.ashbyhq\.com/[^/]+/[0-9a-f-]{36})/?(?:[?#].*)?$"),
+     r"\1/application"),
+    (re.compile(r"^(https://jobs\.(?:eu\.)?lever\.co/[^/]+/[0-9a-f-]{36})/?(?:[?#].*)?$"),
+     r"\1/apply"),
+    (re.compile(r"^(https://apply\.workable\.com/[^/]+/j/[0-9A-F]+)/?(?:[?#].*)?$"), r"\1/apply/"),
+)
+READ_MORE = 6  # a form built by JavaScript after the page loads (Ashby): wait up to 6 s more
+
+
+def form_page(url: str) -> str | None:
+    """The application form's own address for a job page on a known board, else None."""
+    for pattern, form in FORM_PAGES:
+        if pattern.match(url):
+            return pattern.sub(form, url)
+    return None
+
+
+def _read_settled(page: Any, links: list[str] | None = None
+                  ) -> tuple[list[Field], list[str], str]:
+    """_read, waiting a little more while the page shows no field yet (Ashby builds its form
+    a few seconds after the page loads)."""
+    found = _read(page, links)
+    for _ in range(READ_MORE):
+        if found[0] or found[1]:
+            break
+        page.wait_for_timeout(1_000)
+        found = _read(page, links)
+    return found
 
 
 def _read(page: Any, links: list[str] | None = None) -> tuple[list[Field], list[str], str]:
@@ -551,7 +607,10 @@ def _run(s: Settings, url: str, values: Mapping[str, str], saved: Sequence[Mappi
             page.goto(url, wait_until="domcontentloaded", timeout=LOAD_TIMEOUT_MS)
             page.wait_for_timeout(SETTLE_MS)
             links: list[str] = []
-            fields, blockers, result.title = _read(page, links)
+            fields, blockers, result.title = _read_settled(page, links)
+            known = form_page(page.url)
+            if known and known not in links:
+                links.append(known)  # 16 Nov: its own form page, when no Apply link leads there
             if not blockers and not application_form(fields) and links:
                 # The job's description page (Phase 19, 3 Nov): open its Apply link (a plain
                 # GET, nothing pressed) and read the form there.
@@ -561,7 +620,7 @@ def _run(s: Settings, url: str, values: Mapping[str, str], saved: Sequence[Mappi
                     page.goto(target, wait_until="domcontentloaded", timeout=LOAD_TIMEOUT_MS)
                     page.wait_for_timeout(SETTLE_MS)
                     result.opened = target
-                    fields, blockers, result.title = _read(page)
+                    fields, blockers, result.title = _read_settled(page)
                 except safety.SafetyError as exc:
                     log.info("dry run: apply link %s not opened: %s", target, exc)
             if blockers:
