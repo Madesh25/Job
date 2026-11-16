@@ -86,6 +86,11 @@ def blockers(answers: Sequence[Answer], allowed_privacy: bool) -> list[str]:
                 out.append(f"a required consent box: \"{label}\"")
             continue
         out.append(f"required: \"{label}\" ({a.note or 'no answer'})")
+    if answers and not any(a.source == "resume" and not a.note for a in answers) and not any(
+            o == "the resume is not attached" for o in out):
+        # 16 Nov, real forms: Teamtailor asks for the CV in a drop zone without a file field
+        # until it is clicked, so the bot saw no resume field. Never apply without it.
+        out.append("the resume is not attached")
     return out
 
 

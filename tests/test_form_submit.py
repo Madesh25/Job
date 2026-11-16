@@ -166,3 +166,14 @@ def test_the_submit_button_is_the_one_in_the_form(tmp_path, monkeypatch):
                               resume=("Madeshwaran_DevOps.pdf", b"%PDF-1.4 x"),
                               finish=form_submit.finisher(True))
     assert result.submitted == "confirmed", result.submitted
+
+
+def test_never_submitted_without_the_resume():
+    """16 Nov, real forms: Teamtailor's CV upload is a drop zone with no file field until it
+    is clicked, so the bot saw no resume field and the gate let the form through."""
+    filled = [Answer(NAME, value="Madeshwaran", source="profile")]
+    assert form_submit.blockers(filled, True) == ["the resume is not attached"]
+    with_cv = filled + [Answer(CV, value="cv.pdf", source="resume")]
+    assert form_submit.blockers(with_cv, True) == []
+    assert form_submit.blockers([Answer(CV, note="your resume: no approved resume")], True) == [
+        "the resume is not attached"]  # said once
