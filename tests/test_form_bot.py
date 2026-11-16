@@ -500,6 +500,47 @@ def test_a_choice_with_every_word_of_the_answer():
     assert form_bot.choice(["Male", "Female"], "Female") == 1  # one word: exact only
 
 
+JOB_LIST = """<!doctype html><html><head><title>Jobs at Catawiki</title></head><body>
+<form action="/catawiki"><label for="s">Search</label><input id="s" name="q">
+<label for="d">Department</label><select id="d"><option>All</option></select></form>
+</body></html>"""
+
+
+def test_a_closed_job_is_known_by_its_address():
+    assert form_bot.closed("https://job-boards.greenhouse.io/catawiki/jobs/8346092",
+                           "https://job-boards.greenhouse.io/catawiki?error=true")
+    assert not form_bot.closed("https://job-boards.greenhouse.io/catawiki/jobs/8346092",
+                               "https://job-boards.greenhouse.io/catawiki/jobs/8346092#app")
+    assert not form_bot.closed("https://jobs.example.com/apply", "https://jobs.example.com/")
+    uuid = "https://jobs.ashbyhq.com/rentman/b796c722-4f18-4df0-807e-0dfe91f28a99"
+    assert not form_bot.closed(uuid, uuid + "/application")
+    assert form_bot.closed(uuid, "https://jobs.ashbyhq.com/rentman")
+
+
+@browser
+def test_a_job_that_now_opens_the_job_list_is_reported_closed(tmp_path, monkeypatch):
+    """16 Nov, /dryrun on real Greenhouse jobs (Rent The Runway, Catawiki): a closed job's
+    link opens the company's job list; the report said "send the form's own link"."""
+    monkeypatch.setattr(form_bot, "SETTLE_MS", 100)
+
+    def answer(route):
+        if route.request.url.endswith("/jobs/8346092"):  # as the board sends it on
+            route.fulfill(status=200, content_type="text/html", body=(
+                "<script>location.replace('https://jobs.example.com/catawiki?error=true')"
+                "</script>"))
+        else:
+            route.fulfill(status=200, body=JOB_LIST, content_type="text/html")
+
+    def prepare(context):
+        context.route(lambda url: "/catawiki" in url, answer)
+
+    result = form_bot.dry_run(settings(), "https://jobs.example.com/catawiki/jobs/8346092",
+                              VALUES, SAVED, folder=tmp_path, prepare=prepare)
+    assert result.stopped == ("the job looks closed: its link now opens "
+                              "https://jobs.example.com/catawiki?error=true (not this job's "
+                              "page). Nothing to fill.")
+
+
 ASHBY_LIKE = """<!doctype html><html><head><title>Apply</title></head><body><form>
 <div class="_fieldEntry_1"><label>Full name</label><div><input name="_systemfield_name"></div></div>
 <div class="_fieldEntry_2"><label>Location</label><div><input placeholder="Start typing..."></div>
@@ -542,6 +583,26 @@ def test_the_resume_goes_to_the_resume_field_not_the_autofill_upload():
     only = form_bot.plan([Field("0", "file", "Autofill from resume")], VALUES, SAVED,
                          resume="cv.pdf")
     assert only[0].source == "resume"  # the form has no other place for it
+
+
+SEARCH_IN_NAME = """<!doctype html><html><head><title>Apply</title></head><body>
+<form action="/jobs/search"><label for="q">Keywords</label><input id="q" name="q"></form>
+<form id="application-form" action="/quberesearchandtechnologies/jobs/8852110002">
+<label for="first_name">First Name</label><input id="first_name">
+<label for="email">Email</label><input id="email">
+</form></body></html>"""
+
+
+@browser
+def test_a_company_name_with_search_in_it_is_not_a_search_form(tmp_path, monkeypatch):
+    """16 Nov, /dryrun on the real Greenhouse form of Qube Research & Technologies: its form
+    address "/quberesearchandtechnologies/jobs/..." has "search" inside "research", so every
+    field was taken for the site's job search: "no form fields found"."""
+    monkeypatch.setattr(form_bot, "SETTLE_MS", 100)
+    result = form_bot.dry_run(settings(), "https://jobs.example.com/apply", VALUES, SAVED,
+                              folder=tmp_path, prepare=_serve(SEARCH_IN_NAME))
+    assert not result.stopped, result.stopped
+    assert [a.field.label for a in result.answers] == ["First Name", "Email"]  # no Keywords
 
 
 def test_a_number_field_never_gets_words():
