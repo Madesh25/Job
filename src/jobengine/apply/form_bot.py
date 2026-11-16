@@ -260,8 +260,15 @@ def plan(fields: Sequence[Field], values: Mapping[str, str],
                 out.append(Answer(f, value=resume, source="resume"))
                 attached = True
                 continue
-            note = ("your resume: no approved resume for this job" if RESUME.search(
-                words_of(f)) else "a file: you attach it")
+            if not RESUME.search(words_of(f)):
+                note = "a file: you attach it"
+            elif not resume:
+                note = "your resume: no approved resume for this job"
+            elif real and f not in real:  # 16 Nov: was "no approved resume" on Ashby forms
+                note = "an upload that fills the form from a resume: left empty (the resume " \
+                       "goes to the resume field)"
+            else:
+                note = "left empty: the resume is attached once"
             out.append(Answer(f, note=note))
             continue
         if f.kind == "checkbox" and CONSENT.search(norm(f.label)):
