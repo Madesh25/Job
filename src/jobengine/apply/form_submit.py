@@ -89,8 +89,26 @@ def blockers(answers: Sequence[Answer], allowed_privacy: bool) -> list[str]:
     return out
 
 
+def _form_of(frame: Any, answers: Sequence[Answer]) -> Any:
+    """The <form> the filled answers are in, else the whole frame. 16 Nov, real Greenhouse
+    forms: the page's own "Apply" button (above the form) and the form's "Submit application"
+    were two Submit-like buttons, so no Greenhouse form could be submitted."""
+    for a in answers:
+        if a.value is None or a.note:
+            continue
+        form = frame.locator(f'[data-je-field="{a.field.ref}"]').locator("xpath=ancestor::form[1]")
+        try:
+            if form.count() == 1:
+                return form
+        except Exception:
+            continue
+        break
+    return frame
+
+
 def _submit_button(frame: Any) -> Any | None:
-    """The one visible Submit button of the form's frame, else None."""
+    """The one visible Submit button of the form (or of the frame without a <form>), else
+    None."""
     found = []
     for locator in (frame.get_by_role("button", name=SUBMIT_NAME),
                     frame.locator("input[type=submit]")):
@@ -144,7 +162,7 @@ def finisher(allowed_privacy: bool,
             if a.value is None and privacy_box(a, allowed_privacy):
                 frame.locator(f'[data-je-field="{a.field.ref}"]').check(timeout=3_000)
                 a.value, a.source, a.note = "ticked (privacy consent)", "profile", ""
-        button = _submit_button(frame)
+        button = _submit_button(_form_of(frame, result.answers))
         if button is None:
             result.submitted = "not submitted: no single clear Submit button on the form"
             return
