@@ -80,3 +80,17 @@ def test_authorized_without_sponsorship_is_the_authorization_answer(tmp_path):
     assert s["spon"] == "Yes"  # "Will you require visa sponsorship?": Yes
     assert s["auth:No"] is True  # "Are you legally authorized to work in Ireland?": No
     assert s["q6-value"] == ""  # asks both at once: left for you
+
+
+@needs_browser
+def test_a_greenhouse_dropdown_opens_on_key_up_and_its_hidden_twin_is_not_counted(tmp_path):
+    """16 Nov, real forms (BearingPoint, InterSystems, Focal Systems): Greenhouse opens its
+    dropdowns only on key-up or mouse-up, so no option was ever picked; its hidden required
+    twin boxes were counted as required fields still empty; a phone-country list on the page
+    must never be used for another question."""
+    result = run(tmp_path)
+    s = result["state"]
+    assert s["gh1-value"] == "No"  # sponsorship needed: No (the test answers)
+    assert s["gh2-value"] == "Yes"  # chosen by you before: never changed (16 Nov, BearingPoint)
+    alert = result["dialogs"][-1]["message"]
+    assert "1 required field is still empty" in alert  # only "other", not the hidden twin

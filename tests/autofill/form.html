@@ -55,5 +55,44 @@ combo('q3', 'Location (City) *', ['Dublin, County Dublin, Ireland', 'Dublin, Ohi
 combo('q5', 'Are you authorized to work in Ireland without visa sponsorship? *', ['Yes', 'No'], true);
 combo('q6', 'Are you legally authorized to work in Ireland, or will you require sponsorship? *', ['Yes', 'No'], true);
 combo('q4', 'What is your notice period? *', ['Immediately', '2 weeks', '3 months or more'], true);
+/* Like the real Greenhouse form (16 Nov, BearingPoint): its wrapper opens the menu only on
+   key-up or mouse-up, never on typing alone; options have ids react-select-<input id>-option-N;
+   a hidden required twin box (aria-hidden) sits next to it. */
+function ghCombo(id, label, options, chosen) {
+  const box = document.createElement('div');
+  box.className = 'select__container';
+  box.innerHTML = `<label id="${id}-label" for="${id}">${label}</label>
+    <div class="gh-wrap"><div class="select__control"><div class="select__value-container">
+    <div class="select__single-value" id="${id}-value">${chosen || ''}</div>
+    <div class="select__input-container"><input id="${id}" role="combobox" aria-autocomplete="list"
+      aria-expanded="false" aria-labelledby="${id}-label" aria-required="true"
+      class="select__input"></div></div></div>
+    <div class="select__menu"></div></div>
+    <input required tabindex="-1" aria-hidden="true" id="${id}-twin" style="opacity:0;height:1px">`;
+  document.getElementById('combos').appendChild(box);
+  const input = box.querySelector('input[role=combobox]'), menu = box.querySelector('.select__menu');
+  let open = false;
+  const render = () => {
+    const typed = input.value.toLowerCase();
+    const shown = open ? options.filter(o => o.toLowerCase().includes(typed)) : [];
+    input.setAttribute('aria-expanded', String(open));
+    menu.innerHTML = shown.map((o, i) => `<div role="option" id="react-select-${id}-option-${i}">${o}</div>`).join('');
+    for (const opt of menu.querySelectorAll('[role=option]')) {
+      opt.addEventListener('click', () => {
+        box.querySelector('.select__single-value').textContent = opt.textContent;
+        box.querySelector('[aria-hidden]').value = opt.textContent;
+        input.value = ''; open = false; render();
+      });
+    }
+  };
+  input.addEventListener('input', render);
+  const wrap = box.querySelector('.gh-wrap');
+  wrap.addEventListener('keyup', () => { open = true; render(); });
+  wrap.addEventListener('mouseup', () => { open = true; render(); });
+  input.addEventListener('blur', () => setTimeout(() => { input.value = ''; open = false; render(); }, 400));
+}
+ghCombo('gh1', 'Will you require visa sponsorship to work in Ireland? *', ['Yes', 'No']);
+ghCombo('gh2', 'Do you need a visa sponsorship for this role? *', ['Yes', 'No'], 'Yes');
 </script>
+<ul class="iti__country-list" role="listbox"><li class="iti__country" role="option" data-dial-code="47">Yes</li></ul>
 </body></html>
