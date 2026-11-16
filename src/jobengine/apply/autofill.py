@@ -210,10 +210,12 @@ AUTOFILL_JS = r"""
   const f = data.fields || {};
   const NOT_SPONSOR = new RegExp('\\bauthori[sz]|\\beligib|\\bright to work\\b|\\blegally\\b|' +
     '\\bpermitted to work\\b|\\bwithout (a |any |visa )*sponsor');
+  const OTHER_PERSON = new RegExp('\\b(company|employer|refer\\w*|their|connections?|' +
+    'contact person|reference|emergency|manager|recruiter)\\b');
   const RULES = [
-    [/\b(first|given) ?name\b|\bforename\b/, 'first_name', /\b(company|employer|refer)/],
-    [/\b(last|family) ?name\b|\bsurname\b/, 'last_name', /\b(company|employer|refer)/],
-    [/^(full |your |legal )?name$|\bfull name\b/, 'full_name', null],
+    [/\b(first|given) ?name\b|\bforename\b/, 'first_name', OTHER_PERSON],
+    [/\b(last|family) ?name\b|\bsurname\b/, 'last_name', OTHER_PERSON],
+    [/^(full |your |legal )?name$|\bfull name\b/, 'full_name', OTHER_PERSON],
     [/\be ?mail\b/, 'email', null],
     [/\b(phone|mobile|telephone)\b/, 'phone', /\b(type|code|extension|device)\b/],
     [/\blinked ?in\b/, 'linkedin', null],
@@ -221,7 +223,8 @@ AUTOFILL_JS = r"""
     [/\b(website|portfolio|personal (site|page)|blog)\b/, 'website', /\b(linked ?in|git ?hub)\b/],
     [/\bsponsor/, 'sponsorship_needed',
       NOT_SPONSOR],
-    [/\bauthori[sz]|\bright to work\b|\beligible to work\b/, 'authorized_without_sponsorship',
+    [/\bauthori[sz]|\bright to work\b|\beligible to work\b|\b(allowed|permitted) to work\b/,
+      'authorized_without_sponsorship',
       /\b(requir|need)\w*\b.*\bsponsor/],
     [/\blegally (allowed|able|eligible|entitled)/,
       'authorized_without_sponsorship', /\b(requir|need)\w*\b.*\bsponsor/],
@@ -229,17 +232,21 @@ AUTOFILL_JS = r"""
     [/\bcurrent (salary|compensation|pay)\b/, 'current_salary', null],
     [/\b(salary|compensation|remuneration|pay expectation|expected pay)\b/, 'expected_salary',
       null],
-    [/\bnotice\b/, 'notice_period', null],
+    [/\bnotice\b/, 'notice_period', /\b(privacy|data protection|policy|information notice)\b/],
     [/\bstart date\b|\bearliest start\b|\bwhen can you start\b|\bavailable to start\b/,
       'earliest_start', null],
+    [/\bavailable from\b|\bwhen are you available\b/, 'earliest_start', null],
     [/\bjoining date\b/, 'earliest_start', null],
     [/\brelocat/, 'relocation', null],
     [/\benglish\b/, 'english', null],
     [/\bgender\b/, 'gender', null],
-    [/\b(city|town)\b|\bcurrent location\b|^location$|\bwhere are you (based|located)\b/, 'city',
+    [/\b(city|town)\b|\bcurrent location\b|^location$|\bwhere are you (currently )?based\b/,
+      'city',
       /\b(relocat|prefer|willing|office|desired)/],
-    [/\bwhy (do you want|are you interested|this (company|role)|us|join)\b|\bmotivation\b/, 'why',
+    [/\bwhere are you (currently )?located\b/, 'city', /\b(relocat|prefer|willing|office)/],
+    [/\bwhy (do you want|are you interested|this (company|role)|us|join)\b|\bmotivat/, 'why',
       null],
+    [/\bwhy you (are|would be) interested\b|\bwhy are you applying\b/, 'why', null],
     [/\bcover ?letter\b|\badditional information\b|\banything else\b|\bmessage to (the )?hiring\b/,
       'cover_letter', null]
   ];
@@ -346,6 +353,10 @@ AUTOFILL_JS = r"""
     let i = texts.findIndex(t => t === want);
     if (i < 0) { i = texts.findIndex(t => want.length > 2 && t.startsWith(want)); }
     if (i < 0 && /^(yes|no)$/.test(first)) { i = texts.findIndex(t => t.split(' ')[0] === first); }
+    const two = want.split(' ').slice(0, 2).join(' ');
+    if (i < 0 && two.includes(' ') && two.length > 5) {
+      i = texts.findIndex(t => t.startsWith(two));
+    }
     return i;
   };
   const pick = async (el, v) => {
@@ -385,6 +396,7 @@ AUTOFILL_JS = r"""
         r.value));
       const i = choice(texts, v);
       if (i >= 0) { group[i].click(); mark(group[i].parentElement || group[i], texts[i]); }
+      else { toChoose.push(partsOf(el).slice(-1)[0] || 'a choice'); }
       continue;
     }
     if (el.tagName === 'SELECT') {
@@ -394,7 +406,7 @@ AUTOFILL_JS = r"""
       const i = choice([...el.options].map(o => norm(o.text)), v);
       if (i > 0 || (i === 0 && el.options[0].value)) {
         el.selectedIndex = i; fire(el); mark(el, norm(el.options[i].text));
-      }
+      } else { toChoose.push(partsOf(el)[0] || 'a list'); }
       continue;
     }
     if (isCombo(el)) {

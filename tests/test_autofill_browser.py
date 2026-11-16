@@ -13,11 +13,13 @@ from jobengine.apply import autofill
 
 HERE = Path(__file__).parent / "autofill"
 DATA = {"job": "Demo Co, DevOps Engineer", "fields": {
-    "first_name": "Test", "last_name": "Person", "email": "test@example.com",
+    "first_name": "Test", "last_name": "Person", "full_name": "Test Person",
+    "email": "test@example.com",
     "phone": "+48 000 000 000", "linkedin": "https://www.linkedin.com/in/test", "city": "Dublin",
     "expected_salary": "EUR 60000", "notice_period": "1 month", "sponsorship_needed": "No",
     "authorized_without_sponsorship": "Yes", "cover_letter": "Dear team, ...",
-    "earliest_start": "1 month after an offer"},
+    "earliest_start": "1 month after an offer", "gender": "Prefer not to say",
+    "why": "Your platform team works on what I do best."},
     "answers": [["Years of experience with Kubernetes", "4"]]}
 
 
@@ -76,11 +78,16 @@ def test_authorized_without_sponsorship_is_the_authorization_answer(tmp_path):
     visa that is "Yes" to a question whose true answer is "No"."""
     needs_visa = {**DATA, "fields": {**DATA["fields"], "sponsorship_needed": "Yes",
                                      "authorized_without_sponsorship": "No"}}
-    s = run(tmp_path, needs_visa)["state"]
+    result = run(tmp_path, needs_visa)
+    s = result["state"]
     assert s["q5-value"] == "No"  # authorized without sponsorship: No
     assert s["spon"] == "Yes"  # "Will you require visa sponsorship?": Yes
     assert s["auth:No"] is True  # "Are you legally authorized to work in Ireland?": No
     assert s["q6-value"] == ""  # asks both at once: left for you
+    # 16 Nov, UbiOps (Personio): no choice says plain "No" ("Not yet, I need a residence
+    # permit ..."): nothing is chosen, and the message names the question.
+    assert s["perm"] == "Please select"
+    assert "allowed to work in ireland" in result["dialogs"][-1]["message"]
 
 
 @needs_browser
@@ -110,3 +117,21 @@ def test_a_phone_with_only_its_country_code_and_number_boxes_are_filled(tmp_path
     assert s["dt"] == ""  # a date box does not take "1 month after an offer"
     alert = result["dialogs"][-1]["message"]
     assert "did not take the answer, fill yourself: available to start" in alert
+
+
+@needs_browser
+def test_questions_seen_on_real_forms_get_the_right_answer_or_none(tmp_path):
+    """16 Nov, real forms: Personio's "connections within Lepaya? share their full name" got
+    your name; "Where are you currently located?" (Ashby), "Allowed to work?" and "Available
+    from" (Personio) and "Motivate why you are interested" (Teamtailor) were missed;
+    Greenhouse's "Data Protection Information Notice" was taken for the notice period;
+    "Prefer not to answer" is "Prefer not to say" (Teamtailor)."""
+    s = run(tmp_path)["state"]
+    assert s["conn"] == ""  # someone else's name: never yours
+    assert s["curloc"] == "Dublin"
+    assert s["allowed"] == "Yes"  # authorized without sponsorship: Yes (the test answers)
+    assert s["avail"] == "1 month after an offer"
+    assert s["motiv"] == "Your platform team works on what I do best."
+    assert s["dpn"] == "Select..."  # a privacy notice is not the notice period
+    assert s["gender2:x"] is True
+    assert s["perm"] == "Yes, I am an EU citizen"  # "Yes" is the start of that choice

@@ -17,6 +17,14 @@
 <label for="mob">Mobile phone</label><input id="mob" type="tel" name="mobile" value="+31">
 <label for="num">Expected yearly salary (EUR)</label><input id="num" type="number" name="salary_number">
 <label for="dt">Available to start</label><input id="dt" type="date" name="start_date">
+<label for="conn">Do you have any connections within Demo Co? If so, share their full name.</label><input id="conn" name="connections">
+<label for="curloc">Where are you currently located?</label><input id="curloc" name="located">
+<label for="allowed">Allowed to work?</label><select id="allowed" name="allowed"><option>Please select</option><option>Yes</option><option>No</option></select>
+<label for="perm">Allowed to work in Ireland?</label><select id="perm" name="perm"><option value="">Please select</option><option>Yes, I am an EU citizen</option><option>Not yet, I need a work permit</option></select>
+<label for="avail">Available from</label><input id="avail" name="available_from">
+<label for="motiv">Motivate why you are interested in this particular role</label><textarea id="motiv" name="motivation"></textarea>
+<label for="dpn">Data Protection Information Notice</label><select id="dpn" name="dpn"><option>Select...</option><option>1 month</option><option>Acknowledge</option></select>
+<fieldset><legend>Gender</legend><label><input type="radio" name="gender2" value="m">Male</label><label><input type="radio" name="gender2" value="f">Female</label><label><input type="radio" name="gender2" value="x">Prefer not to answer</label></fieldset>
 <label for="why">Portfolio or anything else? (required, no answer)</label><input id="other" name="other_q" required>
 <label><input type="checkbox" id="consent" name="consent" required> I agree to the privacy policy</label>
 <button type="submit" id="submit" onclick="window.CLICKED=1">Submit application</button>
