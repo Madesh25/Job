@@ -448,8 +448,10 @@ site (`src/jobengine/sweep/job_links.py`), newest first:
    the browser /dryrun uses; plain GETs only, never a site that refuses the bot). Opened
    there: short pages (little text or few links) and, since 4 Nov, any careers page that
    shows no job list (YachtCloud: big menus, the jobs come later by JavaScript); a long page
-   that already lists jobs is not. At most 6 per job and `max_rendered` (40, DEV 80) per
-   sweep: on 30 Oct CGI's long pages used 5 of 15 and the rest of the sweep had none. A jobs
+   that already lists jobs is not. At most 6 per job and `max_rendered` (120, DEV and PC 150) per
+   sweep: on 30 Oct CGI's long pages used 5 of 15 and the rest of the sweep had none.
+   `browsers` (3) pages are open at the same time, each in its own browser (17 Nov,
+   measured: 26 pages in 15 s instead of 46 s, about 170 MB more memory per browser). A jobs
    box from another site inside the page (an iframe: Recruitee, Homerun, Personio ...) is
    read too, with its links made whole with the box's own site. A Workday link without its
    server part (`armacell.myworkdayjobs.com`, an address that does not exist) or with a

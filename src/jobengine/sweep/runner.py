@@ -220,7 +220,8 @@ def _find_links(s: Settings, repo: JobsRepo, config: ConfigStore, state: Any, to
     cfg = job_links.settings(s)
     browser = None
     if cfg.get("browser", True) and render.available():
-        browser = render.Renderer(s, int(cfg.get("max_rendered", render.DEFAULT_MAX_PAGES)))
+        browser = render.Renderer(s, int(cfg.get("max_rendered", render.DEFAULT_MAX_PAGES)),
+                                  int(cfg.get("browsers", render.DEFAULT_BROWSERS)))
     else:
         log.info("direct job links: no browser (Playwright not installed), careers pages "
                  "built by JavaScript are not read")

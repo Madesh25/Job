@@ -439,7 +439,11 @@ sweep:
     # sweep (6 per job), when Playwright is installed (in every Docker build since 30 Oct).
     # Only short pages are opened: a long page is not one that JavaScript fills in.
     browser: true
-    max_rendered: 40
+    # 17 Nov (FEAT-01, measured): 3 browsers read 26 job pages in 15 s instead of 46 s, at
+    # about 880 MB with the app (each browser about 170 MB more). 4 would leave too little of
+    # Cloud Run's 2 GB for heavy pages.
+    max_rendered: 120
+    browsers: 3
     # Companies looked up at the same time (your idea of 30 Oct): searches and page reads
     # are mostly waiting. All jobs of one company stay on one worker.
     workers: 3

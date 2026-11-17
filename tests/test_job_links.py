@@ -699,8 +699,11 @@ def test_a_job_link_with_http_is_opened_with_https():
 
 
 def test_dev_opens_a_browser_page_per_job_looked_up():
-    assert load_settings("local", {}).sweep["job_links"]["max_rendered"] == 80
-    assert load_settings("prod", {}).sweep["job_links"]["max_rendered"] == 40
+    """17 Nov, FEAT-01: 3 browsers at the same time; 150 pages on DEV and your PC, 120 on
+    Cloud Run (2 GB: about 880 MB with 3 browsers on real job pages)."""
+    for env, pages in (("local", 150), ("dev", 150), ("prod", 120)):
+        cfg = load_settings(env, {}).sweep["job_links"]
+        assert (cfg["max_rendered"], cfg["browsers"]) == (pages, 3), env
 
 
 def test_one_job_can_open_six_browser_pages():
@@ -1375,7 +1378,7 @@ def test_a_page_is_opened_in_the_browser_once_per_fetch():
         def __init__(self):
             self.opened = []
 
-        def submit(self, fn, url):
+        def submit(self, fn, n, url):
             self.opened.append(url)
 
             class Done:
@@ -1386,13 +1389,13 @@ def test_a_page_is_opened_in_the_browser_once_per_fetch():
             return Done()
 
     browser = render.Renderer(load_settings("local", {}), left=5)
-    browser._thread = Thread()
+    browser._threads = [Thread()]
     for _ in range(3):
         assert browser("https://www.dunedata.com/careers") == (
             "https://www.dunedata.com/careers", "<html/>")
         with pytest.raises(http.HttpError):
             browser("https://www.dunedata.com/fails")
-    assert browser._thread.opened == ["https://www.dunedata.com/careers",
+    assert browser._threads[0].opened == ["https://www.dunedata.com/careers",
                                       "https://www.dunedata.com/fails"]
     assert browser.left == 3
 
@@ -1411,7 +1414,7 @@ def test_one_page_with_or_without_the_last_slash_is_opened_once():
         def __init__(self):
             self.opened = []
 
-        def submit(self, fn, url):
+        def submit(self, fn, n, url):
             self.opened.append(url)
 
             class Done:
@@ -1420,12 +1423,51 @@ def test_one_page_with_or_without_the_last_slash_is_opened_once():
             return Done()
 
     browser = render.Renderer(load_settings("local", {}), left=5)
-    browser._thread = Thread()
+    browser._threads = [Thread()]
     browser("https://werkenbij.alliander.com")
     assert browser.has("https://werkenbij.alliander.com/")
     browser("https://werkenbij.alliander.com/")
-    assert browser._thread.opened == ["https://werkenbij.alliander.com"]
+    assert browser._threads[0].opened == ["https://werkenbij.alliander.com"]
     assert browser.left == 4
+
+
+def test_three_browsers_open_pages_at_the_same_time_and_one_page_once():
+    """17 Nov, FEAT-01: up to `browsers` pages are open at once; a page asked for by two
+    workers at the same time is opened once (the second waits for its answer)."""
+    import threading
+    import time
+
+    from jobengine.sweep import render
+
+    now, most, opened = [0], [0], []
+    lock = threading.Lock()
+
+    class Thread:
+        def submit(self, fn, n, url):
+            class Done:
+                def result(self):
+                    with lock:
+                        now[0] += 1
+                        most[0] = max(most[0], now[0])
+                        opened.append(url)
+                    time.sleep(0.2)
+                    with lock:
+                        now[0] -= 1
+                    return url, "<html/>"
+            return Done()
+
+    browser = render.Renderer(load_settings("local", {}), left=20, browsers=3)
+    browser._threads = [Thread(), Thread(), Thread()]
+    urls = [f"https://www.dunedata.com/p{i}" for i in range(6)] + [
+        "https://www.dunedata.com/p0/"] * 3
+    workers = [threading.Thread(target=browser, args=(u,)) for u in urls]
+    for w in workers:
+        w.start()
+    for w in workers:
+        w.join()
+    assert most[0] == 3  # never more than 3 at once
+    assert sorted(opened) == sorted(urls[:6])  # p0 and "p0/" opened once
+    assert browser.left == 14
 
 
 def test_googles_copy_can_use_a_stronger_gemini():
