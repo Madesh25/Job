@@ -60,7 +60,7 @@ from bs4 import BeautifulSoup
 from jobengine import textblocks
 from jobengine.notion_repo import JobsRepo, select_filter
 from jobengine.safety import SafetyError
-from jobengine.sweep import fulltext, normalize
+from jobengine.sweep import fulltext, normalize, render
 from jobengine.sweep.crossmatch import DESCRIPTION_HEADER, plain_title, title_key
 from jobengine.sweep.dedupe import DESCRIPTION_BLOCK_CHARS, DESCRIPTION_MAX_BLOCKS, link_rank
 from jobengine.sweep.normalize import canon, canon_city, canon_company, without_region
@@ -1014,9 +1014,9 @@ def from_site(deps: Deps, careers: str, company: str, role: str, city: str | Non
     seen: set[str] = set()
     while queue and reads[0] > 0:
         url, how, depth = queue.pop(0)
-        if url in seen:
+        if render.page_key(url) in seen:
             continue
-        seen.add(url)
+        seen.add(render.page_key(url))
         reads[0] -= 1
         try:
             final, html = deps.page(url)
