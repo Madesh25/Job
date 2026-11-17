@@ -2698,6 +2698,12 @@ class Desk:
         done = dict(((self.state.get(AUTO_PREP_KEY) or {}).get("jobs")) or {})
         if done.get(job_id) == today.isoformat():
             return []
+        if isinstance(self._interview_job(job_id, ""), Reply):
+            # 17 Nov, a simulated autopilot day: a reply whose job is gone from Notion sent
+            # "Prepare for it now:" and then "No Job Opportunities row found". The ping is
+            # enough; /prep <job> still works by hand.
+            log.info("auto /prep skipped: no job row for %s", job_id)
+            return []
         try:
             replies = self.prep_command(job_id)
         except Exception as exc:  # the ping still comes
@@ -2834,7 +2840,10 @@ class Desk:
 
         last = (self.state.get(LAST_SUMMARY) or {}).get("at")
         fine.append(f"Last /fetch: {last or 'never'}")
-        starts = plan.times_text() if plan.on else ""
+        # 17 Nov, a simulated week: Saturday's check named the 19:30 run (Mon to Fri) and
+        # Sunday's both runs (none on Sunday). Only today's runs are named.
+        todays = [f"{at:%H:%M}" for at in plan.starts if today.weekday() in plan.days_for(at)]
+        starts = (" and ".join(todays) or health_report.NO_RUN) if plan.on else ""
         return health_report.text(today, blockers, soon, fine, starts)
 
     def health_report_tick(self) -> list[Reply]:

@@ -140,3 +140,12 @@ def test_check_pings_names_the_job_and_the_interview():
         sender="recruiter@example.com", subject="Interview", text="Can we schedule a call?"))
     found = [p for p in ping.check_pings(d.track, FAKE_NOW) if "schedule a call" in p.text]
     assert found and found[0].job_id == job_id and found[0].interview
+
+
+def test_no_prep_pack_for_a_job_gone_from_notion(monkeypatch):
+    """17 Nov, a simulated autopilot day: a reply whose job is no longer in Notion sent
+    "Prepare for it now:" and then "No Job Opportunities row found"."""
+    d = make_desk()
+    monkeypatch.setattr(ping, "check_pings", lambda track, now: [
+        ping.Ping(f"New reply from Ana\n{ping.INTERVIEW_HINT}", "job-gone", True)])
+    assert texts(d) == [f"New reply from Ana\n{ping.INTERVIEW_HINT}"]

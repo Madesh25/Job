@@ -242,7 +242,7 @@ AUTOFILL_JS = r"""
     [/\brelocat/, 'relocation', null],
     [/\benglish\b/, 'english', null],
     [/\bgender\b/, 'gender', null],
-    [/\b(city|town)\b|\bcurrent location\b|^location$|\bwhere are you (currently )?based\b/,
+    [/\b(city|town)\b|\bcurrent location\b|^(your )?location$|\bwhere are you (currently )?based\b/,
       'city',
       /\b(relocat|prefer|willing|office|desired)/],
     [/\bwhere are you (currently )?located\b/, 'city', /\b(relocat|prefer|willing|office)/],
@@ -292,7 +292,8 @@ AUTOFILL_JS = r"""
       const legend = box && box.querySelector('legend, label, .application-label, .text');
       if (legend) { parts.push(legend.innerText); }
     }
-    return parts.map(norm).filter(Boolean);
+    /* 16 Nov, real Personio form: "Location* (required)" missed the location rule. */
+    return parts.map(p => norm(p).replace(/( required)+$/, '')).filter(Boolean);
   };
   const valueFor = el => {
     const parts = partsOf(el);

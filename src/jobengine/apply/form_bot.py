@@ -98,7 +98,8 @@ RULES: tuple[tuple[re.Pattern[str], str, re.Pattern[str] | None], ...] = tuple(
         (r"\brelocat", "relocation", None),
         (r"\benglish\b", "english", None),
         (r"\bgender\b", "gender", None),
-        (r"\b(city|town)\b|\bcurrent location\b|^location$|\bwhere are you (currently )?based\b",
+        (r"\b(city|town)\b|\bcurrent location\b|^(your )?location$"
+         r"|\bwhere are you (currently )?based\b",
          "city", r"\b(relocat|prefer|willing|office|desired)"),
         (r"\bwhere are you (currently )?located\b", "city", r"\b(relocat|prefer|willing|office)"),
         (r"\bwhy (do you want|are you interested|this (company|role)|us|join)\b|\bmotivat",
@@ -208,7 +209,8 @@ def saved_for(label: str, saved: Sequence[Mapping[str, str]]) -> str | None:
 
 
 def rule_for(label: str, values: Mapping[str, str], kind: str) -> str | None:
-    text = norm(label)
+    # 16 Nov, real Personio form: "Location* (required)" missed the "location" rule.
+    text = re.sub(r"( required)+$", "", norm(label))
     for pattern, key, unless in RULES:
         if not values.get(key) or not pattern.search(text):
             continue
