@@ -82,8 +82,9 @@ MAX_BODY_READS = 200  # pages read in one sweep to see whether a description is 
 NO_BOARD_DAYS = 14  # a company without a job board or careers page is asked again after
 # Browser pages for one job: one site never uses the whole budget. 13 Nov: 2 -> 4 (11 jobs
 # stopped at 2 while 63 of the /fetch's pages were unused); a page opened before in the same
-# /fetch costs nothing (render.Renderer keeps it).
-MAX_RENDERS_PER_JOB = 4
+# /fetch costs nothing (render.Renderer keeps it). 17 Nov: 4 -> 6 (16 Nov: Alliander and
+# 1dea stopped at 4 while 56 to 60 of the /fetch's pages were unused).
+MAX_RENDERS_PER_JOB = 6
 THIN_PAGE_CHARS = 3000  # a page with less text than this may fill itself with JavaScript
 THIN_PAGE_LINKS = 30
 MAX_LINE = 160  # longer link texts are whole cards or menus, not titles
