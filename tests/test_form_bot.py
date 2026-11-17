@@ -561,6 +561,29 @@ def test_a_choice_with_every_word_of_the_answer():
     assert form_bot.choice(["Male", "Female"], "Female") == 1  # one word: exact only
 
 
+@pytest.mark.parametrize("label,kind,answer", [
+    ("Do you now or have you previously worked for an InterSystems client?*", "combobox",
+     "No, never"),
+    ("Have you ever been employed by InterSystems B.V.?", "select", "No, never"),
+    ("I have never worked at InterSystems", "checkbox", "Yes"),
+    ("I am a current InterSystems employee or intern", "checkbox", "No"),
+    ("Why do you want to work for InterSystems?", "textarea", None),
+    ("How many years were you an employee at InterSystems?", "text", None),
+    ("Have you previously worked for a startup?", "select", None),  # not this company
+])
+def test_a_company_you_never_worked_for(label, kind, answer):
+    """17 Nov, real Greenhouse form (InterSystems): the "worked for us before" questions."""
+    assert form_bot.worked_here(label, "InterSystems", kind) == answer
+
+
+def test_never_finds_its_choice():
+    options = ["I currently work for an InterSystems client",
+               "I previously worked for an InterSystems client",
+               "I have never worked for an InterSystems client"]
+    assert form_bot.choice(options, "No, never") == 2
+    assert form_bot.choice(["Yes", "No"], "No, never") == 1
+
+
 def test_prefer_not_to_say_and_open_to_relocate_find_their_choice():
     """17 Nov, real Greenhouse form (InterSystems): the choices use other words."""
     assert form_bot.choice(["Yes", "No", "Decline To Self Identify"], "Prefer not to say") == 2

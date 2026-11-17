@@ -30,6 +30,9 @@
 <label for="dpn">Data Protection Information Notice</label><select id="dpn" name="dpn"><option>Select...</option><option>1 month</option><option>Acknowledge</option></select>
 <fieldset><legend>Gender</legend><label><input type="radio" name="gender2" value="m">Male</label><label><input type="radio" name="gender2" value="f">Female</label><label><input type="radio" name="gender2" value="x">Prefer not to answer</label></fieldset>
 <label for="why">Portfolio or anything else? (required, no answer)</label><input id="other" name="other_q" required>
+<fieldset><legend>Have you worked at Demo Co?</legend>
+<label><input type="checkbox" id="w1" name="worked[]"> I have never worked at Demo Co</label>
+<label><input type="checkbox" id="w2" name="worked[]"> I am a current Demo Co employee or intern</label></fieldset>
 <label><input type="checkbox" id="consent" name="consent" required> I agree to the privacy policy</label>
 <button type="submit" id="submit" onclick="window.CLICKED=1">Submit application</button>
 </form>
@@ -152,6 +155,11 @@ function slowCombo(id, label, places) {
 }
 slowCombo('slow1', 'Location (City) *', ['Chennai, Tamil Nadu, India', 'Chennai Central, Chennai',
   'Dublin, County Dublin, Ireland']);
+/* 17 Nov, InterSystems: worked for the company before, a list and a group of boxes. */
+ghCombo('gh7', 'Do you now or have you previously worked for a Demo Co client? *', [
+  'I currently work for a Demo Co client', 'I previously worked for a Demo Co client',
+  'I have never worked for a Demo Co client']);
+ghCombo('gh8', 'How many years were you an employee at Demo Co? *', ['None', '1 to 2']);
 </script>
 <ul class="iti__country-list" role="listbox"><li class="iti__country" role="option" data-dial-code="47">Yes</li></ul>
 </body></html>

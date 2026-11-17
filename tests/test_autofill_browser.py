@@ -74,7 +74,8 @@ def test_custom_dropdowns_get_their_option_or_are_named(tmp_path):
     assert s["q2-value"] == "No, I chose this"  # a dropdown you answered stays yours
     assert s["q4-value"] == ""  # "1 month" matches no option: nothing chosen, typing cleared
     alert = result["dialogs"][-1]["message"]
-    assert "2 required list question(s) still to choose" in alert  # q4, and q6 asks two things
+    # q4, q6 (asks two things) and gh8 (how many years: never "never")
+    assert "3 required list question(s) still to choose" in alert
     assert "choose yourself: what is your notice period" in alert
 
 
@@ -131,6 +132,17 @@ def test_a_slow_place_search_is_waited_for(tmp_path):
     data = {**DATA, "fields": {**DATA["fields"], "city": "Chennai, India"}}
     s = run(tmp_path, data)["state"]
     assert s["slow1-value"] == "Chennai, Tamil Nadu, India"
+
+
+@needs_browser
+def test_a_company_you_never_worked_for(tmp_path):
+    """17 Nov, real Greenhouse form (InterSystems): "worked for an InterSystems client?" and
+    the box "I have never worked at InterSystems" stayed empty."""
+    result = run(tmp_path)
+    s = result["state"]
+    assert s["gh7-value"] == "I have never worked for a Demo Co client"
+    assert s["gh8-value"] == ""  # a how question: never answered "never"
+    assert (s["w1"], s["w2"]) == (True, False)
 
 
 @needs_browser
