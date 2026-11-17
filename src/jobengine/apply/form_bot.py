@@ -614,13 +614,20 @@ async ({ref, value}) => {
   el.focus();
   /* 17 Nov, InterSystems: the list shows only options with the typed text, and "Prefer not
      to say" is "Decline To Self Identify" there: then the whole list is looked at. */
-  for (const typed of [value, '']) {
+  /* 17 Nov, InterSystems "Location (City)": its places come from a search site, slower than
+     1.8 s at times: waited for (up to 6 s) while the list says it is loading; "Chennai,
+     India" is also searched as "Chennai". */
+  const loading = () => [...document.querySelectorAll('[class*=menu-notice--loading], ' +
+      '[class*=loading-indicator], [class*=loadingIndicator], [class*=loadingMessage]')]
+    .some(shown);
+  const head = String(value).split(',')[0].trim();
+  for (const typed of [value, ...(head && head !== String(value).trim() ? [head] : []), '']) {
     setText(typed);
     el.dispatchEvent(new KeyboardEvent('keyup', {key: 'Unidentified', bubbles: true}));
-    for (let n = 0; n < 12; n++) {
+    for (let n = 0; n < 40; n++) {
       await sleep(150);
       const opts = options();
-      if (!opts.length) { continue; }
+      if (!opts.length) { if (n >= 11 && !loading()) { break; } continue; }
       const i = choice(opts.map(o => norm(o.innerText)), value);
       if (i < 0) { break; }
       const chosen = opts[i].innerText.trim();

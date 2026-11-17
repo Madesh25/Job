@@ -41,7 +41,7 @@ def run(tmp_path, data=DATA):
     mark.write_text(autofill.bookmarklet(), encoding="utf-8")
     code.write_text(autofill.encode(data), encoding="utf-8")
     out = subprocess.run(["node", str(HERE / "run.js"), str(HERE / "form.html"), str(mark),
-                          str(code)], capture_output=True, text=True, timeout=60, check=True)
+                          str(code)], capture_output=True, text=True, timeout=120, check=True)
     result = json.loads(out.stdout)
     assert result["errors"] == []
     return result
@@ -121,6 +121,16 @@ def test_diversity_job_location_and_discipline_lists_get_their_choice(tmp_path):
     assert s["gh4-value"] == "I don't wish to answer"
     assert s["gh5-value"] == "Able to relocate to job location"
     assert s["gh6-value"] == "Mechanical Engineering"
+
+
+@needs_browser
+def test_a_slow_place_search_is_waited_for(tmp_path):
+    """17 Nov, real Greenhouse form (InterSystems): "Location (City)" got no choice; its
+    places come from a search site that can take seconds, and "Chennai, India" as typed may
+    find nothing while "Chennai" does."""
+    data = {**DATA, "fields": {**DATA["fields"], "city": "Chennai, India"}}
+    s = run(tmp_path, data)["state"]
+    assert s["slow1-value"] == "Chennai, Tamil Nadu, India"
 
 
 @needs_browser
