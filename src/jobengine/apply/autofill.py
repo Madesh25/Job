@@ -265,7 +265,9 @@ AUTOFILL_JS = r"""
         const have = new Set(words(p));
         const hit = want.filter(w => have.has(w)).length;
         const score = hit / want.length;
-        if (score >= 0.75 && (hit >= 2 || want.length === 1) && score > bestScore) {
+        /* 17 Nov: a one-word question ("Degree") only answers a short label. */
+        if (score >= 0.75 && (hit >= 2 || (want.length === 1 && have.size <= 2)) &&
+            score > bestScore) {
           best = a; bestScore = score;
         }
       }

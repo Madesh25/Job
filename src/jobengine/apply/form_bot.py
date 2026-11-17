@@ -190,7 +190,9 @@ def _words(text: str) -> list[str]:
 
 
 def saved_for(label: str, saved: Sequence[Mapping[str, str]]) -> str | None:
-    """Your saved answer whose question words are (nearly) all in the label."""
+    """Your saved answer whose question words are (nearly) all in the label. A one-word
+    question ("School", "Degree") only answers a short label (17 Nov: "Degree" must not
+    answer "What is your expected degree of travel?")."""
     have = set(_words(label))
     best, best_score = None, 0.0
     for row in saved:
@@ -199,7 +201,8 @@ def saved_for(label: str, saved: Sequence[Mapping[str, str]]) -> str | None:
             continue
         hit = sum(1 for w in want if w in have)
         score = hit / len(want)
-        if score >= 0.75 and (hit >= 2 or len(want) == 1) and score > best_score:
+        if score >= 0.75 and (hit >= 2 or (len(want) == 1 and len(have) <= 2)) \
+                and score > best_score:
             best, best_score = row["a"], score
     return best
 
