@@ -3171,6 +3171,12 @@ class Desk:
         expired_check.mark_done(self.state, now.date())
         rows = [job_row(pid, values) for pid, values in self.repo.query_rows(
             select_filter("Status", *expired_check.OPEN_STATUSES))]
+        if rows and self.notify is not None:
+            # 17 Nov, your choice: on the PC the bot answers no command while this runs
+            # (Mondays when Sunday was missed), so it says so first.
+            self.notify(Reply(f"\U0001F9F9 Weekly link check started: {len(rows)} open job(s) "
+                              "to look at, this takes a few minutes. Commands you send now "
+                              "are answered as soon as it ends."))
         result = expired_check.check(rows, self.get_page, now.date())
         expired_check.expire(result, self.repo.update, now.date())
         return [Reply(result.text()[:MAX_TEXT])]
