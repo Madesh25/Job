@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import logging
+import threading
 import time
 from collections.abc import Callable, Collection, Mapping
 from typing import Any
@@ -105,6 +106,40 @@ def _retry_after(resp: httpx.Response, attempt: int = 0) -> float:
         return fallback
 
 
+# 17 Nov /fetch: about 30 Workday career sites answered HTTP 429 within seconds. Every
+# company has its own address (lseg.wd3..., accenture.wd103...) but Workday counts them as
+# one visitor, and 8 boards were read at a time, each retrying on its own (2, 5, 15 s), which
+# kept the block going. Workday is now asked one request at a time, SLOW_GAP apart; a "too
+# many requests" pauses every Workday request SLOW_COOL seconds once; when that does not help
+# twice in a row, Workday is left for SLOW_CLOSE seconds (the rest of the /fetch).
+SLOW_HOSTS = ("myworkdayjobs.com", "myworkdaysite.com")
+SLOW_GAP = 0.5
+SLOW_COOL = 30.0
+SLOW_STRIKES = 2
+SLOW_CLOSE = 600.0
+_clock: Callable[[], float] = time.monotonic
+
+
+class _SlowGate:
+    def __init__(self) -> None:
+        self.lock = threading.Lock()
+        self.reset()
+
+    def reset(self) -> None:
+        self.next_ok = 0.0
+        self.strikes = 0
+        self.closed_until = 0.0
+
+
+_slow = _SlowGate()
+
+
+def reset_slow_hosts() -> None:
+    """Tests: forget earlier pauses."""
+    with _slow.lock:
+        _slow.reset()
+
+
 def _error_detail(resp: httpx.Response) -> str:
     try:
         body = resp.json()
@@ -140,9 +175,36 @@ def _send(
     timeout: float = TIMEOUT_SECONDS,
 ) -> tuple[str, httpx.Response]:
     """Send one request. HTTP 429 is retried up to MAX_429_RETRIES times (Retry-After);
-    network hiccups up to twice (NETWORK_WAITS), see the comment on NETWORK_WAITS."""
+    network hiccups up to twice (NETWORK_WAITS), see the comment on NETWORK_WAITS. Workday
+    sites go one at a time (SLOW_HOSTS)."""
     s = s or get_settings()
     assert_fetch_allowed(url, s)
+    if not host_in(urlsplit(url).hostname or "", SLOW_HOSTS):
+        return _attempts(method, url, params, headers, json, data, timeout, slow=False)
+    with _slow.lock:
+        where = f"{method} {safe_url(url)}"
+        if _clock() < _slow.closed_until:
+            raise HttpError(f"{where} failed: HTTP 429 (Workday refused this machine a moment "
+                            "ago: not asked again for now)", 429)
+        wait = _slow.next_ok - _clock()
+        if wait > 0:
+            _sleep(wait)
+        try:
+            return _attempts(method, url, params, headers, json, data, timeout, slow=True)
+        finally:
+            _slow.next_ok = _clock() + SLOW_GAP
+
+
+def _attempts(
+    method: str,
+    url: str,
+    params: Mapping[str, Any] | list[tuple[str, Any]] | None,
+    headers: Mapping[str, str] | None,
+    json: Any,
+    data: Mapping[str, str] | None,
+    timeout: float,
+    slow: bool,
+) -> tuple[str, httpx.Response]:
     where = f"{method} {safe_url(url)}"
     # A Notion query or search is a POST that only reads (Phase 19 A-01, 3 Nov: one HTTP 502
     # on a query lost a starter answer): retried like a GET.
@@ -174,6 +236,22 @@ def _send(
                 log.info("%s HTTP %s, retrying in %.0fs", where, resp.status_code, wait)
                 _sleep(wait)
                 continue
+            if resp.status_code == 429 and slow:
+                if attempt == 0:
+                    log.info("%s rate limited: every Workday site waits %.0fs", where,
+                             SLOW_COOL)
+                    _sleep(SLOW_COOL)
+                    attempt += 1
+                    continue
+                _slow.strikes += 1
+                if _slow.strikes >= SLOW_STRIKES:
+                    _slow.closed_until = _clock() + SLOW_CLOSE
+                    log.info("Workday still refuses after %d pauses: no Workday site is asked "
+                             "for %.0f min", _slow.strikes, SLOW_CLOSE / 60)
+                raise HttpError(f"{where} failed: HTTP 429 (still rate limited after a "
+                                f"{SLOW_COOL:.0f}s pause)", 429)
+            if slow:
+                _slow.strikes = 0
             if resp.status_code == 429 and attempt < MAX_429_RETRIES:
                 wait = _retry_after(resp, attempt)
                 if wait > MAX_RETRY_AFTER:
