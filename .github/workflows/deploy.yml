@@ -106,6 +106,8 @@ jobs:
         run: |
           # The service URL is fixed by name, project number and region, so the first
           # revision already starts with the right OIDC audience.
+          # 2Gi (17 Nov, measured): the auto-apply queue fills 3 forms at once, one browser
+          # each, about 960 MB with the bot's own process on top; 1Gi would be killed.
           SERVICE_URL="https://${SERVICE}-${PROJECT_NUMBER}.${REGION}.run.app"
           gcloud run deploy "${SERVICE}" \
             --project "${PROJECT}" \
@@ -118,7 +120,7 @@ jobs:
             --min-instances 0 \
             --max-instances 1 \
             --concurrency 4 \
-            --memory 1Gi \
+            --memory 2Gi \
             --cpu 1 \
             --timeout 900 \
             --allow-unauthenticated \
