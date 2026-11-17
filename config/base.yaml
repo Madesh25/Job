@@ -9,6 +9,15 @@ notion:
     evidence_library: "78b711ac-4374-4296-b822-58fc6c28008a"
     project_registry: "7dc5a9ec-33b6-4118-b857-e6f9d0adf44e"
     resume_sections: "e4f4f4e9-bbfd-47a8-8e78-4c90de8409ec"
+    # Certifications (5 Oct): only Status Passed AND Show on resume rows reach the resume.
+    certifications: "933a3929-09e2-4750-a189-f14a6756d445"
+    # 🤝 LinkedIn Connections (23 Oct): one table for every env, written only when you send
+    # your LinkedIn export (safety.connections_write_target).
+    linkedin_connections: "d660c1d1-3ca9-41d9-b24a-88b2c0fb78c3"
+  pages:
+    resume_build_spec: "3e46edc2-b0d4-812b-82ea-d1766061390d"
+    cold_mail_templates: "3e46edc2-b0d4-8130-bdee-c62ac751d774"
+    v16_spec: "3e36edc2-b0d4-8134-8577-f84b2c39d066"
 safety:
   redirect_to: "madeshwaranm02@gmail.com"
   dev_sender: "madeshwaranm02@gmail.com"
@@ -17,12 +26,446 @@ safety:
   # linkedin hosts are refused even if listed here.
   allowed_hosts:
     - api.notion.com
+    - hc-ping.com  # the heartbeat (heartbeat.py, Autopilot H4)
+    - dns.google  # safe sending: does the contact's domain receive mail (mail/send_guard.py)
     - api.adzuna.com
     - boards-api.greenhouse.io
     - api.lever.co
     - api.eu.lever.co
     - api.smartrecruiters.com
+    - api.ashbyhq.com
+    # Workable's public career widget (sweep/sources/ats.py, 23 Oct)
+    - apply.workable.com
+    # Dell's Oracle Cloud HCM career site on its own domain (5 Oct)
+    - enterpriseplatform.dell.com
+    # Eightfold career sites of Microsoft and Ericsson (C4, 26 Oct; sweep.ats_boards)
+    - apply.careers.microsoft.com
+    - jobs.ericsson.com
+    - jooble.org
+    - www.amazon.jobs
+    - ind.nl
+    # Irish employment permits issued to companies (ie_permits.py, flow feature 6)
+    - www.gov.ie
+    - assets.gov.ie
+    - enterprise.gov.ie
+    - api.apollo.io
+    - api.hunter.io
+    - api.snov.io
+    - api.prospeo.io
+    - api.tomba.io
+    - api.github.com
+    - api.lusha.com
+    # Google OAuth token exchange when a Gmail token is renewed in Telegram (gmail_renew.py)
+    - oauth2.googleapis.com
+    # Gemini, only when a Config model.<stage> names a gemini-... model (llm.py)
+    - generativelanguage.googleapis.com
+    # Gemini on Google Cloud Vertex AI (28 Oct), when VERTEX_API_KEY is set (llm.py)
+    - aiplatform.googleapis.com
+    # Google's search result links in /update on Gemini: only the redirect is read
+    - vertexaisearch.cloud.google.com
+    # DeepSeek, only when Config model.score names a deepseek-... model (llm.py)
+    - api.deepseek.com
+  # Any subdomain of these (Workday boards are <tenant>.<wdN>.myworkdayjobs.com).
+  allowed_host_suffixes:
+    - myworkdayjobs.com
+    # Recruitee career sites (<company>.recruitee.com/api/offers/, 23 Oct)
+    - recruitee.com
+    # Oracle Cloud HCM career sites (<tenant>.fa.<region>.oraclecloud.com)
+    - oraclecloud.com
+llm:
+  # Gemini on Google Cloud Vertex AI (28 Oct): with VERTEX_API_KEY set, gemini-... models are
+  # called here instead of the Gemini API, so the Google Cloud credit pays for them (the
+  # credit does not pay for the Gemini API). "global" uses aiplatform.googleapis.com.
+  vertex_project: "job-search-engine-509510"
+  vertex_location: "global"
+screening:
+  # Irish employment permits issued to companies (flow feature 6, ie_permits.py): the gov.ie
+  # publication page (the bot follows its "companies" download) or the file itself. Irish
+  # jobs at those companies rank higher in /pending. Notion Config ie_permits.url wins.
+  ie_permits_url: https://www.gov.ie/en/department-of-enterprise-tourism-and-employment/publications/employment-permit-statistics-2026/
+  # Your experience window: jobs asking for more years than this are not saved by the sweep
+  # and are skipped by screening before any AI call. Senior titles count as too senior
+  # unless the posting asks for years within this limit.
+  max_years_required: 4
+  # A required tool you do not have (not in Skills Inventory or Term Map): false lists it in
+  # Gaps and the job is still judged (your decision of 1 Oct); true skips the job as
+  # "Tech mismatch" (the V16 gate 4).
+  tech_mismatch_skips: false
+  # Jobs sent to the LLM at the same time (after the first one succeeds).
+  workers: 4
+  # A description shorter than this (or marked "(snippet only)") is a snippet (spec section 3).
+  full_min_chars: 600
+  # At most this many jobs go to the LLM per day (all runs together; newest posting first).
+  # Rows without a description do not count. /screen <url> and /jd always run and count.
+  # 20 Oct: 30 -> 50 (your decision; on DeepSeek about $0.17 a month more, on Haiku $1.85).
+  daily_limit: 50
+  # /jd collects pasted messages for this long before the capture is discarded.
+  jd_capture_minutes: 20
+  # /autopilot approves at most this many Apply high and Apply normal jobs a day (best first);
+  # the rest stay in /pending. While its half-price batch works, the bot (long polling) checks
+  # it every autopilot_check_minutes and carries on by itself when the answers are in.
+  # 5 Nov, the autopilot timetable: 10 a day, what you apply to by hand in one evening
+  # (27 Oct: 50, for when the auto-submit takes most forms). Notion Config
+  # screening.autopilot_approvals wins. With the schedule on, a run while a later start time
+  # is still ahead today (the 07:00 run) uses at most screening.morning_share (Config,
+  # default 60%) of the approvals and of the screening limit; the evening run the rest.
+  autopilot_approvals: 10
+  autopilot_check_minutes: 5
+  # Scheduled /autopilot (off until Notion Config schedule.autopilot is true): once a day at
+  # `time` in `timezone` on `days`. A bot that is off then starts it until `latest`, never
+  # later. Notion Config schedule.autopilot_time ("HH:MM") wins over `time`.
+  # Your decision of 25 Oct (Autopilot H6): 07:00 and 19:30 India time, every day. Each start
+  # time runs once, up to window_hours after it. Config schedule.autopilot_time wins
+  # ("07:00, 19:30").
+  autopilot_schedule:
+    times: ["07:00", "19:30"]
+    window_hours: 3
+    timezone: Asia/Kolkata
+    days: [Mon, Tue, Wed, Thu, Fri, Sat, Sun]
+    # 5 Nov, the autopilot timetable: days per start time. European jobs are posted Monday
+    # to Friday, so the 19:30 run (this European morning's jobs) is Monday to Friday, the
+    # 07:00 run Monday to Saturday (Saturday gets Friday afternoon's jobs; Monday's gets the
+    # weekend's), none on Sunday. Notion Config schedule.autopilot_days wins
+    # ("07:00 Mon-Sat; 19:30 Mon-Fri").
+    time_days:
+      "07:00": [Mon, Tue, Wed, Thu, Fri, Sat]
+      "19:30": [Mon, Tue, Wed, Thu, Fri]
+  # /jd writes the pasted text in blocks of this size, at most this many blocks.
+  block_chars: 2000
+  max_blocks: 90
+apply_pack:
+  # LinkedIn notes per contact (contacts/linkedin_notes.py, flow feature 12): your name at
+  # the end, and optional wording per contact type with {first} {role} {company} {link} {me}
+  # (at most 300 characters; Notion Config linkedin.note_peer / _recruiter / _hiring win).
+  linkedin_signature: Madeshwaran
+  linkedin_notes: {}
+  # Ready answers for portal forms, one Telegram message per approved job (apply/pack.py).
+  # Your answers (PR 11); a Notion Config key apply.<name> wins over each one.
+  # Form autofill (apply/autofill.py): the town forms ask for. First and last name come from
+  # Config profile.name (Config apply.first_name and apply.last_name win).
+  city: "Chennai, India"
+  sponsorship_needed: "Yes"
+  authorized_without_sponsorship: "No"
+  notice_period: "90 days, can be shortened to 30 to 40 days"
+  earliest_start: "About 3 months after the offer, including the work permit"
+  expected_salary: "Open, any range at or above the visa minimum"
+  current_salary: "Prefer not to say"
+  experience: "4 years overall, 3 years in DevOps"
+  education: "Mechanical Engineering"
+  english: "C1 (only where the form requires a level)"
+  other_languages: "None"
+  relocation: "Open to relocate at my own cost; relocation support is welcome"
+  interviews: "Any time"
+  gender: "Male"
+  other_diversity: "Prefer not to say"
+  why_template: "The role's focus on {detail} is close to my day-to-day work at Xerago."
+  # Per country: the work permit line and the visa salary minimum (2026 figures; check each
+  # year: IND and DETE publish new amounts every January and March).
+  countries:
+    Poland:
+      permit: "I need a Polish work permit (type A); the employer applies, usually 1 to 3
+        months."
+      salary_floor: "No visa salary minimum (the work permit follows the local pay level)"
+    Netherlands:
+      permit: "I qualify as a Highly Skilled Migrant; a recognised IND sponsor can hire me
+        without a labour market test."
+      salary_floor: "EUR 4,357 a month gross, about EUR 52,300 a year before holiday pay
+        (Highly Skilled Migrant minimum under 30, 2026)"
+    Ireland:
+      permit: "I need an Irish employment permit. DevOps is on the Critical Skills Occupations
+        List: a Critical Skills Employment Permit (from EUR 40,904 with a relevant degree,
+        EUR 68,911 without) or a General Employment Permit (from EUR 36,605), neither with a
+        labour market test."
+      salary_floor: "EUR 40,904 a year for a Critical Skills Employment Permit (relevant degree),
+        EUR 36,605 for a General Employment Permit (DETE minimums from 1 March 2026; basic pay
+        only, bonuses do not count)"
+interview:
+  # /prep and /thanks (apply/interview.py). Notion Config interview.ask (one question per line)
+  # and interview.thanks win when set.
+  ask:
+    - "What would a successful first six months in this role look like?"
+    - "What does the deployment pipeline look like today, and what would you change first?"
+    - "How is on-call organised, and how are incidents reviewed?"
+    - "How does the team split work between platform and product engineers?"
+    - "What are the next steps in the process, and when can I expect to hear back?"
+  # Placeholders: {greeting} ("Hi <name>," or "Hello,"), {role}, {company}, {detail} (one
+  # sentence about a detail from the job page, or nothing), {name} (Config profile.name).
+  thanks: "Subject: Thank you for the {role} interview\n\n{greeting}\n\nThank you for your time
+    today and for the conversation about the {role} role at {company}. {detail}I am even more
+    interested in joining the team, and I am happy to share anything else that helps.\n\nKind
+    regards,\n{name}"
+reply_drafts:
+  # The draft answer under a reply ping (track/reply_draft.py), filled with your apply_pack
+  # answers; one sentence per question their mail asks. A Notion Config key reply.<name> wins.
+  # Placeholders: {first} {company} {role} {days} {name} and the answer named in each line.
+  greeting: "Hi {first},"
+  greeting_unknown: "Hello,"
+  thanks: "Thank you for your reply about the {role} role at {company}."
+  thanks_unknown: "Thank you for your reply."
+  call: "I would be glad to talk. I am available {interviews}, for example on {days}."
+  notice: "My notice period is {notice_period}."
+  salary: "On salary: {expected_salary}."
+  visa: "On the work permit: {permit}"
+  visa_unknown: "I need visa sponsorship: {sponsorship_needed}."
+  start: "Earliest start: {earliest_start}."
+  relocation: "On relocation: {relocation}."
+  closing: "Kind regards,\n{name}"
+learning:
+  # The learning plan under /gaps (screen/learning.py): each certificate and the skills it
+  # teaches, as job descriptions name them. The one covering gaps in the most jobs comes first.
+  certificates:
+    "Microsoft Azure Administrator (AZ-104)": [azure, aks, azure ad, entra id, arm templates,
+                                               bicep, azure monitor]
+    "Microsoft Azure DevOps Engineer Expert (AZ-400)": [azure devops, azure pipelines,
+                                                        azure repos, azure artifacts]
+    "Google Cloud Associate Cloud Engineer": [gcp, google cloud, gke, cloud run, bigquery,
+                                              cloud build]
+    "AWS Certified DevOps Engineer Professional": [codepipeline, codebuild, codedeploy,
+                                                   cloudformation, ecs, fargate, lambda,
+                                                   cloudwatch, systems manager]
+    "AWS Certified Solutions Architect Associate": [aws, ec2, s3, iam, vpc, rds, dynamodb,
+                                                    route 53, elb, sqs, sns, aurora]
+    "Certified Kubernetes Administrator (CKA)": [kubernetes, k8s, kubectl, etcd, kubeadm,
+                                                 openshift]
+    "Certified Kubernetes Security Specialist (CKS)": [kubernetes security, falco, opa,
+                                                       gatekeeper, kyverno, trivy, devsecops,
+                                                       container security]
+    "HashiCorp Terraform Associate": [terraform, terragrunt, infrastructure as code, iac, hcl]
+    "HashiCorp Vault Associate": [vault, hashicorp vault, secrets management]
+    "Red Hat Certified System Administrator (RHCSA)": [linux, rhel, red hat, centos, selinux,
+                                                       systemd, bash, shell scripting]
+    "Red Hat Certified Engineer, Ansible (RHCE)": [ansible, ansible tower, awx,
+                                                   configuration management]
+    "Prometheus Certified Associate (PCA)": [prometheus, promql, alertmanager, grafana,
+                                             observability, monitoring]
+    "Istio Certified Associate (ICA)": [istio, service mesh, envoy, linkerd]
+    "Certified Argo Project Associate (CAPA)": [argo cd, argocd, argo workflows,
+                                                argo rollouts, gitops, flux]
+    "GitHub Actions certification": [github actions]
+    "Datadog Fundamentals": [datadog]
+    "Elastic Certified Engineer": [elasticsearch, elk, elastic stack, logstash, kibana,
+                                   opensearch]
+agencies:
+  # Recruitment agencies channel (contacts/agencies.py, /agencies). Established recruiters with
+  # IT teams; each website checked on 10 Oct. Emails are never guessed: put one from the
+  # agency's website in Notion Config agency_email.<key> (key = name in lower case, spaces as _,
+  # for example agency_email.hays_poland). Without it you register on the website.
+  list:
+    - {name: Hays Poland, country: Poland, website: hays.pl, focus: IT and IT contracting}
+    - {name: Antal, country: Poland, website: antal.pl, focus: IT Services infrastructure team}
+    - {name: Michael Page Poland, country: Poland, website: michaelpage.pl,
+       focus: IT infrastructure and software}
+    - {name: Experis Poland, country: Poland, website: experis.pl,
+       focus: "IT recruitment, ManpowerGroup"}
+    - {name: Hays Netherlands, country: Netherlands, website: hays.nl,
+       focus: IT and IT contracting}
+    - {name: Undutchables, country: Netherlands, website: undutchables.nl,
+       focus: "international candidates, IT"}
+    - {name: Brunel Netherlands, country: Netherlands, website: brunel.net,
+       focus: "IT specialists, contract placement"}
+    - {name: Michael Page Netherlands, country: Netherlands, website: michaelpage.nl,
+       focus: IT and technology}
+    - {name: Sigmar Recruitment, country: Ireland, website: sigmarrecruitment.com,
+       focus: "IT, contracting hub"}
+    - {name: Cpl, country: Ireland, website: cpl.com, focus: Technology and IT}
+    - {name: Morgan McKinley, country: Ireland, website: morganmckinley.com/ie,
+       focus: Technology}
+    - {name: Hays Ireland, country: Ireland, website: hays.ie, focus: IT and technology}
+  # The intro mail, used word for word (Notion Config agency.intro wins). Placeholders:
+  # {agency} {country} {experience} {notice} {relocation} {permit} {name} {phone} {links}
+  intro: "Subject: DevOps Engineer open to relocate to {country}\n\nHello {agency} team,\n\nI
+    am a DevOps engineer ({experience}) working with Kubernetes, Terraform and AWS, and I am
+    looking for a DevOps, SRE or Platform Engineer role in {country}. {permit} {relocation}.
+    My notice period is {notice}.\n\nI attach my resume and would be glad to be considered
+    for current or upcoming roles with your clients.\n\nKind regards,\n{name}\n{phone}\n{links}"
+resume:
+  # Defaults; Notion Config keys with the same names (resume.fill_min, ...) win when set.
+  fill_min: 88
+  fill_max: 96
+  max_revisions: 5
+  gate_retries: 2
+  max_words_per_bullet: 8
+  max_words_total: 25
+  # Words allowed around a backed term in an inserted chunk (resume.gate.connector_words).
+  # One string: in a YAML list the word "on" would be read as true.
+  connector_words: "and with using for on in the a an via to of across including through into by
+    its their"
+  out_dir: out
+  # Per job (resume/header.py): the headline's first part becomes the job's title when it is
+  # one of these (your approved titles), and the relocation line names the job's place.
+  # Config keys resume.headline_titles and resume.relocation_template win when set.
+  headline_titles: "DevOps Engineer, Site Reliability Engineer, Platform Engineer, Cloud Engineer,
+    Infrastructure Engineer, Kubernetes Engineer"
+  # {place} = the job's city and country, {city}, {country}. One line in the resume: a "\n"
+  # (or " | ") separates the parts.
+  relocation_template: "Chennai, India | Open to relocate to {country}"
+contacts:
+  # Hunter's new credits come on this day of each month (hunter.io/usage, 23 Oct). Used for
+  # the leftover run (contacts/connection_lookup.py) when Hunter's answer has no reset date.
+  hunter_renewal_day: 23
+  # Where contacts must be (16 Oct, your choice "strict"): strict = only people a provider
+  # places in the job's country (Poland, Netherlands, Ireland); people outside it or with an
+  # unknown location are left out, even if a slot stays empty. country_first = people in the
+  # country first, then unknown, then outside. Remote/Other jobs have no country to check.
+  location: strict
+  # Which people (22 Oct, your rule): any = engineers, engineering or IT managers and HR in any
+  # mix up to the total (contacts.per_job, 4), the best first; mix = the fixed numbers of
+  # Config contacts.mix. Junior, intern, trainee and graduate titles are never taken.
+  roles: any
+  # AI contact search (Config contacts.ai_search = on): also LinkedIn profile results, read by
+  # their title in the search results only; LinkedIn is never opened (your decision, 22 Oct).
+  # Works with Claude's web search (model.people on Claude); Gemini gives no result titles.
+  ai_linkedin_titles: true
+  # Title patterns (lowercase regex), checked in this order. Anything else is Other.
+  title_patterns:
+    recruiter: "recruit|talent acquisition|sourcer|talent partner|people partner|hr business partner|rekrut|\\bhr\\b|human resources|people (operations|ops)|talent (manager|lead|specialist)|kadr"
+    hiring: "engineering manager|head of (devops|platform|infrastructure|cloud|sre|engineering)|director of (engineering|infrastructure|platform)|(devops|platform|infrastructure|sre|cloud) (team )?(lead|manager)|tech lead|team lead"
+    peer: "devops|site reliability|sre|platform engineer|cloud engineer|infrastructure engineer|systems engineer|kubernetes|release engineer|build engineer"
+  # Used when Config contacts.mix is missing or cannot be read.
+  default_mix: {peer: 2, hiring: 1, recruiter: 1}
+  cache_months: 6
+  personal_domains: [gmail.com, outlook.com, yahoo.com, hotmail.com, icloud.com, proton.me]
+  generic_mailboxes: [careers, jobs, hr, recruitment, talent, praca, rekrutacja]
+  # Never used as a company's email domain.
+  ats_hosts: [greenhouse.io, lever.co, smartrecruiters.com, myworkdayjobs.com, workday.com,
+              teamtailor.com, recruitee.com, personio.de]
+  # Title keywords sent to providers per slot type.
+  search_titles:
+    peer: [DevOps Engineer, Site Reliability Engineer, Platform Engineer, Cloud Engineer]
+    hiring: [Engineering Manager, Head of Platform, Head of DevOps, Infrastructure Manager]
+    recruiter: [Recruiter, Talent Acquisition, Technical Recruiter]
+  # Engineers from the company's public GitHub organisation (free; on when Notion Config
+  # contacts.github is "on"). At most this many member profiles are read per job.
+  github:
+    max_profiles: 20
+tracking:
+  # Gmail label names (Module 07). Labels are applied, never created: make them in Gmail.
+  labels:
+    replies: JobSearch/Replies
+    applications: JobSearch/Applications
+    interviews: JobSearch/Interviews
+  # Defaults; Notion Config tracking.min_confidence, followup.days, ghosted.days and
+  # contacts.retention_months win when set.
+  min_confidence: 0.8
+  followup_days: 7
+  ghosted_days: 14
+  # A contact who never answered becomes Status "Dead end" after this many mails (first mails
+  # and follow-ups, all jobs) and is never mailed again. Notion Config contacts.dead_end_after
+  # wins when set. Someone who answered (Contacts "Replied" ticked) is reused for new jobs.
+  dead_end_after: 5
+  retention_months: 12
+  # Instant reply ping (track/ping.py): the inbox is searched this often for replies from
+  # contacts and employers; each new one is sent to Telegram at once (no AI, no Notion write).
+  reply_check_minutes: 15
+  first_run_days: 14
+  overlap_days: 1
+  ats_sender_domains: [greenhouse.io, lever.co, smartrecruiters.com, myworkday.com, workday.com,
+                       teamtailor.com, recruitee.com, personio.de, successfactors.com, icims.com]
+  opt_out_phrases: ["do not contact", "remove me", "unsubscribe", "not interested, please stop",
+                    "nie kontaktuj"]
+strategy:
+  # Defaults; Notion Config strategy.max_tips and strategy.max_searches win.
+  max_tips: 8
+  max_searches: 8
+  # Myths that are logged as Rejected automatically (case-insensitive substring or regex).
+  reject_patterns:
+    - keyword stuffing
+    - stuff (the )?(resume|cv) with keywords
+    - (white|hidden|invisible) text
+    - ats score
+    - ats (checker|scanner|scoring tool)
+    - resume score
+    - (copy|paste|mirror)(ing)? the (whole|entire|full) job (description|posting|ad)
+    - fake experience
+    - (invent|fabricat|exaggerat)\w* (your |a )?(experience|skills?|titles?|metrics?)
+    - mass (apply|applying|applications?)
+    - same (cv|resume|mail|email|message) to (every|all|hundreds)
+    - tracking pixels?
+    - (email|mail) tracking
+    - read receipts?
+  # Similar tip text at or above this rapidfuzz ratio is a duplicate.
+  duplicate_ratio: 85
+drive:
+  resume_folder: Job Engine Resumes
+mail:
+  # Defaults; Notion Config keys mail.same_person_cooldown_days and mail.max_attachment_kb win.
+  same_person_cooldown_days: 30
+  max_attachment_kb: 250
+  # Mail mode send: a checked mail goes out only in the recipient's morning (the job's
+  # country); outside it the draft waits in /mailqueue and is sent by itself, one every few
+  # minutes, after the same checks. Notion Config mail.send_window = off sends at once.
+  # Mail warm-up (mail/warmup.py): the daily send cap per week of sending, from the first
+  # mail the bot sends. Notion Config mail.daily_send_cap is the ceiling; mail.warmup = off.
+  warmup:
+    steps: [10, 15, 20, 25, 30]
+  send_window:
+    enabled: true
+    days: [Mon, Tue, Wed, Thu, Fri]  # 27 Oct, your decision (was Tue to Thu)
+    start: "08:00"
+    end: "11:00"  # 5 Nov, the autopilot timetable (was 10:00): room for the daily cap
 sweep:
+  # LinkedIn alert jobs have no description (LinkedIn is never read). After each sweep the
+  # same company, title and country is looked up among the other sources' postings and its
+  # description is written to the LinkedIn row (sweep/crossmatch.py). At most max_pages
+  # job pages are read for it when the match has only a snippet.
+  crossmatch:
+    enabled: true
+    max_pages: 10
+  # Alert rows (LinkedIn, blocked boards, Adzuna) get the same job's own page on the company's
+  # site: the company job board first (free), else one AI web search (28 Oct, docs/sweep.md).
+  # Closed jobs leave the list in every /fetch (10 Nov, track/expired_check.py after_fetch):
+  # the /pending jobs first, plain page reads (no AI), each job again after recheck_days.
+  # LinkedIn links are never opened: a LinkedIn job counts as closed linkedin_days after
+  # it was posted.
+  # A company job board (Greenhouse, Lever, Ashby ...) seen in any job link is remembered
+  # and read in every /fetch with Target Companies (13 Nov, sweep/auto_boards.py): at most
+  # max boards, each kept days after it was last seen. Target Companies is not changed.
+  auto_boards:
+    enabled: true
+    max: 40
+    days: 60
+  link_check:
+    enabled: true
+    max_links: 150
+    recheck_days: 3
+    linkedin_days: 30
+    workers: 5
+  job_links:
+    enabled: true
+    max_rows: 40
+    # AI web searches per sweep: a company's careers page (remembered 60 days) or one job.
+    max_searches: 40
+    # Careers pages built by JavaScript are opened in a browser, at most this many per
+    # sweep (2 per job), when Playwright is installed (in every Docker build since 30 Oct).
+    # Only short pages are opened: a long page is not one that JavaScript fills in.
+    browser: true
+    max_rendered: 40
+    # Companies looked up at the same time (your idea of 30 Oct): searches and page reads
+    # are mostly waiting. All jobs of one company stay on one worker.
+    workers: 3
+  # Network work done at the same time: the sources, careers pages, job boards and job
+  # pages. Notion writes stay at about 3 per second whatever this is.
+  workers: 8
+  # Old job descriptions rewritten tidy (no HTML tags, no words cut in two), a batch per
+  # /fetch, until every old page is done. On in local and dev only: prod pages are written
+  # tidy from the start (2 Nov, your decision).
+  tidy_bodies:
+    enabled: false
+    max_pages: 60
+  # A source still running after this many minutes is left out of that /fetch (the summary
+  # says so; the next /fetch reads it again), so one slow source never holds up the rest.
+  source_minutes: 10
+  # At most this many NEW jobs are saved per day (all sweeps together); 0 = no limit.
+  # Your decision of 30 Sep: every job that passes the rules is saved (none is lost to a
+  # daily limit). New postings are ranked by a free match score (sweep/rank.py, no LLM) and
+  # screening takes the best screening.daily_limit (50) first: today's /pending list.
+  daily_new_limit: 0
+  # Your decision of 23 Oct: Poland, the Netherlands and Ireland only, office or hybrid only.
+  # remote_jobs: false leaves out a job whose place or title is remote ("Warsaw (Remote)")
+  # or whose description says fully remote, unless it also names hybrid or office work.
+  # remote_regions (kept as Country Other, City Remote) is empty: no "Remote, EU" jobs.
+  remote_jobs: false
+  remote_regions: []
   # Title filters (section 4). Matched as whole words on the canonical (lowercase ASCII) title.
   title_include:
     - devops
@@ -39,6 +482,13 @@ sweep:
     - devsecops
     - cloud ops
     - cloudops
+    # 13 Nov (fetch idea 5): Polish titles for cloud and platform jobs ("Inżynier ds.
+    # chmury", "Inżynier platformy chmurowej"); DevOps, SRE and Kubernetes titles are the
+    # same words in Polish and Dutch.
+    - chmury
+    - chmurowy
+    - chmurowej
+    - inzynier platformy
   title_exclude:
     - lead
     - principal
@@ -47,22 +497,67 @@ sweep:
     - manager
     - architect
     - staff
+    - vp
+    - vice president
     - intern
     - internship
     - student
+    # 10 Oct: "systems engineer" above also matched engineering jobs outside IT (ABB "Power
+    # Systems Engineer"). These name the other field.
+    - power systems
+    # 13 Nov: the same in Polish, for the Polish titles searched since then (manager,
+    # director, architect, lead, intern).
+    - kierownik
+    - dyrektor
+    - architekt
+    - lider
+    - praktykant
+    - stazysta
+    - staz
+    - control systems
+    - embedded
+    - electrical
+    - mechanical
+    - hvac
+    # Phase 23 2-05 (8 Nov): Intel "Facilities Industrial Waste Systems Engineer".
+    - facilities
+    - industrial
+    - waste
   # Country -> names and cities. City keys are the display names written to Notion;
   # aliases are canonical (lowercase ASCII, as produced by normalize.canon).
   locations:
     Poland:
       names: [poland, polska]
       cities:
-        Warszawa: [warszawa, warsaw]
-        Kraków: [krakow, cracow]
-        Wrocław: [wroclaw]
-        Poznań: [poznan]
-        Gdańsk: [gdansk]
-        Łódź: [lodz]
+        # LinkedIn sometimes names the county around the city ("Krakowski (Hybrid)", 8 Oct).
+        Warszawa: [warszawa, warsaw, warszawski]
+        Kraków: [krakow, cracow, krakowski]
+        Wrocław: [wroclaw, wroclawski]
+        Poznań: [poznan, poznanski]
+        Gdańsk: [gdansk, gdanski]
+        Łódź: [lodz, lodzki]
         Katowice: [katowice]
+        Gdynia: [gdynia]
+        Lublin: [lublin]
+        Szczecin: [szczecin]
+        Bydgoszcz: [bydgoszcz]
+        Białystok: [bialystok]
+        Rzeszów: [rzeszow]
+        Gliwice: [gliwice]
+        Toruń: [torun]
+        Opole: [opole]
+        Kielce: [kielce]
+        Olsztyn: [olsztyn]
+        Bielsko-Biała: [bielsko biala]
+        Sopot: [sopot]
+        Częstochowa: [czestochowa]
+        Radom: [radom]
+        Zielona Góra: [zielona gora]
+        Tychy: [tychy]
+        Zabrze: [zabrze]
+        Sosnowiec: [sosnowiec]
+        Mysłowice: [myslowice]
+        Dąbrowa Górnicza: [dabrowa gornicza]
     Netherlands:
       names: [netherlands, nederland]
       cities:
@@ -72,6 +567,50 @@ sweep:
         Rotterdam: [rotterdam]
         Den Haag: [den haag, the hague, s gravenhage]
         Eindhoven: [eindhoven]
+        Almere: [almere]
+        Alkmaar: [alkmaar]
+        Leeuwarden: [leeuwarden]
+        Zeist: [zeist]
+        Delft: [delft]
+        Leiden: [leiden]
+        Haarlem: [haarlem]
+        Hoofddorp: [hoofddorp, schiphol]
+        Groningen: [groningen]
+        Nijmegen: [nijmegen]
+        Arnhem: [arnhem]
+        Breda: [breda]
+        Den Bosch: [den bosch, s hertogenbosch]
+        Tilburg: [tilburg]
+        Zwolle: [zwolle]
+        Enschede: [enschede]
+        Hilversum: [hilversum]
+        Amersfoort: [amersfoort]
+        Apeldoorn: [apeldoorn]
+        Veenendaal: [veenendaal]
+        Maastricht: [maastricht]
+        Deventer: [deventer]
+        Nieuwegein: [nieuwegein]
+        # Added 6 Oct (Dronten was "place not recognised" in the Phase 4 /fetch).
+        Dronten: [dronten]
+        Lelystad: [lelystad]
+        Veldhoven: [veldhoven]
+        Son en Breugel: [son en breugel]
+        Helmond: [helmond]
+        Capelle aan den IJssel: [capelle aan den ijssel]
+        Rijswijk: [rijswijk]
+        Zoetermeer: [zoetermeer]
+        Diemen: [diemen]
+        Houten: [houten]
+        Woerden: [woerden]
+        Ede: [ede]
+        Wageningen: [wageningen]
+        Gouda: [gouda]
+        Dordrecht: [dordrecht]
+        Heerlen: [heerlen]
+        Venlo: [venlo]
+        Hengelo: [hengelo]
+        Oss: [oss]
+        Harderwijk: [harderwijk]
     Ireland:
       names: [ireland]
       cities:
@@ -79,8 +618,25 @@ sweep:
         Cork: [cork]
         Galway: [galway]
         Limerick: [limerick]
+        Waterford: [waterford]
+        Wicklow: [wicklow]
+        Kildare: [kildare, naas, maynooth]
+        Athlone: [athlone]
+        Sligo: [sligo]
+        Kerry: [kerry, tralee, killarney]
+        Shannon: [shannon]
+        Letterkenny: [letterkenny]
+        Dundalk: [dundalk]
+        Drogheda: [drogheda]
+        Kilkenny: [kilkenny]
+        Carlow: [carlow]
   gmail:
-    query: "newer_than:2d -in:spam -in:trash from:(linkedin.com OR justjoin.it OR nofluffjobs.com OR pracuj.pl OR theprotocol.it OR bulldogjob.pl OR indeed.com OR iamexpat.nl OR nationalevacaturebank.nl OR irishjobs.ie OR jobs.ie OR jobsireland.ie)"
+    # Alert emails read on each /fetch: those with this Gmail label (put every job alert under
+    # it with Gmail filters), plus those from a sender domain in sender_boards below, from the
+    # last `days` days. The label works whatever address a board sends from. A `query` key,
+    # when set, replaces the whole search.
+    label: "Job Alerts"
+    days: 2
     max_messages: 100
     # Sender domain (or parent domain) -> Board option in Job Opportunities.
     sender_boards:
@@ -96,6 +652,33 @@ sweep:
       irishjobs.ie: IrishJobs.ie
       jobs.ie: Jobs.ie
       jobsireland.ie: JobsIreland
+      # 23 Oct: more boards for your alerts (Poland, the Netherlands, Ireland)
+      glassdoor.com: Glassdoor
+      glassdoor.nl: Glassdoor
+      glassdoor.ie: Glassdoor
+      glassdoor.co.uk: Glassdoor
+      solid.jobs: Solid.Jobs
+      rocketjobs.pl: RocketJobs
+      welcometothejungle.com: Welcome to the Jungle
+      monsterboard.nl: Monsterboard
+      recruitireland.com: Recruit Ireland
+    # Boards that only list one country's jobs: that country is used when a card names only a
+    # city, or no place at all. LinkedIn and Indeed list every country, so they are not here.
+    board_country:
+      JustJoin IT: Poland
+      NoFluffJobs: Poland
+      Pracuj.pl: Poland
+      theprotocol.it: Poland
+      Bulldogjob: Poland
+      IrishJobs.ie: Ireland
+      Jobs.ie: Ireland
+      JobsIreland: Ireland
+      IamExpat: Netherlands
+      Nationale Vacaturebank: Netherlands
+      Solid.Jobs: Poland
+      RocketJobs: Poland
+      Monsterboard: Netherlands
+      Recruit Ireland: Ireland
     # Board -> job link pattern. The last capturing group is the posting ID.
     # These are only used to recognise links inside emails; links are never requested.
     job_url_patterns:
@@ -103,6 +686,28 @@ sweep:
       JustJoin IT: 'justjoin\.it/(job-offer|offers)/([\w-]+)'
       NoFluffJobs: 'nofluffjobs\.com/(pl/)?job/([\w-]+)'
       Pracuj.pl: 'pracuj\.pl/praca/.*,oferta,(\d+)'
+    # Order of the first lines when one link holds the whole job card (default: title, then
+    # "Company · Place"). JustJoin IT cards start with the company and the city.
+    card_layouts:
+      JustJoin IT: [company, place, title]
+      # Glassdoor (8 Nov): company, rating (dropped), title, place.
+      Glassdoor: [company, title, place]
+    # Whole link texts that are never job titles (IrishJobs puts "more" under every card).
+    ignore_link_exact:
+      - more
+      - new
+      - contact us
+      - change criteria for jobs by email
+      - see all matching jobs
+      - show job offers
+      # Indeed "match" emails (8 Oct): feedback buttons, not job titles
+      - view job
+      - view jobs
+      - this is a bad match
+      - this is a good match
+      - 'yes'
+      - 'no'
+      - not interested
     # Anchor texts that are never job titles (generic fallback for other boards).
     ignore_link_texts:
       - unsubscribe
@@ -119,6 +724,23 @@ sweep:
       - download
       - app store
       - google play
+      # Polish buttons (Pracuj.pl, theprotocol.it, JustJoin IT)
+      - zobacz
+      - ustawienia
+      - wypisz
+      - zrezygnuj
+      - prywatno
+      - pomoc
+      - zaloguj
+  # New jobs are only saved when their posting is at most this many days old: 0 is today
+  # only, 1 today and yesterday, 2 the last 3 days (a job posted after a /fetch is not lost).
+  # Jobs without a posted date are kept. Rows already in Notion are still updated.
+  max_posted_age_days: 2
+  # Skill match: of the tools a new job names (your Skills Inventory and Term Map, plus the
+  # common tools in sweep/rank.py), at least this share must be yours, or it is not saved.
+  # Jobs naming fewer than min_skill_terms tools are kept (too little to judge).
+  min_skill_match: 0.6
+  min_skill_terms: 4
   adzuna:
     countries: [pl, nl]
     # Adzuna results carry no currency field; each country endpoint reports salaries
@@ -128,9 +750,105 @@ sweep:
       nl: EUR
     results_per_page: 50
     max_days_old: 3
-    what_or: "devops sre kubernetes platform cloud infrastructure"
-    max_calls_per_run: 6
+    what_or: "devops sre kubernetes platform cloud infrastructure devsecops"
+    # 13 Nov (fetch idea 5): the country's own words, added to what_or for that country.
+    what_or_local:
+      pl: "chmury chmurowy"
+    max_calls_per_run: 12
   ats:
+    # Company career sites list only jobs that are still open: their new jobs are saved when
+    # posted in the last this many days (your decision of 5 Oct), not only the last 3 days.
+    max_posted_age_days: 20
+    # SmartRecruiters detail calls per run (each gives one full description).
     max_detail_calls: 20
-  # Company name -> {ats, token} for companies whose careers URL is their own domain.
-  ats_boards: {}
+    # Workday: one search per term (20 results each), then a detail call per kept posting.
+    workday_detail_calls: 40
+    workday_pages_per_term: 1
+    # Searches for boards too big to read whole (Workday, amazon.jobs).
+    search_terms: [devops, site reliability, sre, platform engineer, cloud engineer, kubernetes,
+                   infrastructure engineer, devsecops]
+    # Companies whose careers URL is their own site: the careers page is read to find the
+    # ATS it links to. Cached in bot_state "ats.detected" and checked again after this long.
+    detect_every_days: 7
+    max_detect_per_run: 25
+    # Companies with their own job site and no public job list /fetch can read (board
+    # checks of 5 Oct; your choice C): they stay in Target Companies for contacts and
+    # referrals, their jobs come from your alerts, and the sweep neither looks for their job
+    # board nor lists them under "No job board found" (one count line instead). Names
+    # without the country suffix: "Infosys" covers Infosys, Infosys (IE) and Infosys (NL).
+    # A company whose Careers URL is a readable board is read anyway.
+    own_site_companies: [Google, Meta, Apple, IBM, Microsoft, Infosys, TCS,
+                         Tata Consultancy Services (TCS), Tech Mahindra, LTIMindtree,
+                         Cognizant, Ericsson, Booking.com, ASML, EPAM Systems, Comarch,
+                         Asseco Poland, Samsung R&D, bunq, Uber, Version 1, Brainly, KPMG,
+                         UBS, Revolut, Rabobank, Goldman Sachs, ABN AMRO, SAP, HSBC,
+                         Deloitte, HubSpot]
+    # C4 (26 Oct): Microsoft and Ericsson use Eightfold career sites (ats_boards below).
+    # --check-boards always tries them; /fetch reads them only when this is true (set it
+    # after --check-boards shows jobs for them).
+    eightfold_in_fetch: false
+  # Company name -> {ats, token} for companies whose careers URL is their own domain and whose
+  # board is not found automatically. Workday also needs host and site; Eightfold needs host
+  # (the career site) and token (the company's domain in its links).
+  ats_boards:
+    Microsoft: {ats: eightfold, token: microsoft.com, host: apply.careers.microsoft.com}
+    Microsoft (IE): {ats: eightfold, token: microsoft.com, host: apply.careers.microsoft.com}
+    Microsoft (NL): {ats: eightfold, token: microsoft.com, host: apply.careers.microsoft.com}
+    Ericsson (IE): {ats: eightfold, token: ericsson.com, host: jobs.ericsson.com}
+  # Jooble job search (needs JOOBLE_API_KEY, free): many job boards, Ireland included.
+  # One call per country and term, results_per_page each.
+  jooble:
+    enabled: true
+    countries: [Ireland, Poland, Netherlands]
+    search_terms: [devops engineer, site reliability engineer, platform engineer, cloud engineer,
+                   kubernetes engineer, infrastructure engineer, devsecops engineer]
+    # 13 Nov (fetch idea 5): Polish job titles, searched in Poland only. Dutch postings use the
+    # English titles above; a job that needs Polish or Dutch is still left out (language).
+    local_terms:
+      Poland: [inżynier devops, specjalista devops, inżynier ds. chmury, administrator chmury]
+    results_per_page: 50
+  # NoFluffJobs (FETCH 4, sweep/sources/nofluffjobs.py): the public search page, newest first,
+  # `pages` pages per search term, one request a second, robots.txt respected. Poland only.
+  nofluffjobs:
+    enabled: true
+    search_terms: [devops engineer, site reliability engineer, platform engineer, cloud engineer,
+                   kubernetes engineer, infrastructure engineer, devsecops engineer]
+    pages: 2
+  # IamExpat (FETCH 7, sweep/sources/iamexpat.py): the IT and technology jobs page (its search
+  # box ignores the search word), newest 20 jobs, one request a sweep, robots.txt respected.
+  # Netherlands only; titles outside the target roles are dropped by normalize.
+  iamexpat:
+    enabled: true
+  # Full descriptions (sweep/fulltext.py): the job page is read for new jobs near the top of
+  # today's list that only have a snippet or nothing. Plain GET, no login or cookies, public
+  # https hosts only, never linkedin, at most 3 MB a page.
+  fulltext:
+    enabled: true
+    # Jobs read beyond today's room (daily_new_limit minus jobs already added), so a job whose
+    # full text matches better can still move into the best 50.
+    lookahead: 15
+    # 20 Oct: 45 -> 65 with the screening limit of 50, so the best 50 (plus the lookahead)
+    # are read before ranking.
+    max_pages: 65
+    # Jobs about to be saved whose page the rounds above never reached are read too (at most
+    # this many), so no saved job is left without a description (Pracuj.pl alerts, 7 Oct).
+    saved_max_pages: 30
+    # Saved Unscreened rows with no description get their page read after each sweep (at
+    # most this many), so jobs saved before PR #97 can still be screened (8 Oct).
+    backfill_pages: 20
+    # Sites that answer HTTP 403 to the bot (probe and /fetch, 8 Oct): never opened, not even
+    # through an alert's tracking link. Their jobs come from alert emails and wait for /jd.
+    # 10 Oct: justjoin.it and theprotocol.it added; their terms forbid automatic downloading
+    # (JustJoin IT 11.3) and copying their database (theprotocol.it IV.3d). Their alert jobs
+    # get the description from the same job on another site (sweep/crossmatch.py).
+    # 23 Oct: the new alert boards are never opened either until their terms are checked
+    # (Glassdoor's terms forbid scraping; RocketJobs is JustJoin IT's sister site).
+    # 16 Nov: "glassdoor.*" is Glassdoor in every country (a glassdoor.co.in link was opened).
+    blocked_hosts: [pracuj.pl, irishjobs.ie, jobs.ie, justjoin.it, theprotocol.it,
+                    glassdoor.com, glassdoor.nl, glassdoor.ie, glassdoor.co.uk, glassdoor.*,
+                    solid.jobs,
+                    rocketjobs.pl, welcometothejungle.com, monsterboard.nl, recruitireland.com]
+    # gmail: the job links in alert emails (JustJoin IT, NoFluffJobs, Pracuj.pl, ...) are
+    # followed to the real job page, whose link and full description are kept. LinkedIn is
+    # never read, whatever this says.
+    sources: [adzuna, ats, jooble, nofluffjobs, iamexpat, gmail]

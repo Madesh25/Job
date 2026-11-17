@@ -1,0 +1,7 @@
+{
+  "questions": [
+    {"q": "How did you build the EKS platform at your last job?", "hint": "Describe the Terraform modules for EKS and the Argo CD rollout you ran at Xerago."},
+    {"q": "How do you monitor Kubernetes workloads?", "hint": "Prometheus alerts and dashboards you set up for the EKS clusters."},
+    {"q": "Have you used Azure?", "hint": "Yes, Azure AKS in production."}
+  ]
+}

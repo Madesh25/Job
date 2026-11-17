@@ -16,12 +16,29 @@ dependencies = [
     "beautifulsoup4",
     "google-api-python-client",
     "google-auth",
+    "anthropic>=1.0,<2",
+    "rapidfuzz",
+    "weasyprint",
+    "pdfplumber",
+    "openpyxl",  # Excel lists (Irish permits by company, ie_permits.py)
+    "fastapi",
+    "uvicorn",
+    "tzdata",  # time zones for the scheduled /autopilot (the slim image has none)
 ]
 
 [project.optional-dependencies]
 dev = [
     "pytest",
     "ruff",
+]
+# Only where the auto-apply dry run runs (/dryrun, apply/form_bot.py); then once:
+# python -m playwright install chromium
+formbot = [
+    "playwright",
+]
+# Only for python -m jobengine.gmail_auth on your machine (not a runtime dependency).
+auth = [
+    "google-auth-oauthlib",
 ]
 
 [tool.setuptools.packages.find]
@@ -37,3 +54,8 @@ select = ["E", "F", "W", "I", "B", "UP"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]
+markers = [
+    "render: renders a PDF with WeasyPrint (needs Pango and the Lato font)",
+    "posting_age: keeps the sweep.max_posted_age_days filter on (tests/conftest.py)",
+    "skill_match: keeps the sweep.min_skill_match check on (tests/conftest.py)",
+]

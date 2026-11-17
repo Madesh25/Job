@@ -1,0 +1,148 @@
+"""Careers pages built by JavaScript, read in a browser (30 Oct, Phase 18).
+
+Many careers pages (Cognizant, Emerging Travel Group, ...) send an empty page and fill in
+the jobs with JavaScript: your browser shows the jobs, a plain page read gets none. When
+Playwright is installed (every Docker build since 30 Oct; the same browser /dryrun
+uses), the direct job link search opens such a page in a headless browser instead.
+
+The browser is guarded like the form bot's: plain GETs to public https hosts only, never
+LinkedIn, no login, nothing sent. A site that refuses the bot (HTTP 403, a captcha) is left
+alone: this reads pages that work in any browser, it does not get around a block.
+"""
+
+from __future__ import annotations
+
+import importlib.util
+import logging
+import re
+import threading
+from concurrent.futures import ThreadPoolExecutor
+from typing import Any
+from urllib.parse import urljoin
+
+from jobengine import http, safety
+from jobengine.settings import Settings
+
+log = logging.getLogger("jobengine.sweep")
+
+DEFAULT_MAX_PAGES = 40  # pages opened in the browser per sweep (sweep.job_links.max_rendered)
+LOAD_MS = 20_000
+SETTLE_MS = 8_000  # time for the jobs list to appear after the page loaded
+
+
+def available() -> bool:
+    return importlib.util.find_spec("playwright") is not None
+
+
+MAX_FRAMES = 5
+HREF = re.compile(r"""href=(["'])([^"']*)\1""", re.I)
+
+
+def _frames(page: Any) -> str:
+    """The jobs list shown in a box from another site (an iframe: Recruitee, Homerun,
+    Personio widgets, 4 Nov) is a page of its own: its HTML is added after the page's."""
+    out = []
+    for frame in page.frames[1:MAX_FRAMES + 1]:
+        try:
+            base = frame.url
+            # The box's own links are relative to the box's site, not to the careers page.
+            html = HREF.sub(lambda m, base=base: (f"href={m.group(1)}"
+                                                  f"{urljoin(base, m.group(2))}{m.group(1)}"),
+                            frame.content())
+            out.append(f"\n<!-- frame {http.safe_url(base)} -->\n{html}")
+        except Exception as exc:  # a frame that went away
+            log.info("frame not read: %s", str(exc)[:80])
+    return "".join(out)
+
+
+class Renderer:
+    """url -> (final url, html after JavaScript ran). Opens one browser for the whole sweep,
+    on first use; close() ends it. The browser lives on its own thread: Playwright works
+    only on the thread that started it, and the link search runs on several (one page
+    at a time is opened, the other workers go on reading plain pages meanwhile)."""
+
+    def __init__(self, s: Settings, left: int = DEFAULT_MAX_PAGES):
+        self.s = s
+        self.left = left
+        self._playwright: Any = None
+        self._browser: Any = None
+        self._thread = ThreadPoolExecutor(max_workers=1, thread_name_prefix="browser")
+        self._lock = threading.Lock()
+        self._seen: dict[str, Any] = {}  # url -> (final, html) or the HttpError, this sweep
+
+    def has(self, url: str) -> bool:
+        """The page was opened in this sweep already (its answer is kept: no new page)."""
+        with self._lock:
+            return url in self._seen
+
+    def __call__(self, url: str) -> tuple[str, str]:
+        with self._lock:
+            # One page once per sweep (4 Nov: CGI's, Apple's and Prism's careers pages were
+            # opened again for each of their jobs and the 80 pages ran out halfway).
+            if url in self._seen:
+                answer = self._seen[url]
+                if isinstance(answer, http.HttpError):
+                    raise answer
+                return answer
+            if self.left <= 0:
+                raise http.HttpError("page not rendered: the browser budget of this sweep is "
+                                     "used")
+            self.left -= 1
+        try:
+            safety.assert_page_fetch_allowed(url, self.s)
+        except safety.SafetyError as exc:
+            raise http.HttpError(f"page not rendered: {exc}") from None
+        try:
+            answer = self._thread.submit(self._open, url).result()
+        except http.HttpError as exc:
+            with self._lock:
+                self._seen[url] = exc
+            raise
+        with self._lock:
+            self._seen[url] = answer
+        return answer
+
+    def _open(self, url: str) -> tuple[str, str]:
+        """On the browser thread."""
+        from jobengine.apply import form_bot
+
+        if self._browser is None:
+            from playwright.sync_api import sync_playwright
+
+            self._playwright = sync_playwright().start()
+            self._browser = form_bot._launch(self._playwright)
+        page = self._browser.new_page()
+        try:
+            refused: list[str] = []
+            page.route("**/*", form_bot._guard(self.s, refused))
+            answer = page.goto(url, wait_until="domcontentloaded", timeout=LOAD_MS)
+            if answer is not None and answer.status >= 400:
+                raise http.HttpError(f"page not rendered: HTTP {answer.status}", answer.status)
+            try:
+                page.wait_for_load_state("networkidle", timeout=SETTLE_MS)
+            except Exception:  # a page that keeps loading: use what is there
+                log.info("page still loading after %d ms: %s", SETTLE_MS, http.safe_url(url))
+            return page.url, page.content() + _frames(page)
+        except http.HttpError:
+            raise
+        except Exception as exc:
+            raise http.HttpError(f"page not rendered: {str(exc)[:120]}") from None
+        finally:
+            page.close()
+
+    def close(self) -> None:
+        try:
+            self._thread.submit(self._close).result()
+        finally:
+            self._thread.shutdown(wait=False)
+
+    def _close(self) -> None:
+        """On the browser thread."""
+        try:
+            if self._browser is not None:
+                self._browser.close()
+            if self._playwright is not None:
+                self._playwright.stop()
+        except Exception:  # closing never fails a sweep
+            log.exception("browser not closed")
+        self._browser = self._playwright = None

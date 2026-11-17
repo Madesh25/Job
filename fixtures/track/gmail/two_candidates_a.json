@@ -1,0 +1,16 @@
+{
+ "thread_id": "t-fjord-a",
+ "messages": [
+  {
+   "id": "m-fjord-a",
+   "when": "2026-10-06T09:00:00+00:00",
+   "from": "no-reply@teamtailor.com",
+   "subject": "Fjord Data: application received",
+   "text": "We received your application to Fjord Data for Cloud Engineer.",
+   "labels": [
+    "INBOX"
+   ],
+   "headers": {}
+  }
+ ]
+}

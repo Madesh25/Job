@@ -3,36 +3,94 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import Callable, Iterable, Mapping
-from dataclasses import dataclass
+from collections.abc import Callable, Iterable
+from dataclasses import dataclass, replace
 from datetime import date
+from typing import Any
 
 from jobengine import http
-from jobengine.notion_repo import JobsRepo, NotionClient, NotionReader, jobs_repo_for
+from jobengine.config_store import ConfigStore
+from jobengine.notion_repo import (
+    JobsRepo,
+    NotionClient,
+    NotionReader,
+    jobs_repo_for,
+    select_filter,
+)
+from jobengine.parallel import run_all
+from jobengine.reference import Reference
 from jobengine.safety import notion_write_target
+from jobengine.screen.visa import AGENCY, AGENCY_IE, agency_by_name, agency_flag
 from jobengine.settings import Settings
-from jobengine.sweep import fakes
+from jobengine.sweep import (
+    auto_boards,
+    backfill,
+    best,
+    company_details,
+    crossmatch,
+    discover,
+    fakes,
+    filter_watch,
+    fit,
+    fulltext,
+    inbox_tidy,
+    job_links,
+    tidy_bodies,
+)
 from jobengine.sweep.dedupe import IndexRow, create_plan, description_blocks, update_plan
 from jobengine.sweep.gate import strategy_gate
-from jobengine.sweep.models import Job, Skipped, SourceResult, SweepSummary, TargetCompany
+from jobengine.sweep.models import (
+    ALREADY,
+    KEPT_BUCKETS,
+    MERGED,
+    SAVED,
+    SKIP_WORDS,
+    Job,
+    Skipped,
+    SourceResult,
+    SweepSummary,
+    TargetCompany,
+)
 from jobengine.sweep.normalize import (
     Rules,
-    detect_location,
+    index_key,
     normalize,
     parse_active_countries,
+    place,
+    place_allowed,
+    remote_only,
+    senior_in_text,
     title_scope,
+    variant_key,
 )
-from jobengine.sweep.sources import adzuna, ats, gmail_alerts
+from jobengine.sweep.rank import Ranker
+from jobengine.sweep.sources import adzuna, ats, gmail_alerts, iamexpat, jooble, nofluffjobs
+from jobengine.track import day_ledger, expired_check
 
 log = logging.getLogger("jobengine.sweep")
 
-SOURCES = ("gmail", "adzuna", "ats")
+SOURCES = ("gmail", "adzuna", "jooble", "nofluffjobs", "iamexpat", "ats")
+# A source still running after this is left out of the /fetch (sweep.source_minutes): one
+# slow source no longer holds up the others (30 Oct: /fetch hung until /end).
+DEFAULT_SOURCE_MINUTES = 10
 Prefilter = Callable[[str, str], bool]
 Progress = Callable[[str], None]
 
 # Plain names for the Telegram messages.
-SOURCE_LABELS = {"gmail": "Email alerts", "adzuna": "Adzuna", "ats": "Company career sites"}
+SOURCE_LABELS = {"gmail": "Email alerts", "adzuna": "Adzuna", "jooble": "Jooble",
+                 "nofluffjobs": "NoFluffJobs", "iamexpat": "IamExpat",
+                 "ats": "Company career sites"}
 PROGRESS_EVERY = 25
+# bot_state key read by /sources and /health (Module 07).
+LAST_SUMMARY = "sweep.last_summary"
+LAST_REPORT = "sweep.last_report"  # the loss report of the last sweep, for /fetchreport
+TOO_OLD = "posted too long ago"
+OTHER_CITY = "same job in another city"
+DAILY_LIMIT = "over the daily limit (weaker match)"
+NOT_WRITTEN = "Notion refused the row"
+# bot_state key for the daily new-job limit: {"date": "2026-09-27", "count": 12}.
+DAY_KEY = "sweep.day"
+DEFAULT_DAILY_NEW_LIMIT = 30
 
 
 class SweepError(Exception):
@@ -43,18 +101,37 @@ class SweepError(Exception):
 class SweepDeps:
     """Everything a sweep reads from or writes to. Real and fake versions below."""
 
-    config: Callable[[], Mapping[str, str]]
+    config: Callable[[], ConfigStore]
     companies: Callable[[], list[TargetCompany]]
     repo: JobsRepo | None  # None means no write target: DRY RUN, nothing is written
     gmail: Callable[[], SourceResult]
     adzuna: Callable[[], SourceResult]
-    ats: Callable[[list[TargetCompany], Prefilter], SourceResult]
+    # (companies, keep, bot_state) -> postings; bot_state caches the detected boards.
+    ats: Callable[..., SourceResult]
+    # Skills Inventory, Term Map and Target Companies for the free match score.
+    reference: Callable[[], Reference] | None = None
+    # Reads one job page for its full description (url -> (final url, html)).
+    page: fulltext.PageGetter | None = None
+    jooble: Callable[[], SourceResult] = lambda: SourceResult(name="jooble")
+    nofluffjobs: Callable[[], SourceResult] = lambda: SourceResult(name="nofluffjobs")
+    iamexpat: Callable[[], SourceResult] = lambda: SourceResult(name="iamexpat")
+    # (repo, config, state, today, boards, with_body, progress, companies) ->
+    # job_links.Result: the alert rows' own links on the company's site (28 Oct). None: not
+    # looked up. `companies`: Target Companies, whose Careers URL is used first (30 Oct).
+    links: Callable[..., Any] | None = None
+    # (config, state, today, progress) -> company_details.Result: the empty columns of the
+    # Target Companies rows the bot added (5 Nov). None: not filled.
+    details: Callable[..., Any] | None = None
+    # Opens a job link for the closed-job check of each /fetch (10 Nov). None: no check.
+    closed_page: fulltext.PageGetter | None = None
 
 
-def fake_deps(s: Settings) -> SweepDeps:
-    """Fixtures for every source and an in-memory Job Opportunities. No network."""
+def fake_deps(s: Settings, repo: JobsRepo | None = None) -> SweepDeps:
+    """Fixtures for every source and an in-memory Job Opportunities. No network.
+    `repo` lets the fake bot share one in-memory Job Opportunities with screening."""
     get = fakes.FixtureHttp(s)
-    repo = fakes.jobs_repo() if notion_write_target("job_opportunities", s) else None
+    if repo is None and notion_write_target("job_opportunities", s):
+        repo = fakes.jobs_repo()
     if repo is None:
         log.warning("DRY RUN: would write to job_opportunities")
     return SweepDeps(
@@ -63,7 +140,13 @@ def fake_deps(s: Settings) -> SweepDeps:
         repo=repo,
         gmail=lambda: gmail_alerts.fetch(s, load_messages=fakes.gmail_messages),
         adzuna=lambda: adzuna.fetch(s, get=get),
-        ats=lambda companies, keep: ats.fetch(s, companies, keep, get=get),
+        ats=lambda companies, keep, state=None: ats.fetch(
+            s, companies, keep, get=get, post=get.post, page=get.page, state=state,
+            today=fakes.FAKE_TODAY),
+        reference=Reference.fake,
+        page=get.page,
+        # Jooble has its own tests; the fake sweep keeps its counts without it.
+        jooble=lambda: SourceResult(name="jooble"),
     )
 
 
@@ -74,13 +157,89 @@ def real_deps(s: Settings) -> SweepDeps:
     client = NotionClient(s.notion_token, s)
     reader = NotionReader(client, s)
     return SweepDeps(
-        config=reader.config,
+        config=lambda: ConfigStore.load(client, s),
         companies=reader.target_companies,
         repo=jobs_repo_for(s, client),
         gmail=lambda: gmail_alerts.fetch(s),
         adzuna=lambda: adzuna.fetch(s),
-        ats=lambda companies, keep: ats.fetch(s, companies, keep),
+        ats=lambda companies, keep, state=None: ats.fetch(s, companies, keep, state=state),
+        reference=lambda: Reference.load(client, s),
+        # JSON only for Oracle's job details call (sweep/fulltext.py from_api).
+        page=lambda url: http.get_page(url, s=s, blocked=fulltext.blocked_hosts(s),
+                                       accept_json=fulltext.API_PATH in url),
+        jooble=lambda: jooble.fetch(s),
+        nofluffjobs=lambda: nofluffjobs.fetch(s),
+        iamexpat=lambda: iamexpat.fetch(s),
+        links=lambda *args: _find_links(s, *args),
+        details=lambda *args: _fill_details(s, client, *args),
+        closed_page=lambda url: http.get_page(url, s=s, blocked=fulltext.blocked_hosts(s)),
     )
+
+
+def _fill_details(s: Settings, client: NotionClient, config: ConfigStore, state: Any,
+                  today: date, progress: Progress) -> Any:
+    """The empty columns of the Target Companies rows the bot added, filled by one AI web
+    search each (sweep/company_details.py)."""
+    from jobengine.ind_register import load_register
+    from jobengine.llm import make_llm
+    from jobengine.notion_repo import company_adder
+    from jobengine.safety import llm_allowed
+    from jobengine.sweep import company_details
+
+    adder = company_adder(s, client)
+    if adder is None:
+        return company_details.Result()
+    register = None
+    url = config.get("ind_register.url")
+    if url:
+        try:
+            register = load_register(str(url), lambda u: http.get_text(u, s=s))
+            register.add_aliases(config.get("ind_register.aliases"))
+        except (http.HttpError, ValueError) as exc:
+            log.info("IND register not read for the company details: %s", exc)
+    deps = job_links.Deps(
+        s=s, repo=None,  # type: ignore[arg-type]  # Target Companies only, no job rows
+        page=lambda u: http.get_page(u, s=s, blocked=fulltext.blocked_hosts(s)),
+        get=lambda u, params: http.get_json(u, params=params or None, s=s),
+        post=lambda u, body: http.post_json(u, json=body, s=s),
+        llm=make_llm(s, config) if llm_allowed(s) else None, state=state, today=today)
+    companies = Reference.load(client, s).companies
+    return company_details.fill(deps, companies, adder.fill, register,
+                                company_details.max_per_run(s), progress)
+
+
+def _find_links(s: Settings, repo: JobsRepo, config: ConfigStore, state: Any, today: date,
+                boards: tuple[str, ...], with_body: set[str], progress: Progress,
+                companies: list[TargetCompany]) -> Any:
+    """The direct job links pass with the real network and AI (sweep/job_links.py). Careers
+    pages built by JavaScript are opened in a browser when Playwright is installed."""
+    from jobengine.llm import make_llm
+    from jobengine.safety import llm_allowed
+    from jobengine.sweep import render
+
+    cfg = job_links.settings(s)
+    browser = None
+    if cfg.get("browser", True) and render.available():
+        browser = render.Renderer(s, int(cfg.get("max_rendered", render.DEFAULT_MAX_PAGES)))
+    else:
+        log.info("direct job links: no browser (Playwright not installed), careers pages "
+                 "built by JavaScript are not read")
+    try:
+        return job_links.run(
+            job_links.Deps(
+                s=s, repo=repo,
+                page=lambda url: http.get_page(url, s=s, blocked=fulltext.blocked_hosts(s)),
+                feed=lambda url: http.get_page(url, s=s, accept_feed=True,
+                                               blocked=fulltext.blocked_hosts(s)),
+                get=lambda url, params: http.get_json(url, params=params or None, s=s),
+                post=lambda url, body: http.post_json(url, json=body, s=s),
+                llm=make_llm(s, config) if llm_allowed(s) else None, state=state, today=today,
+                careers=job_links.careers_of(companies), render=browser, config=config,
+                targets=companies),
+            boards, with_body, progress)
+    finally:
+        if browser is not None:
+            browser.close()
 
 
 def _may_lack_body(row: IndexRow) -> bool:
@@ -91,14 +250,284 @@ def _label(job: Job) -> str:
     return f"{job.company}, {job.role} ({job.city or job.country})"
 
 
+def _used_today(state: Any, today: date) -> int:
+    value = state.get(DAY_KEY) if state is not None else None
+    if not value or value.get("date") != today.isoformat():
+        return 0
+    return int(value.get("count") or 0)
+
+
+def _ranker(deps: SweepDeps) -> Ranker | None:
+    if deps.reference is None:
+        return None
+    try:
+        return Ranker(deps.reference())
+    except http.HttpError as exc:
+        log.warning("match ranking unavailable (%s): newest jobs first", exc)
+        return None
+
+
+def _sort(groups: list[list[Job]], ranker: Ranker | None, today: date) -> list[list[Job]]:
+    def key(jobs: list[Job]) -> tuple[int, date]:
+        job = jobs[0]
+        return (ranker.score(job, today) if ranker else 0, job.posted_date or date.min)
+
+    return sorted(groups, key=key, reverse=True)
+
+
+def _rank(deps: SweepDeps, groups: list[list[Job]], today: date) -> list[list[Job]]:
+    """New jobs best match first (then newest). Without reference data, newest first."""
+    return _sort(groups, _ranker(deps) if groups else None, today)
+
+
+DEFAULT_MAX_YEARS = 4
+DEFAULT_MAX_POSTED_AGE = 1
+DEFAULT_MIN_SKILL_MATCH = 0.7
+DEFAULT_MIN_SKILL_TERMS = 4
+
+
+def max_years(s: Settings) -> int:
+    """The most years of experience a job may ask for (screening.max_years_required)."""
+    return int(s.screening.get("max_years_required", DEFAULT_MAX_YEARS))
+
+
+def too_senior(job: Job, limit: int) -> bool:
+    """More years than you have; without years stated, a Senior title or a description
+    that calls the role senior ("a hands-on senior engineering role")."""
+    if job.years_required is not None:
+        return job.years_required > limit
+    return job.seniority in ("Senior", "Lead") or senior_in_text(job.description)
+
+
+def max_posted_age(s: Settings) -> int | None:
+    """sweep.max_posted_age_days: how many days old a new job's posting may be (0 is today
+    only, 1 is today and yesterday). None when the setting is empty: any age."""
+    value = s.sweep.get("max_posted_age_days", DEFAULT_MAX_POSTED_AGE)
+    return None if value is None else max(0, int(value))
+
+
+DEFAULT_ATS_MAX_POSTED_AGE = 20
+
+
+def ats_max_posted_age(s: Settings) -> int:
+    """sweep.ats.max_posted_age_days: company career sites list only jobs that are still open,
+    so their new jobs may be this many days old (your decision of 5 Oct: 20)."""
+    value = (s.sweep.get("ats") or {}).get("max_posted_age_days", DEFAULT_ATS_MAX_POSTED_AGE)
+    return max(0, int(value))
+
+
+def age_limit(source: str, max_age: int | None, ats_age: int) -> int | None:
+    """The age limit for one source: company career sites get the longer of the two."""
+    if max_age is None or source != ats.SOURCE:
+        return max_age
+    return max(max_age, ats_age)
+
+
+def too_old(job: Job, today: date, max_age: int | None) -> bool:
+    """True for a posting older than max_age days. A job without a posted date is kept."""
+    if max_age is None or job.posted_date is None:
+        return False
+    return (today - job.posted_date).days > max_age
+
+
+@dataclass(frozen=True)
+class FitRules:
+    """The free checks of not_a_fit(), read once per sweep."""
+
+    max_years: int
+    ranker: Ranker | None = None
+    min_match: float = DEFAULT_MIN_SKILL_MATCH
+    min_terms: int = DEFAULT_MIN_SKILL_TERMS
+    remote_ok: bool = True  # sweep.remote_jobs
+
+    @classmethod
+    def from_settings(cls, s: Settings, ranker: Ranker | None) -> FitRules:
+        return cls(max_years=max_years(s), ranker=ranker,
+                   min_match=float(s.sweep.get("min_skill_match", DEFAULT_MIN_SKILL_MATCH)),
+                   min_terms=int(s.sweep.get("min_skill_terms", DEFAULT_MIN_SKILL_TERMS)),
+                   remote_ok=bool(s.sweep.get("remote_jobs", True)))
+
+
+LOW_MATCH = "Low skill match"
+
+
+def skill_share(job: Job, rules: FitRules) -> float | None:
+    """The share of the tools the job names that you have, or None when it names fewer than
+    sweep.min_skill_terms tools (too little to judge)."""
+    if rules.ranker is None:
+        return None
+    have, missing = rules.ranker.match(job)
+    named = len(have) + len(missing)
+    return len(have) / named if named >= rules.min_terms else None
+
+
+def not_a_fit(job: Job, rules: FitRules) -> str | None:
+    """Why the job cannot be taken, found for free, or None: "too senior", a sweep/fit.py
+    label ("German required", "B2B only", "No visa sponsorship"), or "Low skill match"."""
+    if too_senior(job, rules.max_years):
+        return "too senior"
+    reason = fit.cannot_take(job.country, job.description, job.salary, job.role,
+                             rules.remote_ok)
+    if reason:
+        return reason
+    share = skill_share(job, rules)
+    if share is not None and share < rules.min_match:
+        return LOW_MATCH
+    return None
+
+
+def _count(summary: SweepSummary, reason: str, jobs: list[Job] | None = None) -> None:
+    """Count every posting, like the per-source lines (a job seen on two sites counts twice;
+    on 1 Oct the totals were one lower than /fetchreport)."""
+    for job in jobs or []:
+        summary.loss.add(job.source, reason, _label(job))
+    n = len(jobs) if jobs else 1
+    if reason == "too senior":
+        summary.too_senior += n
+    elif reason == fit.B2B_ONLY:
+        summary.b2b_only += n
+    elif reason == fit.NO_SPONSORSHIP:
+        summary.no_sponsorship += n
+    elif reason == fit.FULLY_REMOTE:
+        summary.fully_remote += n
+    elif reason == LOW_MATCH:
+        summary.low_match += n
+        for job in jobs or []:
+            summary.watch.add("low", job.role, "", f"{job.company} ({job.city or job.country})")
+    else:
+        summary.needs_language += n
+
+
+def _job_key(dedupe_key: str) -> str:
+    """company|title without the city: the same job offered in several cities."""
+    return "|".join(dedupe_key.split("|")[:2])
+
+
+def _one_per_job(
+    ranked: list[list[Job]], index: dict[str, IndexRow],
+    on_drop: Callable[[list[Job]], None] | None = None,
+) -> tuple[list[list[Job]], int]:
+    """Drop new jobs that are the same company and title as a row already in Notion or a
+    better ranked one in this sweep (one posting listed in 8 cities is one job)."""
+    seen = {_job_key(key) for key in index}
+    out, dropped = [], 0
+    for jobs in ranked:
+        key = _job_key(jobs[0].dedupe_key)
+        if key in seen:
+            dropped += len(jobs)  # postings, like the per-source lines
+            if on_drop is not None:
+                on_drop(jobs)
+            continue
+        seen.add(key)
+        out.append(jobs)
+    return out, dropped
+
+
+def _pick(
+    s: Settings,
+    deps: SweepDeps,
+    ranked: list[list[Job]],
+    room: int,
+    ranker: Ranker | None,
+    today: date,
+    summary: SweepSummary,
+    say: Progress,
+) -> list[list[Job]]:
+    """The new jobs you can take, best first; the first `room` are saved.
+
+    Dropped for free (not_a_fit): jobs asking for more than screening.max_years_required
+    years (or Senior titles without years in your range), jobs that need a language other
+    than English, B2B-only jobs in Poland, jobs that state no visa sponsorship or relocation,
+    and jobs where fewer than sweep.min_skill_match of the tools they name are yours. These
+    checks run before the daily limit is filled, so the saved jobs are ones screening will
+    not skip for these reasons.
+
+    The years, languages and contracts are often only in the full description, so the job
+    pages are read in rounds from the top of the list: after each round the jobs that do not
+    fit drop out and the next ones are read, until `room + lookahead` fitting jobs are found
+    or sweep.fulltext.max_pages pages were read. Then the fitting jobs are ranked again (a
+    full description often names skills the snippet left out).
+    """
+    rules = FitRules.from_settings(s, ranker)
+    fits: list[list[Job]] = []
+    pending: list[list[Job]] = []
+    for jobs in ranked:  # known from the snippet already: free
+        reason = not_a_fit(jobs[0], rules)
+        if reason:
+            _count(summary, reason, jobs)
+        else:
+            pending.append(jobs)
+    cfg = fulltext.Config.from_settings(s)
+    if not cfg.enabled or deps.page is None or room <= 0 or not pending:
+        return pending
+    want = room + int((s.sweep.get("fulltext") or {}).get("lookahead", 15))
+    budget, i = cfg.max_pages, 0
+    looked: set[int] = set()  # groups whose page was tried above
+    while i < len(pending) and len(fits) < want and budget > 0:
+        chunk = pending[i:i + want - len(fits)]
+        i += len(chunk)
+        outcome = fulltext.fill(chunk, replace(cfg, max_pages=budget), deps.page, progress=say)
+        looked |= outcome.opened
+        budget -= outcome.tried
+        summary.full_tried += outcome.tried
+        summary.full_read += outcome.read
+        for jobs in chunk:
+            reason = not_a_fit(jobs[0], rules)
+            if reason:
+                _count(summary, reason, jobs)
+            else:
+                fits.append(jobs)
+    result = _sort(fits, ranker, today) + pending[i:]
+    result = _read_saved(s, deps, cfg, rules, result, room, looked, summary, say)
+    if summary.full_tried:
+        summary.notes.append(
+            f"Full descriptions: read {summary.full_read} of {summary.full_tried} job pages "
+            f"(the others kept the short text from their source)."
+        )
+    return result
+
+
+def _read_saved(s: Settings, deps: SweepDeps, cfg: fulltext.Config, rules: FitRules,
+                result: list[list[Job]], room: int, looked: set[int], summary: SweepSummary,
+                say: Progress) -> list[list[Job]]:
+    """The jobs about to be saved whose page was never read get it read now (at most
+    sweep.fulltext.saved_max_pages), then are checked again. Before 7 Oct a job below the
+    rounds above was saved with no description at all: every Pracuj.pl alert job (the email
+    gives no text, so they ranked low) waited for a JD and was never screened."""
+    unread = [jobs for jobs in result[:room]
+              if id(jobs) not in looked and fulltext.needs_text(jobs[0], cfg)]
+    most = int((s.sweep.get("fulltext") or {}).get("saved_max_pages", 30))
+    if not unread or most <= 0 or deps.page is None:
+        return result
+    outcome = fulltext.fill(unread, replace(cfg, max_pages=most), deps.page, progress=say)
+    summary.full_tried += outcome.tried
+    summary.full_read += outcome.read
+    dropped: set[int] = set()
+    for jobs in unread:
+        reason = not_a_fit(jobs[0], rules)
+        if reason:
+            _count(summary, reason, jobs)
+            dropped.add(id(jobs))
+    return [jobs for jobs in result if id(jobs) not in dropped]
+
+
+def _real_ref(ref: str) -> bool:
+    """A posting reference that names one posting: "source:id" with a real id (a source
+    without an id gives "jooble:" or "jooble:None", the same for every job)."""
+    _source, _, posting = ref.partition(":")
+    return posting.strip().lower() not in ("", "none", "null")
+
+
 def run_sweep(
     s: Settings,
     deps: SweepDeps,
     today: date,
     sources: Iterable[str] = SOURCES,
     progress: Progress | None = None,
+    state: Any = None,
 ) -> SweepSummary:
-    """Run one sweep. `progress` receives short plain-language status lines (for Telegram)."""
+    """Run one sweep. `progress` receives short plain-language status lines (for Telegram).
+    With `state` (bot_state), the counts are stored for /sources."""
 
     def say(text: str) -> None:
         if progress is not None:
@@ -108,50 +537,121 @@ def run_sweep(
                 log.exception("progress callback failed")
 
     sources = [name for name in SOURCES if name in set(sources)]
+    if deps.page is not None:  # a site that refuses the bot is asked once a sweep (8 Oct)
+        deps = replace(deps, page=fulltext.SiteGuard(deps.page, fulltext.blocked_hosts(s)))
     config = deps.config()
-    blocked = strategy_gate(config, today)
+    blocked = strategy_gate(config, today, state, s)
     if blocked:
         return SweepSummary(blocked=blocked)
 
     rules = Rules.from_config(s.sweep)
     active = parse_active_countries(config.get("countries.active"))
 
-    def keep(title: str, location: str) -> bool:
-        country, _ = detect_location(location, rules)
-        return title_scope(title, rules) is None and country in active
+    summary = SweepSummary(countries=list(active), labels=dict(SOURCE_LABELS))
 
-    summary = SweepSummary(countries=list(active))
+    def keep(title: str, location: str) -> bool:
+        country, city = place(location, rules)
+        if not rules.remote_jobs and remote_only(location, title, city):
+            return False
+        if not place_allowed(country, city, active, rules):
+            return False
+        why = title_scope(title, rules)
+        if why:  # a company board's title the filter left out, for the weekly audit
+            summary.watch.title_drop(why, title, f"company board ({location or 'no place'})")
+        return why is None
+
+    def may_take(raw: Any) -> bool:
+        """The place of a posting the title filter dropped is one you take (or unknown)."""
+        country, city = place(raw.location_text, rules, raw.location_area)
+        if country is None:
+            return True
+        if not rules.remote_jobs and remote_only(raw.location_text, raw.title, city):
+            return False
+        return place_allowed(country, city, active, rules)
+
+    loss = summary.loss
     repo = deps.repo
     if repo is None:
         summary.notes.append("DRY RUN: would write to job_opportunities (no rows written)")
         summary.not_checked.append("Notion: no write target here, nothing was saved")
     say("Checking what is already in your Notion...")
     log.info("loading Job Opportunities index...")
-    index: dict[str, IndexRow] = {row.dedupe_key: row for row in repo.load_index()} if repo else {}
+    index: dict[str, IndexRow] = (
+        {index_key(row.dedupe_key, row.company): row for row in repo.load_index()} if repo else {}
+    )
     log.info("index: %d existing rows", len(index))
+    # 13 Nov (fetch idea 6): the same job under a title with or without "Engineer" is the
+    # same row (only when that variant names one row: two rows stay two).
+    by_variant: dict[str, IndexRow | None] = {}
+    for key, row in index.items():
+        variant = variant_key(key)
+        by_variant[variant] = None if variant in by_variant else row
+    # 16 Nov: Motorola renamed a job on its job board ("Junior" added); the new title made a
+    # new Dedupe key and a second row, although the old row named the same posting. A posting
+    # already on a row is that row (the first row that names it).
+    by_posting: dict[str, IndexRow] = {}
+    for row in index.values():
+        for ref in row.posting_ids:
+            if _real_ref(ref):
+                by_posting.setdefault(ref, row)
     companies = deps.companies() if "ats" in sources else []
+    # 13 Nov: the job boards learned from earlier job links are read with Target Companies.
+    learned = (auto_boards.companies(state, companies, discover.skipped(state))
+               if "ats" in sources and auto_boards.enabled(s) else [])
+    summary.learned_boards = len(learned)
 
-    results: list[SourceResult] = []
-    found = 0
-    for name in sources:
-        say(f"Searching {SOURCE_LABELS[name]}... ({found} jobs found so far)")
+    def collect(name: str) -> SourceResult:
         try:
             if name == "ats":
-                result = deps.ats(companies, keep)
-            else:
-                result = getattr(deps, name)()
+                return deps.ats(companies + learned, keep, state)
+            return getattr(deps, name)()
         except http.HttpError as exc:
-            result = SourceResult(name=name, skipped_reason=f"{name} failed: {exc}")
+            return SourceResult(name=name, skipped_reason=f"{name} failed: {exc}")
+
+    # The sources are independent: they are searched at the same time.
+    labels = [SOURCE_LABELS[name] for name in sources]
+    say(f"Searching {', '.join(labels)}...")
+
+    def source_done(finished: int, total: int) -> None:
+        if finished < total:
+            say(f"Searching: {finished} of {total} sources done")
+
+    def waiting(names: list[str], seconds: float) -> None:
+        still = ", ".join(SOURCE_LABELS[name] for name in names)
+        log.info("still waiting for: %s (%d min)", still, seconds // 60)
+        say(f"Searching: waiting for {still} ({int(seconds // 60)} min)")
+
+    minutes = float(s.sweep.get("source_minutes", DEFAULT_SOURCE_MINUTES))
+
+    def late(name: str) -> SourceResult:
+        log.warning("%s took longer than %g min: left out of this /fetch", name, minutes)
+        return SourceResult(name=name, skipped_reason=(
+            f"{SOURCE_LABELS[name]} took longer than {minutes:g} min: left out of this "
+            "/fetch (the next /fetch reads it again)"))
+
+    workers = max(1, int(s.sweep.get("workers", 8)))
+    results: list[SourceResult] = run_all(collect, sources, workers, source_done,
+                                          limit=minutes * 60, late=late, waiting=waiting)
+    for name, result in zip(sources, results, strict=True):
         summary.sources[name] = len(result.postings)
         log.info("%s: %d postings collected", name, len(result.postings))
+        if result.emails is not None:
+            summary.alert_emails = result.emails
+            log.info("%s: %d alert emails read", name, result.emails)
         summary.not_supported += len(result.not_supported)
-        found += len(result.postings)
+        summary.blocked_sites.extend(result.blocked)
+        summary.no_board_sites.extend(result.no_board)
+        # Companies, not rows: Infosys, Infosys (IE) and Infosys (NL) count once (43 rows
+        # were shown as 43 companies on 6 Oct).
+        summary.own_site_count += len({ats.canon_name(n) for n in result.own_site})
         if result.skipped_reason:
+            log.warning("%s", result.skipped_reason)
             summary.notes.append(result.skipped_reason)
-            problem = "not set up yet" if "missing" in result.skipped_reason else "failed this time"
+            problem = ("not set up yet" if "missing" in result.skipped_reason
+                       else "too slow this time" if "took longer" in result.skipped_reason
+                       else "failed this time")
             summary.not_checked.append(f"{SOURCE_LABELS[name]}: {problem}")
         summary.notes.extend(result.notes)
-        results.append(result)
 
     total = sum(len(result.postings) for result in results)
     log.info("normalising and writing %d postings...", total)
@@ -160,6 +660,66 @@ def run_sweep(
     touched: dict[str, tuple[str, str]] = {}  # dedupe key -> (label, ghost risk)
     with_body: set[str] = set()
     dry_ids = 0
+
+    def update_existing(row: IndexRow, job: Job) -> None:
+        plan_update = update_plan(row, job, today)
+        flag = agency_flag(job.country)
+        if not set(row.visa_flags) & {flag, AGENCY_IE, AGENCY} and agency_by_name(
+                row.company or job.company, config):
+            # Saved before /fetch marked agencies (Verks Recruitment, 1 Oct): mark it now,
+            # keeping the flags it has.
+            plan_update.props["Visa flags"] = [*row.visa_flags, flag]
+            plan_update.row.visa_flags = plan_update.props["Visa flags"]
+        if repo:
+            repo.update(row.page_id, plan_update.props)
+            if plan_update.moved_link:  # a better link replaced it: keep the old one too
+                repo.append_body(row.page_id, [f"Also posted at: {plan_update.moved_link}"])
+            if job.description and row.page_id not in with_body:
+                # Only rows seen so far through email alerts can lack a description:
+                # every other source writes one when it creates the row. Checking just
+                # those rows halves the Notion requests on a daily re-sweep.
+                if _may_lack_body(row) and not repo.has_body(row.page_id):
+                    repo.append_body(row.page_id, description_blocks(job))
+                with_body.add(row.page_id)
+        index[job.dedupe_key] = plan_update.row
+        if plan_update.repost:
+            summary.reposts += 1
+        else:
+            summary.updated += 1
+        place = row.city or job.city or job.country
+        label = f"{row.company or job.company}, {row.role or job.role} ({place})"
+        touched[job.dedupe_key] = (label, plan_update.props["Ghost job risk"])
+
+    def create_new(job: Job) -> None:
+        nonlocal dry_ids
+        plan = create_plan(job, today)
+        if agency_by_name(job.company, config):  # kept and marked: no cold mails (30 Sep)
+            plan["Visa flags"] = [agency_flag(job.country)]
+        blocks = description_blocks(job)
+        if repo:
+            page_id = repo.create(plan, blocks)
+        else:
+            dry_ids += 1
+            page_id = f"dry-run-{dry_ids}"
+        if blocks:
+            with_body.add(page_id)
+        index[job.dedupe_key] = IndexRow(
+            page_id=page_id, dedupe_key=job.dedupe_key, posting_ids=[job.posting_ref],
+            times_seen=1, first_seen=today, posted_date=job.posted_date, url=job.url,
+            salary=job.salary, years_required=job.years_required,
+            company=job.company, role=job.role, city=job.city,
+        )
+        summary.new += 1
+        summary.new_by_country[job.country] = summary.new_by_country.get(job.country, 0) + 1
+        touched[job.dedupe_key] = (_label(job), plan["Ghost job risk"])
+
+    # Pass 1: rows already in Notion are updated; new jobs wait to be ranked.
+    candidates: dict[str, list[Job]] = {}  # dedupe key -> postings, first one creates
+    seen: list[Job] = []  # every posting in scope, for the LinkedIn cross-match
+    max_age = max_posted_age(s)
+    ats_age = ats_max_posted_age(s)
+    summary.max_age_days = max_age
+    summary.ats_age_days = ats_age if ats.SOURCE in sources else None
     for result in results:
         for raw in result.postings:
             done += 1
@@ -169,51 +729,225 @@ def run_sweep(
             outcome = normalize(raw, rules, active)
             if isinstance(outcome, Skipped):
                 summary.skipped += 1
+                why = outcome.reason.split(" (")[0]
+                summary.skipped_by[why] = summary.skipped_by.get(why, 0) + 1
+                loss.add(raw.source, SKIP_WORDS.get(why, why),
+                         f"{raw.title} | {raw.company} | {raw.location_text or '(no place)'}")
+                if why.startswith("title") and may_take(raw):
+                    summary.watch.title_drop(
+                        outcome.reason, raw.title,
+                        f"{raw.company} ({raw.location_text or 'no place'})")
                 log.debug("skipped %s: %s", raw.title, outcome.reason)
                 continue
-            job = outcome
-            row = index.get(job.dedupe_key)
-            if row is None:
-                plan = create_plan(job, today)
-                blocks = description_blocks(job)
-                if repo:
-                    page_id = repo.create(plan, blocks)
-                else:
-                    dry_ids += 1
-                    page_id = f"dry-run-{dry_ids}"
-                if blocks:
-                    with_body.add(page_id)
-                index[job.dedupe_key] = IndexRow(
-                    page_id=page_id, dedupe_key=job.dedupe_key, posting_ids=[job.posting_ref],
-                    times_seen=1, first_seen=today, posted_date=job.posted_date, url=job.url,
-                    salary=job.salary, years_required=job.years_required,
-                    company=job.company, role=job.role, city=job.city,
-                )
-                summary.new += 1
-                summary.new_by_country[job.country] = summary.new_by_country.get(job.country, 0) + 1
-                touched[job.dedupe_key] = (_label(job), plan["Ghost job risk"])
-                continue
-
-            plan_update = update_plan(row, job, today)
-            if repo:
-                repo.update(row.page_id, plan_update.props)
-                if job.description and row.page_id not in with_body:
-                    # Only rows seen so far through email alerts can lack a description:
-                    # every other source writes one when it creates the row. Checking just
-                    # those rows halves the Notion requests on a daily re-sweep.
-                    if _may_lack_body(row) and not repo.has_body(row.page_id):
-                        repo.append_body(row.page_id, description_blocks(job))
-                    with_body.add(row.page_id)
-            index[job.dedupe_key] = plan_update.row
-            if plan_update.repost:
-                summary.reposts += 1
+            seen.append(outcome)
+            row = (index.get(outcome.dedupe_key)
+                   or (by_posting.get(outcome.posting_ref) if _real_ref(outcome.posting_ref)
+                       else None)
+                   or by_variant.get(variant_key(outcome.dedupe_key)))
+            old = row is None and too_old(outcome, today,
+                                          age_limit(outcome.source, max_age, ats_age))
+            if outcome.source == gmail_alerts.SOURCE and row is None:
+                # 13 Nov (fetch idea 3): which alert brings old jobs (set it to daily)
+                counts = summary.alert_age.setdefault(outcome.board or "Alert", [0, 0])
+                counts[0] += 1 if old else 0
+                counts[1] += 1
+            if old:
+                summary.too_old += 1
+                loss.add(outcome.source, TOO_OLD, _label(outcome))
+            elif row is None:
+                candidates.setdefault(variant_key(outcome.dedupe_key), []).append(outcome)
             else:
-                summary.updated += 1
-            place = row.city or job.city or job.country
-            label = f"{row.company or job.company}, {row.role or job.role} ({place})"
-            touched[job.dedupe_key] = (label, plan_update.props["Ghost job risk"])
+                try:
+                    update_existing(row, outcome)
+                    loss.add(outcome.source, ALREADY)
+                except http.HttpError as exc:
+                    log.warning("could not update %s: %s", _label(outcome), exc)
+                    summary.not_written.append(_label(outcome))
+                    loss.add(outcome.source, NOT_WRITTEN, _label(outcome))
+
+    # Pass 2: keep the best new jobs up to what is left of today's limit (free, no LLM).
+    limit = max(0, int(s.sweep.get("daily_new_limit", DEFAULT_DAILY_NEW_LIMIT)))
+    used = _used_today(state, today)
+    # 0: no daily limit, every new job that passes the rules is saved.
+    room = max(0, limit - used) if limit else sum(len(jobs) for jobs in candidates.values())
+    ranker = _ranker(deps) if candidates else None
+    ranked = _sort(list(candidates.values()), ranker, today)
+    ranked, summary.other_cities = _one_per_job(
+        ranked, index, lambda jobs: [loss.add(j.source, OTHER_CITY, _label(j)) for j in jobs])
+    ranked = _pick(s, deps, ranked, room, ranker, today, summary, say)
+    kept = ranked[:room]
+    saved_scores: dict[str, int] = {}
+    for jobs in kept:
+        try:
+            create_new(jobs[0])
+            loss.add(jobs[0].source, SAVED)
+            saved_scores[index[jobs[0].dedupe_key].page_id] = (
+                ranker.score(jobs[0], today) if ranker else 0)
+        except http.HttpError as exc:  # one refused row never stops the other jobs
+            log.warning("could not save %s: %s", _label(jobs[0]), exc)
+            summary.not_written.append(_label(jobs[0]))
+            for job in jobs:
+                loss.add(job.source, NOT_WRITTEN, _label(job))
+            continue
+        for extra in jobs[1:]:  # the same job twice in one sweep: a second posting ID
+            try:
+                update_existing(index[extra.dedupe_key], extra)
+                loss.add(extra.source, MERGED)
+            except http.HttpError as exc:
+                log.warning("could not update %s: %s", _label(extra), exc)
+                loss.add(extra.source, NOT_WRITTEN, _label(extra))
+    summary.not_kept = len(ranked) - len(kept)
+    for jobs in ranked[len(kept):]:
+        for job in jobs:
+            loss.add(job.source, DAILY_LIMIT, _label(job))
+    if summary.not_kept:
+        summary.notes.append(
+            f"Kept the best {len(kept)} of {len(ranked)} new jobs (daily limit {limit}, "
+            f"{used} already added today). {summary.not_kept} weaker matches were not saved."
+        )
+    if repo and state is not None and kept:
+        try:
+            state.set(DAY_KEY, {"date": today.isoformat(), "count": used + len(kept)})
+            best.record(state, today, saved_scores)
+        except Exception:  # never fail a sweep over the counter
+            log.exception("could not store the daily new-job count or today's best jobs")
+
+    # Clean inbox (C2, 26 Oct): alert mails with a job are archived and marked read, after
+    # their jobs were saved. Off unless Config alerts.tidy is "true".
+    found_mails = {name: mails for r in results for name, mails in r.alert_mails.items()}
+    if found_mails and inbox_tidy.enabled(config):
+        try:
+            summary.tidy = inbox_tidy.tidy(
+                dict(gmail_alerts.mailboxes(s)), found_mails,
+                str((s.sweep.get("gmail") or {}).get("label") or "Job Alerts"))
+        except Exception:  # never fail a sweep over the inbox
+            log.exception("inbox tidy failed")
+
+    # Company discovery and the "company site missed it" check (C1, 26 Oct).
+    if (s.sweep.get("discover") or {}).get("enabled", True):
+        try:
+            read = [n for r in results for n in r.read]
+            found = discover.find(seen, companies or deps.companies(), read, config,
+                                  discover.skipped(state), today)
+            summary.site_missed = found.missed[:discover.MAX_MISSED]
+            job_links.note_incomplete(state, found.missed_companies, today)
+            summary.new_companies = discover.record(state, found, today)
+        except Exception:  # never fail a sweep over the suggestions
+            log.exception("company discovery failed")
+    if auto_boards.enabled(s):
+        try:
+            summary.boards_learned = auto_boards.from_jobs(
+                state, seen, companies or deps.companies(), config, discover.skipped(state),
+                today, s)
+        except Exception:  # never fail a sweep over the learned boards
+            log.exception("learning job boards failed")
+
+    # Pass 3: alert rows (LinkedIn, blocked boards) without a description, from the same
+    # job on another site.
+    if repo and (s.sweep.get("crossmatch") or {}).get("enabled", True):
+        try:
+            boards = crossmatch.waiting_boards(
+                (s.sweep.get("gmail") or {}).get("sender_boards") or {},
+                fulltext.blocked_hosts(s)) + crossmatch.SNIPPET_BOARDS
+            filled = crossmatch.fill_linkedin(
+                repo, seen, fulltext.Config.from_settings(s), deps.page, with_body,
+                max_pages=int((s.sweep.get("crossmatch") or {}).get("max_pages", 10)),
+                progress=say, boards=boards)
+            summary.linkedin_filled = filled.labels
+        except Exception:  # never fail a sweep over the cross-match
+            log.exception("LinkedIn cross-match failed")
+
+    # Pass 3b: alert rows get their own link on the company's site (28 Oct), so screening has
+    # the description and the autopilot can open the form.
+    if repo and deps.links is not None and job_links.enabled(s):
+        try:
+            boards = crossmatch.waiting_boards(
+                (s.sweep.get("gmail") or {}).get("sender_boards") or {},
+                fulltext.blocked_hosts(s)) + crossmatch.SNIPPET_BOARDS
+            found = deps.links(repo, config, state, today, boards, with_body, say,
+                               companies or deps.companies())
+            summary.direct_links = found.labels
+            summary.direct_links_tried = found.tried
+            summary.direct_links_again = getattr(found, "again", 0)
+            summary.ghost_jobs = list(getattr(found, "ghosts", []))
+            summary.same_link_jobs = list(getattr(found, "same", []))
+            summary.no_company = list(getattr(found, "no_company", []))
+            summary.reposted = list(getattr(found, "deleted", []))
+            summary.boards_learned += [n for n in getattr(found, "boards_learned", [])
+                                       if n not in summary.boards_learned]
+            summary.not_on_site_yet = getattr(found, "not_yet", 0)
+            summary.site_unchecked = getattr(found, "unchecked", 0)
+        except Exception:  # never fail a sweep over the link search
+            log.exception("direct job links failed")
+
+    # Pass 3c (5 Nov): the companies the bot added to Target Companies get their empty
+    # columns filled (Careers URL, Domain, Hub / City, Tier, IND sponsor).
+    if deps.details is not None and company_details.enabled(s):
+        try:
+            summary.details_filled = list(deps.details(config, state, today, say).filled)
+        except Exception:  # never fail a sweep over the company details
+            log.exception("Target Companies details failed")
+
+    # Pass 4: saved rows that still wait for a description get their page read (8 Oct).
+    if repo and deps.page is not None:
+        try:
+            summary.backfilled = backfill.fill_waiting(
+                repo, deps.page, with_body,
+                max_pages=int((s.sweep.get("fulltext") or {}).get(
+                    "backfill_pages", backfill.DEFAULT_PAGES)),
+                progress=say, state=state, today=today,
+                blocked=fulltext.blocked_hosts(s))
+        except Exception:  # never fail a sweep over the backfill
+            log.exception("descriptions for saved jobs failed")
+
+    # Pass 4b (10 Nov, your request): closed postings leave the list in every /fetch, not
+    # only in the weekly check: HTTP 404 or 410, a closed-posting text, a past end date, and
+    # LinkedIn jobs older than sweep.link_check.linkedin_days. No AI, plain page reads.
+    link_cfg = expired_check.fetch_settings(s.sweep)
+    if repo and deps.closed_page is not None and link_cfg.get("enabled", True):
+        try:
+            from jobengine.screen.runner import job_row
+
+            say("Checking which listed jobs closed")
+            open_rows = [job_row(pid, v) for pid, v in repo.query_rows(
+                select_filter("Status", *expired_check.FETCH_STATUSES))]
+            closed = expired_check.after_fetch(
+                open_rows, deps.closed_page, today, state,
+                {**link_cfg, "blocked_hosts": fulltext.blocked_hosts(s)}, repo.update)
+            summary.closed_jobs = [f"{row.company}, {row.role}: {why}"
+                                   for row, why in closed.closed]
+            summary.closed_checked = closed.checked
+        except Exception:  # never fail a sweep over the link check
+            log.exception("closed job check failed")
+
+    # Pass 5 (DEV only, 2 Nov): old descriptions rewritten tidy, a batch per /fetch.
+    if repo and tidy_bodies.enabled(s):
+        try:
+            tidied = tidy_bodies.run(s, repo, state, progress=say)
+            summary.tidied = (tidied.checked, tidied.rewritten, tidied.left)
+        except Exception:  # never fail a sweep over the clean-up
+            log.exception("tidying old descriptions failed")
 
     high = sorted(label for label, risk in touched.values() if risk == "High")
     summary.high_ghost = len(high)
     summary.high_ghost_jobs = high
+    if state is not None:
+        try:
+            state.set(LAST_SUMMARY, {"at": today.isoformat(), "new": summary.new,
+                                     "updated": summary.updated,
+                                     "sources": dict(summary.sources),
+                                     "blocked_sites": summary.blocked_sites,
+                                     "no_board_sites": summary.no_board_sites})
+        except Exception:  # never fail a sweep over the /sources counters
+            log.exception("could not store the sweep summary")
+        try:
+            state.set(LAST_REPORT, loss.to_state(today.isoformat()))
+        except Exception:  # never fail a sweep over the loss report
+            log.exception("could not store the loss report")
+        try:
+            filter_watch.save(state, today, summary.watch, loss.by_source, summary.labels,
+                              KEPT_BUCKETS, SAVED)
+        except Exception:  # never fail a sweep over the weekly filter review
+            log.exception("could not store the week's dropped titles")
+    day_ledger.add_sweep(summary.sources, summary.new, summary.updated)
     return summary

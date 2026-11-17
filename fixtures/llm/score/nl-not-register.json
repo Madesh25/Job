@@ -1,0 +1,51 @@
+{
+  "years_required_min": {
+    "value": 3,
+    "quote": "3 years of experience"
+  },
+  "seniority_title_flag": {
+    "value": "none",
+    "quote": null
+  },
+  "languages": [],
+  "contract_types": [
+    {
+      "value": "permanent",
+      "quote": "A permanent contract"
+    }
+  ],
+  "mandatory_requirements": [
+    {
+      "text": "Docker, Kubernetes and Azure",
+      "terms": [
+        "Docker",
+        "Kubernetes",
+        "Azure"
+      ],
+      "kind": "tool",
+      "quote": "Docker, Kubernetes and Azure"
+    }
+  ],
+  "nice_to_have": [],
+  "sponsorship": {
+    "value": "not_mentioned",
+    "quote": null
+  },
+  "work_mode": {
+    "value": "Office",
+    "quote": "Office based"
+  },
+  "salary_text": {
+    "value": null,
+    "quote": null
+  },
+  "expires": {
+    "value": null,
+    "quote": null
+  },
+  "agency_posting": {
+    "value": null,
+    "quote": null
+  },
+  "specific_details": []
+}

@@ -17,7 +17,76 @@ python -m jobengine.sweep --source adzuna
 
 # Check the Gmail alert parser against real emails without writing anything
 python -m jobengine.sweep --parse-report
+
+# Measure job sites before a reader is built (FETCH 1); writes nothing to Notion
+python -m jobengine.sweep --probe all
+python -m jobengine.sweep --probe justjoin
 ```
+
+`--probe` runs one search per approved title (DevOps, SRE, Platform, Cloud Engineer), newest
+first, on JustJoin IT (`justjoin`), NoFluffJobs (`nofluffjobs`), Pracuj.pl (`pracuj`),
+theprotocol.it (`theprotocol`), EURES for PL, NL and IE (`eures`), IamExpat (`iamexpat`),
+Nationale Vacaturebank (`nvb`) and IrishJobs.ie (`irishjobs`). Since 5 Oct also `eures_title` and `eures_phrase` (title-only and exact-phrase EURES searches of the last 3 days) and `iamexpat_it` (IamExpat's IT jobs page, read once). Per site and title it prints
+the answer (OK, the HTTP code, or robots.txt disallows), the kind (JSON, page data JSON in a
+web page, plain web page), the size and a rough count of dates in the last 2 days, and saves
+the raw answer to `out/probes/<site>-<title>.json` or `.html` for building the reader. It
+reads robots.txt first, waits a second between requests, sends plain requests only (no
+browser, no login, nothing that works around bot protection) and never probes LinkedIn.
+In Docker: `docker run --rm -it --env-file .env -v "%cd%\out:/app/out" job-engine python -m
+jobengine.sweep --probe all` (cmd; `${PWD}` in PowerShell).
+
+**Job board check (FETCH 13, 5 Oct).** `python -m jobengine.sweep --check-boards` checks every
+active Target Company's job board link and writes nothing to Notion. The link checked is the
+one proposed in `config/board_candidates.yaml` (found by web search), else the Careers URL. A
+link on a board `/fetch` reads (Greenhouse, Lever, SmartRecruiters, Workday, Ashby, Avature,
+SuccessFactors, Phenom, Oracle Cloud HCM, amazon.jobs) is read the way `/fetch` reads it, and
+its jobs are counted (all, and those in Poland, the Netherlands or Ireland). Any other link is
+opened once: the HTTP answer, the platform when it is a known one that `/fetch` cannot read
+yet (Eightfold, Workable, ...) and a job board linked from the page are noted, and the
+page is saved in `out/boards/<company>.html`. The table is printed and saved as
+`out/boards/report.csv`. A plain HTTP 200 is not enough: a careers landing page answers 200 too,
+so only "OK" with a job count means `/fetch` can read that company. The links that work are
+then put in Target Companies (with your OK) and taken out of the candidates file. In Docker:
+`docker run --rm -it --env-file .env -v "${PWD}/out:/app/out" job-engine python -m
+jobengine.sweep --check-boards`. Since 28 Oct the prod bot also runs it by itself every
+Sunday and tells you only what changed (docs/tracking.md, Weekly job board check).
+
+**New companies and board fixes (10 Oct).** The `new:` list in `config/board_candidates.yaml`
+names companies proposed for Target Companies (mid-size companies, scale-ups and startups that
+hire DevOps engineers in our countries or remote in Europe). The board check checks them too
+(marked "new" in the report) before anything is written to Notion; the ones that work are then
+added to Target Companies with your OK. The same day's report showed three reading problems,
+now fixed: a SuccessFactors job feed gives only its newest 20 jobs worldwide unless asked for
+more (HCLTech, Wipro and Volvo showed 1 or 2 local jobs), so it is asked for 200 a search
+word; Workday sites that list no place for a job (Accenture, HPE, Workhuman) showed 0 jobs in
+the check because it made no detail calls, so the check now makes up to 25 a board.
+
+**Round 5 (11 Oct).** The fixes worked: Capgemini 11 to 91 local jobs, Wipro 2 to 13, Volvo 1
+to 19, Accenture 0 to 24, Philips 3 to 12. 26 of the 51 new companies had a working board and
+were added to Target Companies. The EU Greenhouse API host tried on 10 Oct does not exist (no
+connection), so every Greenhouse board, EU-hosted ones too, is read from boards-api.greenhouse.io.
+EY's job feed with 200 jobs was larger than a page may be, so a feed that is too large is asked
+again for 50.
+
+**Round 6 (11 Oct).** EY's feed read again (71 local jobs); IMC Trading (31) and Dolby (14,
+its SuccessFactors job feed) were added to Target Companies; HubSpot left Greenhouse and its
+careers page links no board the bot reads, so it is in `own_site_companies`. A Workday board
+with few local jobs now shows the site's own filters in the report (column "Site filters"):
+the parameter names and values show why no Poland, Netherlands or Ireland filter was used.
+
+**Round 7 (11 Oct): Workday country filter.** The Site filters column showed why Shell, Intel,
+NXP, Salesforce, PayPal, Red Hat and Yahoo found almost no local job: a Workday answer lists only
+the filter values of the jobs it found, and the country filter was read from the first search
+word's answer (Shell's devops search named India and Turkey, not Poland), so every search
+word ran worldwide and read 20 jobs. The filter is now read from the whole job list (one more
+request a board, no search word), which names every country the site has jobs in; a country
+filter is also recognised by its values (Red Hat names its filters a, b, c).
+
+**Round 8 (11 Oct).** The Workday fix worked (Salesforce 3 to 39 local jobs, Intel 3 to 22,
+HPE 0 to 13, NXP 1 to 9, Shell 0 to 6). Two small follow-ups: a Phenom site is read up to five
+pages (50 jobs) a search word instead of two (Allianz found 21 jobs, none in Poland), and the
+candidates file proposes Allegro's new SuccessFactors job feed (careers.allegro.eu) and Picnic's
+own job site (jobs.picnic.app): both showed only 1 or 2 jobs on SmartRecruiters.
 
 In Telegram, `/fetch` runs the same sweep. It replies at once, keeps one message updated with
 the current step in plain words ("Searching Adzuna...", "Saving to your Notion: 125 of 300
@@ -25,6 +94,9 @@ jobs checked"), then sends a short summary: new jobs per country (in Config
 `countries.active` order), jobs seen again, jobs skipped, possible ghost jobs, and any source
 that was not checked. The terminal CLI keeps the detailed summary shown below. With
 `python -m jobengine.telegram_bot --fake`, `/fetch` uses the fixtures and the in-memory repo.
+`/fetch` only fetches. It never screens by itself: the summary ends with `Next: /screen ...`
+and screening (the AI step) runs only when you send `/screen` (see `docs/screening.md`).
+Nothing in the bot runs a next step on its own; it tells you the next step or shows a button.
 
 Progress lines (time, source counts, pages, rows processed) go to stderr while it runs; the
 summary is printed at the end.
@@ -40,26 +112,34 @@ by the strategy gate.
    `/fetch is blocked: strategy last updated <date>, older than <n> days. Run /update first.`
 2. **Load.** Target Companies (read only) and the Job Opportunities index (dedupe keys and
    posting IDs).
-3. **Collect** from each source: Gmail alerts, Adzuna, ATS feeds.
+3. **Collect** from each source: Gmail alerts, Adzuna, ATS feeds (Greenhouse, Lever,
+   SmartRecruiters, Workday, amazon.jobs).
 4. **Normalise and scope.** Title filters, country and city, seniority, years required.
-5. **Dedupe and write.** Create new rows, update existing ones.
+5. **Dedupe and write.** Update the rows already in Notion. Every new job that passes the
+   rules is created (`sweep.daily_new_limit: 0`), ranked by a free match score; screening
+   takes the best 50 first. See "Every job saved, the best 50 screened" below. Before the cut, the full description of the jobs near the top
+   is read from the job page ("Full descriptions" below).
 6. **Ghost risk** for every row touched.
 7. **Summary**, for example:
-   `Sweep done: 8 new, 1 updated, 5 reposts, 3 skipped (out of scope), 1 high ghost risk. Sources: gmail 6, adzuna 7, ats 4. Not supported: 2 companies.`
+   `Sweep done: 10 new, 4 updated, 2 reposts, 3 skipped (out of scope), 1 high ghost risk. Sources: gmail 6, adzuna 7, ats 6. Not supported: 1 companies.`
    Extra lines follow for skipped sources and notes, and the High ghost risk jobs come last.
 
-Counts: **new** rows created; **updated** existing rows seen again with a posting ID they
-already had; **reposts** existing rows that got a new posting ID (a repost, or the same job from
-another source); **skipped** postings dropped as out of scope; **Sources** raw postings per
-source; **Not supported** Target Companies on Workday, Custom or unknown boards.
+Counts: **new** rows created; **updated** existing rows seen again, either with a posting ID
+they already had or on another board (a first ID from a new source); **reposts** existing rows
+that got a new posting ID from a source they already had; **skipped** postings dropped as out of scope; **Sources** raw postings per
+source; **Not supported** Target Companies whose job board could not be found (a custom
+careers site that links to no known ATS).
 
 ## Sources
 
 | Source | Needs | Notes |
 |---|---|---|
-| Gmail alerts | `GMAIL_ALERTS_TOKEN_JSON` (madeshwaranm02, `gmail.readonly`) | Query `sweep.gmail.query`. Board from the sender domain. Links are read from the email and never requested, tracking links included. Descriptions are never set. |
-| Adzuna | `ADZUNA_APP_ID`, `ADZUNA_APP_KEY` | `pl` and `nl` only, at most `sweep.adzuna.max_calls_per_run` calls, split evenly between the countries (3 each by default) so every country is searched. The description is a snippet. Predicted salaries are ignored. |
-| ATS feeds | nothing | Active Target Companies on Greenhouse, Lever or SmartRecruiters, detected from `Careers URL` or `sweep.ats_boards`. Board is `Company site`. |
+| Gmail alerts | `GMAIL_ALERTS_TOKEN_JSON_m02` and `GMAIL_ALERTS_TOKEN_JSON_mm` (madeshwaranm02 and madeshwaran.manikam, `gmail.readonly`; the old `GMAIL_ALERTS_TOKEN_JSON` is read as m02) | Both mailboxes are read; one failing is a note and the other is still read. Emails with the label `sweep.gmail.label` ("Job Alerts") or from a sender in `sweep.gmail.sender_boards`, last `sweep.gmail.days` (2) days, Spam included (23 Oct: Gmail put LinkedIn alerts in Spam; only labelled or known-sender emails are read there, and `/alertcheck` says which emails sit in Spam so you can add a "Never send it to Spam" filter). Board from the sender domain. Non-LinkedIn job links are followed to the real job page for its link and full description; LinkedIn links are never requested. `/alertcheck` shows each email. |
+| Adzuna | `ADZUNA_APP_ID`, `ADZUNA_APP_KEY` | `pl` and `nl` only (Adzuna has no Ireland), at most `sweep.adzuna.max_calls_per_run` calls, split evenly between the countries (12 calls, 6 pages of 50 each by default) so every country is searched. The feed gives a snippet; the full text is read from the job page for jobs that may be saved. Predicted salaries are ignored. |
+| Jooble | `JOOBLE_API_KEY` (free, https://jooble.org/api/about) | Job search over many job boards, Ireland included. One call per country and term in `sweep.jooble` (3 x 4 = 12 calls). Board is the site Jooble found the job on when it is a known board (IrishJobs.ie, Indeed and so on, from `sweep.gmail.sender_boards`), else `Other`. The feed gives a snippet; the full text is read from the job page. Skipped without the key. |
+| NoFluffJobs | none | FETCH 4 (5 Oct): the public search page (`sweep.nofluffjobs`, newest first, `pages` pages per term, one request a second, robots.txt respected) carries its jobs as page data (`serverApp-state`): title, company, cities, posted date, salary. Poland. The description is read from the job page. A 403 or a changed page stops it quietly with a note in the summary. |
+| IamExpat | none | FETCH 7 (5 Oct): the IT and technology jobs page (`sweep.iamexpat`), because the site search ignores the search word. One request a sweep, robots.txt respected; the page data (Next.js `initialJobAds`) gives the newest 20 IT jobs with title, company, city, posted date, salary and a short description. Netherlands. Most titles are dropped by the title filter (on 5 Oct, 1 of 20 was a target role). A 403 or a changed page stops it quietly with a note. EURES was probed too and is not used: its search matches any one word and ignores the date filter (2 of 50 results were relevant). |
+| ATS feeds | nothing | Every active Target Company on Greenhouse, Lever, SmartRecruiters, Workday, Ashby, Workable, Recruitee, Personio, Teamtailor (23 Oct), Avature, amazon.jobs, a SAP SuccessFactors job feed (Careers URL `https://<site>/services/rss/job/?locale=en_US`), a Phenom search page (`https://<site>/global/en/search-results`) or an Oracle Cloud HCM site (`https://<tenant>.fa.<region>.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX_<n>`, or on the company's own domain, like Dell's `enterpriseplatform.dell.com/.../sites/careers`, whose host must be on `safety.allowed_hosts`). A Workday job listed without a place (Accenture) is placed by its detail call instead of being dropped. Companies in `sweep.ats.own_site_companies` (own job site, no public list: Google, Meta, Infosys, TCS, IBM, Microsoft and others; your choice C of 5 Oct) stay in Target Companies for contacts and referrals, are covered by your alerts, and are neither looked up nor listed under "No job board found": the summary shows one count line. An Oracle site whose location filter lists only its biggest places (JPMorgan: 40, all in the US) is asked for each country by name to find that country's filter id. Workday searches use the site's own country filter (Poland, the Netherlands, Ireland) when it has one: big sites otherwise filled the first page with jobs elsewhere (Accenture, HPE, Shell: 0 of 148, 91 and 40 on 5 Oct). The board comes from `Careers URL`, from the careers page it links to, from the company name on Greenhouse, Lever, SmartRecruiters or Ashby, or from `sweep.ats_boards`. A company whose Careers URL changed is checked again at the next `/fetch` (the weekly cache notes the link). A Workday search word the site refuses (Dell answered HTTP 422) only loses that word. Board is `Company site`. |
 
 A source whose secret is missing is skipped with a line in the summary; the run continues.
 
@@ -71,16 +151,619 @@ A source whose secret is missing is skipped with a line in the summary; the run 
   URLs). Posted date from `createdAt`. An explicit `salaryRange` is stored.
 - SmartRecruiters: `api.smartrecruiters.com/v1/companies/{token}/postings`, then one detail call
   per posting that passed the filters, at most `sweep.ats.max_detail_calls` per run.
+- Workday (`<tenant>.<wdN>.myworkdayjobs.com/<site>`): the JSON search the career site itself
+  uses (`POST /wday/cxs/<tenant>/<site>/jobs`), once per `sweep.ats.search_terms` term, 20
+  results each (`workday_pages_per_term` pages). Then one detail call per kept posting, at
+  most `sweep.ats.workday_detail_calls` per run: full description, start date and location.
+  A posting listed as "3 Locations" is kept only when its detail places it in an active
+  country. Posting ID `workday-<tenant>-<last path part>`. Any `myworkdayjobs.com` subdomain is
+  allowed through `safety.allowed_host_suffixes`.
+- Workable (23 Oct): `apply.workable.com/api/v1/widget/accounts/{account}?details=true`, the
+  public career widget (`apply.workable.com/<account>` or `<account>.workable.com` links).
+- Recruitee: `<company>.recruitee.com/api/offers/`, published offers only; a job both remote
+  and hybrid counts as hybrid.
+- Personio: the public feed `<company>.jobs.personio.de/xml?language=en` (or `.com`): each
+  `<position>` with its offices and description sections; the link is `/job/<id>`.
+- Teamtailor: the public feed `<company>.teamtailor.com/jobs.rss` (first 100 jobs), with its
+  locations and remote status.
+- These four read the field names their docs show and the other names seen, so a different
+  account shape gives fewer fields rather than an error. Their boards are found from the
+  careers page links like the others; Workable and Recruitee are also tried by company name.
+- Eightfold (C4, 26 Oct; Microsoft and Ericsson): `<host>/api/apply/v2/jobs` (or
+  `/api/pcsx/search` when the first answers 404) with `domain`, each search word and each of
+  Poland, the Netherlands and Ireland. Not tried from Claude Code's machine (the hosts are
+  refused there), so both answer shapes are read. The boards are set in `sweep.ats_boards`;
+  `--check-boards` always tries them, `/fetch` only when `sweep.ats.eightfold_in_fetch` is
+  true (until then they count as own job sites, covered by your alerts).
+- amazon.jobs: `www.amazon.jobs/en/search.json` once per search term, Ireland, Poland and the
+  Netherlands only, 100 newest results. Every result has the full description and
+  qualifications. Searched once per sweep even when Amazon and AWS are both Target Companies.
 - Every feed is filtered by title and location before any detail call. Postings filtered out
   here are reported in one note line and not counted as skipped.
-- For a company whose careers page is on its own domain, add an override in
-  `config/base.yaml`:
+- **Finding the board.** When `Careers URL` is the company's own site:
+  1. the careers page is read (the same safe page reader as below) and the ATS it redirects
+     to or links to most is used: Greenhouse (including embeds), Lever, SmartRecruiters,
+     Workday or amazon.jobs;
+  2. otherwise (also when the site refuses robots with HTTP 403) the company name is tried
+     on the public Greenhouse, Lever and SmartRecruiters APIs: "Acme Cloud (IE)" is tried as
+     `acmecloud` and `acme-cloud`. A board counts only when it lists at least one job
+     (`sweep.ats.guess_by_name: false` switches this off).
+  The result, also "nothing found" and why, is kept in Bot State `ats.detected` and checked
+  again after `sweep.ats.detect_every_days` (7). At most `sweep.ats.max_detect_per_run` (25)
+  companies are checked per sweep, so a long Target Companies list is covered over a few
+  runs. Target Companies itself is never changed.
+- **Sites still missing.** The `/fetch` summary lists the companies whose site blocked us
+  (`Intel (IE) (HTTP 403)`) and those with no job board found; `/sources` lists all of them.
+  The fix is one field: put the company's job board link in `Careers URL` (for example
+  `https://intel.wd1.myworkdayjobs.com/External`, a `boards.greenhouse.io/...` or a
+  `jobs.lever.co/...` link). Big companies usually have one: open their careers site in a
+  browser, click any job, and copy the address of the page that lists the jobs. Workday,
+  Greenhouse, Lever, SmartRecruiters and amazon.jobs links are then read directly. A company
+  site we cannot read at all (its own custom system) is only covered through the job boards:
+  Adzuna, Jooble and email alerts.
+- Avature career sites (for example `https://apply.deloittece.com/en_US/careers/SearchJobs/...`):
+  a `SearchJobs` link in Careers URL is read as a list page, with the filters in the link kept
+  (the country, for example). Up to 6 pages of 50 jobs; each job's description is read later
+  from its own page. The place comes from the listing, else from the row's `Region`.
+- A job board link that fails (a Workday link that answers HTTP 404) is listed in the
+  summary with the blocked sites, as `Acme (job board HTTP 404)`.
+- For a company whose board is still not found, add an override in `config/base.yaml`:
 
   ```yaml
   sweep:
     ats_boards:
       Shamrock Systems: {ats: greenhouse, token: shamrocksystems}
+      Baltic Bank: {ats: workday, token: balticbank, host: balticbank.wd3.myworkdayjobs.com, site: careers}
   ```
+
+## Only jobs you can take
+
+The daily 30 are filled only with jobs that pass these free checks, so screening does not
+spend its places (or tokens) on jobs it would skip anyway:
+
+- **Fresh postings.** A new job is only saved when its posting is at most
+  `sweep.max_posted_age_days` (2) days old: posted in the last 3 days, so a job posted after
+  the last `/fetch` is not lost. 0 keeps today's postings only, 1 today and yesterday; an
+  empty value keeps any age. Company career sites list only jobs that are still open, so
+  their new jobs are saved when posted in the last `sweep.ats.max_posted_age_days` (20) days
+  (your decision of 5 Oct; on 1 Oct 23 of 28 company-site jobs were lost to the 3-day limit).
+  Jobs without a posted date are kept, and rows already in Notion are still updated.
+  Summary: `Posted more than 2 days ago (not saved)`.
+- **Experience.** `screening.max_years_required` (4) is the most years a saved job may ask
+  for. The years come from the description: `2-3 years`, `3+ years`, `at least 4 years`,
+  `min. 3 lata`, `5 lat doswiadczenia` and so on. A range counts by its lower number (`3-5
+  years` is 3). When several requirements are stated, the largest counts ("5 years in IT, 2
+  years in a similar role" is 5). Lines that only wish for years ("5+ years preferred", "a
+  plus") count only when nothing else is stated, numbers above 15 are ignored ("25+ years of
+  history") and a bare `18 lat` only counts on a line about experience. A job asking for
+  more, or a Senior title with no years at or under the limit, is not saved: the summary
+  counts it as `Asked for more experience than you have (not saved)`. Without any years
+  stated, a description that calls the role itself senior ("a hands-on senior engineering
+  role", "senior-level") counts as too senior too; mentions of senior colleagues do not.
+  Titles with `VP` or `Vice President` are out of scope (`sweep.title_exclude`).
+- **Language** (`sweep/fit.py`). A language other than English is required: Polish or
+  Dutch ("Fluent Polish", "Polish (C1)", "znajomosc jezyka polskiego", "vloeiend
+  Nederlands"), or German, French, Spanish and others ("Fluent German required"); or the
+  title names one ("macOS Engineer (German-Speaking)", "Infrastructure Engineer (French)");
+  or the posting is written in Polish or Dutch, even when it also asks for English (the
+  team works in that language). An English posting with a short Polish privacy note still
+  passes: the posting must use at least twice as many Polish or Dutch common words as
+  English ones (a short Adzuna snippet: at least 5 such words and three times as many as
+  English ones). A title written in Polish or Dutch ("Inżynier DevOps", "Specjalista ds.",
+  "Beheerder") counts too; a city with Polish letters or "(m/v)" does not. "Polish is a
+  plus", "nice to have" and "Polish clients" never count. Summary: `Needs a language other
+  than English (not saved)`.
+- **Contract** (`sweep/fit.py`). A job in Poland that states B2B (or a `+ VAT` rate) and no
+  employment contract (`umowa o prace`, `UoP`, "B2B or UoP"). Summary: `B2B contract only
+  (not saved)`.
+- **Visa** (`sweep/fit.py`). The posting says there is no visa sponsorship ("no visa
+  sponsorship available", "we are unable to sponsor", "sponsorship is not available"), that
+  you must already have the right to work there ("EU/EEA work authorization is required",
+  "you must have the right to work in Ireland") or that no relocation is given
+  ("Relocation Provided: None"). Offers of sponsorship or relocation never count. Summary:
+  `No visa sponsorship or relocation (not saved)`.
+- **Skills** (`sweep/rank.py`, `match`). Of the tools a job names (your Skills Inventory and
+  Active Term Map terms, Term Map gaps, and a list of common tools such as Java, Spring,
+  Kafka, VMware, PowerShell or Jenkins), at least `sweep.min_skill_match` (0.6) must be
+  yours. "Spring Boot" counts once, not also as "Spring". A job naming fewer than
+  `sweep.min_skill_terms` (4) tools is kept, as there is too little to judge. Summary: `Too
+  few of your skills (not saved)`.
+- Years are also read when written as words ("at least five years", "five (5) years").
+- **Same job, two company names.** Target Companies lists one company per country ("Citi" and
+  "Citi (IE)"). The `(IE)`, `(NL)` or `(PL)` tag is left out of the Dedupe key, so a job found
+  through both is saved once. Rows saved before this rule are matched by their company name.
+
+Snippets rarely state these, so the sweep reads the job pages in rounds from the top of the
+list: after each round the jobs that do not fit drop out and the next ones are read, until
+50 fitting jobs (plus the lookahead) are found or `sweep.fulltext.max_pages` pages were read.
+The checks only fire on clear wording; anything unclear is left for the AI screening.
+
+`Years required` is a text column that shows the experience as posted: `2-3 years`,
+`5+ years`, `3 years`, or `Not stated` when the full description was read and names no
+years. When the full page is read, its years replace the snippet's. Empty means only a
+snippet was available, so the years were not checked yet. Screening and ranking read the
+lower number from it, and screening raises the cell when the description asks for more.
+The code checks the column type once per run: while a database still has `Years required`
+as a number column (prod until it is converted), the number is written there instead, so
+nothing breaks. To convert prod: open Job Opportunities, click the `Years required` header,
+Edit property, Type: Text. The numbers stay as text ("5").
+
+## Speed
+
+The slow parts run on several threads (`sweep.workers`, 8): the four sources (email alerts,
+Adzuna, Jooble and company sites) are searched at the same time, and so are the careers
+pages, the company job boards (Greenhouse, Lever, SmartRecruiters, Workday, Avature, Amazon)
+and the job pages. SmartRecruiters and Workday detail calls share one budget per run across
+threads. Results keep the same order as with one thread, and the cache and summary are
+updated on the main thread. Notion writes cannot go faster: the Notion client keeps about 3
+requests per second in total, whatever the number of threads. `sweep.workers: 1` runs
+everything one at a time again.
+
+A source still running after `sweep.source_minutes` (10) is left out of that /fetch: the
+others go on, the summary lists it under what was not checked ("too slow this time") and the
+next /fetch reads it again (30 Oct: /fetch hung after a Lever timeout until /end). While it
+waits, the log and the progress message say every minute which sources are still running
+("still waiting for: Email alerts (3 min)").
+
+## One row per job
+
+A company often lists one opening in several cities (the same "Senior DevOps Engineer" in
+Warszawa, Kraków, Wrocław and five more). New postings with the same company and title as a
+row already in Notion, or as a better ranked new job in the same sweep, are not saved again,
+so they do not use the daily 30. The summary counts them: `Same job in another city (not saved
+again): 7`.
+
+## Restarting the bot during /fetch
+
+Telegram hands a message to the bot again when the bot stopped before it finished (Ctrl+C in
+the middle of `/fetch`). A `/fetch`, `/screen` or `/update` sent before the bot started is
+therefore not run by itself: the bot answers `Not running /fetch: it was sent before the bot
+started` and you send it again when you want it.
+
+## Adzuna links outside the job's country
+
+Adzuna's own job page says "Sorry, this job is not available in your region" when you open it
+from another country (India, for example). For new Adzuna jobs the sweep asks Adzuna for the
+employer's own job page (`/land/ad/<id>`, the same redirect as Adzuna's Apply button) and, when
+it leads to the employer's site, saves that link as the job's URL and reads the description
+there. When Adzuna refuses that too, the Adzuna link and its text stay.
+
+When you tap **Approve resume** on a job that still has an Adzuna link (rows swept before, or
+where the sweep's try failed), the bot follows the same redirect once more (`apply/link.py`).
+When it reaches the employer's site, "Apply here" shows that link, the job's URL becomes it
+and the Adzuna link is noted on the page. When it does not (Adzuna often refuses requests
+from outside Europe, so a bot running on your PC in India may not get through; the Cloud Run
+bot in Europe usually does), "Apply here" keeps the Adzuna link and adds a web search for the
+job on the company's own site, and a note that a VPN set to the job's country opens it.
+
+## Seeing jobs day by day in Notion
+
+Job Opportunities (DEV) has a view **By day**: grouped by `First seen` (the day the sweep
+found the job), newest first, with Company, Role, Screen verdict, Status, Board, place, dates,
+seniority, salary and URL. Each group folds open and closed. Notion's API can only create the
+grouping as relative dates (Today, Yesterday, Last 7 days); for one group per date open the
+view, click **Group**, then set **Date by** to **Day**. `First seen` is set once, when the job
+is first found, and never changes: a job found today stays in today's group, tomorrow that
+group is yesterday's, and so on. Nothing is merged or deleted; every job stays in the database
+for good (older groups just fold away). Do the same in the prod database when
+it goes live. `Posted date` can be used instead of `First seen`, but it is empty for jobs whose
+source does not state it (email alerts).
+
+## Full descriptions
+
+Screening and resumes need the whole job description, not a two-line snippet. For the new
+jobs near the top of today's list (`daily_new_limit` minus what was already added today, plus
+`sweep.fulltext.lookahead` more), the sweep reads the job page when the source gave a snippet,
+nothing, or less than `screening.full_min_chars`:
+
+0. Oracle Cloud HCM jobs (28 Oct, P9-17): the site's own public detail call
+   (`recruitingCEJobRequisitionDetails`, the call its JavaScript page makes): description,
+   responsibilities, qualifications and the company text. The page itself has no text, and
+   the search gave only a short summary.
+1. the schema.org `JobPosting` in the page's JSON-LD, which most job boards and ATS pages
+   have, or the job in the site's page data: Next.js `__NEXT_DATA__`, and Phenom's
+   `jobDetail` (28 Oct; the Phenom search gave only a teaser, which is not added twice)
+2. otherwise the largest block that looks like a job description (`main`, `article`, or an
+   element whose id or class names a description), with menus, headers, footers, forms and
+   scripts removed
+3. otherwise the whole visible page text, when it is clearly more than a snippet
+
+Then the jobs are ranked again (a full description often names skills the snippet left out)
+and the best are saved. The page body starts with
+`Description source: adzuna (full page, careers.example.com)`, naming the host the text came
+from. A page that cannot be read, or gives less text than the snippet, keeps the snippet
+(`Description source: adzuna (snippet only)`), and screening then asks for `/jd` as before.
+The summary has one line, for example `Full descriptions: read 24 of 27 job pages`.
+
+Nothing is lost (28 Oct): a text replaces the one the job has only when it is longer, and a
+company site's own summary that the full text does not hold is kept in front of it (an
+Adzuna or Jooble snippet is cut short, so it is not kept).
+
+The page reader (`http.get_page`) is separate from the API client:
+
+- plain GET with a JobEngine user agent: no login, no cookies (cleared on every hop), no forms
+- https only, public host names only: IP addresses, `localhost` and internal names
+  (`.internal`, `.local` and similar) are refused
+- redirects are followed by hand, at most 5, and every hop is checked again
+- LinkedIn is never read, not even when a redirect points there
+- only HTML or text answers, at most 3 MB
+- only for jobs that may be saved today, at most `sweep.fulltext.max_pages` (65 since 20 Oct) per sweep
+- email alert links (tracking links) are followed to the real job page, whose link replaces
+  the tracking link; LinkedIn links never. Rows already in Notion are not re-read.
+
+Set `sweep.fulltext.enabled: false` to switch it off.
+
+## Alert job descriptions from other sites (LinkedIn and blocked boards)
+
+LinkedIn email alerts have no job description and LinkedIn is never read, so such a job used to
+wait for `/jd`. The same goes for the boards in `sweep.fulltext.blocked_hosts`: Pracuj.pl,
+IrishJobs.ie and Jobs.ie answer the bot with HTTP 403, and since 10 Oct JustJoin IT and
+theprotocol.it are never opened either, because their terms forbid automatic downloading
+(JustJoin IT section 11.3) and copying their database (theprotocol.it IV.3d). Their alert jobs
+are still saved. After each sweep, every Unscreened row of these boards without a description
+is looked up among this sweep's other postings (company boards, NoFluffJobs, Adzuna, Jooble,
+IamExpat), in `src/jobengine/sweep/crossmatch.py`. Polish boards share many jobs, so a
+JustJoin or Pracuj.pl alert often finds its twin on NoFluffJobs or the company's own board:
+
+- **Same company** (legal suffixes such as Sp. z o.o. or B.V. and a "(PL)" tag ignored),
+  **same title** and **same country**. The city may differ, and work-mode words (Remote,
+  Hybrid, On-site, Full-time) and the job's own city or country in the title are ignored.
+  Nothing looser counts: a "Senior DevOps Engineer" posting is never used for a "DevOps
+  Engineer" alert.
+- Only a **full** description is used. When the match has only a snippet (Adzuna), its page
+  is read like any other job page (at most `sweep.crossmatch.max_pages`, 10, per sweep).
+- The description is written to the row's page with a first line saying where it came from:
+  `Description source: ats (same job on Company site, found for this JustJoin IT alert:
+  <url>)`. No property changes, no AI, no request to the alert's own site.
+- The Telegram summary lists them: `Descriptions taken from the same job on another site
+  (alerts, Adzuna snippets; no /jd needed): N`.
+- **Adzuna snippets** (10 Oct): Adzuna gives a 2 to 3 line snippet and its job pages answer
+  HTTP 403 outside the job's country, so screening would say Needs review. An Unscreened
+  Adzuna row whose page holds only a snippet gets the same job's full description from
+  another board, written after the snippet (screening reads the newest description). The next `/screen` screens them like any other job. Rows without a match keep
+  waiting for `/jd`.
+- `sweep.crossmatch.enabled: false` turns it off.
+
+## Direct job links for alert jobs (28 Oct)
+
+A LinkedIn, JustJoin IT, Pracuj.pl or Adzuna row has a link the bot cannot use: LinkedIn is
+never opened and the job boards refuse it, so screening waits for /jd and the autopilot cannot
+open the form. After the cross-match, every open row of those boards (Status New, Screened,
+Approved or Resume built, not Skip) without an employer link is looked up on the company's own
+site (`src/jobengine/sweep/job_links.py`), newest first:
+
+1. The company's job board by its name (Greenhouse, Lever, SmartRecruiters, Ashby, Workable,
+   Recruitee): free, no AI. A posting with the same title in the row's city or country.
+   SmartRecruiters is asked for the title (a big company lists hundreds of jobs there).
+2. The company's careers page, the way you would look by hand (30 Oct, your request): its
+   Careers URL in Target Companies, else the page found before (remembered 60 days), else one
+   AI web search for the company's website and careers page (Config `model.fetch`, else
+   `model.people`; on the PC Gemini on Vertex AI, paid by the Google Cloud credit). The bot
+   opens that page and reads the job board it uses, the job links on it, its own search box
+   (a plain search for the title: never a login or a form that sends data) and the pages it
+   links to ("Careers", "Vacancies", "Jobs", ...), up to two clicks from the page found and
+   10 pages per job. A recruitment agency's own page counts: it is where that job is
+   published. A careers page that shows its jobs only with JavaScript is opened in a
+   headless browser when Playwright is installed (every Docker build since 30 Oct,
+   the browser /dryrun uses; plain GETs only, never a site that refuses the bot). Opened
+   there: short pages (little text or few links) and, since 4 Nov, any careers page that
+   shows no job list (YachtCloud: big menus, the jobs come later by JavaScript); a long page
+   that already lists jobs is not. At most 2 per job and `max_rendered` (40, DEV 80) per
+   sweep: on 30 Oct CGI's long pages used 5 of 15 and the rest of the sweep had none. A jobs
+   box from another site inside the page (an iframe: Recruitee, Homerun, Personio ...) is
+   read too, with its links made whole with the box's own site. A Workday link without its
+   server part (`armacell.myworkdayjobs.com`, an address that does not exist) or with a
+   made-up host (`nn.workdayjobs.com`, 4 Nov) is repaired by asking each Workday server, and
+   a Workday site is searched for the exact title. The careers page search also asks for the
+   job system's own list ("board": Workday, SuccessFactors, Greenhouse ...), tried first.
+   When the company's own site refuses the bot (HTTP 401 or 403: Serco, PwC, 4 Nov), one more
+   search asks only for its job system's list; only a job system's link counts, and every
+   link is checked by reading it before it is used. That search comes from `max_searches`.
+   Still nothing, and the company's site could not be checked (it refuses the bot, shows no
+   job list, or the job's own page could not be read): **Google's copy** (4 Nov, your
+   decision). Gemini with Google Search reads the advert from Google's copy of the
+   employer's own page; the bot never opens the refusing site. Used only when Google's
+   sources include the employer's own site or job system (or Gemini's answer is one job's
+   address on the employer's site or job system: its path names every word of the title, or
+   it carries a job number of 5 digits or more), the text is at least as
+   long as a full description and names the role; the description says "found by Google's copy of
+   the company page". Never for a job whose job list was read without it (a ghost job).
+   One search from `max_searches`.
+3. Only when no careers page was found: one AI web search for the job itself (on 30 Oct it
+   found nothing the careers page had missed, so the searches go to more companies).
+
+Every answer is used only after the bot read the page itself: an employer page (never
+LinkedIn, a job board or an aggregator), on the company's own site or a job system page
+naming the company, whose job title is the row's title, with a full description.
+
+A found job gets that link in URL, and its page body gets "Earlier link (LinkedIn): ..." and
+the description (screening reads it). The dedupe keeps an employer link, so tomorrow's alert
+for the same job never puts the LinkedIn link back. Only the exact title counts. A row with
+no result is tried again after 14 days; a form behind a login or a captcha is still sent by
+you (the autopilot stops there and says so).
+
+- `sweep.job_links.max_rows` (40): rows looked at per sweep; `max_searches` (40): AI web
+  searches per sweep (a careers page or a job). The rows waiting are worked through over a
+  few fetches. A company without a job board found by its name, or without a careers page
+  found, is not asked again for 14 days.
+- A careers page's job number and button text are not part of the title (2 Nov): "DevOps /
+  Platform Engineer (ID:4116)" and "Platform / DevOps Engineer Explore this vacancy" are
+  those jobs. A job board the bot may not open (Eightfold, safety.allowed_hosts) is skipped
+  and the job goes on to the next step.
+- A row with no result waits for /jd; the log says "no direct link for Company, Role". It
+  is never looked up again (10 Nov, your rule: one look-up per job; until then after 3
+  days). A row cut short because this sweep's searches or browser pages ran out is looked
+  up at the next /fetch (it was not really looked up); the summary says how many ("N not
+  finished"). A newer lookup no longer looks up the old jobs again.
+- A row whose full description is already on its page (pasted with /jd, read from another
+  board, or screened) is not looked up at all (10 Nov: each look-up costs Google searches),
+  unless it is Approved or Resume built: its own link is still wanted to apply.
+- `sweep.job_links.workers` (3; local and dev 5 until go-live, 2 Nov): companies looked up
+  at the same time. All jobs of one
+  company stay on one worker (its careers page is searched for once); Notion writes go one
+  at a time; the browser opens one page at a time on its own thread.
+- `sweep.job_links.enabled: false` turns it off.
+- The /fetch summary says "Own job link found on the company's site: N of M" and lists them.
+- Only the company's own site counts (2 Nov, your rule): a job a company does not put on
+  its own site is likely a ghost job. Job boards are never opened for it. When the bot read
+  the company's job list (its job board, or a careers page with jobs on it) and the job is
+  not there, the page gets a note "Company site check (date): not on Acme's own job list
+  (likely a ghost job, or not there yet)", and the job waits for /jd; it is not looked up
+  again and not skipped by itself (10 Nov; until then a second check after 3 days skipped
+  it). When the company's site could not be checked (no careers page found,
+  no answer), the note says that once and the job waits for /jd. Screening never reads a
+  note as a description. A job page for another country (its JobPosting country, or a
+  country in its link, such as "...-india-...") is not the row's job.
+- A job list counts as checked only when it is one (2 Nov, second run): the company's job
+  board with jobs in the row's country, or a page with at least 3 links whose text is a job
+  title. A homepage, or a careers page that answers 404, is no check. A job whose title is
+  on the list but whose page cannot be read is never a ghost job: it waits for /jd (a job
+  page with too little text is opened in the browser first). A city name ("... Warsaw" for
+  Warszawa) and a job number in the alert's title ("... ID89421") are not part of the
+  title. The checks of the first run (2 Nov) are not counted.
+- Every job board counts as the job's list only with jobs placed in the row's country, also
+  the one in Careers URL (2 Nov, fresh /fetch: Capgemini's board showed Milan, Singapore and
+  Atlanta for a Dutch job). A job whose description from the company's job board is on the
+  page already (the cross-match read it) gets only its link, not the same text again.
+- Never a ghost job by mistake (2 Nov, second clean /fetch): a company whose job board
+  missed jobs (the summary's "Jobs another source found that the company's own job board did
+  not list", kept 14 days) and a job list that needs the browser when no browser page is
+  left are no check. Such a job is "could not be checked", with the reason on its page.
+- The summary says how many jobs were not on the job list yet, how many sites could not be
+  checked, and lists the jobs skipped as likely ghost jobs.
+- A row whose alert showed no company ("Hybrid", "1", "Mid/Senior", a job site's name,
+  Adzuna's "(unknown)") gets a note once: its company's site cannot be checked. An
+  Unscreened row is skipped; a screened row keeps its verdict. The summary lists them the
+  first time ("Alert jobs without a company name"); /add brings one back with its link.
+
+## Closed jobs leave the list in every /fetch (10 Nov)
+
+Your request: a job whose link gives "404" should not stay in /pending. After the direct
+links, every /fetch checks the open jobs (Status Screened, Approved, Resume built and New)
+with the same test as the weekly link check and the Approve button (track/expired_check.py,
+apply/link.py): HTTP 404 or 410, a "position closed" text, a JobPosting end date in the
+past, the link now opening the company's job list. A closed job gets Status Expired, Skip
+reason Expired and today's Last activity date, so it leaves /pending. No AI, plain page reads,
+5 at a time.
+
+- The /pending jobs (Screened, Apply or Needs review) first, then your approved ones, then
+  the rest, newest first; at most `sweep.link_check.max_links` (150) links a /fetch.
+- A job checked is checked again after `recheck_days` (3); the others come first.
+- Jobs screened Skip are not checked (/pending never shows them; 10 Nov, 3-08: 6 of 10).
+- A closed-posting text counts only when it is shown and the page does not still offer to
+  apply: text hidden on the page (display none, hidden, aria-hidden) is not read, and a page
+  with "Apply now" or a schema.org JobPosting stays open (10 Nov, 3-08: eBay's open Cloud
+  SRE job carried the site's hidden "no longer available" message).
+- LinkedIn links are never opened: a LinkedIn job counts as closed `linkedin_days` (30) after
+  its Posted date (else its Swept date), when LinkedIn closes its postings.
+- The /fetch summary: "Closed jobs taken off your list (Status Expired): N (M job links
+  checked)" and the first 10 with the reason. Wrong? Set the Status back in Notion.
+- `sweep.link_check.enabled: false` turns it off; the weekly Sunday check stays.
+
+## Tidy job descriptions (2 Nov)
+
+Every description is written as tidy paragraphs (`src/jobengine/textblocks.py`): HTML left
+as text ("<br />") becomes lines and "• " bullets, a description in one long line gets breaks
+before its headings ("Requirements:", "Nice to have:"), and the text is cut at line ends,
+never inside a word. Screening joins the blocks of a description with a line break.
+
+Job pages and ATS feeds are read as a browser shows them (`textblocks.text_of`): a new line
+only at <br>, paragraphs, list items, headings and table rows, never inside a sentence at a
+<span> or <b>. Workday texts read before that showed "I" / "mplement" and "DevOps" /
+"Engineers" on lines of their own (Accenture, 2 Nov); tidy() joins such cut pieces back into
+their sentences. Only a text with clear signs of cut pieces (lines that start with "," or
+":", a lone letter before the rest of its word) is mended, so plain lists stay as they are.
+
+Pages written before that are tidied during /fetch, in local and dev only
+(`sweep.tidy_bodies.enabled`; off in prod, where every page is written tidy from the
+start): up to `max_pages` (60) pages a /fetch, newest first, each checked once (Bot State
+`sweep.tidy_bodies`; a better tidy() raises its version, and then every page is checked
+again: version 2 mends the cut sentences, version 3 joins a "•" on its own line with its
+text). A description that would be written differently is rewritten in the
+same place: the new text right after its "Description source:" line, then the old blocks
+removed. Screening notes and links stay. The summary says "Old descriptions tidied (DEV): M
+pages checked, N rewritten, K still to check" until all old pages are done. Local and dev
+check 150 pages a /fetch, and look up 80 alert jobs a /fetch for their own job link (prod:
+40), to work through the old pages and the jobs waiting for a description faster.
+
+## New companies and jobs a company site missed (C1, 26 Oct)
+
+After each sweep, `sweep/discover.py` looks at the jobs that passed the scope filters:
+
+- **New companies.** A company with jobs from the alerts, Adzuna, Jooble, NoFluffJobs or
+  IamExpat that is not in Target Companies (not even unticked), not an agency and not one you
+  turned down becomes a suggestion (Bot State `discover.companies`, kept 30 days after it was
+  last seen). The /fetch summary counts the new ones; `/newcompanies` shows them one at a
+  time, a readable job board (Greenhouse, Lever, ...) first, with **Add to Target Companies**
+  (the same row as /add, with Undo; Notes say "Added by /newcompanies") and **Not interested**
+  (Bot State `discover.skip`, never suggested again). A job board or aggregator link
+  (LinkedIn, Adzuna, Jooble, Pracuj.pl, ...) never becomes the Careers URL: without the
+  company's own link the row has no Careers URL and /fetch looks for the board by the name.
+  Nothing is added without your tap (Target Companies is shared with prod).
+- **Missed by the company site.** A job another source found at a Target Company whose job
+  board was read in the same sweep, but that board did not list (same company, title and
+  country, as in the cross-match above). The /fetch summary lists up to 10: check the Careers
+  URL, or the reader may stop too early (Workday reads one page per search word).
+
+`sweep.discover.enabled: false` turns both off.
+
+**Companies from the visa sponsor lists (28 Oct).** Once a week (Saturday from 11:00 India
+time, or the first day after when the bot was off) `sweep/sponsors.py` takes up to 40
+companies from the official sponsor lists the bot already reads: the Irish "Permits issued to
+companies" list (the most permits first) and the Dutch IND register (names that sound like
+IT: software, cloud, data, digital ...). It leaves out Target Companies, open suggestions,
+agencies, companies you turned down and companies checked in the last 90 days. For each it
+looks for a public job board by the company's name (Greenhouse, Lever, SmartRecruiters,
+Ashby, Workable, Recruitee, as /fetch does) and reads it. A company with at least one job for
+your titles in your countries right now becomes a `/newcompanies` suggestion, shown before the
+others, with a "Visa:" line (on the IND register, or the number of Irish permits). A message
+names what was found; a week with nothing found sends nothing. Bot State `sponsors.checked`
+keeps the companies checked; Notion Config `discover.sponsors` = `off` stops it.
+
+### Job boards learned from job links (13 Nov, your idea)
+
+A company job board (Greenhouse, Lever, Ashby, Workable, SmartRecruiters, Personio,
+Recruitee, Teamtailor, Workday ...) seen in any job link of a /fetch is remembered in Bot
+State (`sweep.auto_boards`) and read in every later /fetch together with Target Companies:
+every open job with its full description and real link, free and without AI. Not learned:
+Target Companies (read from their own row), agencies, companies you turned down in
+/newcompanies, Amazon, Avature and Eightfold. Each board is kept `days` (60) after it was
+last seen, at most `max` (40), newest first (Config `sweep.auto_boards`). The /fetch summary
+says how many were read and names the new ones. Target Companies itself is not changed (it
+is shared with prod); /newcompanies still adds a company there with your tap.
+
+The direct-link lookup for alert rows (LinkedIn and blocked boards, sweep/job_links.py)
+reads a learned board first, before guessing the board by the company's name and before any
+AI search (fetch idea 2). A board the lookup finds (the job's own link, or a careers page on
+a job system) is learned too, so that company's jobs come from its board in every /fetch.
+
+### Alerts that bring mostly old jobs (13 Nov, fetch idea 3)
+
+A new job older than `sweep.max_posted_age_days` is not saved. The /fetch summary now
+counts the new alert jobs per alert sender, and under "Posted before the last 3 days" names
+the senders whose new jobs were mostly too old (at least 5 jobs, at least half of them old):
+"Mostly old jobs from these alerts: LinkedIn 60 of 80. Set them to daily and "past 24
+hours" on the site." The alert's own settings are yours to change (LinkedIn, Glassdoor ...
+send weekly digests unless set to daily).
+
+### Each source's results (13 Nov, fetch idea 4)
+
+/fetchreport ends with one line per source (the Board of every job in Notion): found >
+approved > applied > answered (a reply or a rejection), and interviews. Sources with fewer
+than 3 jobs are added up as "others". A source with many found and none approved is a
+candidate to drop, decided in FETCH 11 with live numbers.
+
+### Polish job titles (13 Nov, fetch idea 5)
+
+Jooble also searches Polish titles in Poland (`sweep.jooble.local_terms`: inżynier devops,
+specjalista devops, inżynier ds. chmury, administrator chmury) and Adzuna adds the Polish
+words "chmury chmurowy" to its Poland search (`sweep.adzuna.what_or_local`). The title
+filter knows the Polish cloud and platform titles (chmury, chmurowy, chmurowej, inżynier
+platformy) and leaves out the Polish manager, director, architect, lead and intern titles.
+Dutch postings for these roles use the English titles, so nothing is added for the
+Netherlands. A job that needs Polish or Dutch is still left out by the language filter.
+
+### One job under two titles (13 Nov, fetch idea 6)
+
+Lepaya's job came as "DevSecOps" from Adzuna and "DevSecOps Engineer" from LinkedIn: two
+rows. When a /fetch compares a job with the rows in Notion, and new jobs with each other,
+the word "Engineer" (and the Polish "Inżynier") is left out of the title: same company,
+same title otherwise and same city is the same row. Only when that names one row: two
+rows that already exist stay two. "Senior DevSecOps Engineer" is still another job. The
+Dedupe key itself is not changed.
+
+## Where the postings went (loss report)
+
+Every posting a `/fetch` reads lands in exactly one bucket, per source, so the buckets add up
+to what each source read and nothing is dropped without a trace:
+
+- kept: saved as a new job; already in Notion (updated); same job from another posting
+  (merged into the row);
+- dropped, with the reason: title not DevOps-type, senior or other excluded title, place not
+  recognised, other country, posted too long ago, same job in another city, too senior, a
+  language other than English, B2B only, no visa sponsorship, low skill match, over the daily
+  limit (weaker match), Notion refused the row.
+
+The `/fetch` summary ends with one line per source ("Where the postings went"). Bot State
+`sweep.last_report` keeps the counts and up to 25 dropped jobs per source and reason (so every
+reason has examples); `/fetchreport` shows them by reason with the complete counts (5 jobs per
+reason), and `/fetchreport <word>` shows up to 40 jobs of the reasons or
+sources containing that word, for example `/fetchreport skill` or `/fetchreport adzuna`; the four biggest reasons also come as buttons under `/fetchreport`. The `/fetch` summary and the report count postings the same way (a job seen on two sites counts twice). Long answers arrive as several Telegram messages instead of being cut off. A job already in Notion whose company is an agency gets the agency flag on its next `/fetch` (its other flags stay).
+
+**Pracuj.pl cards (5 Oct).** A Pracuj.pl alert card reads "!" (badge), title, a badge
+line ("Najlepiej dopasowana", "Nowosc!", "Hit!", "Spiesz sie!", "Wyprzedz innych
+kandydatow"), the salary, the company and the city. Badge lines and lines ending in "!" are
+never taken as a field, and the salary line is kept as the job's salary. Before, the "!"
+was read as the title, so most Pracuj.pl jobs were dropped as "title not in scope" (5 of 20
+DevOps-type jobs in the 5 Oct alert). Polish job titles ("Inzynier DevOps", "Specjalista
+ds. ...") still count as Polish required.
+
+## Email alerts setup
+
+1. In the madeshwaranm02 Gmail, create job alerts that send email: IrishJobs.ie, Jobs.ie and
+   JobsIreland for Ireland (Adzuna has no Ireland), plus LinkedIn, JustJoin IT, NoFluffJobs,
+   Pracuj.pl or IamExpat if you like. Alerts that go to madeshwaran.manikam (Pracuj.pl) are
+   read there directly when `GMAIL_ALERTS_TOKEN_JSON_mm` is set (give that mailbox the same
+   "Job Alerts" label); without it, forward them to madeshwaranm02 with a Gmail filter.
+   **Label them:** a Gmail label "Job Alerts" and one filter per board (for example
+   `from:(linkedin.com)`, "Apply the label: Job Alerts", and "Also apply filter to matching
+   conversations"). The bot reads every email with that label, whatever address the board sends
+   from; emails from a sender domain in `sweep.gmail.sender_boards` are read too. A sender not
+   in `sender_boards` gets the Board "Other" (add its domain there to name it).
+2. Create the alerts token with `gmail.readonly` (see `docs/gmail.md`) and put the one-line
+   JSON into `.env` as `GMAIL_ALERTS_TOKEN_JSON_m02` (and the second mailbox's token as
+   `GMAIL_ALERTS_TOKEN_JSON_mm`; Secret Manager in dev and prod). Each mailbox needs its own
+   "Job Alerts" filter. `/sources` lists the mailboxes with a token, `/health` checks each.
+3. Check the parser against the real emails without writing anything:
+   `python -m jobengine.sweep --parse-report`. Each line shows board, title, company and
+   location. A board whose cards come out as `(unknown)` can get a pattern in
+   `sweep.gmail.job_url_patterns`.
+
+4. In Telegram, `/alertcheck` lists each alert email the next `/fetch` reads: board, sender,
+   subject, the jobs found in it and how many are in scope (title and place), with up to 3
+   dropped jobs per email and why. For an email with 0 jobs it shows where its links go, so
+   a pattern can be added. The `/fetch` summary has a line "Email alerts: N email(s) read, M
+   job(s) found in them", and a failed Gmail read shows its reason there and in the log.
+
+Email alerts give title, company and place. The place is the line after the company, or the
+part after "·" when company and place share a line (LinkedIn: "co.brick · Warsaw, Mazowieckie,
+Poland"); other card lines are searched too. Boards that only list one country
+(`sweep.gmail.board_country`: JustJoin IT, NoFluffJobs, Pracuj.pl, theprotocol.it, Bulldogjob
+for Poland; IrishJobs.ie, Jobs.ie, JobsIreland for Ireland; IamExpat and Nationale
+Vacaturebank for the Netherlands) give that country when a card names only a city or none.
+23 Oct, more alert boards: Glassdoor (glassdoor.com, .nl, .ie, .co.uk), Solid.Jobs and
+RocketJobs (Poland), Welcome to the Jungle, Monsterboard (the Netherlands) and Recruit Ireland
+(Ireland). Their sites are on `sweep.fulltext.blocked_hosts` until their terms are checked
+(Glassdoor's forbid scraping; RocketJobs is JustJoin IT's sister site), so their jobs get a
+description from the same job on another site, or wait for `/jd`. The first real emails are
+checked with `/alertcheck`; a board whose cards come out wrong gets a card layout or link
+pattern then.
+When one link holds the whole card (LinkedIn's newer alerts, JustJoin IT), its lines are
+read in the order of `sweep.gmail.card_layouts` (default: title, then "Company · Place";
+JustJoin IT: company, city, title); button lines such as "Easy Apply" are left out. Links
+whose whole text is in `sweep.gmail.ignore_link_exact` ("more" under each IrishJobs card,
+"Contact us", "Change criteria for jobs by email") are never jobs. `sweep.locations` lists
+the cities each country is recognised by (1 Oct: Zeist, Alkmaar, Almere, Leeuwarden, Wicklow
+and others were added after LinkedIn jobs there were dropped as "place not recognised").
+The `/fetch` summary splits "Not a match" by reason (title, place not recognised, other
+country). For every board but LinkedIn the job link is
+followed to the real job page (at most `sweep.fulltext.max_pages` pages per sweep, shared with
+Adzuna and Jooble): the job's URL becomes that page and its full description is kept. LinkedIn
+links are never read; those jobs get a description from the same job on another site, or wait
+for `/jd`.
+
+### Clean inbox (C2, 26 Oct)
+
+With Notion Config `alerts.tidy` = `true` (off by default), each /fetch archives the alert
+mails it found at least one job in and marks them read, in their own mailbox (m02, mm), after
+their jobs were saved (`sweep/inbox_tidy.py`). They keep the `Job Alerts` label, so the next
+/fetch still finds them. A label `Job Alerts/<Board>` (for example `Job Alerts/LinkedIn`) is
+added when it exists in that mailbox: make it in Gmail, the bot never creates labels. A mail in
+Spam is moved out of it. A mail without a job (a LinkedIn message from a recruiter, a "your
+profile was viewed" note, a newsletter) is never touched; nothing is deleted, trashed or sent.
+It does not wait for DRY_RUN to be off: it only archives your own alert mails. The alert
+tokens need gmail.modify (a token renewed with /gmailtoken has it); a token without it is named
+in the /fetch summary.
 
 ## Scope and normalising
 
@@ -89,11 +772,19 @@ A source whose secret is missing is skipped with a line in the summary; the run 
   Staff, Manager and similar are dropped.
 - Seniority: Junior (`junior`, `jr`), Mid (`mid`, `regular`, `medior`), Senior (`senior`, `sr`),
   else Unknown.
-- Years required: the smallest explicit number in the description (`3+ years`, `at least 4
-  years`, `minimum 3 years`, `3-5 years`, `3 lata`, `min. 4 lat`). Empty otherwise.
+- Years required: as posted, from the largest requirement in the description (`2-3 years`,
+  `3+ years`); a range counts by its lower number for the limit and ranking (`3+ years`, `at
+  least 4 years`, `minimum 3 years`, `3-5 years`, `3 lata`, `min. 4 lat`). Empty otherwise.
 - Country and city come from `sweep.locations`. Adzuna `location.area` is tried first. A
   country with no city but "remote" in the location gives city `Remote`. A country missing
   from Config `countries.active`, or a location that cannot be placed, is out of scope.
+- **Office or hybrid only** (23 Oct, `sweep.remote_jobs: false`): a job whose place or title
+  says remote ("Remote, Poland", "Warsaw, Poland (Remote)", "DevOps Engineer (Remote)",
+  "praca zdalna") is out of scope as `remote job (you want office or hybrid)`, unless it also
+  names hybrid or office work ("Poland (Remote/Hybrid)", "praca hybrydowa", "On-site" are
+  kept). A description that says "fully remote", "100% remote", "remote only" or "w pelni
+  zdalna" with no hybrid or office wording is not saved either: summary line `Fully remote,
+  you want office or hybrid (not saved)`. `remote_jobs: true` brings the old rules back.
 - Canonical form: lowercase, accents stripped (plus `ł` to `l`), only `a-z 0-9 + #` and single
   spaces. Company legal suffixes (`Sp. z o.o.`, `S.A.`, `B.V.`, `N.V.`, `Ltd`, `GmbH` and so on)
   and title gender markers (`(m/f/d)`, `(k/m)`, `m/w/d`, `(f/m/x)`, `(remote)`, `(hybrid)`)
@@ -109,8 +800,10 @@ A source whose secret is missing is skipped with a line in the summary; the run 
   Years required, Dedupe key, Posting IDs, First seen, Swept date, Times seen 1, Status New,
   Screen verdict Unscreened and Ghost job risk. The description goes into the page body
   (first line `Description source: <source>`, plus ` (snippet only)` for snippets).
-- Existing key: Swept date is set to today. A new posting ID is appended and Times seen goes
-  up by one; a known posting ID changes neither. Empty URL, Posted date, Salary, Years required
+- Existing key: Swept date is set to today. A new posting ID is always appended. Times seen
+  goes up by one only for a repost: a new ID from a source the row already has. The same job
+  seen on another board (the first ID from a new source) and a known posting ID do not change
+  it. Empty URL, Posted date, Salary, Years required
   and page body are filled; filled values are never overwritten. Ghost risk is recomputed.
   **Status and Screen verdict are never changed.**
 - The data source ID always comes from `safety.notion_write_target("job_opportunities", s)`.
@@ -133,12 +826,18 @@ High is never skipped. It is only reported, last in the summary.
 ## Safety
 
 - All HTTP goes through `jobengine/http.py`, which calls `safety.assert_fetch_allowed` first:
-  https only, host on `safety.allowed_hosts`, and any linkedin host refused even if it is added
-  to the allowlist. Query strings (which carry the Adzuna key) are never logged.
+  https only, host on `safety.allowed_hosts` (or a subdomain of `safety.allowed_host_suffixes`,
+  only `myworkdayjobs.com`), and any linkedin host refused even if it is added to the
+  allowlist. Query strings (which carry the Adzuna key) are never logged.
+- Job and careers pages go through `http.get_page` and `safety.assert_page_fetch_allowed`
+  (see "Full descriptions"): public https hosts, never linkedin, every redirect checked.
 - The only other network code is `telegram_bot.py` and the Google client in `gmail_reader.py`,
   which uses only `users.messages.list` and `users.messages.get`.
 - Notion: `Notion-Version: 2025-09-03`, data source endpoints, about 3 requests per second,
   HTTP 429 retried with `Retry-After`. The sweep never changes a Notion schema.
+- Any site that answers HTTP 429 with a `Retry-After` over 60 seconds is not waited for: the
+  request fails at once with HTTP 429 and the sweep moves on (22 Oct: one amazon.jobs read
+  waited 6.5 minutes).
 - The `httpx` and `httpcore` loggers are kept at WARNING, because they would otherwise log full
   request URLs, Adzuna key included.
 - Tests and CI never touch the network (`tests/conftest.py` makes any socket connection fail).
@@ -146,6 +845,191 @@ High is never skipped. It is only reported, last in the summary.
 ## Fixtures
 
 `fixtures/sweep/` holds three synthetic alert emails, Adzuna PL and NL responses, Greenhouse,
-Lever and SmartRecruiters responses, five Target Companies, Config, and three seeded Job
+Lever, SmartRecruiters, Workday and amazon.jobs responses, job and careers pages in
+`fixtures/sweep/pages/`, five Target Companies, Config, and three seeded Job
 Opportunities rows (a repost, a posting seen again, and an old row that becomes High ghost
 risk). All companies are invented and all email addresses are at `example.com`.
+
+## Every job saved, the best 50 screened
+
+Your decision of 30 Sep: no job that passes the rules is lost to a daily limit. Every new
+job that passes the title, place, age and fit rules is saved in Notion
+(`sweep.daily_new_limit: 0`; a number above 0 brings back a daily cap, counted across all
+sweeps that day in Bot State key `sweep.day`). Each saved job's match score is kept in Bot
+State `sweep.best_today`, and `/screen` (and `/screen batch`) takes today's best-scored rows
+first, up to `screening.daily_limit` (50 since 20 Oct): they are today's `/pending` list. The other new
+rows stay Unscreened in Notion, visible in the Today view, and are never dropped.
+
+Rules of 30 Sep that decide what "passes":
+- titles searched: DevOps, Site Reliability, Platform, Cloud, Kubernetes, Infrastructure and
+  DevSecOps Engineer (Adzuna, Jooble and the company job boards);
+- places: Poland, the Netherlands and Ireland only, office or hybrid only (your decision of
+  23 Oct, `sweep.remote_jobs: false`; before it, remote jobs open across the EU were kept as
+  Country Other, City Remote through `sweep.remote_regions`, now empty);
+- only postings of the last 2 days (`sweep.max_posted_age_days`);
+- B2B-only jobs in Poland, other languages, no sponsorship, too senior and low skill match
+  are still skipped;
+- when a job is on several sites, the best link is kept: the employer's page, then a job
+  board, then an aggregator (Adzuna, Jooble, EURES); a replaced link is added to the page as
+  "Also posted at".
+
+The ranking is free (no LLM, `src/jobengine/sweep/rank.py`) and uses your Skills Inventory,
+Term Map and Target Companies:
+
+| Signal | Points |
+|---|---|
+| each skill you own named in the title or description (Production +4, Hands-on or Active Term Map +3, at most 8) | +3 / +4 |
+| each known gap named (Term Map `(none)` row) | -2 |
+| Target Companies tier 1 to 4 or 6 / other listed company | +6 / +3 |
+| seniority Mid / Unknown / Senior | +3 / +1 / -2 |
+| years required 2 to 4 / more than 5 | +2 / -8 |
+| Polish or Dutch stated as required | -6 |
+| posted in the last 3 days / 7 days / older than 21 days | +2 / +1 / -2 |
+| full description (not a snippet) | +1 |
+
+Ties go to the newest posting. Jobs already in Notion are always updated (seen again,
+reposts). With a daily cap set, jobs below the cut are not saved and the summary says how
+many, for example `Kept the best 30 of 142 new jobs (daily limit 30, 0 already added today).
+112 weaker matches were not saved.`
+
+### Reposting sites (4 Nov, your decision)
+
+Sites that post other companies' jobs as their own (Jobgether, JobLeads, Lensa,
+Talent.com, Jooble, WhatJobs ...; `sweep.reposters` in the config replaces the list) are not
+the employer. A job from one is never saved ("reposting site, not the employer" in the
+skipped counts), and one already in Notion with Status New or Screened is deleted (Notion
+keeps it in its trash for 30 days). One you approved or built a resume for stays. The
+/fetch summary lists them: "Deleted from Notion, posted by a site that reposts other
+companies' jobs".
+
+### When the lookup gets better (4 Nov)
+
+`job_links.LOOKUP_VERSION` goes up when the direct link search itself improves. The next
+/fetch then looks up again, once, every job and every company it did not find before (it
+would otherwise wait 3 or 14 days); the ghost-job counts stay. A short company name counts
+in a web address when it is written together at the start of a part of it (P&G is
+pgcareers.com).
+
+### Close titles (4 Nov)
+
+A job board with no exact title but one job in the row's place whose title is the row's
+title with at most two more words, none a level word (senior, lead, intern ...), takes that
+job: JustJoin's "DevOps Engineer" is Motorola's "Software DevOps Engineer" in Krakow. Two
+or more such jobs: none is taken, and the job is not a ghost either (it is on the list in
+some form). Google's copy now takes the advert as the search results show it, in its own
+words, even when they show only part of it (on 4 Nov the copy-only rule gave "not found"
+37 times).
+
+### Round 3 (4 Nov evening)
+
+- Link text before the title is not part of it ("Bekijk vacature voor DevOps Engineer",
+  "View vacancy for ..."), nor a list of your cities and countries after it
+  ("Site Reliability Engineer Wroclaw, Krakow, Gdansk, Warsaw, Poland").
+- The browser opens one page once per /fetch: the same careers page for the next job of
+  that company costs no browser page (on 4 Nov the 80 ran out halfway, CGI, Apple and
+  Prism Digital again and again).
+- `sweep.job_links.copy_model`: another Gemini for Google's copy; empty (the default) uses
+  the fetch model. Tried on 4 Nov with `gemini-3.8-flash`: it made 20 to 78 Google searches
+  a call (Gemini cannot be told a maximum), timed out or answered no JSON, and found no
+  more, so it is off again. Google's copy never falls back to Claude. `max_searches` in DEV is 150: a company can take three
+  searches now (careers page, job system, Google's copy).
+- LOOKUP_VERSION 3: the next /fetch looks up again, once, the jobs not found before.
+
+### Round 4 (4 Nov evening)
+
+- A company's address may use its initials or a careers word before its name: P&G
+  (Procter & Gamble) is pgcareers.com, a.s.r. werkenbijasr.nl, BNG werkenbijbng.nl.
+- More job systems count as the employer's own: eRecruiter, Traffit, Recruitify, Emply,
+  ApplyToJob, Cornerstone (csod.com), Pinpoint, careers-page.com, Njoyn, softgarden ...
+- A close title may carry its place after it ("Software DevOps Engineer (Krakow, Poland)").
+- LOOKUP_VERSION 4: the jobs not found before are looked up once more.
+
+### Round 5 (4 Nov night)
+
+- Google's copy: Gemini often answered with the job's own address on the company site while
+  its listed sources were only LinkedIn or Indeed (Serco, Medtronic, HSBC, Deloitte ...).
+  That answer now counts when it is on the company's own site and its path names every word
+  of the title (`/careers/devops-engineer-amsterdam` for "DevOps Engineer"); an address like
+  `/careers/12345` or one on another site still does not. A rejected copy logs its source
+  hosts and the answer, so the next log shows why.
+- LOOKUP_VERSION 5: the jobs not found before are looked up once more.
+
+### Round 6 (4 Nov night)
+
+After round 5: 9 of 80 alert jobs found (8 by Google's copy). What the log showed next:
+- Gemini lists no sources at all for these searches ("sources: none"), so its answer address
+  is what counts. A job number in the address now counts like the title (Serco
+  `?jobId=313360`, Sony's Greenhouse `/jobs/7478061002`, Brunel `...-it003509`); a homepage
+  or a careers page still does not. A Google redirect link as the answer is followed first
+  (ChipSoft). Title words in Polish and Dutch addresses: "inzynier", "ingenieur" = engineer.
+- A 2-letter company name with a careers word is its site: NN Group is nn-careers.com.
+- A job whose job list needed the browser, with no browser page left for it (TNO, CGI,
+  SURF ...), was never really checked: Google's copy is now asked for it too (still never
+  for a job missing from a list that was read). Its log line says so.
+- Privacy, cookie, terms and login links are not careers pages (Kingfisher's privacy policy
+  had used a browser page).
+- The "searched:" log line counts Google's result links, to show when there are none.
+- LOOKUP_VERSION 6: the jobs not found before are looked up once more.
+
+### Round 7 (4 Nov night)
+
+After round 6: 8 more of 80 alert jobs found (ChipSoft, Serco, NN Group, Infor, Egnyte,
+Venquis by Google's copy, CIMSOLUTIONS twice by its careers page). Small fixes from its log:
+- Google's own careers site (google.com/about/careers) counts as Google's site; the rest of
+  google.com is still a search, never an employer.
+- On a job system a 4-digit job number counts too (CGI's Njoyn "?J1026-2636").
+- A country name where the company should be ("Poland") is no company: noted once, not
+  searched again at every /fetch.
+- LOOKUP_VERSION 7.
+
+The rest wait for /jd: mostly recruitment agencies that post only on LinkedIn (Square One,
+ALOIS, Ventula, Thomson Keene ...), sites that refuse the bot with no job system Google
+shows (BNG, Rabobank, ALTEN, Phoenix Contact) and answers that are only a homepage. Gemini
+gives no result links for these searches ("0 result links"), so its answer address is all
+the bot can check.
+
+### Round 8 (5 Nov): no ghost jobs by mistake
+
+The /fetch of 5 Nov skipped 11 jobs as ghosts. Two were not ghosts:
+- Coolblue's Cloud Engineer: the search found Coolblue's own page for the job
+  (`.../vacancies/1054366/cloud-engineer.html`), which answered HTTP 405. A page like that, on
+  the company's own site and naming the job, now counts as "on its list, page not readable":
+  the job waits for /jd and is never skipped.
+- Xccelerated's "Cloud Engineer GCP": its list says "Cloud Engineer". A list title that is
+  the row's title without platform words (AWS, GCP, Azure, Kubernetes, Linux ...) keeps the
+  job from being a ghost. It is not taken as the job's link: it may be another job.
+- Title words written together in an address count ("/o/devopsplatform-engineer").
+- LOOKUP_VERSION 8.
+
+### /newcompanies: Add all (5 Nov, your ask)
+
+Each suggestion card has a third button, "Add all N" (when more than one is open): every open
+suggestion goes into Target Companies in one tap, the same way "Add to Target Companies" adds
+one. Recruitment agencies (by name) and companies already there are left out; agencies are
+not suggested again. One "Undo all" button unticks Active for every company it added.
+
+### Target Companies details (5 Nov, your ask)
+
+The companies the bot adds itself (/newcompanies with Add or Add all, /add, the companies of
+your applications) came in with only Company, Region, Active, Notes and Last checked. Each
+/fetch now fills their empty columns, up to `sweep.company_details.max_per_run` (20) a run
+(sweep/company_details.py):
+- Careers URL and ATS platform: one AI web search for the careers page or job system, each
+  link checked by reading it (a site that refuses the bot is never opened again).
+- Domain: its website's address without www.
+- Hub / City and Tier: from the same search; a tier that is not one of the table's is left out.
+- IND sponsor: Verified or Not listed from the IND register for Dutch companies, N/A for the
+  others (no search).
+Only empty columns, only rows whose Notes start with "Added by /" or "Added from your
+application" (safety.target_companies_fill_fields); a row you added by hand is never touched.
+A company with columns still empty is looked up again after 14 days. The /fetch summary lists
+the companies filled. `sweep.company_details.enabled: false` turns it off.
+
+### Round 9 (5 Nov): a job list the browser could not open is no check
+
+Sii's careers page needs the browser, and the browser got HTTP 403; its jobs were still
+counted as "not on its job list" and three were skipped as ghosts. A job list whose browser
+page fails now counts like one with no browser page left: the job waits for /jd and Google's
+copy is tried, never a ghost. LOOKUP_VERSION 9. The Tier question also says a big
+international company is never Tier 5, and energy, nuclear and chemicals are Tier 6, games
+and media Tier 2 (the first run put Westinghouse in Tier 4 and Sony in Tier 5).

@@ -1,0 +1,322 @@
+from datetime import date
+
+import httpx
+import pytest
+
+from jobengine import http
+from jobengine.config_store import ConfigStore
+from jobengine.contacts.finder import (
+    NONE_FOUND,
+    answer_domain,
+    domain_question,
+    fake_deps,
+    find_contacts,
+    find_domain,
+    valid_domain,
+)
+from jobengine.contacts.providers.base import FixtureHttp
+from jobengine.reference import Reference
+from jobengine.settings import load_settings
+
+TODAY = date(2026, 10, 1)
+PL, IE, NO_DOMAIN = "fixture-clean-pl", "fixture-clean-ie", "fixture-no-domain"
+
+
+def make(env="local", **environ):
+    d = fake_deps(load_settings(env, environ))
+    d.today = lambda: TODAY
+    return d
+
+
+def country_first(d):
+    """The location rule before 16 Oct: unknown locations still fill slots, after people
+    in the country (Config contacts.location country_first)."""
+    d.s = d.s.model_copy(update={"contacts": {**d.s.contacts, "location": "country_first"}})
+    return d
+
+
+def emails(d):
+    return [row.get("Email", "").lower() for _, row in d.contacts.all_rows()]
+
+
+def test_cache_that_fills_the_mix_costs_nothing():
+    d = make()
+    result = find_contacts(d, IE)
+    assert d.calls == []
+    assert len(result.contacts) == 4 and all(c.cached for c in result.contacts)
+    assert result.message.endswith("4 of 4 found. Credits: Apollo 0/75, Hunter 0/25, Snov 0/50")
+
+
+def test_cache_jd_then_apollo_fills_the_mix_and_stops():
+    d = make()
+    result = find_contacts(d, PL)
+    assert d.calls == ["apollo"]
+    assert [(c.name, c.type, c.source) for c in result.contacts] == [
+        ("Kasia Example", "Peer engineer", "Apollo"),
+        ("Ola Example", "Recruiter/TA", "Job posting"),
+        ("Anna Example", "Peer engineer", "Apollo"),
+        ("Piotr Example", "Hiring", "Apollo"),
+    ]
+    assert result.contacts[0].cached
+    lines = result.message.splitlines()
+    assert lines[0] == "Contacts for Vistula Cloud, DevOps Engineer (Poland)"
+    assert "Peer engineer: Kasia Example (Platform Engineer) [cache]" in lines
+    assert "Peer engineer: Anna Example (Senior DevOps Engineer) [Apollo, verified, Poland]" \
+        in lines
+    assert "Recruiter/TA: Ola Example [Job posting, Poland]" in lines
+    assert "Mailbox: careers@vistula.example.com [Job posting]" in lines
+    assert lines[-2] == "4 of 4 found. Credits: Apollo 2/75, Hunter 0/25, Snov 0/50"
+    # 16 Oct: the answer says when the providers were not really asked.
+    assert lines[-1].startswith("Contact lookups: test data: Apollo, Hunter, Snov")
+
+
+def test_writes_new_contacts_links_cached_ones_and_updates_the_job():
+    d = make()
+    before = dict(d.contacts.rows["ct-fresh-peer"])
+    find_contacts(d, PL)
+    kasia = d.contacts.rows["ct-fresh-peer"]
+    assert kasia["Related jobs"] == [PL]
+    assert {k: v for k, v in kasia.items() if k != "Related jobs"} == {
+        k: v for k, v in before.items() if k != "Related jobs"}  # never overwritten
+    created = [w[2] for w in d.contacts.writes if w[0] == "create"]
+    names = {c["Name"]: c for c in created}
+    assert set(names) == {"Ola Example", "careers@vistula.example.com", "Anna Example",
+                          "Piotr Example"}
+    anna = names["Anna Example"]
+    assert (anna["Status"], anna["Source"], anna["Type"], anna["Country"]) == (
+        "Verified", "Apollo", "Peer engineer", "Poland")
+    assert anna["Date found"] == TODAY and anna["Related jobs"] == [PL]
+    assert "phone" not in str(anna).lower() and "linkedin" not in str(anna).lower()
+    assert names["careers@vistula.example.com"]["Type"] == "Other"
+    job = d.jobs.rows[PL]
+    assert len(job["Contacts"]) == 5
+    assert job["Contact source"] == "Job posting"
+    assert job["Contact person"] == "Kasia Example, Ola Example, Anna Example, Piotr Example"
+
+
+def test_rerun_only_fills_missing_slots():
+    d = make()
+    find_contacts(d, PL)
+    count = len(d.contacts.rows)
+    again = find_contacts(d, PL)
+    assert len(d.contacts.rows) == count
+    assert d.calls == ["apollo"]  # second run: everything from the cache
+    assert len(again.contacts) == 4
+
+
+def blocked_apollo(d):
+    fixture = FixtureHttp(d.s)
+
+    def request(provider):
+        if provider != "apollo":
+            return fixture
+
+        def refuse(method, url, **kw):
+            raise http.HttpError(f"{method} {http.safe_url(url)} failed: HTTP 403", 403)
+        return refuse
+
+    d.request = request
+
+
+def test_waterfall_goes_on_to_hunter_and_stops_when_full():
+    d = country_first(make())  # Hunter gives no location
+    blocked_apollo(d)
+    result = find_contacts(d, PL)
+    assert d.calls == ["apollo", "hunter"]
+    assert "apollo: not available on this plan" in result.message
+    new = [(c.name, c.source) for c in result.contacts if not c.cached]
+    assert ("Anna Example", "Hunter") in new and ("Hanna Example", "Hunter") in new
+    assert "private.person@gmail.com" not in emails(d)  # personal address dropped
+    assert "far.away@other.example.org" not in emails(d)  # off-domain dropped
+
+
+def test_waterfall_reaches_snov_for_the_recruiter_and_dedupes_across_providers():
+    d = make()
+    d.jobs.rows[PL]["body"] = ["Description source: ats", "We run EKS. No contact here."]
+    result = find_contacts(d, PL)
+    assert d.calls == ["apollo", "hunter", "snov"]
+    assert [c.name for c in result.contacts if c.type == "Recruiter/TA"] == ["Rita Example"]
+    assert emails(d).count("anna.example@vistula.example.com") == 1  # Apollo and Hunter
+    assert result.missing == {}
+
+
+def test_used_up_counter_skips_the_provider():
+    d = country_first(make())
+    config = ConfigStore.fake()
+    config._rows["credits.apollo"] = type(config._rows["credits.apollo"])(
+        key="credits.apollo", value="75 / 75 per month", updated=TODAY)
+    d.config = lambda: config
+    result = find_contacts(d, PL)
+    assert d.calls == ["hunter"]
+    assert "apollo: no credits left this month, skipped" in result.message
+
+
+def test_no_provider_http_in_dev_and_nothing_in_prod_dry_run():
+    calls = []
+    http.set_transport(httpx.MockTransport(lambda r: calls.append(r) or httpx.Response(500)))
+    try:
+        d = make("dev")
+        find_contacts(d, PL)  # dev: fixtures only
+        assert calls == [] and d.calls == ["apollo"]
+        d = make("prod", DRY_RUN="true")
+        d.jobs.rows[PL]["body"] = ["Description source: ats", "No contact here."]
+        result = find_contacts(d, PL)
+        assert calls == [] and d.calls == []
+        assert "apollo: paid calls are off (DRY_RUN), skipped" in result.message
+    finally:
+        http.set_transport(None)
+
+
+def test_zero_found():
+    d = make("prod", DRY_RUN="true")
+    d.contacts.rows.clear()
+    d.jobs.rows[PL]["body"] = ["Description source: ats", "No contact here."]
+    result = find_contacts(d, PL)
+    assert NONE_FOUND in result.message
+    assert d.jobs.rows[PL]["Contact source"] == "Not found"
+
+
+def test_unknown_domain_asks_and_resumes_on_reply():
+    d = make()
+    result = find_contacts(d, NO_DOMAIN)
+    assert result.status == "waiting_domain" and d.calls == []
+    assert result.message == domain_question("Mystery Example Labs", NO_DOMAIN)
+    assert "Ref JOB-nodomain" in result.message
+    assert "Contacts" not in d.jobs.rows[NO_DOMAIN]  # the lookup waits
+    bad = answer_domain(d, result.message, "mysteryexamplelabs.teamtailor.com")
+    assert isinstance(bad, str) and "not look like" in bad
+    resumed = answer_domain(d, result.message, "https://www.mystery.example.com/")
+    # The fixtures only hold Vistula people, so every provider runs and finds nobody on the
+    # new domain: their emails are off-domain and dropped.
+    assert resumed.status == "done" and d.calls == ["apollo", "hunter", "snov"]
+    assert "0 of 4 found" in resumed.message or NONE_FOUND in resumed.message
+    assert d.state.get("domain:mystery example labs") == {"domain": "mystery.example.com"}
+    assert answer_domain(d, "an unrelated message", "x.example.com") is None
+
+
+def test_domain_rules():
+    assert valid_domain("Example.COM") == "example.com"
+    assert valid_domain("https://www.example.org/jobs") == "example.org"
+    for bad in ("acme.greenhouse.io", "jobs.lever.co", "gmail.com", "not a domain", "x"):
+        assert valid_domain(bad) is None
+    # P9-24: an ATS vendor's own domain is its mail domain, for that company only.
+    assert valid_domain("workday.com", "Workday") == "workday.com"
+    assert valid_domain("www.workday.com", "Workday, Inc.") == "workday.com"
+    assert valid_domain("workday.com", "Acme") is None
+    assert valid_domain("workday.com") is None
+    assert valid_domain("acme.teamtailor.com", "Acme") is None
+    assert valid_domain("workday.myworkdayjobs.com", "Workday") is None
+    domains = "Mystery Example Labs = labs.example.com"
+    config = ConfigStore.from_values({"contacts.domains": domains})
+    assert find_domain("Mystery Example Labs", Reference.fake(), config,
+                       make().state) == "labs.example.com"
+    assert find_domain("Vistula Cloud", Reference.fake(), config,
+                       make().state) == "vistula.example.com"
+
+
+def test_credit_counters_written_in_prod_only():
+    from jobengine.notion_repo import config_writer_for
+
+    assert config_writer_for(load_settings("dev", {}), None, ConfigStore.fake()) is None
+    writes = []
+    d = make()
+    d.config_writer = lambda config: lambda key, value, day: writes.append((key, value))
+    find_contacts(d, PL)
+    assert writes == [("credits.apollo", "2 / 75 per month")]
+
+
+def test_no_write_mode():
+    d = make()
+    d.write = False
+    find_contacts(d, PL)
+    assert d.contacts.writes == [] and "Contacts" not in d.jobs.rows[PL]
+
+
+@pytest.mark.parametrize("env", ["local", "dev"])
+def test_config_writer_refuses_other_keys(env):
+    from jobengine.safety import SafetyError, check_config_write
+
+    with pytest.raises(SafetyError):
+        check_config_write("model.tailor")
+
+
+def test_snov_402_is_said_once_and_snov_is_skipped_until_the_1st():
+    # 22 Oct: Snov's free plan answers HTTP 402 "ran out of credits" on every API call.
+    from jobengine.contacts.finder import OFF_KEY
+    from jobengine.contacts.providers import snov
+
+    d = make()
+    fixture = FixtureHttp(d.s)
+
+    def request(provider):
+        def refuse(method, url, **kw):
+            if provider == "snov":
+                raise http.HttpError(f"{method} {http.safe_url(url)} failed: HTTP 402", 402)
+            raise http.HttpError(f"{method} {http.safe_url(url)} failed: HTTP 403", 403)
+        return refuse if provider in ("snov", "apollo", "hunter") else fixture
+
+    d.request = request
+    first = find_contacts(d, PL)
+    assert snov.NO_API in first.message
+    assert d.state.get(OFF_KEY + "snov") == {"month": "2026-10",
+                                             "why": "its API needs a paid plan"}
+    d.calls.clear()
+    second = find_contacts(d, PL)
+    assert "snov" not in d.calls
+    assert "snov: skipped this month (its API needs a paid plan)" in second.message
+    d.today = lambda: date(2026, 11, 1)  # a new month: Snov is asked again
+    d.calls.clear()
+    find_contacts(d, PL)
+    assert "snov" in d.calls
+
+
+def test_snov_403_free_plan_is_skipped_until_the_1st_and_not_counted_in_outreach():
+    # 8 Nov (Phase 22 Q-13, Q-27): the free plan answers HTTP 403 "FreePlan"; Snov was
+    # asked on every look-up and /outreach still counted its 50 credits.
+    from jobengine.contacts.finder import OFF_KEY
+    from jobengine.contacts.providers import snov
+
+    d = make()
+    fixture = FixtureHttp(d.s)
+
+    def request(provider):
+        def refuse(method, url, **kw):
+            raise http.HttpError(f"{method} {http.safe_url(url)} failed: HTTP 403", 403)
+        return refuse if provider in ("snov", "apollo", "hunter") else fixture
+
+    d.request = request
+    first = find_contacts(d, PL)
+    assert snov.FREE_PLAN in first.message
+    assert d.state.get(OFF_KEY + "snov") == {"month": "2026-10",
+                                             "why": "its API needs a paid plan"}
+    d.calls.clear()
+    find_contacts(d, PL)
+    assert "snov" not in d.calls
+
+
+def test_after_a_429_the_provider_is_not_called_again_in_the_look_up():
+    # 22 Oct, CodiLime: Prospeo refused 8 times (its search, the location check, the AI
+    # search), 22 seconds of waits each. After the first refusal nothing reaches it again.
+    from jobengine.contacts.finder import _breaker
+
+    d = make()
+    reached = []
+
+    def request(provider):
+        def call(method, url, **kw):
+            reached.append(provider)
+            if provider == "prospeo":
+                raise http.HttpError(f"{method} {url} failed: HTTP 429", 429)
+            return {"ok": True}
+        return call
+
+    d.request = request
+    looked_up = _breaker(d)
+    for _ in range(3):
+        with pytest.raises(http.HttpError) as err:
+            looked_up.request("prospeo")("POST", "https://api.prospeo.io/enrich-person")
+        assert err.value.status == 429
+    assert reached == ["prospeo"]  # only the first call went out
+    assert looked_up.busy == {"prospeo"}
+    assert looked_up.request("hunter")("GET", "https://api.hunter.io/v2/x") == {"ok": True}
+    assert _breaker(d).busy == set()  # the next look-up tries Prospeo again

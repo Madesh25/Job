@@ -117,16 +117,80 @@ def test_429_gives_up_after_max_retries(transport, monkeypatch):
     assert info.value.status == 429
 
 
-def test_network_error_is_wrapped(monkeypatch):
-    def boom(request):
-        raise httpx.ConnectError("no route", request=request)
+def test_a_long_retry_after_is_not_waited_for(transport, monkeypatch):
+    _, responses = transport
+    waits = []
+    monkeypatch.setattr(http, "_sleep", waits.append)
+    responses.append(httpx.Response(429, headers={"Retry-After": "300"}))
+    with pytest.raises(http.HttpError, match="asked to wait 300s") as info:
+        http.get_json("https://www.amazon.jobs/en/search.json", s=S)
+    assert info.value.status == 429 and waits == []
 
-    http.set_transport(httpx.MockTransport(boom))
-    try:
-        with pytest.raises(http.HttpError, match="ConnectError"):
-            http.get_json("https://api.lever.co/v0/postings/acme?mode=json", s=S)
-    finally:
-        http.set_transport(None)
+
+def failing(errors, then=None):
+    """A transport that raises each error in turn, then answers `then` (or 200 {"ok": 1})."""
+    calls = []
+
+    def handler(request):
+        calls.append(request.method)
+        if errors:
+            error = errors.pop(0)
+            if isinstance(error, httpx.Response):
+                return error
+            raise error("boom", request=request)
+        return then or httpx.Response(200, json={"ok": 1})
+
+    http.set_transport(httpx.MockTransport(handler))
+    return calls
+
+
+@pytest.fixture
+def waits(monkeypatch):
+    seen = []
+    monkeypatch.setattr(http, "_sleep", seen.append)
+    yield seen
+    http.set_transport(None)
+
+
+def test_network_error_is_wrapped_after_the_retries(waits):
+    calls = failing([httpx.ConnectError] * 3)
+    with pytest.raises(http.HttpError, match="ConnectError"):
+        http.get_json("https://api.lever.co/v0/postings/acme?mode=json", s=S)
+    assert len(calls) == 3 and waits == [2.0, 5.0]
+
+
+def test_a_connect_timeout_is_retried_for_every_method(waits):
+    calls = failing([httpx.ConnectTimeout])
+    assert http.post_json("https://api.notion.com/v1/pages", json={}, s=S) == {"ok": 1}
+    assert calls == ["POST", "POST"] and waits == [2.0]
+
+
+def test_read_timeout_and_gateway_errors_are_retried_for_get_only(waits):
+    calls = failing([httpx.ReadTimeout, httpx.Response(503)])
+    assert http.get_json("https://api.notion.com/v1/blocks/x/children", s=S) == {"ok": 1}
+    assert len(calls) == 3 and waits == [2.0, 5.0]
+    # A POST may already have been applied: never sent twice.
+    calls = failing([httpx.ReadTimeout])
+    with pytest.raises(http.HttpError, match="ReadTimeout"):
+        http.post_json("https://api.notion.com/v1/pages", json={}, s=S)
+    assert calls == ["POST"]
+    calls = failing([httpx.Response(503)])
+    with pytest.raises(http.HttpError) as info:
+        http.patch_json("https://api.notion.com/v1/pages/x", json={}, s=S)
+    assert info.value.status == 503 and calls == ["PATCH"]
+
+
+def test_a_notion_query_post_is_retried_like_a_get(waits):
+    """Phase 19 A-01 (3 Nov): one HTTP 502 on a Notion query lost a starter answer. A query
+    or search only reads, so it is retried; a POST that writes still is not."""
+    calls = failing([httpx.Response(502)])
+    assert http.post_json("https://api.notion.com/v1/data_sources/abc/query", json={},
+                          s=S) == {"ok": 1}
+    assert calls == ["POST", "POST"] and waits == [2.0]
+    calls = failing([httpx.Response(502)])
+    with pytest.raises(http.HttpError):
+        http.post_json("https://api.notion.com/v1/pages", json={}, s=S)
+    assert calls == ["POST"]
 
 
 def test_http_library_request_logs_are_silenced():

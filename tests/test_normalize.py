@@ -128,8 +128,15 @@ def test_seniority(title, expected):
         ("You have 3+ years of experience with Kubernetes", 3),
         ("at least 4 years in operations", 4),
         ("Minimum 3 years of AWS", 3),
-        ("3-5 years of Terraform, 2+ years of Go", 2),
+        ("3-5 years of Terraform, 2+ years of Go", 3),  # the largest requirement
+        ("minimalne doswiadczenie w IT: 5 lat, na podobnym stanowisku: 2 lata", 5),
+        ("Scalo od 18 lat tworzy oprogramowanie. 2+ years of AWS", 2),  # company age
+        ("We have 25+ years of history. 3+ years of Linux", 3),
+        ("3+ years of experience. 5+ years preferred", 3),  # nice-to-have years ignored
+        ("5+ years of experience is a plus", 5),  # only nice-to-have years: they count
         ("4\u20136 years with Linux", 4),
+        ("3 to 5 years of experience with AWS", 3),  # 23 Oct: "to" joins a range too
+        ("od 3 do 5 lat do\u015bwiadczenia", 3),
         ("Wymagamy: 3 lata doswiadczenia", 3),
         ("min. 4 lat doswiadczenia", 4),
         ("No experience numbers here", None),
@@ -187,3 +194,57 @@ def test_normalize_never_infers_salary_or_date():
 def test_parse_active_countries():
     assert parse_active_countries("Poland, Netherlands, Ireland") == ACTIVE
     assert parse_active_countries("") == []
+
+
+@pytest.mark.parametrize("text, expected", [
+    ("At least five years of relevant experience in Linux administration", 5),
+    ("five (5) years of experience", 5),
+    ("Two+ years with AWS", 2),
+    ("One of the team for three weeks", None),
+])
+def test_years_in_words(text, expected):
+    assert years_required(text) == expected
+
+
+def test_region_tag_is_not_part_of_the_company():
+    from jobengine.sweep.normalize import dedupe_key, index_key
+
+    key = dedupe_key("Citi (IE)", "Site Reliability Engineer (SRE)", "Warszawa", "Poland")
+    assert key == dedupe_key("Citi", "Site Reliability Engineer (SRE)", "Warszawa", "Poland")
+    # Rows saved before this change still carry "citi ie" in their stored key.
+    assert index_key("citi ie|site reliability engineer sre|warszawa", "Citi (IE)") == key
+    assert index_key("citi|sre|warszawa", "Citi") == "citi|sre|warszawa"
+    assert dedupe_key("Delft Digital B.V.", "SRE", None, "Netherlands").startswith("delft digital|")
+
+
+def test_a_reposting_site_is_not_the_employer():
+    """4 Nov, your decision: Jobgether reposts other companies' jobs (only remote copies on
+    its own board): such a job is never saved."""
+    from jobengine.sweep.normalize import REPOSTER, normalize
+
+    out = normalize(raw(title="DevOps Engineer", company="Jobgether", location="Amsterdam"),
+                    RULES, ["Netherlands"])
+    assert isinstance(out, Skipped) and out.reason == REPOSTER
+    kept = normalize(raw(title="DevOps Engineer", company="Jobgether Partner BV",
+                         location="Amsterdam"), RULES, ["Netherlands"])
+    assert not isinstance(kept, Skipped)  # only the reposting site itself
+
+
+def test_one_job_under_two_names_of_the_employer_is_one_key():
+    """Phase 23 2-05 (8 Nov): 8 jobs were saved twice under two names of the same employer."""
+    from jobengine.sweep.normalize import dedupe_company, dedupe_key, index_key
+
+    pairs = [("Motorola Solutions", "Motorola Solutions Systems Polska"),
+             ("Akamai", "Akamai Technologies, Inc."),
+             ("BNP Paribas", "BNP Paribas Bank Polska"),
+             ("P&G", "Procter & Gamble"),
+             ("Sony Interactive Entertainment", "Sony Interactive Entertainment Ireland Limited")]
+    for a, b in pairs:
+        assert dedupe_key(a, "DevOps Engineer", "Krakow", "Poland") == \
+            dedupe_key(b, "DevOps Engineer", "Krakow", "Poland"), (a, b)
+    assert dedupe_company("Bank") == "bank"  # never empty
+    assert dedupe_company("Deloitte Poland") == dedupe_company("Deloitte Ireland") == "deloitte"
+    # A row saved before 8 Nov keeps its stored key; the index finds it under the new one.
+    old = "motorola solutions systems polska|devops engineer|krakow"
+    assert index_key(old, "Motorola Solutions Systems Polska") == \
+        dedupe_key("Motorola Solutions", "DevOps Engineer", "Krakow", "Poland")

@@ -21,7 +21,8 @@ Nothing is ever pushed straight to `main` or `develop`.
 6. `feature/05-contacts`
 7. `feature/06-gmail-drafts`
 8. `feature/07-tracking`
-9. `feature/08-deploy`
+9. `feature/08-strategy`
+10. `feature/09-deploy`
 
 ## How to start a new module
 

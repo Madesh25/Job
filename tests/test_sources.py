@@ -92,6 +92,22 @@ def test_card_heuristic_falls_back_to_unknown():
     assert posting.company == "(unknown)" and posting.location_text == ""
 
 
+@pytest.mark.parametrize("sender, board", [
+    ("Jobs.ie <alerts@jobs.ie>", "Jobs.ie"),
+    ("IrishJobs <noreply@mail.irishjobs.ie>", "IrishJobs.ie"),
+    ("JobsIreland <alerts@jobsireland.ie>", "JobsIreland"),
+])
+def test_irish_alert_boards_use_the_card_parser(sender, board):
+    html = ("<table><tr><td><a href='https://track.example.com/c/1?u=job'>Cloud Engineer</a>"
+            "<br>Liffey Analytics<br>Galway</td></tr>"
+            "<tr><td><a href='https://track.example.com/unsub'>Unsubscribe</a></td></tr></table>")
+    message = gmail_reader.GmailMessage(id="m", sender=sender, subject="New jobs", html=html)
+    [posting] = gmail_alerts.parse_alert(message, GMAIL_CFG)
+    assert (posting.board, posting.title, posting.company, posting.location_text) == (
+        board, "Cloud Engineer", "Liffey Analytics", "Galway")
+    assert posting.url == "https://track.example.com/c/1?u=job"  # stored, never requested
+
+
 def test_same_link_across_messages_kept_once():
     message = fakes.gmail_messages()[0]
     postings = gmail_alerts.collect([message, message], GMAIL_CFG)
@@ -100,7 +116,7 @@ def test_same_link_across_messages_kept_once():
 
 def test_gmail_fetch_skips_without_token():
     result = gmail_alerts.fetch(S)
-    assert result.skipped_reason == "gmail skipped: GMAIL_ALERTS_TOKEN_JSON missing"
+    assert result.skipped_reason == f"gmail skipped: {gmail_alerts.MISSING}"
 
 
 def test_gmail_fetch_with_fake_loader():
@@ -199,20 +215,21 @@ def test_adzuna_splits_call_limit_between_countries():
 
     s = load_settings("local", {"ADZUNA_APP_ID": "id", "ADZUNA_APP_KEY": "key"})
     result = adzuna.fetch(s, get=get)
-    assert len(calls) == 6
+    assert len(calls) == 12
     assert calls[0][1] == {
         "app_id": "id", "app_key": "key", "results_per_page": 50, "max_days_old": 3,
-        "what_or": "devops sre kubernetes platform cloud infrastructure",
+        # Poland adds its own words (13 Nov, fetch idea 5).
+        "what_or": "devops sre kubernetes platform cloud infrastructure devsecops chmury "
+                   "chmurowy",
         "content-type": "application/json",
     }
-    # Poland no longer uses the whole budget: 3 calls each, so the Netherlands is searched.
+    # Poland does not use the whole budget: 6 calls each, so the Netherlands is searched.
     assert [url.split("/jobs/")[1] for url, _ in calls] == [
-        "pl/search/1", "pl/search/2", "pl/search/3",
-        "nl/search/1", "nl/search/2", "nl/search/3",
+        *(f"pl/search/{n}" for n in range(1, 7)), *(f"nl/search/{n}" for n in range(1, 7)),
     ]
     assert result.notes == [
-        "adzuna pl: stopped at its limit of 3 calls",
-        "adzuna nl: stopped at its limit of 3 calls",
+        "adzuna pl: stopped at its limit of 6 calls",
+        "adzuna nl: stopped at its limit of 6 calls",
     ]
 
 
@@ -260,7 +277,7 @@ def test_detect_board():
         ats.Board("greenhouse", "acme")
     )
     assert ats.detect_board(company("A", "https://job-boards.eu.greenhouse.io/acme-eu"), {}) == (
-        ats.Board("greenhouse", "acme-eu")
+        ats.Board("greenhouse", "acme-eu", eu=True)  # read from the EU API host
     )
     assert ats.detect_board(
         company("A", "https://boards.greenhouse.io/embed/job_board?for=acme"), {}
@@ -274,7 +291,13 @@ def test_detect_board():
     assert ats.detect_board(company("A", "https://careers.smartrecruiters.com/Acme1"), {}) == (
         ats.Board("smartrecruiters", "Acme1")
     )
-    assert ats.detect_board(company("A", "https://acme.wd3.myworkdayjobs.com/x"), {}) is None
+    assert ats.detect_board(
+        company("A", "https://Acme.wd3.myworkdayjobs.com/en-US/Acme_Careers"), {}
+    ) == ats.Board("workday", "acme", host="acme.wd3.myworkdayjobs.com", site="Acme_Careers")
+    assert ats.detect_board(company("A", "https://www.amazon.jobs/en/teams/aws"), {}) == (
+        ats.Board("amazon", "amazon")
+    )
+    assert ats.detect_board(company("A", "https://careers.example.com/jobs"), {}) is None
 
 
 def test_ats_board_override_for_company_domain():
@@ -285,15 +308,17 @@ def test_ats_board_override_for_company_domain():
 
 def test_ats_fetch_with_fixtures():
     http_fake = fakes.FixtureHttp(S)
-    result = ats.fetch(S, fakes.target_companies(), keep, get=http_fake)
+    result = ats.fetch(S, fakes.target_companies(), keep, get=http_fake, post=http_fake.post,
+                       page=http_fake.page, today=date(2026, 10, 1))
     postings = by_title(result.postings)
     assert set(postings) == {
         "Senior DevOps Engineer", "Site Reliability Engineer", "Platform Engineer",
-        "DevOps Engineer",
+        "DevOps Engineer", "Cloud Engineer",
     }
-    assert result.not_supported == ["Baltic Bank", "Shamrock Systems"]
+    # Baltic Bank (Workday) is read now; Shamrock's careers page links to no known board.
+    assert result.not_supported == ["Shamrock Systems"]
     assert all(p.board == "Company site" and p.source == "ats" for p in result.postings)
-    assert "ats: 4 postings outside title or location scope were not fetched" in result.notes
+    assert "ats: 5 postings outside title or location scope were not fetched" in result.notes
     # Detail is requested only for the SmartRecruiters posting that passed the filters.
     details = [u for u in http_fake.requested if "smartrecruiters" in u and "/postings/" in u]
     assert details == [

@@ -4,7 +4,34 @@ notion:
     job_opportunities: "2e31d687-5a7b-442b-87e2-4d8f8c6dea95"
     contacts: "8701fac7-2aae-4c95-a36c-c892fb9a138e"
     resume_log: "8b1d6f16-f8d4-404e-8e12-4dca035b7e2f"
+    bot_state: "41fca14e-5236-4b78-8f74-0fe9d8199a41"
+    strategy: "e80577ea-ac44-4dbc-a61f-c37eb0e7b9a4"
+    # Autopilot H8 (25 Oct): Answer bank (DEV) and Auto-apply issues (DEV), DEV Sandbox.
+    answer_bank: "5d8824c4-5cfd-4bd5-887c-30bf61184bb2"
+    autoapply_issues: "6625f742-f410-4836-a4c1-a9e1d9026952"
+    # 27 Oct: the weekly self-audit, Weekly Audit (DEV) in DEV Sandbox.
+    weekly_audit: "8c2c1eaf-8ce3-4482-8fac-55f838b47a9e"
 gmail:
   sender: "madeshwaranm02@gmail.com"
 llm:
   force_model: "claude-haiku-4-5"
+sweep:
+  # 2 Nov: old DEV job pages get their descriptions tidied during /fetch, 150 a /fetch so
+  # the ~700 old pages are done in about 5 runs (a few minutes each run).
+  tidy_bodies:
+    enabled: true
+    max_pages: 150
+  # 2 Nov: 100+ alert jobs (LinkedIn, JustJoin IT, Pracuj.pl) still wait for a description;
+  # 80 a /fetch instead of 40 works through them twice as fast (about 6 minutes more per
+  # /fetch; the AI searches stay at 40, careers pages found before cost none).
+  job_links:
+    max_rows: 80
+    # AI searches: a company's careers page, or the job when no careers page is found.
+    max_searches: 150  # 4 Nov: a company can take 3 now (careers page, job system, Google's copy)
+    copy_model: ""  # 4 Nov: gemini-3.8-flash made 20 to 78 searches a call: not used
+    # Browser pages for careers pages built by JavaScript: one per job looked up (2 Nov:
+    # 40 ran out halfway through the 80 jobs).
+    max_rendered: 80
+    # 5 companies at a time (2 Nov, your decision: a DEV /fetch took 22 min). Prod keeps the
+    # recommended 3 (base.yaml); back to 3 here at go-live (Job Engine To-do).
+    workers: 5

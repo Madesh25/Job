@@ -1,0 +1,36 @@
+# Publish site/ (the home page and privacy policy for the Google OAuth consent screen) to
+# GitHub Pages: https://madesh25.github.io/Job/ and https://madesh25.github.io/Job/privacy.html
+#
+# One-time setup in GitHub: Settings > Pages > Source: GitHub Actions; then Settings >
+# Environments > github-pages > Deployment branches: add develop. See docs/gmail.md.
+name: Pages
+
+on:
+  push:
+    branches: [develop]
+    paths: ["site/**", ".github/workflows/pages.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+      - id: deployment
+        uses: actions/deploy-pages@v4

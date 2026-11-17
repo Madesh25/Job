@@ -49,6 +49,12 @@ python -m jobengine.telegram_bot
 It sends `[LOCAL] Job Engine bot started.` to your chat and answers `/start`, `/status` and
 `/help`. Messages from any other chat are ignored. Stop it with Ctrl+C.
 
+While a long run goes (`/fetch`, `/screen`, `/autopilot`) the bot keeps reading your messages:
+other commands wait their turn, and `/end` stops the run at its next step (what is already
+saved stays). `/restart` stops the running job, then starts the bot again in the same process
+(fresh code, Notion settings and state). Values in `.env` are read when the bot or container
+starts, so after changing `.env` stop the container and `docker run` it again.
+
 ## Run the job sweep
 
 ```bash
@@ -57,6 +63,98 @@ python -m jobengine.sweep --parse-report              # check the Gmail parser, 
 ```
 
 `/fetch` in the Telegram bot runs the same sweep. See [docs/sweep.md](docs/sweep.md).
+
+## Run screening
+
+```bash
+python -m jobengine.screen --fake --today 2026-10-01   # fake LLM and fixtures, no network
+python -m jobengine.screen --no-write                  # real verdicts, writes nothing
+```
+
+In Telegram, `/pending` shows the screened jobs one at a time and `/jd <url>` takes a pasted
+job description. See [docs/screening.md](docs/screening.md).
+
+## Autopilot
+
+`/autopilot` in Telegram fetches, screens at half price, approves the best Apply high and
+Apply normal jobs (at most 10 a day), saves their resumes, finds contacts and writes Gmail
+drafts, then sends one summary with the PDFs. `/mailmode send` lets it send the drafts that
+pass every check (To, Cc, subject, body, resume attachment), in the recipient's morning
+(Monday to Friday, 08:00 to 11:00 their time, public holidays skipped; `/mailqueue` shows the waiting ones); the
+default only writes drafts. See
+[docs/autopilot.md](docs/autopilot.md). With Notion Config `schedule.autopilot` set to `true`
+it also runs by itself at 07:00 and 19:30 India time, every day (`/autopilot when` shows the
+next run).
+
+## Apply pack
+
+When a resume is approved the bot sends ready answers for the job's application form (visa,
+salary floor, notice period, why this company) and saves them on the job's Notion page;
+`/applypack <job>` sends them again. The resume's headline and location line follow the job.
+See [docs/apply-pack.md](docs/apply-pack.md).
+
+## Build a resume
+
+```bash
+python -m jobengine.resume --fake --job fixture-clean-pl   # fake Golden Master, no network
+```
+
+In Telegram, Approve in `/pending` builds a tailored one-page resume and sends a PDF preview.
+Rendering needs WeasyPrint with Pango and the Lato font (use WSL on Windows). See
+[docs/resume-builder.md](docs/resume-builder.md).
+
+## Find contacts
+
+```bash
+python -m jobengine.contacts --fake --job fixture-clean-pl   # fixture people, no network
+```
+
+After your review, `/fetchcontacts` in Telegram finds 4 contacts at each company you applied
+to today (saved contacts first, then Apollo, Hunter, Snov) and writes the Gmail drafts with
+the resume attached; `/contacts <job>` does one job. See [docs/contacts.md](docs/contacts.md). Paid lookups go only to
+the best-ranked jobs the month's credits cover; the rest are apply-only (see
+[docs/outreach.md](docs/outreach.md), `/outreach`).
+
+## Write Gmail drafts
+
+```bash
+python -m jobengine.mail --fake --job fixture-clean-pl --no-write   # print the mails
+```
+
+After contacts are found the bot writes one draft per contact into Gmail Drafts (never
+sends). See [docs/gmail.md](docs/gmail.md), including how to make a token with gmail.modify.
+
+## Daily tracking and digest
+
+```bash
+python -m jobengine.track daily --fake --now 2026-10-15T08:00:00+05:30
+```
+
+Detects sent drafts, replies, bounces, drafts one follow-up after 7 days and sends a daily
+report (`/today` in Telegram). Between daily checks, a reply from a contact or an employer
+is pinged in Telegram within 15 minutes. See [docs/tracking.md](docs/tracking.md).
+
+## Strategy review and IND refresh
+
+```bash
+python -m jobengine.strategy update --fake --today 2026-10-01
+```
+
+`/update` researches current practice for your review; `/fetch` opens again when every tip is
+decided. See [docs/strategy.md](docs/strategy.md).
+
+## Deploy (Cloud Run)
+
+The same code runs on Cloud Run as `job-engine-dev` (from `develop`) and `job-engine-prod`
+(from `main`), with a Telegram webhook and Cloud Scheduler tasks:
+
+```bash
+python -m jobengine.web                                   # the container entry point
+python -m jobengine.deploy.set_webhook --url <service url>
+```
+
+GitHub Actions deploys after CI with Workload Identity Federation. The console, secrets,
+Notion and go-live checklists are in [docs/deploy.md](docs/deploy.md).
 
 ## Run tests
 
@@ -70,3 +168,11 @@ pytest
 - [Branching model](docs/branching.md)
 - [Environments and safety rules](docs/environments.md)
 - [Job sweep](docs/sweep.md)
+- [Screening](docs/screening.md)
+- [Resume builder](docs/resume-builder.md)
+- [Contact finder](docs/contacts.md)
+- [Outreach budget](docs/outreach.md)
+- [Gmail drafts](docs/gmail.md)
+- [Tracking and digest](docs/tracking.md)
+- [Strategy gate](docs/strategy.md)
+- [Deploy and go-live](docs/deploy.md)

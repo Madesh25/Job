@@ -28,6 +28,7 @@ htmlcov/
 
 # Secrets
 .env
+.secrets/
 *token*.json
 credentials*.json
 

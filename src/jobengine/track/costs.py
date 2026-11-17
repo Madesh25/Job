@@ -1,0 +1,119 @@
+"""The Claude API cost of the month (PR 18), for the weekly digest.
+
+Every LLM call reports its estimated cost (jobengine.llm.record_cost, the same prices as the
+"AI used" lines); the bot adds it to a running total for the month in Bot State
+`llm.cost_month`. A new month starts from zero and keeps last month's total for comparison.
+It is an estimate from the token counts: Anthropic's console has the exact bill.
+
+Gemini's Google searches (3 Nov): the month counts them (`searches`); the first
+llm.FREE_SEARCHES (5,000) cost nothing, each one after that llm.GEMINI_SEARCH_DOLLARS.
+"""
+
+from __future__ import annotations
+
+import calendar
+import threading
+from collections.abc import Callable
+from datetime import date
+from typing import Any
+
+from jobengine.bot_state import BotState
+
+# bot_state: {"month", "total", "calls", "stages", "providers", "searches", "last"}
+KEY = "llm.cost_month"
+# LLM stage -> what it is in the digest ("score" is screening and reading replies).
+STAGE_NAMES = {"check": "form checks", "score": "screening", "reply": "replies",
+               "tailor": "resumes",
+               "resume": "resumes", "cover": "cover letters", "prep": "interview prep",
+               "email": "mails", "strategy": "strategy research", "fetch": "job pages",
+               "people": "contact search"}
+_lock = threading.Lock()  # screening runs calls on several threads
+
+
+def _month(day: date) -> str:
+    return day.strftime("%Y-%m")
+
+
+def paid_searches(before: int, searches: int) -> int:
+    """How many of `searches` new Google searches are past the month's free ones."""
+    from jobengine.llm import FREE_SEARCHES
+
+    return max(0, before + searches - FREE_SEARCHES) - max(0, before - FREE_SEARCHES)
+
+
+def record(state: BotState, today: date, stage: str, dollars: float,
+           provider: str = "claude", searches: int = 0) -> None:
+    with _lock:
+        value = state.get(KEY) or {}
+        month = _month(today)
+        if value.get("month") != month:
+            last = ({"month": value["month"], "total": value.get("total", 0.0)}
+                    if value.get("month") else value.get("last"))
+            value = {"month": month, "total": 0.0, "calls": 0, "stages": {}, "last": last}
+        if searches > 0:
+            from jobengine.llm import GEMINI_SEARCH_DOLLARS
+
+            before = int(value.get("searches") or 0)
+            dollars += GEMINI_SEARCH_DOLLARS * paid_searches(before, searches)
+            value["searches"] = before + searches
+        value["total"] = round(float(value.get("total") or 0.0) + dollars, 6)
+        value["calls"] = int(value.get("calls") or 0) + 1
+        stages: dict[str, Any] = dict(value.get("stages") or {})
+        stages[stage] = round(float(stages.get(stage) or 0.0) + dollars, 6)
+        value["stages"] = stages
+        providers: dict[str, Any] = dict(value.get("providers") or {})
+        providers[provider] = round(float(providers.get(provider) or 0.0) + dollars, 6)
+        value["providers"] = providers  # since 27 Oct: Claude has its own cap
+        state.set(KEY, value)
+    from jobengine.track import day_ledger
+
+    day_ledger.add_cost(state, today, dollars)  # the daily report's "AI today"
+
+
+def sink(state: BotState, today: Callable[[], date]) -> Callable[..., None]:
+    """What the bot passes to jobengine.llm.set_cost_sink."""
+    return lambda stage, dollars, provider="claude", searches=0: record(
+        state, today(), stage, dollars, provider, searches)
+
+
+def searches_used(state: BotState | None, today: date) -> int:
+    """This month's Gemini Google searches."""
+    value = (state.get(KEY) if state is not None else None) or {}
+    return int(value.get("searches") or 0) if value.get("month") == _month(today) else 0
+
+
+def provider_spent(state: BotState | None, today: date, provider: str) -> float:
+    """This month's estimated cost of one provider (claude, deepseek, gemini)."""
+    value = (state.get(KEY) if state is not None else None) or {}
+    if value.get("month") != _month(today):
+        return 0.0
+    return float((value.get("providers") or {}).get(provider) or 0.0)
+
+
+def month_line(state: BotState, today: date) -> str:
+    value = state.get(KEY) or {}
+    name = today.strftime("%B")
+    if value.get("month") != _month(today) or not value.get("calls"):
+        return f"AI in {name}: nothing used yet."
+    total = float(value.get("total") or 0.0)
+    days = calendar.monthrange(today.year, today.month)[1]
+    pace = total / max(1, today.day) * days
+    named: dict[str, float] = {}  # "tailor" (before 20 Oct) and "resume" are both resumes
+    for stage, dollars in (value.get("stages") or {}).items():
+        name_ = STAGE_NAMES.get(stage, stage)
+        named[name_] = named.get(name_, 0.0) + float(dollars or 0.0)
+    stages = sorted(named.items(), key=lambda kv: -kv[1])
+    split = ", ".join(f"{k} ${v:.2f}" for k, v in stages if v >= 0.005)
+    text = (f"AI in {name} so far: about ${total:.2f} in {value['calls']} calls"
+            + (f" ({split})" if split else "")
+            + f"; on pace for about ${pace:.2f} this month.")
+    searches = int(value.get("searches") or 0)
+    if searches:
+        from jobengine.llm import FREE_SEARCHES
+
+        text += f" Google searches: {searches:,} ({FREE_SEARCHES:,} a month are free)."
+    last = value.get("last") or {}
+    if last.get("month"):
+        text += f" Last month: about ${float(last.get('total') or 0):.2f}."
+    return text + (" (Estimate from token counts; the Anthropic and Google consoles have the "
+                   "exact bill.)")

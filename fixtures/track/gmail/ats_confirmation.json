@@ -1,0 +1,16 @@
+{
+ "thread_id": "t-northwind-ats",
+ "messages": [
+  {
+   "id": "m-northwind-1",
+   "when": "2026-10-05T10:00:00+00:00",
+   "from": "no-reply@greenhouse.io",
+   "subject": "Thank you for applying to Northwind Cloud",
+   "text": "Hi Alex, thank you for your application for Platform Engineer at Northwind Cloud. We have received it and will review it soon.",
+   "labels": [
+    "INBOX"
+   ],
+   "headers": {}
+  }
+ ]
+}

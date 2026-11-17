@@ -1,21 +1,25 @@
 """The one place that makes HTTP requests for the sweep (spec section 8).
 
-Every request is checked by safety.assert_fetch_allowed first: https only, host on
-safety.allowed_hosts, and never a linkedin host. Query strings are never logged or put in
-error messages because they can carry API keys (Adzuna app_key).
+Every API request is checked by safety.assert_fetch_allowed first: https only, host on
+safety.allowed_hosts, and never a linkedin host. Job pages (get_page) go through
+safety.assert_page_fetch_allowed instead: any public https host, never linkedin, a plain GET
+without cookies or login, every redirect checked again and a size limit.
+Query strings are never logged or put in error messages because they can carry API keys
+(Adzuna app_key).
 """
 
 from __future__ import annotations
 
+import json
 import logging
 import time
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Collection, Mapping
 from typing import Any
-from urllib.parse import urlsplit
+from urllib.parse import urljoin, urlsplit
 
 import httpx
 
-from jobengine.safety import assert_fetch_allowed
+from jobengine.safety import SafetyError, assert_fetch_allowed, assert_page_fetch_allowed
 from jobengine.settings import Settings, get_settings
 
 log = logging.getLogger("jobengine.http")
@@ -27,6 +31,21 @@ for _name in ("httpx", "httpcore"):
 
 TIMEOUT_SECONDS = 20
 MAX_429_RETRIES = 3
+# A short network hiccup (home Wi-Fi, a busy API) should not fail a whole resume build or
+# sweep. Connection errors happen before the request reaches the server, so they are retried
+# for every method; a read timeout or a 502/503/504 only for GET (a POST or PATCH may already
+# have been applied, and repeating it could create a row twice).
+NETWORK_WAITS = (2.0, 5.0)  # seconds before the 2nd and 3rd attempt
+CONNECT_ERRORS = (httpx.ConnectError, httpx.ConnectTimeout, httpx.PoolTimeout)
+GET_ERRORS = (httpx.ReadTimeout, httpx.ReadError, httpx.RemoteProtocolError)
+GET_RETRY_STATUS = (502, 503, 504)
+READ_ONLY_POSTS = ("/query", "/search")  # Notion reads sent as POST
+PAGE_TIMEOUT_SECONDS = 12
+PAGE_MAX_BYTES = 3_000_000
+PAGE_MAX_REDIRECTS = 5
+PAGE_USER_AGENT = "Mozilla/5.0 (compatible; JobEngine/1.0; personal job search)"
+PAGE_TYPES = ("text/html", "application/xhtml+xml", "text/plain")
+FEED_TYPES = ("application/rss+xml", "application/xml", "text/xml", "application/atom+xml")
 
 # Tests replace these with httpx.MockTransport and a no-op sleep.
 _transport: httpx.BaseTransport | None = None
@@ -36,9 +55,24 @@ _sleep: Callable[[float], None] = time.sleep
 class HttpError(Exception):
     """A request failed. The message has the method, host and path, never the query."""
 
-    def __init__(self, message: str, status: int | None = None):
+    def __init__(self, message: str, status: int | None = None, host: str | None = None):
         super().__init__(message)
         self.status = status
+        self.host = host  # the host that answered `status` (get_page), for blocked sites
+
+
+def host_in(host: str, hosts: Collection[str]) -> bool:
+    """True when host is one of `hosts` or a subdomain of one (www.pracuj.pl, pracuj.pl).
+    An entry ending in ".*" is the site in every country: "glassdoor.*" is glassdoor.com,
+    www.glassdoor.co.in and so on (16 Nov: a glassdoor.co.in link was opened)."""
+    host = host.lower().rstrip(".")
+    for h in hosts:
+        if h.endswith(".*"):
+            if f".{h[:-2]}." in f".{host}":
+                return True
+        elif host == h or host.endswith("." + h):
+            return True
+    return False
 
 
 def set_transport(transport: httpx.BaseTransport | None) -> None:
@@ -49,14 +83,26 @@ def set_transport(transport: httpx.BaseTransport | None) -> None:
 def safe_url(url: str) -> str:
     """scheme://host/path without the query string, for logs and errors."""
     parts = urlsplit(url)
-    return f"{parts.scheme}://{parts.hostname}{parts.path}"
+    path = parts.path
+    if (parts.hostname or "").endswith("jooble.org") and path.startswith("/api/"):
+        path = "/api/(key hidden)"  # the Jooble key is the last part of the path
+    return f"{parts.scheme}://{parts.hostname}{path}"
 
 
-def _retry_after(resp: httpx.Response) -> float:
+# Waits for an HTTP 429 without Retry-After (16 Oct: three 1-second waits were too short for
+# Prospeo's free plan).
+RATE_LIMIT_WAITS = (2.0, 5.0, 15.0)
+# A server may ask for a long Retry-After (22 Oct: one amazon.jobs read waited 6.5 minutes in
+# the sweep). Longer than this, the request fails at once with HTTP 429 and the sweep moves on.
+MAX_RETRY_AFTER = 60.0
+
+
+def _retry_after(resp: httpx.Response, attempt: int = 0) -> float:
+    fallback = RATE_LIMIT_WAITS[min(attempt, len(RATE_LIMIT_WAITS) - 1)]
     try:
-        return max(0.0, float(resp.headers.get("Retry-After", "1")))
+        return max(0.0, float(resp.headers.get("Retry-After", fallback)))
     except ValueError:
-        return 1.0
+        return fallback
 
 
 def _error_detail(resp: httpx.Response) -> str:
@@ -64,9 +110,85 @@ def _error_detail(resp: httpx.Response) -> str:
         body = resp.json()
     except ValueError:
         return ""
-    if isinstance(body, dict):
-        return str(body.get("message") or body.get("error") or body.get("description") or "")
-    return ""
+    if not isinstance(body, dict):
+        return ""
+    if body.get("error") is True or body.get("error_code"):
+        # Prospeo: {"error": true, "error_code": "NO_RESULTS", "filter_error": "..."} (16 Oct:
+        # the bot showed only "True").
+        parts = [body.get("error_code"), body.get("filter_error") or body.get("message")]
+        return " ".join(str(p) for p in parts if p)[:300]
+    error = body.get("error")
+    if isinstance(error, dict) and error.get("message"):
+        # Google: {"error": {"code": 400, "status": "INVALID_ARGUMENT", "message": "..."}}
+        return " ".join(str(p) for p in (error.get("status"), error.get("message")) if p)[:300]
+    detail = body.get("message") or error or body.get("description") or ""
+    errors = body.get("errors")
+    if errors:  # Snov 422: which field was refused
+        detail = f"{detail} {json.dumps(errors, ensure_ascii=False)}".strip()
+    return str(detail)[:300]
+
+
+def _send(
+    method: str,
+    url: str,
+    *,
+    params: Mapping[str, Any] | list[tuple[str, Any]] | None = None,
+    headers: Mapping[str, str] | None = None,
+    json: Any = None,
+    s: Settings | None = None,
+    data: Mapping[str, str] | None = None,
+    timeout: float = TIMEOUT_SECONDS,
+) -> tuple[str, httpx.Response]:
+    """Send one request. HTTP 429 is retried up to MAX_429_RETRIES times (Retry-After);
+    network hiccups up to twice (NETWORK_WAITS), see the comment on NETWORK_WAITS."""
+    s = s or get_settings()
+    assert_fetch_allowed(url, s)
+    where = f"{method} {safe_url(url)}"
+    # A Notion query or search is a POST that only reads (Phase 19 A-01, 3 Nov: one HTTP 502
+    # on a query lost a starter answer): retried like a GET.
+    reads = method == "GET" or (method == "POST" and urlsplit(url).path.rstrip("/").endswith(
+        READ_ONLY_POSTS))
+    network_tries = 0
+    with httpx.Client(transport=_transport, timeout=timeout) as client:
+        attempt = 0
+        while attempt <= MAX_429_RETRIES:
+            log.debug("%s", where)
+            try:
+                resp = client.request(method, url, params=params, headers=headers, json=json,
+                                      data=data)
+                resp.read()
+            except httpx.HTTPError as exc:
+                retryable = isinstance(exc, CONNECT_ERRORS) or (
+                    reads and isinstance(exc, GET_ERRORS))
+                if retryable and network_tries < len(NETWORK_WAITS):
+                    wait = NETWORK_WAITS[network_tries]
+                    network_tries += 1
+                    log.info("%s %s, retrying in %.0fs", where, type(exc).__name__, wait)
+                    _sleep(wait)
+                    continue
+                raise HttpError(f"{where} failed: {type(exc).__name__}") from None
+            if (reads and resp.status_code in GET_RETRY_STATUS
+                    and network_tries < len(NETWORK_WAITS)):
+                wait = NETWORK_WAITS[network_tries]
+                network_tries += 1
+                log.info("%s HTTP %s, retrying in %.0fs", where, resp.status_code, wait)
+                _sleep(wait)
+                continue
+            if resp.status_code == 429 and attempt < MAX_429_RETRIES:
+                wait = _retry_after(resp, attempt)
+                if wait > MAX_RETRY_AFTER:
+                    raise HttpError(f"{where} failed: rate limited, asked to wait {wait:.0f}s",
+                                    429)
+                log.info("%s rate limited, retrying in %.1fs", where, wait)
+                _sleep(wait)
+                attempt += 1
+                continue
+            if resp.status_code >= 400:
+                detail = _error_detail(resp)
+                message = f"{where} failed: HTTP {resp.status_code} {detail}".strip()
+                raise HttpError(message, resp.status_code)
+            return where, resp
+    raise HttpError(f"{where} failed: still rate limited", 429)  # pragma: no cover
 
 
 def request_json(
@@ -77,35 +199,41 @@ def request_json(
     headers: Mapping[str, str] | None = None,
     json: Any = None,
     s: Settings | None = None,
+    timeout: float = TIMEOUT_SECONDS,
 ) -> Any:
     """Send one request and return the decoded JSON body.
 
     HTTP 429 is retried up to MAX_429_RETRIES times, waiting for Retry-After.
     """
-    s = s or get_settings()
-    assert_fetch_allowed(url, s)
-    where = f"{method} {safe_url(url)}"
-    with httpx.Client(transport=_transport, timeout=TIMEOUT_SECONDS) as client:
-        for attempt in range(MAX_429_RETRIES + 1):
-            log.debug("%s", where)
-            try:
-                resp = client.request(method, url, params=params, headers=headers, json=json)
-            except httpx.HTTPError as exc:
-                raise HttpError(f"{where} failed: {type(exc).__name__}") from None
-            if resp.status_code == 429 and attempt < MAX_429_RETRIES:
-                wait = _retry_after(resp)
-                log.info("%s rate limited, retrying in %.1fs", where, wait)
-                _sleep(wait)
-                continue
-            if resp.status_code >= 400:
-                detail = _error_detail(resp)
-                message = f"{where} failed: HTTP {resp.status_code} {detail}".strip()
-                raise HttpError(message, resp.status_code)
-            try:
-                return resp.json()
-            except ValueError:
-                raise HttpError(f"{where} failed: response was not JSON") from None
-    raise HttpError(f"{where} failed: still rate limited", 429)  # pragma: no cover
+    where, resp = _send(method, url, params=params, headers=headers, json=json, s=s,
+                        timeout=timeout)
+    try:
+        return resp.json()
+    except ValueError:
+        raise HttpError(f"{where} failed: response was not JSON") from None
+
+
+def get_text(
+    url: str,
+    params: Mapping[str, Any] | list[tuple[str, Any]] | None = None,
+    headers: Mapping[str, str] | None = None,
+    s: Settings | None = None,
+) -> str:
+    """GET a page (HTML or text) and return its body."""
+    return _send("GET", url, params=params, headers=headers, s=s)[1].text
+
+
+def get_file(url: str, s: Settings | None = None, max_redirects: int = 5) -> tuple[str, str, bytes]:
+    """GET a public file (a published list: Excel, PDF, CSV or a web page) on an allowed
+    host: (final url, content type, body). Redirects are followed, each one checked."""
+    for _ in range(max_redirects + 1):
+        _where, resp = _send("GET", url, s=s)
+        if resp.is_redirect and resp.headers.get("location"):
+            url = urljoin(url, resp.headers["location"])
+            continue
+        kind = resp.headers.get("content-type", "").split(";")[0].strip().lower()
+        return url, kind, resp.content
+    raise HttpError(f"GET {safe_url(url)} failed: more than {max_redirects} redirects")
 
 
 def get_json(
@@ -123,8 +251,31 @@ def post_json(
     params: Mapping[str, Any] | list[tuple[str, Any]] | None = None,
     headers: Mapping[str, str] | None = None,
     s: Settings | None = None,
+    timeout: float = TIMEOUT_SECONDS,
 ) -> Any:
-    return request_json("POST", url, params=params, headers=headers, json=json, s=s)
+    return request_json("POST", url, params=params, headers=headers, json=json, s=s,
+                        timeout=timeout)
+
+
+def redirect_location(url: str, s: Settings | None = None) -> str | None:
+    """Where a redirect link points, without opening that address (Google's grounding links
+    in /update). None when the answer is not a redirect."""
+    where, resp = _send("GET", url, s=s)
+    if resp.status_code not in (301, 302, 303, 307, 308):
+        log.info("%s: no redirect (HTTP %s)", where, resp.status_code)
+        return None
+    target = resp.headers.get("location") or ""
+    return urljoin(url, target) if target else None
+
+
+def post_form(url: str, data: Mapping[str, str], s: Settings | None = None) -> Any:
+    """POST a form (application/x-www-form-urlencoded) and return the JSON answer: the
+    Google OAuth token exchange (gmail_renew.py)."""
+    where, resp = _send("POST", url, data=data, s=s)
+    try:
+        return resp.json()
+    except ValueError:
+        raise HttpError(f"{where} failed: response was not JSON") from None
 
 
 def patch_json(
@@ -134,3 +285,73 @@ def patch_json(
     s: Settings | None = None,
 ) -> Any:
     return request_json("PATCH", url, headers=headers, json=json, s=s)
+
+
+def get_page(
+    url: str, s: Settings | None = None, max_bytes: int = PAGE_MAX_BYTES, *,
+    accept_json: bool = False, json_body: Any = None, accept_feed: bool = False,
+    blocked: Collection[str] = (), timeout: float = PAGE_TIMEOUT_SECONDS,
+) -> tuple[str, str]:
+    """Read one public job page: (final URL, text). Plain GET, no cookies, no login.
+
+    Redirects are followed by hand (at most PAGE_MAX_REDIRECTS) so every hop is checked by
+    safety.assert_page_fetch_allowed. Bodies over max_bytes and non HTML answers fail.
+    Raises HttpError, never SafetyError (a refused hop is just a page that cannot be read).
+    `accept_json`: a JSON answer is read too (a job board's public search). `json_body`: the
+    request is a POST with that JSON (a public search form); a redirect is then a GET.
+    `accept_feed`: an RSS or XML answer is read too (a career site's job feed).
+    `blocked`: sites that refuse the bot (sweep.fulltext.blocked_hosts); a link or redirect to
+    one is not followed, so a tracking link in an alert stops before the blocked site.
+    `timeout`: seconds per request (/add waits longer: you are waiting for that one page).
+    """
+    s = s or get_settings()
+    types = (*PAGE_TYPES, "application/json") if accept_json else PAGE_TYPES
+    if accept_feed:
+        types = (*types, *FEED_TYPES)
+    accept = "application/json,text/html" if accept_json else "text/html,application/xhtml+xml"
+    if accept_feed:
+        # SuccessFactors answers HTTP 406 to a feed request that only accepts web pages.
+        accept = "application/rss+xml,application/xml;q=0.9,text/xml;q=0.9,*/*;q=0.8"
+    headers = {"User-Agent": PAGE_USER_AGENT, "Accept": accept}
+    method = "GET" if json_body is None else "POST"
+    with httpx.Client(transport=_transport, timeout=timeout,
+                      follow_redirects=False) as client:
+        for _ in range(PAGE_MAX_REDIRECTS + 1):
+            try:
+                assert_page_fetch_allowed(url, s)
+            except SafetyError as exc:
+                raise HttpError(f"page not read: {exc}") from None
+            host = (urlsplit(url).hostname or "").lower()
+            if blocked and host_in(host, blocked):
+                raise HttpError(f"page not read: {host} blocks the bot (alerts only)", 403, host)
+            where = f"{method} {safe_url(url)}"
+            client.cookies.clear()
+            body_kw = {"json": json_body} if method == "POST" else {}
+            try:
+                with client.stream(method, url, headers=headers, **body_kw) as resp:
+                    if resp.is_redirect:
+                        location = resp.headers.get("location")
+                        if not location:
+                            raise HttpError(f"{where} failed: redirect without a location")
+                        url = urljoin(url, location)
+                        method = "GET"
+                        continue
+                    if resp.status_code >= 400:
+                        raise HttpError(f"{where} failed: HTTP {resp.status_code}",
+                                        resp.status_code, host)
+                    kind = resp.headers.get("content-type", "").split(";")[0].strip().lower()
+                    if kind and kind not in types:
+                        raise HttpError(f"{where} failed: not a web page ({kind})")
+                    body = bytearray()
+                    for chunk in resp.iter_bytes():
+                        body.extend(chunk)
+                        if len(body) > max_bytes:
+                            raise HttpError(f"{where} failed: page larger than {max_bytes} bytes")
+                    charset = resp.charset_encoding or "utf-8"
+                    try:
+                        return url, bytes(body).decode(charset, errors="replace")
+                    except LookupError:  # an unknown charset name
+                        return url, bytes(body).decode("utf-8", errors="replace")
+            except httpx.HTTPError as exc:
+                raise HttpError(f"{where} failed: {type(exc).__name__}") from None
+    raise HttpError(f"GET {safe_url(url)} failed: more than {PAGE_MAX_REDIRECTS} redirects")

@@ -1,0 +1,174 @@
+# Resume builder (Module 04)
+
+When you tap **Approve** on a job in `/pending`, the bot builds a one-page resume tailored to
+that job from the Golden Master, checks it, renders the PDF and sends it to you as a preview.
+You approve it, ask for a rebuild, or reply with a correction. On approval it saves the final
+PDF (Google Drive, or `out/` in DRY_RUN), ticks the Resume Log row and gives you the apply link.
+
+## What may change (and what never does)
+
+Only two things change per job (Resume Build Spec section 1):
+
+1. **Technical Skills tables**: remove, reorder, move items between the main table and "Also
+   worked with", rename a label to a name that still contains it ("CI/CD" to "CI/CD
+   Pipelines") or to an Active Term Map JD term for it, and add an item only when Skills
+   Inventory has it as Production or Hands-on, or an Active Term Map row backs it.
+2. **A few words inside Experience bullets**: at most +8 words per bullet and +25 in total,
+   only backed terms plus small connector words (Config `resume.gate.connector_words`).
+
+Everything else is byte-identical to the Golden Master: header (the links come from Config
+`profile.*`), summary, companies, titles, dates, numbers, education, fonts, margins, spacing.
+The integrity gate (`resume/gate.py`) enforces all of it and compares the rendered HTML with
+both editable zones blanked against the master.
+
+The Golden Master and all real resume text are read from Notion at runtime (the code block
+starting with `<!DOCTYPE html>` on the Resume Build Spec page). Nothing real is stored in the
+repo; tests use a synthetic resume for Alex Example.
+
+## The flow
+
+```
+Approve in /pending
+  -> "Building resume for <Company>..."
+  -> plan (LLM stage tailor) -> integrity gate (up to 2 retries with the errors)
+  -> still failing: leave out only what broke a rule (master skills tables, or the
+     broken bullet edits, or all bullet edits) and say so in the caption
+  -> render, measure, fit (one page, fill 88 to 96 percent)
+  -> Resume Log row (one per revision, plan JSON in its body), Job Status "Resume built"
+  -> PDF preview with [Approve resume] [Rebuild]
+Rebuild -> "What should change?" (your next message, within 30 minutes, or a reply to it,
+  is the instruction) [Rebuild as it is]
+Reply to the preview with a correction ("drop Oracle") -> next revision
+Approve resume -> re-render from the stored plan, save to Drive (or out/), tick Approved
+  -> the Apply pack, then "Resume approved and saved. Apply here: <URL>"
+     [I applied] [Not applying]
+     (contacts and drafts come later for all of today's applied jobs: /fetchcontacts)
+I applied -> Status "Applied", Applied date and Last activity date today -> the next job
+Not applying -> "Why?" [the job is closed or expired] [not a fit after all] [another reason]
+  -> Status "Declined", Skip reason Expired or Other, a note on the page -> the next job
+```
+
+- **One job at a time.** After Approve in /pending the next job is not shown while this
+  job's resume waits for Approve resume or Rebuild, and then for I applied or Not applying.
+  A build that fails keeps the job on screen too: the message says why and gives Try again
+  (build again) and Not applying (asks why, Declines the job, then the next job), so an
+  Approved job is never left without a resume. Skip still shows the next job at once.
+- The model's "correction refused" answer counts only when you sent a correction; on a first
+  build it is ignored and the rule check decides (1 Oct test T9).
+- A /pending card whose job has only a snippet of the description says so instead of an
+  empty match ("Gaps: none").
+
+- A second Approve tap shows the latest preview; it does not build again.
+- The preview file is named like the final one (`Madeshwaran_Devops_<Company>.pdf`); the
+  caption says the version. It lists the page fill against the 88 to 96% target, the skills
+  removed, added, renamed and moved, and each edited bullet as old words -> new words.
+- "Add skills" (FR-1, 23 Oct, Phase 9 P9-20): a preview with two or more gaps has one
+  `Add skills` button instead of one button per gap. It lists the job's gaps that are skill
+  names (at most 3 words, not yours yet; at most 8), one per row; each tap ticks or unticks
+  one (the list message is edited in place), and `Rebuild with N skills` builds one new
+  revision with all of them (the same forced skills as below). The picked skills are also
+  added to Skills Inventory as Hands-on (your choice of 23 Oct; Notes "Added from a resume
+  preview on <date>"), so screening and the next resumes count them. `Cancel` adds nothing.
+- "Add N keywords" (#13, 28 Oct): the caption's "Resume match" line names the job's keywords
+  you have (in Skills Inventory) that the resume leaves out. The `Add N keywords` button (at
+  most 8) builds one new revision that shows them. A keyword no longer in your Skills
+  Inventory at the tap is dropped, so it never adds a skill you do not have. Bot State
+  `resume.missing_keywords` keeps the newest preview's list.
+- "Add anyway": a preview with one gap has an `Add <skill>` button, and a refused instruction
+  ("add PowerShell") has `Add anyway (I'll learn it)`. The next revision lists that skill in
+  the Technical Skills tables only (never in the experience bullets), the caption says
+  "Added at your request (learn it before the interview)", the plan stores it as
+  `forced_skills`, and the skill stays in the job's Gaps. Only your own tap can force a skill;
+  a `forced_skills` value in the LLM answer is ignored.
+- Gaps the resume could not cover are added to the job's Gaps column; `/gaps` lists the most
+  common gaps across all jobs (what to learn next). Under the list, each short gap name you do
+  not have yet (up to 8) comes with **Hands-on** and **Production** buttons: a tap adds it to
+  Skills Inventory at that level (Notes "Added from /gaps on <date>"), and screening, cards and
+  resumes count it at once. This is the only write to Skills Inventory, made only on your tap,
+  from every env (your decision of 5 Oct, `safety.skills_write_target`).
+- Skills Inventory entries that combine names also back their parts:
+  `Kubernetes (AKS)` backs Kubernetes and AKS, `GCP Compute Engine / Cloud Storage` backs
+  GCP Compute Engine, Compute Engine and Cloud Storage, `AWS EC2` backs EC2. A provider is
+  never dropped down to a generic word (`GCP Monitoring` does not back "Monitoring").
+- Approving an older revision answers "A newer revision exists" and shows the latest.
+- A correction the rules do not allow ("add Istio") is answered with the reason, nothing is
+  built.
+- After Config `resume.max_revisions` (5) revisions the bot asks you to fix the rules
+  (Skills Inventory, Term Map) or skip the job.
+- Jobs with verdict Skip, or with a Status other than Approved or Resume built, are refused.
+
+## Fit fallback
+
+Fonts, margins and spacing are never changed and no bullet is ever dropped.
+
+- **Overflow** (2 pages or fill above 96%): revert bullet edits, least important first, then
+  remove the plan's low-relevance skill items (never below 5 main rows or 1 "also" row).
+- **Underfill** (below 88%): restore removed skill rows, then removed items.
+- Still not fitting: no PDF, and the message says why.
+
+## Sections
+
+**Certifications (since 5 Oct)** come from the Certifications table under Job Engine (Name, Issuer, Status Planned / Studying / Passed, Passed date, Show on resume, Order): only rows with Status Passed AND Show on resume ticked are listed, as "Name, Issuer, Month Year", for every country. Nothing is shown while you are still studying. If that table is not connected to the integration, the Resume Sections row below is used and the log says so.
+
+From the Resume Sections table: Certifications (after Experience; needs a real date instead of
+`<Month Year>`, and shrinks the job in Config `resume.shrink_job_when_certs` to the single
+bullet `resume.ncr_short_bullet`), Languages, and the GDPR line (Poland only, 8pt italic,
+centred). Projects are not supported yet: the build stops with a message asking you to untick
+it.
+
+## Files and Drive
+
+- Name: Config `resume.filename` (`Madeshwaran_Devops_<Company>.pdf`). When the company already
+  has an approved resume for another job, `_<Role>` is added (letters and digits only, role at
+  most 40 characters).
+- DRY_RUN (the default): the final PDF goes to `out/` and Resume Log `File` is
+  `DRY RUN: out/<file>`. Nothing is uploaded.
+- `DRY_RUN=false`: uploaded to the Drive folder Config `drive.resume_folder` (with ` (DEV)`
+  outside prod) using the sender token with the `drive.file` scope only. Existing files are
+  never overwritten (a ` (2)` suffix is added); nothing is deleted or shared.
+- When Google refuses the upload (26 Oct: the Drive API was turned off in the Google Cloud
+  project of the sender token), the approval still goes on: the PDF is saved in `out/`,
+  Resume Log `File` is `ON THIS COMPUTER: out/<file>` and the mails attach it from there. The
+  bot says why and, for a turned-off API, gives the link to turn it on.
+- The "Ref RL-xxxxxxxx" under a preview is the END of the Resume Log page id: Notion's ids
+  start alike for pages made the same day (26 Oct: two resumes both showed RL-4056edc2). The
+  JOB-, SPOT- and ST- refs work the same way. An older message with the start of the id still
+  works when only one page has it.
+
+## Running it
+
+```bash
+# Fake Golden Master (Alex Example), fake LLM, in-memory Notion and Drive
+python -m jobengine.resume --fake --job fixture-clean-pl
+
+# Real: render and show the changes for one job, write nothing
+python -m jobengine.resume --job <page_id> --no-write
+
+# Real: build the next revision with a correction
+python -m jobengine.resume --job <page_id> --correction "drop Oracle"
+```
+
+In the fake bot (`python -m jobengine.telegram_bot --fake`), `tap ap:pl-clean` builds a
+preview, previews are saved to `out/fake/`, and `reply <message number> <text>` replies to a
+bot message (the message number is printed with each document).
+
+## Rendering on Windows
+
+WeasyPrint needs Pango, which Windows does not have by default. Render in WSL (Ubuntu) or
+Docker:
+
+```bash
+sudo apt-get install -y fonts-lato libpango-1.0-0 libpangoft2-1.0-0
+python -m jobengine.resume --fake --job fixture-clean-pl
+```
+
+The Lato font must be installed: if the PDF would use another font the build fails instead of
+rendering in a fallback font. The pure tests (gate, sections, master, builder with a fake
+renderer) run anywhere; the tests marked `render` are skipped when Pango or Lato is missing
+(CI runs them with `REQUIRE_RENDER=1`).
+
+## Per-job header (PR 11)
+
+The headline and the relocation line change per job (your approved titles and
+`resume.relocation_template`); see [apply-pack.md](apply-pack.md). Skills, bullets and the
+integrity gate are unchanged.

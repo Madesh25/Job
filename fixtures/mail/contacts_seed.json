@@ -1,0 +1,155 @@
+[
+ {
+  "page_id": "ct-hiring",
+  "Name": "Piotr Example",
+  "Title": "Engineering Manager",
+  "Email": "piotr.example@vistula.example.com",
+  "Company": "Vistula Cloud",
+  "Country": "Poland",
+  "Type": "Hiring",
+  "Source": "Apollo",
+  "Status": "Verified",
+  "Date found": "2026-09-01",
+  "Related jobs": [
+   "fixture-clean-pl"
+  ]
+ },
+ {
+  "page_id": "ct-recruiter",
+  "Name": "Ola Example",
+  "Title": "Technical Recruiter",
+  "Email": "ola.example@vistula.example.com",
+  "Company": "Vistula Cloud",
+  "Country": "Poland",
+  "Type": "Recruiter/TA",
+  "Source": "Job posting",
+  "Status": "Unverified",
+  "Date found": "2026-09-01",
+  "Related jobs": [
+   "fixture-clean-pl"
+  ]
+ },
+ {
+  "page_id": "ct-peer-1",
+  "Name": "Anna Example",
+  "Title": "DevOps Engineer",
+  "Email": "anna.example@vistula.example.com",
+  "Company": "Vistula Cloud",
+  "Country": "Poland",
+  "Type": "Peer engineer",
+  "Source": "Apollo",
+  "Status": "Verified",
+  "Date found": "2026-09-01",
+  "Related jobs": [
+   "fixture-clean-pl"
+  ]
+ },
+ {
+  "page_id": "ct-peer-2",
+  "Name": "Jan Example",
+  "Title": "Platform Engineer",
+  "Email": "jan.example@vistula.example.com",
+  "Company": "Vistula Cloud",
+  "Country": "Poland",
+  "Type": "Peer engineer",
+  "Source": "Apollo",
+  "Status": "Verified",
+  "Date found": "2026-09-01",
+  "Related jobs": [
+   "fixture-clean-pl"
+  ]
+ },
+ {
+  "page_id": "ct-bounced",
+  "Name": "Bob Example",
+  "Title": "Head of Platform",
+  "Email": "bob.example@vistula.example.com",
+  "Company": "Vistula Cloud",
+  "Country": "Poland",
+  "Type": "Hiring",
+  "Source": "Apollo",
+  "Status": "Bounced",
+  "Date found": "2026-09-01",
+  "Related jobs": [
+   "fixture-clean-pl"
+  ]
+ },
+ {
+  "page_id": "ct-dnc",
+  "Name": "Dora Example",
+  "Title": "Recruiter",
+  "Email": "dora.example@vistula.example.com",
+  "Company": "Vistula Cloud",
+  "Country": "Poland",
+  "Type": "Recruiter/TA",
+  "Source": "Apollo",
+  "Status": "Do not contact",
+  "Date found": "2026-09-01",
+  "Related jobs": [
+   "fixture-clean-pl"
+  ]
+ },
+ {
+  "page_id": "ct-generic",
+  "Name": "careers@vistula.example.com",
+  "Title": "",
+  "Email": "careers@vistula.example.com",
+  "Company": "Vistula Cloud",
+  "Country": "Poland",
+  "Type": "Other",
+  "Source": "Job posting",
+  "Status": "Unverified",
+  "Date found": "2026-09-01",
+  "Related jobs": [
+   "fixture-clean-pl"
+  ]
+ },
+ {
+  "page_id": "ct-other",
+  "Name": "Olga Example",
+  "Title": "Office Manager",
+  "Email": "olga.example@vistula.example.com",
+  "Company": "Vistula Cloud",
+  "Country": "Poland",
+  "Type": "Other",
+  "Source": "Apollo",
+  "Status": "Verified",
+  "Date found": "2026-09-01",
+  "Related jobs": [
+   "fixture-clean-pl"
+  ]
+ },
+ {
+  "page_id": "ct-recent",
+  "Name": "Rafal Example",
+  "Title": "SRE",
+  "Email": "rafal.example@vistula.example.com",
+  "Company": "Vistula Cloud",
+  "Country": "Poland",
+  "Type": "Peer engineer",
+  "Source": "Apollo",
+  "Status": "Drafted",
+  "Date found": "2026-09-01",
+  "Related jobs": [
+   "fixture-clean-pl"
+  ],
+  "Gmail draft ID": "r-old-draft-1",
+  "Gmail thread ID": "old-thread-1",
+  "Notes": "drafted for Site Reliability Engineer 2026-09-20"
+ },
+ {
+  "page_id": "ct-nw-hiring",
+  "Name": "Niamh Example",
+  "Title": "Engineering Manager",
+  "Email": "niamh.example@northwind.example.org",
+  "Company": "Northwind Cloud",
+  "Country": "Ireland",
+  "Type": "Hiring",
+  "Source": "Apollo",
+  "Status": "Verified",
+  "Date found": "2026-09-01",
+  "Related jobs": [
+   "fixture-no-detail-ie"
+  ]
+ }
+]

@@ -1,0 +1,201 @@
+[
+  {
+    "Key": "last_strategy_update",
+    "Value": "2026-09-23 (initial setup)",
+    "Type": "Marker"
+  },
+  {
+    "Key": "strategy_refresh_days",
+    "Value": "30",
+    "Type": "Setting"
+  },
+  {
+    "Key": "countries.active",
+    "Value": "Poland, Netherlands, Ireland",
+    "Type": "Setting"
+  },
+  {
+    "Key": "ghost_job.rules",
+    "Value": "Medium: 2x/30d or >45d old, High: 3x/60d",
+    "Type": "Setting"
+  },
+  {
+    "Key": "model.fetch",
+    "Value": "claude-haiku-4-5",
+    "Type": "Model"
+  },
+  {
+    "Key": "model.score",
+    "Value": "claude-haiku-4-5",
+    "Type": "Model"
+  },
+  {
+    "Key": "model.tailor",
+    "Value": "claude-haiku-4-5",
+    "Type": "Model"
+  },
+  {
+    "Key": "model.email",
+    "Value": "claude-haiku-4-5",
+    "Type": "Model"
+  },
+  {
+    "Key": "model.strategy",
+    "Value": "claude-sonnet-5 + web search",
+    "Type": "Model"
+  },
+  {
+    "Key": "employer.size_rules",
+    "Value": "see Notes",
+    "Type": "Setting",
+    "Notes": "large: Target Companies Tier 1, 2, 3, 4 or 6, or On IND register. weak: not a target company and no sponsorship stated, Agency posting (IE), or Not on IND register. Otherwise normal."
+  },
+  {
+    "Key": "ind_register.url",
+    "Value": "https://ind.nl/en/public-register-recognised-sponsors/public-register-work",
+    "Type": "Setting"
+  },
+  {
+    "Key": "ireland.agency_names",
+    "Value": "Harbour Talent Partners, Liffey Recruitment",
+    "Type": "Setting"
+  },
+  {
+    "Key": "profile.name",
+    "Value": "Alex Example",
+    "Type": "Profile"
+  },
+  {
+    "Key": "profile.email",
+    "Value": "alex@example.com",
+    "Type": "Profile"
+  },
+  {
+    "Key": "profile.phone",
+    "Value": "+1 555 010 0000",
+    "Type": "Profile"
+  },
+  {
+    "Key": "profile.website",
+    "Value": "alex.example.com",
+    "Type": "Profile"
+  },
+  {
+    "Key": "profile.website_url",
+    "Value": "https://alex.example.com",
+    "Type": "Profile"
+  },
+  {
+    "Key": "profile.github",
+    "Value": "https://github.com/alex-example",
+    "Type": "Profile"
+  },
+  {
+    "Key": "profile.linkedin_url",
+    "Value": "https://www.linkedin.com/in/alex-example/",
+    "Type": "Profile"
+  },
+  {
+    "Key": "resume.relocation_line",
+    "Value": "Open to relocation within Europe",
+    "Type": "Setting"
+  },
+  {
+    "Key": "resume.filename",
+    "Value": "Alex_Devops_<Company>.pdf",
+    "Type": "Setting"
+  },
+  {
+    "Key": "resume.shrink_job_when_certs",
+    "Value": "DEMO WORKS",
+    "Type": "Setting"
+  },
+  {
+    "Key": "resume.ncr_short_bullet",
+    "Value": "Functional testing of assembled example devices and final verification of build documentation.",
+    "Type": "Setting"
+  },
+  {
+    "Key": "drive.resume_folder",
+    "Value": "Job Engine Resumes",
+    "Type": "Setting"
+  },
+  {
+    "Key": "resume.max_revisions",
+    "Value": "5",
+    "Type": "Setting"
+  },
+  {
+    "Key": "contacts.mix",
+    "Value": "peer=2, hiring=1, recruiter=1",
+    "Type": "Setting"
+  },
+  {
+    "Key": "contacts.per_job",
+    "Value": "4",
+    "Type": "Setting"
+  },
+  {
+    "Key": "contacts.cache_months",
+    "Value": "6",
+    "Type": "Setting"
+  },
+  {
+    "Key": "credits.apollo",
+    "Value": "12 / 75 per month",
+    "Type": "Credit counter",
+    "Updated": "2026-09-28"
+  },
+  {
+    "Key": "credits.hunter",
+    "Value": "3 / 25 per month",
+    "Type": "Credit counter",
+    "Updated": "2026-09-15"
+  },
+  {
+    "Key": "credits.snov",
+    "Value": "0 / 50 per month",
+    "Type": "Credit counter",
+    "Updated": "2026-08-20"
+  },
+  {
+    "Key": "mail.signature",
+    "Value": "Thanks,\n{profile.name}\n{profile.phone} | <a href=\"{profile.linkedin_url}\">LinkedIn</a>\n<a href=\"{profile.website_url}\">{profile.website}</a>",
+    "Type": "Setting"
+  },
+  {
+    "Key": "mail.attach_resume",
+    "Value": "yes",
+    "Type": "Setting"
+  },
+  {
+    "Key": "mail.daily_send_cap",
+    "Value": "15",
+    "Type": "Setting"
+  },
+  {
+    "Key": "mail.permit_word.poland",
+    "Value": "a Polish work permit",
+    "Type": "Setting"
+  },
+  {
+    "Key": "mail.permit_word.netherlands",
+    "Value": "a Dutch work permit (highly skilled migrant)",
+    "Type": "Setting"
+  },
+  {
+    "Key": "mail.permit_word.ireland",
+    "Value": "an Irish employment permit",
+    "Type": "Setting"
+  },
+  {
+    "Key": "mail.max_attachment_kb",
+    "Value": "250",
+    "Type": "Setting"
+  },
+  {
+    "Key": "mail.same_person_cooldown_days",
+    "Value": "30",
+    "Type": "Setting"
+  }
+]

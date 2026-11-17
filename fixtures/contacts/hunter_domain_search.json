@@ -1,0 +1,85 @@
+{
+  "data": {
+    "domain": "vistula.example.com",
+    "organization": "Vistula Cloud",
+    "emails": [
+      {
+        "value": "anna.example@vistula.example.com",
+        "type": "personal",
+        "confidence": 97,
+        "first_name": "Anna",
+        "last_name": "Example",
+        "position": "Senior DevOps Engineer",
+        "department": "it",
+        "verification": {
+          "status": "valid"
+        }
+      },
+      {
+        "value": "jan.example@vistula.example.com",
+        "type": "personal",
+        "confidence": 92,
+        "first_name": "Jan",
+        "last_name": "Example",
+        "position": "Cloud Engineer",
+        "department": "it",
+        "verification": {
+          "status": "valid"
+        }
+      },
+      {
+        "value": "hanna.example@vistula.example.com",
+        "type": "personal",
+        "confidence": 88,
+        "first_name": "Hanna",
+        "last_name": "Example",
+        "position": "Head of Platform",
+        "department": "management",
+        "verification": {
+          "status": "accept_all"
+        }
+      },
+      {
+        "value": "private.person@gmail.com",
+        "type": "personal",
+        "confidence": 70,
+        "first_name": "Private",
+        "last_name": "Person",
+        "position": "DevOps Engineer",
+        "department": "it",
+        "verification": {
+          "status": "valid"
+        }
+      },
+      {
+        "value": "far.away@other.example.org",
+        "type": "personal",
+        "confidence": 60,
+        "first_name": "Far",
+        "last_name": "Away",
+        "position": "Platform Engineer",
+        "department": "it",
+        "verification": {
+          "status": "valid"
+        }
+      },
+      {
+        "value": "info@vistula.example.com",
+        "type": "generic",
+        "confidence": 99,
+        "first_name": null,
+        "last_name": null,
+        "position": null,
+        "department": null,
+        "verification": {
+          "status": "valid"
+        }
+      }
+    ]
+  },
+  "meta": {
+    "results": 6,
+    "limit": 10,
+    "offset": 0
+  }
+}

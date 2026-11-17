@@ -1,0 +1,162 @@
+[
+  {
+    "id": "sk-k8s",
+    "Skill": "Kubernetes",
+    "Level": "Production",
+    "Category": "Containers",
+    "Where used": [
+      "Example Employer A"
+    ],
+    "Notes": ""
+  },
+  {
+    "id": "sk-terraform",
+    "Skill": "Terraform",
+    "Level": "Production",
+    "Category": "IaC",
+    "Where used": [
+      "Example Employer A"
+    ],
+    "Notes": ""
+  },
+  {
+    "id": "sk-aws",
+    "Skill": "AWS",
+    "Level": "Production",
+    "Category": "Cloud",
+    "Where used": [
+      "Example Employer A"
+    ],
+    "Notes": ""
+  },
+  {
+    "id": "sk-linux",
+    "Skill": "Linux",
+    "Level": "Production",
+    "Category": "Systems",
+    "Where used": [
+      "Example Employer A"
+    ],
+    "Notes": ""
+  },
+  {
+    "id": "sk-docker",
+    "Skill": "Docker",
+    "Level": "Production",
+    "Category": "Containers",
+    "Where used": [
+      "Example Employer A"
+    ],
+    "Notes": ""
+  },
+  {
+    "id": "sk-gitlab",
+    "Skill": "GitLab CI",
+    "Level": "Production",
+    "Category": "CI/CD",
+    "Where used": [
+      "Example Employer A"
+    ],
+    "Notes": ""
+  },
+  {
+    "id": "sk-helm",
+    "Skill": "Helm",
+    "Level": "Production",
+    "Category": "Containers",
+    "Where used": [
+      "Example Employer A"
+    ],
+    "Notes": ""
+  },
+  {
+    "id": "sk-prom",
+    "Skill": "Prometheus",
+    "Level": "Hands-on",
+    "Category": "Monitoring",
+    "Where used": [
+      "Example Employer A"
+    ],
+    "Notes": ""
+  },
+  {
+    "id": "sk-grafana",
+    "Skill": "Grafana",
+    "Level": "Hands-on",
+    "Category": "Monitoring",
+    "Where used": [
+      "Example Employer A"
+    ],
+    "Notes": ""
+  },
+  {
+    "id": "sk-ansible",
+    "Skill": "Ansible",
+    "Level": "Hands-on",
+    "Category": "IaC",
+    "Where used": [
+      "Example Employer A"
+    ],
+    "Notes": ""
+  },
+  {
+    "id": "sk-python",
+    "Skill": "Python",
+    "Level": "Hands-on",
+    "Category": "Scripting",
+    "Where used": [
+      "Example Employer A"
+    ],
+    "Notes": ""
+  },
+  {
+    "id": "sk-argocd",
+    "Skill": "Argo CD",
+    "Level": "Hands-on",
+    "Category": "CI/CD",
+    "Where used": [
+      "Example Employer A"
+    ],
+    "Notes": ""
+  },
+  {
+    "id": "sk-azure",
+    "Skill": "Azure",
+    "Level": "Hands-on",
+    "Category": "Cloud",
+    "Where used": [
+      "Example Employer A"
+    ],
+    "Notes": ""
+  },
+  {
+    "id": "sk-bash",
+    "Skill": "Bash",
+    "Level": "Production",
+    "Category": "Scripting",
+    "Where used": [
+      "Example Employer A"
+    ],
+    "Notes": ""
+  },
+  {
+    "id": "sk-go",
+    "Skill": "Go",
+    "Level": "Learning",
+    "Category": "Scripting",
+    "Where used": [
+      "Example Employer A"
+    ],
+    "Notes": ""
+  },
+  {
+    "id": "sk-rust",
+    "Skill": "Rust",
+    "Level": "Learning",
+    "Category": "Scripting",
+    "Where used": [
+      "Example Employer A"
+    ],
+    "Notes": ""
+  }
+]

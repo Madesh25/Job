@@ -1,0 +1,53 @@
+{
+  "people": [
+    {
+      "id": "ap-anna",
+      "first_name": "Anna",
+      "last_name_obfuscated": "Ex***e",
+      "title": "Senior DevOps Engineer",
+      "country": "Poland",
+      "has_email": true,
+      "organization": {
+        "name": "Vistula Cloud"
+      }
+    },
+    {
+      "id": "ap-marek",
+      "first_name": "Marek",
+      "last_name_obfuscated": "Ex***e",
+      "title": "Site Reliability Engineer",
+      "country": "Germany",
+      "has_email": true,
+      "organization": {
+        "name": "Vistula Cloud"
+      }
+    },
+    {
+      "id": "ap-piotr",
+      "first_name": "Piotr",
+      "last_name_obfuscated": "Ex***e",
+      "title": "Engineering Manager, Platform",
+      "country": "Poland",
+      "has_email": true,
+      "organization": {
+        "name": "Vistula Cloud"
+      }
+    },
+    {
+      "id": "ap-otto",
+      "first_name": "Otto",
+      "last_name_obfuscated": "Ex***e",
+      "title": "Office Manager",
+      "country": "Poland",
+      "has_email": true,
+      "organization": {
+        "name": "Vistula Cloud"
+      }
+    }
+  ],
+  "pagination": {
+    "page": 1,
+    "per_page": 25,
+    "total_entries": 4
+  }
+}

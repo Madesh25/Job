@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Alex Example, DevOps Engineer</title>
+<style>
+  @page { size: A4; margin: 9mm 14mm 9mm 14mm; }
+  * { box-sizing: border-box; }
+  body { font-family: "Lato", sans-serif; font-size: 9.7pt; line-height: 1.18; color: #000; margin: 0; }
+  p { margin: 0; }
+  a { color: #1a0dab; text-decoration: underline; }
+
+  /* Header: centred */
+  .hdr { text-align: center; }
+  .name { font-size: 23pt; font-weight: 700; letter-spacing: 0.4px; line-height: 1.1; }
+  .headline { font-size: 11pt; margin-top: 2px; }
+  .contact { font-size: 9.5pt; margin-top: 2px; }
+  .contact .sep { padding: 0 5px; color: #000; }
+  .reloc { font-size: 9.2pt; font-style: italic; margin-top: 2px; }
+
+  /* Section headings: bold caps with full-width black rule */
+  h2 { font-size: 11.5pt; font-weight: 700; text-transform: uppercase; letter-spacing: 0.3px;
+       border-bottom: 1.3px solid #000; padding-bottom: 1px; margin: 7px 0 3px 0; }
+
+  .summary { text-align: justify; }
+
+  /* Skills: two-column table with small grey sub-head */
+  .subhead { font-size: 8.8pt; font-weight: 700; color: #555; text-transform: uppercase; letter-spacing: 0.5px; margin: 3px 0 1px 0; }
+  table.skills { border-collapse: collapse; width: 100%; }
+  table.skills td { padding: 1px 0; vertical-align: top; }
+  table.skills td.k { width: 41mm; font-weight: 700; }
+
+  /* Experience */
+  .job { margin-top: 5px; }
+  .row { display: flex; justify-content: space-between; }
+  .co { font-size: 11pt; font-weight: 700; }
+  .role { font-weight: 700; font-style: italic; }
+  ul.b { margin: 2px 0 0 0; padding-left: 18px; }
+  ul.b li { margin: 1.2px 0; text-align: justify; padding-left: 2px; }
+
+  .edu .deg { font-weight: 700; }
+</style>
+</head>
+<body>
+
+<div class="hdr">
+  <p class="name">ALEX EXAMPLE</p>
+  <p class="headline">DevOps Engineer&nbsp; | &nbsp;Cloud &amp; Platform Engineering</p>
+  <p class="contact">
+    <a href="mailto:snapshot@example.com">snapshot@example.com</a><span class="sep">|</span><a href="tel:+10000000000">+1 000 000 0000</a><span class="sep">|</span><a href="https://snapshot.example.com">Portfolio</a><span class="sep">|</span><a href="https://github.com/snapshot-example">GitHub</a><span class="sep">|</span><a href="https://www.linkedin.com/in/snapshot-example/">LinkedIn</a>
+  </p>
+  <p class="reloc">Snapshot relocation line</p>
+</div>
+
+<h2>Professional Summary</h2>
+<p class="summary">DevOps engineer with 5+ years of professional experience, 3+ of them in cloud infrastructure and platform engineering across AWS, Azure and GCP. Owns migrations of example workloads from on-premises data centres to managed Kubernetes, from discovery and target design through cutover and validation. Comfortable where infrastructure meets application behaviour, following a failure from scheduling and storage through to service networking instead of handing it over. Daily stack is Kubernetes, Docker and Helm, Terraform and Ansible, with on-call and observability work under agreed service levels.</p>
+
+<h2>Technical Skills</h2>
+<!-- EDITABLE ZONE 1 START: skills rows (select / reorder / remove; add only if backed) -->
+<table class="skills">
+  <tr><td class="k">Kubernetes</td><td>EKS, AKS, kubeadm clusters, Helm, Docker</td></tr>
+  <tr><td class="k">Cloud (AWS)</td><td>EC2, VPC, IAM, S3, RDS, ELB, Route 53, CloudWatch</td></tr>
+  <tr><td class="k">Cloud (GCP)</td><td>GKE, Compute Engine, Cloud Storage</td></tr>
+  <tr><td class="k">Infrastructure as Code</td><td>Terraform, Ansible</td></tr>
+  <tr><td class="k">CI/CD</td><td>Jenkins, GitLab CI, Azure DevOps Pipelines</td></tr>
+  <tr><td class="k">Observability</td><td>Prometheus, Grafana, CloudWatch, Loki</td></tr>
+  <tr><td class="k">Systems &amp; Scripting</td><td>Linux (RHEL / Ubuntu), Windows Server, Bash, Python</td></tr>
+</table>
+<p class="subhead">Also worked with</p>
+<table class="skills">
+  <tr><td class="k">Azure</td><td>VNet, Azure Monitor</td></tr>
+  <tr><td class="k">GitOps &amp; Registry</td><td>Argo CD, Harbor</td></tr>
+  <tr><td class="k">Databases</td><td>PostgreSQL, MySQL, Oracle, MS SQL</td></tr>
+</table>
+<!-- EDITABLE ZONE 1 END -->
+
+<h2>Professional Experience</h2>
+<!-- EDITABLE ZONE 2: inside <li> text only, max +8 words per bullet, +25 words total -->
+
+<div class="job">
+  <div class="row"><span class="co">EXAMPLE CORP</span><span>Springfield, Exampleland</span></div>
+  <div class="row"><span class="role">Senior Associate (DevOps Engineer), Platform</span><span>Mar 2024 - Present</span></div>
+  <ul class="b">
+    <li>Sole owner of example platform migrations from on-premises servers to containerised cloud environments, running discovery, target design, build, cutover and validation across development, testing and production.</li>
+    <li>Ran a mixed Windows and Linux analytics workload on one shared Kubernetes cluster, using node affinity, OS-specific scheduling and cross-platform service networking instead of two separate clusters.</li>
+    <li>Debugged the cluster through bring-up, working through pods stuck in CrashLoopBackOff and persistent volumes that failed to mount, until the whole workload ran end to end.</li>
+    <li>Replaced manual recovery of failed releases on self-managed clusters with a pipeline that detects failure, retries and rolls back on its own, so environments recover without an engineer.</li>
+    <li>Closed the manual handoff between the infrastructure and web teams on a client website programme by automating build, content release and environment configuration through to production.</li>
+  </ul>
+</div>
+
+<div class="job">
+  <div class="row"><span class="co">SAMPLE SYSTEMS</span><span>Springfield, Exampleland</span></div>
+  <div class="row"><span class="role">Junior Platform Consultant</span><span>Jan 2021 - Feb 2024</span></div>
+  <ul class="b">
+    <li>Ran two example industrial platforms across on-premises data centres and public cloud (AWS, GCP), owning availability, scaling and release automation for both customer environments.</li>
+    <li>Met recovery targets by designing multi-zone topologies on AWS, provisioned with Terraform and configured with Ansible across EC2, VPC, IAM, S3, RDS, ELB and CloudWatch, proven through 4 scheduled failover tests a year.</li>
+    <li>Held first-line responsibility on a rotating 24/7 on-call for a production web application, triaging incidents from alert to root cause with no major escalation during the support period.</li>
+    <li>Automated monthly patching and configuration drift checks for 30 Linux and Windows servers with Ansible playbooks run from a scheduled pipeline, cutting the maintenance window from a full day to two hours.</li>
+    <li>Built central monitoring and alerting with Prometheus, Grafana and CloudWatch across 12 instances, meeting the agreed availability target throughout the contract.</li>
+  </ul>
+</div>
+
+<div class="job">
+  <div class="row"><span class="co">DEMO WORKS</span><span>Springfield, Exampleland</span></div>
+  <div class="row"><span class="role">Trainee</span><span>Jul 2020 - Dec 2020</span></div>
+  <ul class="b">
+    <li>Carried out functional and performance testing of assembled example devices.</li>
+    <li>Completed final verification of build and quality documentation before dispatch.</li>
+  </ul>
+</div>
+
+<h2>Education</h2>
+<div class="edu">
+  <div class="row"><span class="deg">Example Institute of Technology, Springfield</span><span>Sep 2016 - Jun 2020</span></div>
+  <div class="row"><span><i>B.E. Example Engineering</i>, GPA 8.10/10</span><span></span></div>
+</div>
+
+</body>
+</html>

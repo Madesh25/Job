@@ -1,0 +1,73 @@
+{
+  "years_required_min": {
+    "value": 4,
+    "quote": "4 years of hands-on work"
+  },
+  "seniority_title_flag": {
+    "value": "none",
+    "quote": null
+  },
+  "languages": [
+    {
+      "language": "Polish",
+      "level": "preferred",
+      "quote": "Polish is a plus"
+    },
+    {
+      "language": "English",
+      "level": "mandatory",
+      "quote": "English is required"
+    }
+  ],
+  "contract_types": [
+    {
+      "value": "UoP",
+      "quote": "Employment contract (UoP)"
+    }
+  ],
+  "mandatory_requirements": [
+    {
+      "text": "Kubernetes, Helm and GitLab CI",
+      "terms": [
+        "Kubernetes",
+        "Helm",
+        "GitLab CI"
+      ],
+      "kind": "tool",
+      "quote": "Kubernetes, Helm and GitLab CI"
+    }
+  ],
+  "nice_to_have": [
+    {
+      "text": "Java",
+      "terms": [
+        "Java"
+      ],
+      "kind": "tool",
+      "quote": "Knowledge of Java is nice to have"
+    }
+  ],
+  "sponsorship": {
+    "value": "not_mentioned",
+    "quote": null
+  },
+  "work_mode": {
+    "value": "Hybrid",
+    "quote": "Hybrid, two days a week"
+  },
+  "salary_text": {
+    "value": null,
+    "quote": null
+  },
+  "expires": {
+    "value": null,
+    "quote": null
+  },
+  "agency_posting": {
+    "value": null,
+    "quote": null
+  },
+  "specific_details": [
+    "building self-service environments for product teams"
+  ]
+}

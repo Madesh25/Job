@@ -1,0 +1,986 @@
+"""Build, preview, finalise (spec sections 2, 7 and 8).
+
+build_resume: plan (LLM, stage tailor) -> integrity gate (with retries) -> fit -> render ->
+Resume Log row (one per revision, plan in its body) -> Job Status "Resume built".
+finalise: re-render from the stored plan of the approved row, save the PDF (Drive, or out/ in
+DRY_RUN), tick Approved. mark_applied: Status "Applied" from "Resume built" only.
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+import re
+import time
+from collections.abc import Callable
+from dataclasses import dataclass, field
+from datetime import date
+from pathlib import Path
+from typing import Any
+
+from jobengine import http
+from jobengine.config_store import ConfigStore
+from jobengine.drive_client import Drive, DriveError, FakeDrive, GoogleDrive
+from jobengine.llm import FakeLLM, LLMClient, LLMError, make_llm
+from jobengine.notion_repo import (
+    FakeJobsRepo,
+    FakeResumeLogRepo,
+    JobsRepo,
+    NotionClient,
+    ResumeLogRepo,
+    find_by_ref,
+    jobs_repo_for,
+    page_ref,
+    resume_log_for,
+)
+from jobengine.reference import Reference
+from jobengine.resume import gate
+from jobengine.resume.master import (
+    MasterError,
+    fake_blocks,
+    fetch_blocks,
+    load_master,
+    profile_from_config,
+    render_html,
+)
+from jobengine.resume.models import MasterResume, Plan
+from jobengine.resume.plan import JobContext, PlanError, make_plan, parse_plan
+from jobengine.resume.render import (
+    FitError,
+    Measurer,
+    RenderError,
+    check_measure,
+    filename,
+    fit,
+    measure_html,
+    render_pdf,
+)
+from jobengine.resume.sections import SectionError, SectionPlan, SectionRow, fake_rows, load_rows
+from jobengine.safety import drive_write_allowed
+from jobengine.screen.runner import description
+from jobengine.settings import ROOT_DIR, Settings
+from jobengine.strategy import tips as tips_mod
+from jobengine.strategy.tips import AdoptedTip
+from jobengine.sweep.normalize import canon, canon_company
+
+log = logging.getLogger("jobengine.resume")
+
+FIXTURES = ROOT_DIR / "fixtures" / "resume"
+BUILDABLE_VERDICTS = ("Apply high", "Apply normal", "Apply low", "Needs review")
+BUILDABLE_STATUSES = ("Approved", "Resume built")
+CAPTION_MAX = 1024
+REFUSED_HINT = ("If you do have it, add it to Skills Inventory (Hands-on or Production) or as an "
+                "Active Term Map row, then send the instruction again. Or tap Add anyway to list "
+                "it in the skills section and learn it before the interview.")
+FORCE_NOTE = (" (The candidate confirms: list the skills named in this request in the most "
+              "fitting Technical Skills row even though Skills Inventory and Term Map do not back "
+              "them yet; they will learn them before the interview. Never put them in the "
+              "experience bullets. Do not refuse this.)")
+RULES_FAILED = (
+    "Resume could not be built within the rules: {errors}. The job stays Approved; tap "
+    "Try again or reply with a correction."
+)
+APPLY_TEXT = "Resume approved and saved. Apply here: {url}"
+# Resume Log `File` of an approved PDF that Google Drive refused, saved in out/ instead (the
+# mails attach it from there, mail/drafter.resume_pdf).
+LOCAL_PREFIX = "ON THIS COMPUTER: "
+DRIVE_FAILED = ("Not saved to Google Drive: {error}\nSaved on this computer instead ({path}); "
+                "the mails attach it from there.")
+NEWER_TEXT = "A newer revision exists"
+
+
+@dataclass
+class ResumeDeps:
+    s: Settings
+    config: Callable[[], ConfigStore]
+    reference: Callable[[], Reference]
+    jobs: JobsRepo | None
+    resume_log: ResumeLogRepo | None
+    blocks: Callable[[], list[dict[str, Any]]]  # the Resume Build Spec page
+    sections: Callable[[], list[SectionRow]]
+    llm: Callable[[ConfigStore], LLMClient]
+    drive: Callable[[], Drive]
+    measure: Measurer = measure_html
+    render: Callable[[str], bytes] = render_pdf
+    out_dir: Path = ROOT_DIR / "out"
+    today: Callable[[], date] = date.today
+    write: bool = True  # False: --no-write, render only
+    # Adopted strategy tips (strategy/tips.py): Resume and ATS ones go to the tailoring AI.
+    tips: Callable[[], list[AdoptedTip]] = lambda: []
+
+
+@dataclass
+class BuildOutcome:
+    status: str  # built | existing | refused | failed | correction_refused
+    message: str
+    job_id: str
+    company: str = ""
+    role: str = ""
+    revision: int | None = None
+    log_id: str | None = None
+    pdf: bytes | None = None
+    filename: str | None = None
+    caption: str | None = None
+    plan: Plan | None = None
+    fill: float | None = None
+    changes: list[str] = field(default_factory=list)
+    model: str | None = None  # the model that wrote the plan (None: a test client)
+
+    @property
+    def ok(self) -> bool:
+        return self.status in ("built", "existing")
+
+
+@dataclass
+class FinaliseOutcome:
+    status: str  # approved | newer | failed
+    message: str
+    job_id: str | None = None
+    job_url: str | None = None
+    file: str | None = None
+    latest: BuildOutcome | None = None
+    pdf: bytes | None = None  # the approved PDF (the cover letter is written from its text)
+    already: bool = False  # approved before (a second tap): nothing is sent again
+
+
+def short_ref(log_id: str) -> str:
+    return "RL-" + page_ref(log_id)
+
+
+def hex_id(page_id: str) -> str:
+    return page_id.replace("-", "")
+
+
+def notion_id(value: str) -> str:
+    """A page ID from a button (32 hex characters) back in the hyphenated UUID form."""
+    v = value.strip().lower()
+    if re.fullmatch(r"[0-9a-f]{32}", v):
+        return f"{v[:8]}-{v[8:12]}-{v[12:16]}-{v[16:20]}-{v[20:]}"
+    return value.strip()
+
+
+# ---------------------------------------------------------------- deps
+
+
+def fake_deps(
+    s: Settings,
+    jobs: JobsRepo | None = None,
+    out_dir: Path | None = None,
+    write: bool = True,
+) -> ResumeDeps:
+    """Fixtures for Notion, the LLM (unknown keys give the unchanged plan) and Drive."""
+    if jobs is None:
+        jobs = FakeJobsRepo.from_fixture(FIXTURES / "job_opportunities_seed.json")
+    drive = FakeDrive()
+    return ResumeDeps(
+        s=s,
+        config=ConfigStore.fake,
+        reference=Reference.fake,
+        jobs=jobs,
+        resume_log=FakeResumeLogRepo(),
+        blocks=fake_blocks,
+        sections=fake_rows,
+        llm=lambda config: FakeLLM(default={}),
+        drive=lambda: drive,
+        out_dir=out_dir or ROOT_DIR / "out",
+        write=write,
+    )
+
+
+def real_deps(s: Settings, write: bool = True) -> ResumeDeps:
+    if not s.notion_token:
+        raise MasterError("resume builder cannot run: NOTION_TOKEN missing")
+    client = NotionClient(s.notion_token, s)
+    page = s.notion_pages.get("resume_build_spec", "")
+    return ResumeDeps(
+        s=s,
+        config=lambda: ConfigStore.load(client, s),
+        reference=lambda: Reference.load(client, s),
+        jobs=jobs_repo_for(s, client),
+        resume_log=resume_log_for(s, client),
+        blocks=lambda: fetch_blocks(client, page),
+        sections=lambda: load_rows(client, s),
+        llm=lambda config: make_llm(s, config),
+        drive=lambda: GoogleDrive.from_settings(s),
+        write=write,
+        tips=lambda: load_tips(s, client),
+    )
+
+
+def load_tips(s: Settings, client: NotionClient) -> list[AdoptedTip]:
+    """The adopted strategy tips, or none when the Strategy table cannot be read."""
+    from jobengine.notion_repo import page_values, strategy_repo_for
+
+    try:  # the same tables /rules reads: Strategy, plus the DEV copy you adopt tips in
+        read_id = s.notion_read.get("strategy", "")
+        rows = [(p["id"], page_values(p)) for p in client.query(read_id)] if read_id else []
+        repo = strategy_repo_for(s, client)
+        if repo is not None and repo.data_source_id != read_id:
+            rows += repo.all_rows()
+        return tips_mod.adopted(rows)
+    except Exception as exc:  # tips are extra: never stop a resume over them
+        log.warning("strategy tips not read: %s", exc)
+        return []
+
+
+# ---------------------------------------------------------------- helpers
+
+
+def _setting(deps: ResumeDeps, config: ConfigStore, key: str, default: float) -> float:
+    value = config.get(f"resume.{key}")
+    try:
+        return float(value) if value else float(deps.s.resume.get(key, default))
+    except ValueError:
+        return float(deps.s.resume.get(key, default))
+
+
+def specific_details(body: list[str]) -> list[str]:
+    for line in reversed(body):
+        if line.startswith("Specific details:"):
+            return [d.strip() for d in line.split(":", 1)[1].split(";") if d.strip()]
+    return []
+
+
+def _job_context(page_id: str, values: dict[str, Any], body: list[str]) -> JobContext:
+    jd, _ = description(body, full_min=0)
+    return JobContext(
+        page_id=page_id, company=values.get("Company") or "", role=values.get("Role") or "",
+        country=values.get("Country"), jd=jd, specific_details=specific_details(body),
+        gaps=values.get("Gaps"),
+    )
+
+
+def _sorted_rows(deps: ResumeDeps, job_id: str) -> list[tuple[str, dict[str, Any]]]:
+    assert deps.resume_log is not None
+    rows = deps.resume_log.rows_for_job(job_id)
+    return sorted(rows, key=lambda r: int(r[1].get("Revision") or 0))
+
+
+def stored_plan(deps: ResumeDeps, log_id: str, master: MasterResume) -> Plan:
+    assert deps.resume_log is not None
+    for text in deps.resume_log.read_body(log_id):
+        if text.lstrip().startswith("{"):
+            return parse_plan(json.loads(text), master)
+    raise PlanError("the Resume Log row has no stored plan")
+
+
+def _file_name(deps: ResumeDeps, config: ConfigStore, job_id: str, values: dict[str, Any]) -> str:
+    template = config.get("resume.filename")
+    company, role = values.get("Company") or "", values.get("Role") or ""
+    if deps.resume_log is not None and deps.jobs is not None:
+        mine = canon_company(company)
+        for _, row in deps.resume_log.approved_rows():
+            for other in row.get("Job") or []:
+                if hex_id(other) == hex_id(job_id):
+                    continue
+                other_values = deps.jobs.get_values(other) or {}
+                if canon_company(other_values.get("Company")) == mine:
+                    return filename(template, company, role)
+    return filename(template, company)
+
+
+def _skill_lines(skills: list[str]) -> list[str]:
+    removed = [s[1:] for s in skills if s.startswith("-")]
+    added = [s[1:] for s in skills if s.startswith("+")]
+    renamed = [s for s in skills if " -> " in s]
+    moved = [s for s in skills if s not in renamed and (s.endswith(" to main table")
+                                                       or s.endswith(" to Also worked with"))]
+    lines = []
+    for name, items, sep in (("Removed", removed, ", "), ("Added", added, ", "),
+                             ("Renamed", renamed, "; "), ("Moved", moved, "; ")):
+        if items:
+            lines.append(f"- {name}: {sep.join(items)}")
+    return lines
+
+
+def added_skills(previous: Plan, ctx: Any) -> list[str]:
+    """The skills items the last version added to the master's tables: yours (in Skills
+    Inventory) or forced by your "Add anyway"."""
+    master_items = {gate.item_key(i) for i in ctx.master.all_items()}
+    forced = {gate.item_key(f) for f in previous.forced_skills}
+    return [i for r in previous.skills_main + previous.skills_also for i in r.items
+            if gate.item_key(i) not in master_items
+            and (ctx.reference.lookup(i) or gate.item_key(i) in forced)]
+
+
+def owned_removed(existing: str | None, reference: Any, forced: list[str]) -> str:
+    """The job's Gaps without the skill names that are in your Skills Inventory now (you
+    added CDK with "Add skills": it is no longer a gap). Sentences and forced skills stay."""
+    from jobengine.screen.models import join_gaps, split_gaps
+
+    keep_forced = {f.casefold() for f in forced}
+    return join_gaps([g for g in split_gaps(existing)
+                      if g.casefold() in keep_forced or len(g.split()) > 4
+                      or not reference.lookup(g)])
+
+
+def merge_gaps(existing: str | None, new: list[str]) -> str:
+    """The job's Gaps text with the resume's reported gaps added once (case-insensitive)."""
+    from jobengine.screen.models import join_gaps, split_gaps
+
+    return join_gaps([*split_gaps(existing), *new])
+
+
+def caption(
+    revision: int, values: dict[str, Any], fill: float, changes: gate.Changes, plan: Plan,
+    log_id: str | None, fill_min: float = 88, fill_max: float = 96, usage: str | None = None,
+) -> str:
+    """The preview caption in plain sections (Telegram allows 1024 characters). `usage` is
+    the "AI used: ..." line of the build."""
+    head = [
+        f"Resume for {values.get('Company')}, {values.get('Role')} (version {revision})",
+        f"One page, {fill:.1f}% full (the target is {fill_min:g} to {fill_max:g}%)",
+    ]
+    skills = _skill_lines(changes.skills) or ["- no changes"]
+    words = ("no words added" if not changes.words else
+             f"{changes.words} word{'s' if changes.words != 1 else ''} added in "
+             f"{changes.bullets} bullet{'s' if changes.bullets != 1 else ''}")
+    bullets = [f"- {note}" for note in changes.bullet_notes]
+    tail = []
+    forced = {f.casefold() for f in plan.forced_skills}
+    if plan.forced_skills:
+        tail.append("Added at your request (learn it before the interview): "
+                    + ", ".join(plan.forced_skills))
+    gaps = [g for g in plan.gaps_reported if g.casefold() not in forced]
+    if gaps:
+        tail.append("Not in your skills (saved to the job's Gaps, see /gaps): " + ", ".join(gaps))
+    tail += [line for line in changes.lines if line.startswith("Left out")]
+    if log_id:
+        tail.append(f"Ref {short_ref(log_id)}")
+    if usage:
+        tail.append(usage)
+    tail.append("Reply to this message to change something, or tap a button.")
+
+    def text(detail: list[str], cut: bool) -> str:
+        more = ["- ... (full list in Resume Log)"] if cut else []
+        return "\n".join([*head, "", "Skills", *skills, "", f"Experience: {words}", *detail,
+                          *more, "", *tail])
+
+    out = text(bullets, False)
+    while len(out) > CAPTION_MAX and bullets:
+        bullets = bullets[:-1]
+        out = text(bullets, True)
+    if len(out) > CAPTION_MAX:
+        skills = skills[:2]
+        out = text(bullets, True)
+    return out[:CAPTION_MAX]
+
+
+def body_blocks(plan: Plan, changes: gate.Changes) -> list[tuple[str, ...]]:
+    blocks: list[tuple[str, ...]] = [
+        ("heading_2", "Plan"),
+        ("code", json.dumps(plan.to_json(), indent=1, ensure_ascii=False), "json"),
+        ("heading_2", "Changes"),
+    ]
+    blocks += [("paragraph", line) for line in changes.lines or ["no changes"]]
+    blocks += [("heading_2", "Gaps reported"),
+               ("paragraph", ", ".join(plan.gaps_reported) or "none")]
+    return blocks
+
+
+@dataclass
+class _Context:
+    config: ConfigStore
+    reference: Reference
+    master: MasterResume
+    sections: SectionPlan
+    values: dict[str, Any]
+    fill_min: float
+    fill_max: float
+
+
+def _context(deps: ResumeDeps, job_id: str, values: dict[str, Any]) -> _Context:
+    from jobengine.resume import header
+    from jobengine.resume.sections import resolve
+
+    config = deps.config()
+    master = header.for_job(load_master(deps.blocks(), config), deps.s, config, values)
+    sections = resolve(deps.sections(), values.get("Country"), config)
+    return _Context(
+        config=config, reference=deps.reference(), master=master, sections=sections,
+        values=values, fill_min=_setting(deps, config, "fill_min", 88),
+        fill_max=_setting(deps, config, "fill_max", 96),
+    )
+
+
+def connector_words(deps: ResumeDeps, config: ConfigStore) -> list[str]:
+    """Config resume.gate.connector_words, else the settings default (comma or space list)."""
+    raw = config.get("resume.gate.connector_words") or deps.s.resume.get("connector_words")
+    words = [w for w in re.split(r"[,\s]+", str(raw or "")) if w]
+    return words or sorted(gate.CONNECTOR_WORDS)
+
+
+def _gate(deps: ResumeDeps, ctx: _Context, plan: Plan) -> list[str]:
+    return gate.check(
+        ctx.master, plan, ctx.reference, sections=ctx.sections,
+        connectors=connector_words(deps, ctx.config),
+        max_per_bullet=int(deps.s.resume.get("max_words_per_bullet", 8)),
+        max_total=int(deps.s.resume.get("max_words_total", 25)),
+    )
+
+
+def _render_checked(deps: ResumeDeps, ctx: _Context, plan: Plan) -> tuple[str, bytes, float]:
+    """Render a final plan and run the Build Spec checks. Raises RenderError."""
+    html = render_html(ctx.master, plan, ctx.sections)
+    pdf = deps.render(html)
+    m = deps.measure(html)
+    errors = check_measure(m, profile_from_config(ctx.config), ctx.fill_min, ctx.fill_max)
+    if errors:
+        raise RenderError("; ".join(errors))
+    return html, pdf, m.fill
+
+
+def _save_local(deps: ResumeDeps, name: str, pdf: bytes) -> Path:
+    deps.out_dir.mkdir(parents=True, exist_ok=True)
+    path = deps.out_dir / name
+    path.write_bytes(pdf)
+    return path
+
+
+# The out folder is shared with Windows in Docker. On 7 Oct writing the approved PDF there
+# waited for ever (the stack stopped in open()), so Approve resume never answered and even
+# /restart hung. The copy is only a convenience (the PDF is already in Telegram): it is
+# written on its own thread, never over an existing file, and given LOCAL_SAVE_SECONDS.
+LOCAL_SAVE_SECONDS = 15.0
+STUCK_SAVES: list[str] = []  # files whose save never finished (telegram_bot /restart reads it)
+
+
+def free_name(folder: Path, name: str) -> str:
+    """`name`, or `<stem>_2.pdf`, `_3` ... when a file of that name is already there (it may
+    be open in a PDF viewer, which can block a write over it)."""
+    stem, dot, ext = name.rpartition(".")
+    stem, dot = (stem, dot) if dot else (name, "")
+    candidate, n = name, 1
+    while (folder / candidate).exists():
+        n += 1
+        candidate = f"{stem}_{n}{dot}{ext}"
+    return candidate
+
+
+def save_local_bounded(deps: ResumeDeps, name: str, pdf: bytes,
+                       seconds: float | None = None) -> tuple[Path | None, str]:
+    """(path, "") when saved within `seconds` (LOCAL_SAVE_SECONDS), else (None, why).
+    Never raises."""
+    import threading
+
+    seconds = LOCAL_SAVE_SECONDS if seconds is None else seconds
+
+    done: list[Path] = []
+    failed: list[str] = []
+
+    def write() -> None:
+        try:
+            deps.out_dir.mkdir(parents=True, exist_ok=True)
+            done.append(_save_local(deps, free_name(deps.out_dir, name), pdf))
+        except OSError as exc:
+            failed.append(str(exc))
+
+    worker = threading.Thread(target=write, name="resume-local-save", daemon=True)
+    worker.start()
+    worker.join(seconds)
+    if done:
+        return done[0], ""
+    if failed:
+        return None, f"could not save it to the out folder ({failed[0]})"
+    STUCK_SAVES.append(name)
+    log.warning("saving %s to the out folder did not finish in %.0f s; going on without it "
+                "(is the folder or the file open in another program?)", name, seconds)
+    return None, f"the out folder did not answer in {seconds:.0f} s"
+
+
+# ---------------------------------------------------------------- build
+
+
+def _load_job(deps: ResumeDeps, job_id: str) -> tuple[dict[str, Any] | None, str | None]:
+    if deps.jobs is None:
+        return None, "DRY RUN: no Job Opportunities target here, nothing built."
+    values = deps.jobs.get_values(job_id)
+    if not values:
+        return None, f"No Job Opportunities row {job_id}."
+    verdict, status = values.get("Screen verdict"), values.get("Status")
+    if verdict not in BUILDABLE_VERDICTS:
+        return None, f"No resume for this job: its verdict is {verdict or 'unknown'}."
+    if status not in BUILDABLE_STATUSES:
+        return None, (f"No resume for this job: its Status is {status or 'empty'}, a resume is "
+                      "built only after you approve it in /pending.")
+    return values, None
+
+
+def preview_existing(deps: ResumeDeps, job_id: str) -> BuildOutcome | None:
+    """The latest revision for a job, re-rendered from its stored plan, or None."""
+    values, refused = _load_job(deps, job_id)
+    if deps.resume_log is None or values is None:
+        return None
+    rows = _sorted_rows(deps, job_id)
+    if not rows:
+        return None
+    log_id, row = rows[-1]
+    ctx = _context(deps, job_id, values)
+    plan = stored_plan(deps, log_id, ctx.master)
+    html, pdf, fill = _render_checked(deps, ctx, plan)
+    # A skill in your Skills Inventory is never a gap (Phase 19 A-02: CloudFormation and
+    # Datadog were "added" and "not in your skills" in the same preview).
+    plan.gaps_reported = [g for g in plan.gaps_reported if not ctx.reference.lookup(g)]
+    changes = gate.summarise(ctx.master, plan)
+    revision = int(row.get("Revision") or 1)
+    name = (row.get("Resume name") or "").rsplit(" r", 1)[0]
+    return BuildOutcome(
+        status="existing", message="Latest resume preview.", job_id=job_id,
+        company=values.get("Company") or "", role=values.get("Role") or "", revision=revision,
+        log_id=log_id, pdf=pdf, filename=name, plan=plan, fill=fill, changes=changes.lines,
+        caption=caption(revision, values, fill, changes, plan, log_id, ctx.fill_min,
+                        ctx.fill_max),
+    )
+
+
+def build_resume(
+    deps: ResumeDeps,
+    job_id: str,
+    *,
+    correction: str | None = None,
+    force: bool = False,
+    force_terms: list[str] | None = None,
+) -> BuildOutcome:
+    """Build the next revision. Without `force` (the first Approve), an existing build is
+    shown again instead of building another one.
+
+    `force_terms` is your "Add anyway": [] lists the skills named in `correction` although
+    they are not backed; named terms are also added to the skills table if the plan left them
+    out. Forced skills go in the skills tables only, never in the experience bullets."""
+    job_id = notion_id(job_id)
+    values, refused = _load_job(deps, job_id)
+    if values is None:
+        return BuildOutcome(status="refused", message=refused or "", job_id=job_id)
+    company, role = values.get("Company") or "", values.get("Role") or ""
+
+    def failed(message: str) -> BuildOutcome:
+        log.warning("resume for %s failed: %s", job_id, message)
+        return BuildOutcome(status="failed", message=message, job_id=job_id, company=company,
+                            role=role)
+
+    try:
+        existing = _sorted_rows(deps, job_id) if deps.resume_log is not None else []
+        if existing and not force:
+            latest = preview_existing(deps, job_id)
+            if latest:
+                return latest
+        ctx = _context(deps, job_id, values)
+    except (MasterError, SectionError, PlanError, RenderError) as exc:
+        return failed(str(exc))
+    except http.HttpError as exc:
+        return failed(f"Notion could not be read: {exc}")
+
+    revision = (int(existing[-1][1].get("Revision") or 0) if existing else 0) + 1
+    max_revisions = int(_setting(deps, ctx.config, "max_revisions", 5))
+    if revision > max_revisions:
+        return BuildOutcome(
+            status="refused", job_id=job_id, company=company, role=role,
+            message=(f"This job already has {max_revisions} revisions. Fix the rules (Skills "
+                     "Inventory, Term Map) or skip the job."))
+
+    body = deps.jobs.read_body(job_id) if deps.jobs else []
+    job = _job_context(job_id, values, body)
+    if not job.jd:
+        return failed("No job description on the job page. Paste it with /jd first.")
+    previous = None
+    if existing:
+        try:
+            previous = stored_plan(deps, existing[-1][0], ctx.master)
+        except PlanError:
+            previous = None
+    if force_terms is not None and previous is not None:
+        # Phase 19 A-03 (3 Nov): "Add skills" after "Add 8 keywords" lost the 8. A rebuild
+        # you asked for keeps what the last version added to your skills tables.
+        force_terms = list(dict.fromkeys([*force_terms, *added_skills(previous, ctx)]))
+
+    try:
+        llm = deps.llm(ctx.config)
+    except LLMError as exc:
+        return failed(str(exc))
+    retries = int(deps.s.resume.get("gate_retries", 2))
+    errors: list[str] = []
+    plan: Plan | None = None
+    resume_tips = tips_mod.pick(deps.tips(), tips_mod.RESUME, values.get("Country"))
+    for attempt in range(retries + 1):
+        key = f"{job_id}-r{revision}" + (f"-a{attempt}" if attempt else "")
+        try:
+            plan = make_plan(llm, ctx.master, job, ctx.reference,
+                             correction=(correction or "") + FORCE_NOTE
+                             if force_terms is not None else correction,
+                             previous=plan or previous, errors=errors or None, key=key,
+                             tips=resume_tips)
+        except (LLMError, PlanError) as exc:
+            return failed(str(exc))
+        if force_terms is not None:
+            plan.correction_refused = None
+            force_skills(plan, ctx.master, ctx.reference, correction or "", force_terms)
+        tidy_rows(plan, ctx.master)
+        if plan.correction_refused and not correction:
+            # Nothing was asked: on a retry the model sometimes explains its own earlier
+            # attempt here. That is not a refusal; the rule check below decides.
+            log.info("ignored a refused correction without a correction: %s",
+                     plan.correction_refused)
+            plan.correction_refused = None
+        if plan.correction_refused:
+            return BuildOutcome(status="correction_refused", job_id=job_id, company=company,
+                                role=role, message=f"Correction not applied: "
+                                                   f"{plan.correction_refused}\n{REFUSED_HINT}")
+        errors = _gate(deps, ctx, plan)
+        if not errors:
+            break
+        log.info("gate errors (attempt %d): %s", attempt + 1, errors)
+    left_out: list[str] = []
+    if errors and plan is not None:
+        # Keep what passed, leave out only what broke a rule (no extra LLM call).
+        forced = list(plan.forced_skills)
+
+        def keep_forced(p: Plan) -> list[str]:
+            if forced:  # the master's skills tables are back: list the forced skills again
+                force_skills(p, ctx.master, ctx.reference, correction or "", forced)
+            return _gate(deps, ctx, p)
+
+        plan, errors, left_out = salvage(plan, errors, ctx.master, keep_forced)
+        if not errors:
+            log.info("resume built without the edits that broke a rule: %s", left_out)
+    if errors or plan is None:
+        return failed(RULES_FAILED.format(errors="; ".join(errors)))
+
+    try:
+        fitted = fit(ctx.master, plan, ctx.sections, deps.measure, ctx.fill_min, ctx.fill_max)
+        plan = fitted.plan
+        errors = _gate(deps, ctx, plan)
+        if errors:
+            return failed(RULES_FAILED.format(errors="; ".join(errors)))
+        _html, pdf, fill = _render_checked(deps, ctx, plan)
+    except FitError as exc:
+        return failed(RULES_FAILED.format(errors=str(exc)))
+    except RenderError as exc:
+        return failed(str(exc))
+
+    # A skill in your Skills Inventory is never a gap (Phase 19 A-02: CloudFormation and
+    # Datadog were "added" and "not in your skills" in the same preview).
+    plan.gaps_reported = [g for g in plan.gaps_reported if not ctx.reference.lookup(g)]
+    changes = gate.summarise(ctx.master, plan)
+    if left_out:
+        changes.lines.append("Left out (broke a rule): " + "; ".join(left_out))
+    name = _file_name(deps, ctx.config, job_id, values)
+    log_id = None
+    if deps.write and deps.resume_log is not None:
+        evidence = ctx.reference.evidence_for(
+            [m.jd_term for m in plan.term_mappings] + [m.used_as for m in plan.term_mappings])
+        log_id = deps.resume_log.create({
+            "Resume name": f"{name} r{revision}",
+            "Date": deps.today(),
+            "Job": [job_id],
+            "Skills focus": plan.focus.skills,
+            "Experience focus": plan.focus.experience,
+            "Summary focus": "unchanged",
+            "Diff score": changes.diff_score,
+            "Page fill": f"{fill:.1f}%",
+            "Engine version": f"V16 gm:{ctx.master.version}",
+            "Evidence used": evidence,
+            "Approved": False,
+            "Revision": revision,
+        }, body_blocks(plan, changes))
+        update: dict[str, Any] = {"Resume": [*(values.get("Resume") or []), log_id]}
+        # Forced skills are the ones to learn first, so they stay in Gaps too.
+        gaps = merge_gaps(owned_removed(values.get("Gaps"), ctx.reference, plan.forced_skills),
+                          [*plan.gaps_reported, *plan.forced_skills])
+        if gaps != (values.get("Gaps") or ""):
+            update["Gaps"] = gaps  # so /gaps can list what to learn next
+        if values.get("Status") in BUILDABLE_STATUSES:
+            update["Status"] = "Resume built"
+        assert deps.jobs is not None
+        deps.jobs.update(job_id, update)
+    else:
+        path = _save_local(deps, f"{name[:-4]}_r{revision}.pdf", pdf)
+        log.info("--no-write: preview saved to %s", path)
+    from jobengine.track import day_ledger
+
+    day_ledger.count("resumes")
+    return BuildOutcome(
+        status="built", message="Resume built.", job_id=job_id, company=company, role=role,
+        revision=revision, log_id=log_id, pdf=pdf, filename=name, plan=plan, fill=fill,
+        changes=changes.lines,
+        caption=caption(revision, values, fill, changes, plan, log_id, ctx.fill_min,
+                        ctx.fill_max, usage=_usage_line(llm)),
+        model=_model_of(llm),
+    )
+
+
+def _model_of(llm: Any) -> str | None:
+    """The resume model of a ModelRouter (the "Rebuild with Claude" button needs it)."""
+    from jobengine.resume.plan import STAGE
+
+    model = getattr(llm, "model", None)
+    return model(STAGE) if callable(model) else None
+
+
+def with_claude(deps: ResumeDeps) -> ResumeDeps:
+    """The same deps with the resume written by Claude (Config model.resume_rebuild, else
+    haiku) instead of the Config model.resume."""
+    from dataclasses import replace
+
+    from jobengine.llm import rebuild_model
+    from jobengine.resume.plan import STAGE
+
+    def llm(config: ConfigStore) -> LLMClient:
+        client = deps.llm(config)
+        overrides = getattr(client, "overrides", None)
+        if isinstance(overrides, dict):
+            overrides[STAGE] = rebuild_model(config)
+        return client
+
+    return replace(deps, llm=llm)
+
+
+def _usage_line(llm: Any) -> str | None:
+    usage = getattr(llm, "usage", None)
+    return usage.line() if usage is not None else None
+
+
+# ---------------------------------------------------------------- forced skills
+
+
+def force_skills(
+    plan: Plan, master: MasterResume, reference: Reference, request: str, terms: list[str],
+) -> None:
+    """Mark as forced the new, unbacked skills items you named in `request`, and add each of
+    `terms` that the plan left out to the last main skills row."""
+    master_items = {gate.item_key(i) for i in master.all_items()}
+    wanted = f" {canon(request)} "
+    forced: list[str] = [
+        item for row in plan.skills_main + plan.skills_also for item in row.items
+        if gate.item_key(item) not in master_items and not reference.lookup(item)
+        and f" {canon(item)} " in wanted
+    ]
+    for term in terms:
+        term = term.strip()
+        if not term:
+            continue
+        present = [i for r in plan.skills_main + plan.skills_also for i in r.items
+                   if gate.item_key(i) == gate.item_key(term)]
+        if not present and _shown_as_label(plan, term):
+            continue  # "CI/CD pipelines" is the "CI/CD Pipelines" row itself
+        if not present and plan.skills_main:
+            _place(plan, term, reference)
+            present = [term]
+        forced += [i for i in present if gate.item_key(i) not in master_items
+                   and not reference.lookup(i)]
+    plan.forced_skills = list(dict.fromkeys(forced))
+
+
+# Phase 23 4-03 (8 Nov): an added keyword went to the last row (Systems & Scripting) although
+# it belongs to another one ("Kubernetes (AKS)" next to the Kubernetes items, "CI/CD
+# pipelines" is the CI/CD Pipelines row), and the plan moved Azure under GitOps & Registry.
+_WORD = re.compile(r"[a-z0-9+#]+")
+_SMALL = {"and", "or", "the", "of", "with", "in", "on", "for"}
+
+
+def _words(text: str) -> set[str]:
+    return {w for w in _WORD.findall(canon(text)) if w not in _SMALL}
+
+
+def _inner(term: str) -> str | None:
+    """"Kubernetes (AKS)" -> "AKS"."""
+    match = re.search(r"\(([^()]+)\)\s*$", term)
+    return match.group(1).strip() if match else None
+
+
+def _shown_as_label(plan: Plan, term: str) -> bool:
+    key = canon(term)
+    return any(canon(r.label) == key for r in plan.skills_main + plan.skills_also)
+
+
+def _place(plan: Plan, term: str, reference: Reference) -> None:
+    """Put an added skill in the row it belongs to: in place of its short form ("AKS" ->
+    "Kubernetes (AKS)"), else the row with an item or a label sharing a word with it, else
+    the row named like its Skills Inventory category, else the last row."""
+    rows = plan.skills_main
+    inner = _inner(term)
+    if inner:
+        for row in rows:
+            for n, item in enumerate(row.items):
+                if gate.item_key(item) == gate.item_key(inner):
+                    row.items[n] = term
+                    return
+    words = _words(term)
+    skill = next((s for s in reference.skills if gate.item_key(s.name) == gate.item_key(term)),
+                 None)
+    category = _words(skill.category or "") if skill is not None else set()
+    for test in (lambda r: any(words & _words(i) for i in r.items),
+                 lambda r: bool(words & _words(r.label)),
+                 lambda r: bool(category & _words(r.label))):
+        row = next((r for r in rows if test(r)), None)
+        if row is not None:
+            row.items.append(term)
+            return
+    rows[-1].items.append(term)
+
+
+def tidy_rows(plan: Plan, master: MasterResume) -> None:
+    """A skill from your Golden Master stays in its Golden Master row when the plan has that
+    row (Azure back under Cloud), and an item shown twice is kept once."""
+    home = {gate.item_key(i): r.label for r in master.skills_main + master.skills_also
+            for i in r.items}
+    rows = plan.skills_main + plan.skills_also
+    by_label = {gate.item_key(r.label): r for r in rows}
+    for row in rows:
+        for item in list(row.items):
+            label = home.get(gate.item_key(item))
+            target = by_label.get(gate.item_key(label)) if label else None
+            if target is not None and target is not row and len(row.items) > 2:
+                row.items.remove(item)  # never empties a row (the rules need items in it)
+                if all(gate.item_key(i) != gate.item_key(item) for i in target.items):
+                    target.items.append(item)
+    seen: set[str] = set()
+    for row in rows:
+        kept = []
+        for item in row.items:
+            if gate.item_key(item) not in seen:
+                seen.add(gate.item_key(item))
+                kept.append(item)
+        row.items[:] = kept
+
+
+# ---------------------------------------------------------------- salvage
+
+BULLET_ERROR = re.compile(r"^(j\d+b\d+):")
+
+
+def salvage(
+    plan: Plan, errors: list[str], master: MasterResume, check: Callable[[Plan], list[str]],
+) -> tuple[Plan, list[str], list[str]]:
+    """After the retries: drop only the parts of the plan that broke a rule.
+
+    1. Skills errors: use the master's skills tables as they are.
+    2. Bullet errors: drop the edits of those bullets; keep the others.
+    3. Still failing (for example too many words in total): drop every bullet edit.
+    Returns the plan, its remaining errors and what was left out."""
+    left_out: list[str] = []
+    fixed = plan.model_copy(deep=True)
+    if any(e.startswith("skills:") for e in errors):
+        unchanged = Plan.unchanged(master)
+        fixed.skills_main, fixed.skills_also = unchanged.skills_main, unchanged.skills_also
+        left_out.append("skills changes")
+    bad = {m.group(1) for e in errors if (m := BULLET_ERROR.match(e))}
+    if bad:
+        fixed.bullet_edits = [e for e in fixed.bullet_edits if e.id not in bad]
+        left_out.append("edits to " + ", ".join(sorted(bad)))
+    remaining = check(fixed)
+    if remaining and fixed.bullet_edits:
+        fixed.bullet_edits = []
+        left_out.append("all bullet edits")
+        remaining = check(fixed)
+    return fixed, remaining, left_out
+
+
+# ---------------------------------------------------------------- finalise and applied
+
+
+def on_resume_approved(job_page_id: str, resume_log_page_id: str) -> None:
+    """Hook for Module 05 (contact lookup). For now it only logs."""
+    log.info("resume approved: job %s, resume log %s", job_page_id, resume_log_page_id)
+
+
+def finalise(deps: ResumeDeps, log_id: str) -> FinaliseOutcome:
+    log_id = notion_id(log_id)
+    if deps.resume_log is None or deps.jobs is None:
+        return FinaliseOutcome(status="failed", message="DRY RUN: no Resume Log target here.")
+    row = deps.resume_log.get(log_id)
+    if not row or not row.get("Job"):
+        return FinaliseOutcome(status="failed", message="That resume is no longer in Resume Log.")
+    job_id = row["Job"][0]
+    rows = _sorted_rows(deps, job_id)
+    latest_id = rows[-1][0] if rows else log_id
+    if hex_id(latest_id) != hex_id(log_id):
+        try:
+            latest = preview_existing(deps, job_id)
+        except (MasterError, SectionError, PlanError, RenderError) as exc:
+            return FinaliseOutcome(status="failed", message=str(exc), job_id=job_id)
+        return FinaliseOutcome(status="newer", message=NEWER_TEXT, job_id=job_id, latest=latest)
+    values = deps.jobs.get_values(job_id) or {}
+    url = values.get("URL") or "(no URL on the job)"
+    if row.get("Approved"):
+        return FinaliseOutcome(status="approved", job_id=job_id, job_url=url, file=row.get("File"),
+                               message=APPLY_TEXT.format(url=url), already=True)
+    # Each step is logged with its time: Approve resume once hung with nothing in the log.
+    started = time.monotonic()
+    try:
+        log.info("approve resume %s: reading the job and the plan", log_id)
+        ctx = _context(deps, job_id, values)
+        plan = stored_plan(deps, log_id, ctx.master)
+        errors = _gate(deps, ctx, plan)
+        if errors:
+            return FinaliseOutcome(status="failed", job_id=job_id,
+                                   message=RULES_FAILED.format(errors="; ".join(errors)))
+        log.info("approve resume %s: rendering the final PDF (%.1f s so far)", log_id,
+                 time.monotonic() - started)
+        _html, pdf, _fill = _render_checked(deps, ctx, plan)
+        log.info("approve resume %s: PDF rendered and checked (%.1f s so far)", log_id,
+                 time.monotonic() - started)
+    except (MasterError, SectionError, PlanError, RenderError) as exc:
+        return FinaliseOutcome(status="failed", message=str(exc), job_id=job_id)
+    name = (row.get("Resume name") or "resume.pdf").rsplit(" r", 1)[0]
+    note = ""
+    if drive_write_allowed(deps.s):
+        try:
+            file_value = deps.drive().upload_pdf(name, pdf)
+        except DriveError as exc:
+            # 26 Oct: the Drive API was off and Approve resume stopped with nothing sent. The
+            # approval goes on with a copy in out/.
+            log.warning("approve resume %s: Drive refused the PDF: %s", log_id, exc)
+            path, why = save_local_bounded(deps, name, pdf)
+            if path is None:
+                return FinaliseOutcome(status="failed", message=f"{exc}\nAlso {why}.",
+                                       job_id=job_id)
+            rel = Path(path.relative_to(ROOT_DIR) if path.is_relative_to(ROOT_DIR) else path)
+            file_value = LOCAL_PREFIX + rel.as_posix()
+            note = DRIVE_FAILED.format(error=exc, path=rel.as_posix()) + "\n"
+    else:
+        log.info("approve resume %s: saving the PDF to the out folder", log_id)
+        path, why = save_local_bounded(deps, name, pdf)
+        if path is None:
+            file_value = f"DRY RUN: not saved locally ({why}); the PDF is in Telegram"
+            log.warning("DRY RUN: would upload %s to Drive; local copy skipped: %s", name, why)
+        else:
+            rel = path.relative_to(ROOT_DIR) if path.is_relative_to(ROOT_DIR) else path
+            file_value = f"DRY RUN: {Path(rel).as_posix()}"
+            log.warning("DRY RUN: would upload %s to Drive, saved to %s instead", name, rel)
+    deps.resume_log.update(log_id, {"Approved": True, "File": file_value})
+    log.info("approve resume %s: saved and marked approved (%.1f s)", log_id,
+             time.monotonic() - started)
+    on_resume_approved(job_id, log_id)
+    return FinaliseOutcome(status="approved", job_id=job_id, job_url=url, file=file_value,
+                           message=note + APPLY_TEXT.format(url=url), pdf=pdf)
+
+
+def mark_applied(deps: ResumeDeps, job_id: str) -> str:
+    """"I applied": Status Applied, only from Resume built."""
+    job_id = notion_id(job_id)
+    if deps.jobs is None:
+        return "DRY RUN: no Job Opportunities target here."
+    values = deps.jobs.get_values(job_id)
+    if not values:
+        return "That job is no longer in Job Opportunities."
+    if values.get("Status") != "Resume built":
+        return f"Already handled (Status is {values.get('Status') or 'empty'})."
+    today = deps.today()
+    deps.jobs.update(job_id, {"Status": "Applied", "Applied date": today,
+                              "Last activity date": today})
+    job = f"{values.get('Company')}, {values.get('Role')}"
+    return f"Marked as applied on {today.isoformat()}: {job}."
+
+
+def find_log_by_ref(deps: ResumeDeps, ref: str) -> str | None:
+    """The Resume Log page for "RL-xxxxxxxx" (notion_repo.page_ref)."""
+    match = re.search(r"RL-([0-9a-f]{8})", ref)
+    if not match or deps.resume_log is None:
+        return None
+    return find_by_ref([pid for pid, _ in deps.resume_log.all_rows()], match.group(1))
+
+
+def job_for_log(deps: ResumeDeps, log_id: str) -> str | None:
+    row = deps.resume_log.get(log_id) if deps.resume_log else None
+    return (row.get("Job") or [None])[0] if row else None
+

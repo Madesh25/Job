@@ -130,3 +130,272 @@ def test_no_request_to_linkedin_in_src():
         if LINKEDIN_URL.search(p.read_text(encoding="utf-8"))
     ]
     assert offenders == []
+
+
+ANTHROPIC_IMPORT = re.compile(r"^\s*(?:import|from)\s+anthropic\b", re.M)
+
+
+def test_anthropic_imported_only_in_llm_module():
+    offenders = [
+        p.relative_to(ROOT).as_posix()
+        for p in src_files()
+        if ANTHROPIC_IMPORT.search(p.read_text(encoding="utf-8"))
+        and p.relative_to(ROOT).as_posix() != "src/jobengine/llm.py"
+    ]
+    assert offenders == []
+
+
+GOOGLE_CLIENT_IMPORT = re.compile(r"^\s*(?:import|from)\s+googleapiclient\b", re.M)
+GOOGLE_CLIENT_ALLOWED = {
+    "src/jobengine/gmail_reader.py",
+    "src/jobengine/drive_client.py",
+    "src/jobengine/gmail_client.py",
+    "src/jobengine/gmail_auth.py",
+    "src/jobengine/google_api.py",  # builds those clients with a time limit, calls nothing
+}
+# Module 06: drafts. Never remove, trash, edit a draft or create labels. The one send is a
+# draft the bot wrote and checked (mail mode "send", mail/sender.py): _drafts().send, once.
+GMAIL_CLIENT = "src/jobengine/gmail_client.py"
+GMAIL_CLIENT_FORBIDDEN = ["messages().send", "delete(", "trash(", "batchDelete",
+                          "drafts().update", "labels().create"]
+DRAFT_SEND = "self._drafts()" + ".send("
+SEND_DRAFT_CALL = ".send" + "_draft("
+# alerts.py (25 Oct): the daily report and failure alerts, only ever to safety.redirect_to.
+SEND_DRAFT_CALLERS = {"src/jobengine/gmail_client.py", "src/jobengine/mail/sender.py",
+                      "src/jobengine/alerts.py"}
+# The token helper only reads the profile of the account it authorised.
+GMAIL_AUTH = "src/jobengine/gmail_auth.py"
+GMAIL_AUTH_FORBIDDEN = [*GMAIL_CLIENT_FORBIDDEN, "drafts(", "modify("]
+DRIVE_FORBIDDEN = [".delete(", "permissions(", "emptyTrash", ".update(", ".copy("]
+
+
+def test_google_api_client_only_in_gmail_reader_and_drive_client():
+    offenders = [
+        p.relative_to(ROOT).as_posix()
+        for p in src_files()
+        if GOOGLE_CLIENT_IMPORT.search(p.read_text(encoding="utf-8"))
+        and p.relative_to(ROOT).as_posix() not in GOOGLE_CLIENT_ALLOWED
+    ]
+    assert offenders == []
+
+
+def test_gmail_client_never_sends_or_deletes():
+    text = (ROOT / GMAIL_CLIENT).read_text(encoding="utf-8")
+    assert [call for call in GMAIL_CLIENT_FORBIDDEN if call in text] == []
+    # The only send: one checked draft, never a free-form message.
+    assert text.count(".send(") == 1 and text.count(DRAFT_SEND) == 1
+    auth = (ROOT / GMAIL_AUTH).read_text(encoding="utf-8")
+    assert [call for call in GMAIL_AUTH_FORBIDDEN if call in auth] == []
+
+
+def test_drive_client_never_deletes_or_shares():
+    text = (ROOT / "src/jobengine/drive_client.py").read_text(encoding="utf-8")
+    assert [call for call in DRIVE_FORBIDDEN if call in text] == []
+
+
+def test_resume_fixtures_are_synthetic():
+    folder = ROOT / "fixtures" / "resume"
+    files = sorted(p for p in folder.rglob("*") if p.is_file())
+    assert files
+    for path in files:
+        text = path.read_text(encoding="utf-8")
+        assert "@gmail.com" not in text, path.name
+        assert "Alex Example" in text, path.name
+
+
+# An f-string or format call that puts a name next to "@" would be a guessed email.
+GUESSED_EMAIL = re.compile(
+    r"""(f["'][^"'\n]*\{[^}]*(first|last|name)[^}]*\}[^"'\n]*@)"""
+    r"""|(["'][^"'\n]*\{\}[^"'\n]*@[^"'\n]*["']\s*\.format\()""",
+    re.I,
+)
+
+
+def test_contacts_never_build_emails_from_names():
+    folder = ROOT / "src" / "jobengine" / "contacts"
+    offenders = [p.relative_to(ROOT).as_posix() for p in folder.rglob("*.py")
+                 if GUESSED_EMAIL.search(p.read_text(encoding="utf-8"))]
+    assert offenders == []
+
+
+def test_contact_fixtures_use_invented_addresses_only():
+    email = re.compile(r"[A-Za-z0-9._%+-]+@([A-Za-z0-9.-]+\.[A-Za-z]{2,})")
+    allowed = ("example.com", "example.org")
+    paths = [*(ROOT / "fixtures" / "contacts").glob("*.json"),
+             *(ROOT / "fixtures" / "mail").glob("*.json")]
+    for path in paths:
+        for domain in email.findall(path.read_text(encoding="utf-8")):
+            ok = domain.endswith(allowed) or domain == "gmail.com"  # the personal-address case
+            assert ok, f"{path.name}: {domain}"
+
+
+def test_protected_notion_pages_are_only_linked_never_targeted():
+    """Module 08: the V16 page, Build Spec and templates are edited by hand. Their IDs may
+    appear in src/ only as a link (https://app.notion.com/p/...), never as a request target.
+    NotionClient also refuses any write to them at runtime (check_page_write)."""
+    import yaml
+
+    base = (ROOT / "config" / "base.yaml").read_text(encoding="utf-8")
+    pages = yaml.safe_load(base)["notion"]["pages"]
+    ids = {pid.replace("-", "").lower() for pid in pages.values()}
+    offenders = []
+    for p in src_files():
+        for line in p.read_text(encoding="utf-8").splitlines():
+            flat = line.replace("-", "").lower()
+            for pid in ids:
+                if pid in flat and "app.notion.com/p/" not in line:
+                    offenders.append(f"{p.relative_to(ROOT).as_posix()}: {line.strip()}")
+    assert offenders == []
+
+
+# ---------------------------------------------------------------- Module 09: container
+
+
+def test_dockerignore_keeps_secrets_and_output_out_of_the_image():
+    text = (ROOT / ".dockerignore").read_text(encoding="utf-8")
+    lines = {line.strip() for line in text.splitlines()}
+    assert {".env", ".secrets", "out"} <= lines
+    assert "!.env" not in lines and "!.secrets" not in lines
+
+
+def test_dockerfile_bakes_in_no_secrets():
+    text = (ROOT / "Dockerfile").read_text(encoding="utf-8")
+    assert "COPY .env" not in text and "COPY .secrets" not in text
+    for line in text.splitlines():
+        if line.strip().upper().startswith("ENV"):
+            assert not re.search(r"TOKEN|KEY|SECRET", line, re.I), line
+    assert "DRY_RUN" not in text  # it stays at its safe default (true)
+    assert 'CMD ["python", "-m", "jobengine.web"]' in text
+
+
+def test_deploy_workflow_uses_wif_and_never_turns_dry_run_off():
+    import yaml
+
+    text = (ROOT / ".github" / "workflows" / "deploy.yml").read_text(encoding="utf-8")
+    flow = yaml.safe_load(text)
+    assert "credentials_json" not in text
+    assert "DRY_RUN=false" not in text
+    code = [line for line in text.splitlines() if not line.strip().startswith("#")]
+    assert not any("DRY_RUN" in line for line in code)
+    assert "--set-env-vars" not in text and "--update-env-vars" in text
+    assert "workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}" in text
+    assert "secrets." not in text  # nothing sensitive is needed by the workflow
+    assert flow["permissions"] == {"contents": "read", "id-token": "write"}
+    # "on" is parsed as True by YAML 1.1.
+    trigger = flow.get("on") or flow.get(True)
+    assert trigger["workflow_run"]["workflows"] == ["CI"]
+    condition = flow["jobs"]["deploy"]["if"]
+    assert "vars.GCP_WIF_PROVIDER != ''" in condition and "'success'" in condition
+    # Every action is pinned to a full commit SHA.
+    uses = re.findall(r"uses:\s*([^\s#]+)", text)
+    assert uses and all(re.search(r"@[0-9a-f]{40}$", u) for u in uses), uses
+
+
+def test_dev_service_gets_no_prod_only_secrets():
+    text = (ROOT / ".github" / "workflows" / "deploy.yml").read_text(encoding="utf-8")
+    dev_line = next(line for line in text.splitlines()
+                    if "SECRETS=" in line and "notion-token-dev" in line)
+    for prod_only in ("gmail-main-token", "apollo-api-key", "hunter-api-key", "snov-client",
+                      "notion-token-prod", "telegram-token-prod", "anthropic-key-prod",
+                      "telegram-webhook-secret-prod"):
+        assert prod_only not in dev_line, prod_only
+
+
+def test_optional_secrets_are_mounted_only_when_they_exist():
+    text = (ROOT / ".github" / "workflows" / "deploy.yml").read_text(encoding="utf-8")
+    assert 'gcloud secrets describe "$name"' in text
+    lines = [line for line in text.splitlines() if "OPTIONAL=" in line]
+    prod, dev = lines
+    for key in ("JOOBLE_API_KEY=jooble-api-key", "GITHUB_TOKEN=github-token",
+                "PROSPEO_API_KEY=prospeo-api-key", "TOMBA_API_KEY=tomba-api-key",
+                "TOMBA_API_SECRET=tomba-api-secret", "LUSHA_API_KEY=lusha-api-key"):
+        assert key in prod, key
+    assert "JOOBLE_API_KEY=jooble-api-key" in dev
+    for prod_only in ("prospeo", "tomba", "lusha"):
+        assert prod_only not in dev, prod_only
+    example = (ROOT / ".env.example").read_text(encoding="utf-8")
+    for key in ("JOOBLE_API_KEY=", "GITHUB_TOKEN=", "LUSHA_API_KEY=", "PROSPEO_API_KEY="):
+        assert key in example, key
+
+
+def test_only_the_checked_sender_sends_drafts():
+    callers = {p.relative_to(ROOT).as_posix() for p in src_files()
+               if SEND_DRAFT_CALL in p.read_text(encoding="utf-8")}
+    assert callers <= SEND_DRAFT_CALLERS
+    others = [p.relative_to(ROOT).as_posix() for p in src_files()
+              if p.relative_to(ROOT).as_posix() != GMAIL_CLIENT
+              and ".send(" in p.read_text(encoding="utf-8")
+              and "gmail" in p.read_text(encoding="utf-8").casefold()]
+    assert [p for p in others if p not in SEND_DRAFT_CALLERS] == []
+
+
+def test_owner_mails_only_go_to_you():
+    text = (ROOT / "src/jobengine/alerts.py").read_text(encoding="utf-8")
+    assert 'message["To"] = to' in text and "owner_mail_target(s)" in text
+    assert text.count('message["To"]') == 1 and 'message["Cc"]' not in text
+
+
+PLAYWRIGHT_IMPORT = re.compile(r"^\s*(?:import|from)\s+(playwright|selenium)\b", re.M)
+FORM_BOT = "src/jobengine/apply/form_bot.py"
+# What would press a button, press a key or send the form (Autopilot H8 dry run, 25 Oct).
+FORM_BOT_FORBIDDEN = re.compile(r"\.click\(|\.dblclick\(|\.tap\(|\.press\(|\.submit\(|"
+                                r"requestSubmit|dispatch_event|\.keyboard\b|\.mouse\b|"
+                                r"\.type\(", re.I)
+
+
+# Careers pages built by JavaScript are read in the browser (30 Oct): reading only.
+PAGE_READER = "src/jobengine/sweep/render.py"
+
+
+def test_only_the_form_bot_drives_a_browser():
+    offenders = [p.relative_to(ROOT).as_posix() for p in src_files()
+                 if PLAYWRIGHT_IMPORT.search(p.read_text(encoding="utf-8"))
+                 and p.relative_to(ROOT).as_posix() not in (FORM_BOT, PAGE_READER)]
+    assert offenders == []
+
+
+def test_the_page_reader_only_reads():
+    # self._thread.submit( hands a page to the browser thread; it is not a form submit.
+    text = (ROOT / PAGE_READER).read_text(encoding="utf-8").replace("self._thread.submit(", "")
+    assert FORM_BOT_FORBIDDEN.findall(text) == []
+    assert re.findall(r"\.(?:fill|check|select_option|set_input_files)\(", text) == []
+    assert 'page.route("**/*", form_bot._guard(self.s, refused))' in text  # no Sending
+    assert "assert_page_fetch_allowed(url" in text
+
+
+def test_the_form_bot_never_presses_a_button_or_submits():
+    text = (ROOT / FORM_BOT).read_text(encoding="utf-8")
+    # 16 Nov, real forms: a custom dropdown is answered by choosing one of its own options
+    # (like ticking a radio button). CHOOSE_JS is the one place that clicks, and only an
+    # element with role="option"; no button, no key, no submit.
+    start = text.index('CHOOSE_JS = r"""')
+    end = text.index('"""', start + len('CHOOSE_JS = r"""')) + 3
+    choose, rest = text[start:end], text[:start] + text[end:]
+    assert FORM_BOT_FORBIDDEN.findall(rest) == []
+    assert re.findall(r"\.click\(", choose) == [".click("]
+    assert "opts[i].click()" in choose and "role') === 'option'" in choose
+    assert not re.search(r"button|submit|Enter|\.press|keydown", choose, re.I)
+    assert 'context.route("**/*", _guard(' in text  # every request goes through the guard
+    assert ".on = True" not in text  # only form_submit opens Sending
+
+
+FORM_SUBMIT = "src/jobengine/apply/form_submit.py"
+
+
+def test_only_form_submit_presses_one_button_after_its_checks():
+    """Auto-submit (27 Oct, your OK): one press, the form's Submit, after `blockers` and the
+    single-button check, with Sending opened right before it. No key presses or JS submit."""
+    for path in src_files():
+        rel = path.relative_to(ROOT).as_posix()
+        # autofill.py: the bookmark's JavaScript, which you run in your own browser.
+        if rel in (FORM_BOT, FORM_SUBMIT, "src/jobengine/apply/autofill.py"):
+            continue
+        text = path.read_text(encoding="utf-8")
+        assert not re.search(r"\.click\(|requestSubmit|Sending\(\)", text), rel
+    text = (ROOT / FORM_SUBMIT).read_text(encoding="utf-8")
+    presses = FORM_BOT_FORBIDDEN.findall(text)
+    assert presses == [".click("], presses
+    assert text.count("sending.on = True") == 1
+    body = text[text.index("def finish("):]
+    assert body.index("blockers(") < body.index("_submit_button(") < body.index(
+        "sending.on = True") < body.index(".click(")

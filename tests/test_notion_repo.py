@@ -10,9 +10,12 @@ from jobengine.notion_repo import (
     NOTION_VERSION,
     FakeJobsRepo,
     NotionClient,
+    NotionJobsRepo,
     NotionReader,
     job_properties,
     jobs_repo_for,
+    notion_value,
+    plain_value,
 )
 from jobengine.settings import load_settings
 
@@ -27,6 +30,7 @@ class FakeNotion:
         self.requests = []
         self.query_pages = []
         self.children = {}
+        self.schema = {}  # extra data source properties, for example a column type
 
     def __call__(self, request):
         body = json.loads(request.content) if request.content else None
@@ -36,6 +40,7 @@ class FakeNotion:
             return httpx.Response(200, json={"properties": {
                 "Dedupe key": {"id": "dk"}, "Posting IDs": {"id": "pi"},
                 "Company": {"id": "title"}, "Key": {"id": "k"}, "Value": {"id": "v"},
+                **self.schema,
             }})
         if path.endswith("/query"):
             page = self.query_pages.pop(0) if self.query_pages else {"results": []}
@@ -170,6 +175,17 @@ def test_client_paces_requests(notion):
     assert waits and waits[0] == pytest.approx(0.34)
 
 
+def test_client_pacing_holds_across_threads(notion):
+    from jobengine.parallel import run_all
+
+    s = load_settings("dev", {})
+    waits = []
+    client = NotionClient("t", s, sleep=waits.append, clock=lambda: 100.0)
+    run_all(lambda page: client.request("GET", f"/pages/{page}"), list("abcdef"), 6)
+    # Each call got its own slot: 0.34 s apart, never two at once.
+    assert sorted(waits) == pytest.approx([0.34 * n for n in range(1, 6)])
+
+
 def test_reader_config_and_target_companies_are_read_only(notion):
     s = load_settings("dev", {})
     reader = NotionReader(client_for(s), s)
@@ -182,7 +198,9 @@ def test_reader_config_and_target_companies_are_read_only(notion):
         "ATS platform": {"type": "select", "select": {"name": "Greenhouse"}},
         "Active": {"type": "checkbox", "checkbox": True},
     }}]}]
-    assert reader.config() == {"strategy_refresh_days": "30"}
+    from jobengine.config_store import ConfigStore
+
+    assert ConfigStore.load(reader.client, s).all() == {"strategy_refresh_days": "30"}
     companies = reader.target_companies()
     assert companies[0].name == "Acme" and companies[0].ats_platform == "Greenhouse"
     methods = {method for method, *_ in notion.requests}
@@ -193,12 +211,49 @@ def test_reader_config_and_target_companies_are_read_only(notion):
 
 
 def test_job_properties_types():
-    props = job_properties({"Country": "Poland", "URL": "https://x", "Years required": 3})
+    props = job_properties({"Country": "Poland", "URL": "https://x",
+                            "Years required": "2-3 years"})
     assert props == {
         "Country": {"select": {"name": "Poland"}},
         "URL": {"url": "https://x"},
-        "Years required": {"number": 3},
+        "Years required": {"rich_text": [{"type": "text", "text": {"content": "2-3 years"}}]},
     }
+
+
+@pytest.mark.parametrize("column, sent", [
+    ({"type": "rich_text"}, {"rich_text": [{"type": "text", "text": {"content": "2-3 years"}}]}),
+    ({"type": "number"}, {"number": 2}),  # a database not converted yet gets the lowest number
+])
+def test_years_required_follows_the_column_type(notion, column, sent):
+    notion.schema = {"Years required": column}
+    repo = NotionJobsRepo(client_for(load_settings("dev", {})), SANDBOX_JOBS)
+    repo.create({"Company": "Acme", "Years required": "2-3 years"}, [])
+    repo.update("p1", {"Years required": "2-3 years"})
+    writes = [r[3]["properties"]["Years required"] for r in notion.requests
+              if r[0] in ("POST", "PATCH")]
+    assert writes == [sent, sent]
+    schema_reads = [r for r in notion.requests if r[0] == "GET" and "/data_sources/" in r[1]]
+    assert len(schema_reads) == 1  # read once per repo
+
+
+def test_a_job_goes_to_the_notion_trash(notion):
+    """4 Nov: the reposted-job delete called archive(), which only the fake repo had: every
+    direct link lookup of that /fetch stopped."""
+    repo = NotionJobsRepo(client_for(load_settings("dev", {})), SANDBOX_JOBS)
+    repo.archive("p1")
+    assert notion.requests[-1][:2] == ("PATCH", "/v1/pages/p1")
+    assert notion.requests[-1][3] == {"in_trash": True}
+
+
+def test_every_jobs_repo_has_what_the_protocol_names():
+    """The fake repo must never have a method the Notion one lacks."""
+    from jobengine.notion_repo import JobsRepo
+
+    names = [n for n in vars(JobsRepo) if not n.startswith("_")]
+    assert "archive" in names
+    for cls in (NotionJobsRepo, FakeJobsRepo):
+        missing = [n for n in names if not callable(getattr(cls, n, None))]
+        assert missing == [], (cls.__name__, missing)
 
 
 def test_fake_repo_records_writes():
@@ -211,3 +266,71 @@ def test_fake_repo_records_writes():
     repo.append_body("p1", ["x"])
     assert [w[0] for w in repo.writes] == ["create", "update", "append_body"]
     assert repo.rows["p1"]["Status"] == "Applied"
+
+
+def test_multi_select_values_drop_commas_and_duplicates():
+    props = job_properties({"Tech stack": ["AWS", "Go, Golang", "AWS"], "Visa flags": []})
+    assert props["Tech stack"] == {"multi_select": [{"name": "AWS"}, {"name": "Go  Golang"}]}
+    assert props["Visa flags"] == {"multi_select": []}
+
+
+def test_read_body_reads_text_blocks(notion):
+    s = load_settings("dev", environ={})
+    notion.children["p1"] = [
+        {"type": "paragraph",
+         "paragraph": {"rich_text": [{"plain_text": "Description source: x"}]}},
+        {"type": "image", "image": {}},
+        {"type": "bulleted_list_item",
+         "bulleted_list_item": {"rich_text": [{"plain_text": "Kubernetes"}]}},
+    ]
+    repo = jobs_repo_for(s, client_for(s))
+    assert repo.read_body("p1") == ["Description source: x", "Kubernetes"]
+
+
+def test_query_rows_sends_the_filter(notion):
+    s = load_settings("dev", environ={})
+    repo = jobs_repo_for(s, client_for(s))
+    notion.query_pages = [{"results": [{"id": "p1", "properties": {
+        "Company": {"type": "title", "title": [{"plain_text": "Vistula Cloud"}]},
+        "Visa flags": {"type": "multi_select", "multi_select": [{"name": "On IND register"}]},
+    }}]}]
+    where = {"property": "Screen verdict", "select": {"equals": "Unscreened"}}
+    rows = repo.query_rows(where)
+    assert rows == [("p1", {"Company": "Vistula Cloud", "Visa flags": ["On IND register"]})]
+    body = [b for m, p, _, b in notion.requests if p.endswith("/query")][0]
+    assert body["filter"] == where
+
+
+def test_relation_and_checkbox_round_trip():
+    assert notion_value("relation", ["a-1", "b-2"]) == {"relation": [{"id": "a-1"}, {"id": "b-2"}]}
+    assert notion_value("checkbox", 1) == {"checkbox": True}
+    assert plain_value({"type": "relation", "relation": [{"id": "a-1"}]}) == ["a-1"]
+    assert plain_value({"type": "checkbox", "checkbox": True}) is True
+
+
+def test_contact_update_clears_empty_values():
+    from jobengine.notion_repo import contact_update_properties
+
+    props = contact_update_properties({"Gmail draft ID": "", "Status": "Contacted",
+                                       "Last contacted": None})
+    assert props["Gmail draft ID"] == {"rich_text": []}
+    assert props["Last contacted"] == {"date": None}
+    assert props["Status"] == {"select": {"name": "Contacted"}}
+
+
+def test_not_shared_hint_names_the_page_and_the_fix():
+    from jobengine.notion_repo import not_shared_hint
+
+    hint = not_shared_hint("/blocks/3e46edc2-b0d4-812b-82ea-d1766061390d/children")
+    assert "https://www.notion.so/3e46edc2b0d4812b82ead1766061390d" in hint
+    assert "Connections" in hint and "job-engine-dev" in hint
+
+
+def test_not_shared_hint_names_a_table_instead_of_a_broken_link():
+    # 5 Oct test D5: notion.so/<data source id> opened "page not found".
+    from jobengine.notion_repo import not_shared_hint
+    from jobengine.settings import load_settings
+
+    s = load_settings("local", {})
+    hint = not_shared_hint("/data_sources/4097af1c-faaf-455f-9616-728301043408/query", s)
+    assert "the Strategy table" in hint and "notion.so" not in hint

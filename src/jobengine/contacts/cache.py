@@ -1,0 +1,102 @@
+"""The Contacts cache (spec section 2, step 2): contacts already found at this company."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from datetime import date
+from typing import Any
+
+from jobengine.contacts.classify import title_allowed
+from jobengine.contacts.models import TYPE_ORDER, Chosen, Mix
+from jobengine.sweep.normalize import canon_company
+
+BLOCKED = frozenset({"Bounced", "Do not contact", "Dead end"})
+
+
+def months_before(day: date, months: int) -> date:
+    year, month = day.year, day.month - months
+    while month <= 0:
+        month += 12
+        year -= 1
+    for d in (day.day, 30, 29, 28):
+        try:
+            return date(year, month, d)
+        except ValueError:
+            continue
+    return date(year, month, 28)
+
+
+@dataclass(frozen=True)
+class CachedRow:
+    page_id: str
+    values: dict[str, Any]
+
+    @property
+    def email(self) -> str:
+        return (self.values.get("Email") or "").strip().lower()
+
+    @property
+    def blocked(self) -> bool:
+        return self.values.get("Status") in BLOCKED
+
+    def chosen(self) -> Chosen:
+        v = self.values
+        return Chosen(name=v.get("Name") or "", title=v.get("Title") or "",
+                      email=v.get("Email") or "", type=v.get("Type") or "Other",
+                      source=v.get("Source") or "", country=v.get("Country") or "",
+                      verified=v.get("Status") == "Verified", page_id=self.page_id, cached=True)
+
+
+def company_rows(rows: list[tuple[str, dict[str, Any]]], company: str) -> list[CachedRow]:
+    key = canon_company(company)
+    return [CachedRow(pid, v) for pid, v in rows if canon_company(v.get("Company")) == key]
+
+
+def usable(row: CachedRow, today: date, months: int, job_id: str | None = None) -> bool:
+    """Not Bounced, Do not contact or Dead end, and found within `months` (or already on
+    this job, or someone who answered you before: kept for the company's next jobs)."""
+    if row.blocked:
+        return False
+    if row.values.get("Replied"):
+        return True
+    if job_id and job_id in (row.values.get("Related jobs") or []):
+        return True
+    found = row.values.get("Date found")
+    return isinstance(found, date) and found >= months_before(today, months)
+
+
+def still_fits(row: CachedRow) -> bool:
+    """22 Oct: the title rules apply to saved people too (classify.title_allowed)."""
+    return title_allowed(row.values.get("Title"), row.values.get("Type"))
+
+
+def in_country(row: CachedRow, country: str) -> bool:
+    """Saved in the job's country and not marked "country unverified" (before 16 Oct an
+    unknown location was saved as the job's country, with that note)."""
+    return (row.values.get("Country") or "") == country and \
+        "country unverified" not in (row.values.get("Notes") or "")
+
+
+def pick(
+    rows: list[CachedRow], mix: Mix, country: str, today: date, months: int,
+    job_id: str | None = None, strict: bool = False,
+) -> list[Chosen]:
+    """Cached contacts for the mix: people who answered you before first, then the job's
+    country, then the most recent. `strict`: only people in the job's country."""
+    slots = mix.slots()
+    fresh = [r for r in rows if usable(r, today, months, job_id) and still_fits(r)
+             and (not strict or in_country(r, country))]
+    fresh.sort(key=lambda r: (
+        not r.values.get("Replied"),
+        (r.values.get("Country") or "") != country,
+        -(r.values.get("Date found") or date.min).toordinal(),
+    ))
+    chosen: list[Chosen] = []
+    for kind in TYPE_ORDER:
+        for row in fresh:
+            if slots[kind] <= 0:
+                break
+            if row.values.get("Type") == kind:
+                chosen.append(row.chosen())
+                slots[kind] -= 1
+    return chosen

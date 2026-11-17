@@ -1,0 +1,37 @@
+{
+  "by_key": {
+    "sn-em-rita": {
+      "status": "completed",
+      "data": {
+        "emails": [
+          {
+            "email": "rita.example@vistula.example.com",
+            "smtp_status": "valid"
+          }
+        ]
+      }
+    },
+    "sn-em-tomas": {
+      "status": "completed",
+      "data": {
+        "emails": [
+          {
+            "email": "tomas.example@vistula.example.com",
+            "smtp_status": "unknown"
+          }
+        ]
+      }
+    },
+    "sn-em-jan": {
+      "status": "completed",
+      "data": {
+        "emails": [
+          {
+            "email": "jan.example@vistula.example.com",
+            "smtp_status": "valid"
+          }
+        ]
+      }
+    }
+  }
+}

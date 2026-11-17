@@ -1,0 +1,16 @@
+{
+ "thread_id": "t-bounce-2",
+ "messages": [
+  {
+   "id": "m-bounce-2",
+   "when": "2026-10-06T08:05:00+00:00",
+   "from": "postmaster@northwind.example.org",
+   "subject": "Undelivered Mail Returned to Sender",
+   "text": "Reporting-MTA: dns; mx.northwind.example.org\n\nFinal-Recipient: rfc822; olga.example@northwind.example.org\nAction: failed\nStatus: 5.1.1\n",
+   "labels": [
+    "INBOX"
+   ],
+   "headers": {}
+  }
+ ]
+}

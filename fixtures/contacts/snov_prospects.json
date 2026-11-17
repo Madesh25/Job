@@ -1,0 +1,26 @@
+{
+  "status": "completed",
+  "data": [
+    {
+      "first_name": "Rita",
+      "last_name": "Example",
+      "position": "Talent Acquisition Partner",
+      "country": "Poland",
+      "prospect_hash": "sn-rita"
+    },
+    {
+      "first_name": "Tomas",
+      "last_name": "Example",
+      "position": "Technical Recruiter",
+      "country": "Ireland",
+      "prospect_hash": "sn-tomas"
+    },
+    {
+      "first_name": "Jan",
+      "last_name": "Example",
+      "position": "Cloud Engineer",
+      "country": "Poland",
+      "prospect_hash": "sn-jan"
+    }
+  ]
+}

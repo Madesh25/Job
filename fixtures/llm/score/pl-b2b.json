@@ -1,0 +1,56 @@
+{
+  "years_required_min": {
+    "value": 3,
+    "quote": "3 years of commercial experience"
+  },
+  "seniority_title_flag": {
+    "value": "none",
+    "quote": null
+  },
+  "languages": [
+    {
+      "language": "English",
+      "level": "mandatory",
+      "quote": "English is required"
+    }
+  ],
+  "contract_types": [
+    {
+      "value": "B2B",
+      "quote": "B2B contract only"
+    }
+  ],
+  "mandatory_requirements": [
+    {
+      "text": "AWS and Terraform",
+      "terms": [
+        "AWS",
+        "Terraform"
+      ],
+      "kind": "tool",
+      "quote": "experience with AWS and Terraform"
+    }
+  ],
+  "nice_to_have": [],
+  "sponsorship": {
+    "value": "not_mentioned",
+    "quote": null
+  },
+  "work_mode": {
+    "value": "Remote",
+    "quote": "Remote work"
+  },
+  "salary_text": {
+    "value": null,
+    "quote": null
+  },
+  "expires": {
+    "value": null,
+    "quote": null
+  },
+  "agency_posting": {
+    "value": null,
+    "quote": null
+  },
+  "specific_details": []
+}

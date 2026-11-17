@@ -1,0 +1,212 @@
+"""LLM extraction (stage `score`): prompt, schema validation and the quote check.
+
+Rule: every extracted value must carry a verbatim quote that is found in the job description
+(whitespace-normalised, case-insensitive). A field whose quote is not found is dropped and
+treated as "not stated". Nothing is inferred.
+"""
+
+from __future__ import annotations
+
+import re
+from typing import Any
+
+from pydantic import ValidationError
+
+from jobengine.jdtrim import trim_jd
+from jobengine.llm import LLMClient
+from jobengine.screen.models import Extraction, Language, Quoted, Requirement
+
+STAGE = "score"
+MAX_DETAILS = 3
+MAX_DETAIL_WORDS = 8
+DETAIL_MIN_OVERLAP = 0.6
+STOPWORDS = frozenset(
+    "a an and are as at be by for from in into is it of on or our the their this to we with "
+    "you your will using use".split()
+)
+
+MAX_REQUIREMENTS = 10
+MAX_NICE = 6
+MAX_OUTPUT_TOKENS = 1500
+
+SYSTEM_PROMPT = """You extract facts from a job description for a job search assistant.
+Return one compact JSON object (no indentation, no line breaks). Leave out every key whose
+value is not stated in the description. Keys:
+
+{"years_required_min":{"value":<integer>,"quote":<q>},
+"seniority_title_flag":{"value":"lead"|"principal","quote":<q>},
+"languages":[{"language":<string>,"level":"mandatory"|"preferred","quote":<q>}],
+"contract_types":[{"value":"UoP"|"B2B"|"permanent"|"contract","quote":<q>}],
+"mandatory_requirements":[<requirement>],
+"nice_to_have":[<requirement>],
+"sponsorship":{"value":"stated_yes"|"stated_no","quote":<q>},
+"work_mode":{"value":"Remote"|"Hybrid"|"Office","quote":<q>},
+"salary_text":{"value":<string>,"quote":<q>},
+"expires":{"value":"YYYY-MM-DD","quote":<q>},
+"agency_posting":{"value":true,"quote":<q>},
+"specific_details":[<string>]}
+
+<requirement> is {"terms":[<string>],"kind":<kind>,"quote":<q>} with <kind> one of
+"tool", "practice", "education", "certification", "other".
+<q> is a verbatim copy of the words in the description that state the value, at most
+12 words. Copy the words exactly; never paraphrase inside a quote.
+
+Rules:
+- Extract only what is written. Never guess, never infer, never use outside knowledge.
+- "preferred", "nice to have", "a plus", "an advantage" or "bonus" mean level "preferred" and
+  belong in nice_to_have, never in mandatory_requirements.
+- At most 10 mandatory_requirements and 6 nice_to_have, the most important first.
+- "terms" are the concrete technology or skill names, for example ["Kubernetes"] or
+  ["AWS", "Terraform"]. Kind "tool" is a named technology or product, never a general
+  phrase like "build tooling" or "CI/CD pipelines".
+- years_required_min is the minimum years of experience the candidate must have: when
+  several requirements are stated ("5 years in IT, 2 years in a similar role"), the largest
+  one (5); for a range ("3-5 years") its lower number (3). Ignore nice-to-have years.
+- Salary, sponsorship and dates only when the description states them explicitly.
+- sponsorship: "stated_yes" only when visa sponsorship or relocation with a work permit is
+  offered (relocation support alone, such as moving costs or a relocation package, is
+  "not_mentioned"); "stated_no" when the description says there is no sponsorship, or that
+  only EU or EEA nationals or citizens can apply (that rules out a candidate who needs a
+  visa).
+- agency_posting: only when the description says it is posted by a recruitment agency on
+  behalf of a client.
+- specific_details: up to 3 short phrases (at most 8 words each) about concrete work in this
+  role that could follow "the part about" in a message, using the description's own words.
+"""
+
+
+def normalise(text: str | None) -> str:
+    return re.sub(r"\s+", " ", (text or "")).strip().casefold()
+
+
+def quote_found(quote: str | None, jd: str) -> bool:
+    q = normalise(quote)
+    return bool(q) and q in normalise(jd)
+
+
+def _content_words(text: str) -> list[str]:
+    return [w for w in re.findall(r"[a-z0-9+#]+", text.casefold()) if w not in STOPWORDS]
+
+
+def detail_ok(detail: str, jd: str) -> bool:
+    words = _content_words(detail)
+    if not words or len(detail.split()) > MAX_DETAIL_WORDS:
+        return False
+    jd_words = set(_content_words(jd))
+    return sum(1 for w in words if w in jd_words) / len(words) >= DETAIL_MIN_OVERLAP
+
+
+def user_prompt(title: str, company: str, country: str, jd: str) -> str:
+    return (
+        f"Job title: {title}\nCompany: {company}\nCountry: {country}\n\n"
+        f"Job description:\n<<<\n{jd}\n>>>"
+    )
+
+
+def _quoted(raw: Any, jd: str, empty: Any, dropped: list[str], name: str) -> Quoted:
+    try:
+        item = Quoted.model_validate(raw) if isinstance(raw, dict) else Quoted(value=None)
+    except ValidationError:
+        item = Quoted(value=None)
+    if item.value is False or item.value in (None, "", empty, "unknown", "not_mentioned",
+                                             "none"):
+        return Quoted(value=empty)
+    if not quote_found(item.quote, jd):
+        dropped.append(name)
+        return Quoted(value=empty)
+    return item
+
+
+# A "stated_yes" quote must name a visa or a work permit (10 Nov, Phase 23 3-06: Swisscom's
+# "Full relocation support" was read as sponsorship, so the job ranked as a sponsor).
+VISA_WORDS = re.compile(r"visa|sponsor|work(?:ing)? permit|residence permit|permit to work|"
+                        r"right to work|immigration|kennismigrant|highly skilled migrant|"
+                        r"blue card|work authori[sz]ation|employment permit|critical skills",
+                        re.I)
+
+
+def _sponsorship(item: Quoted, dropped: list[str]) -> Quoted:
+    if item.value == "stated_yes" and not VISA_WORDS.search(str(item.quote or "")):
+        dropped.append("sponsorship")
+        return Quoted(value="not_mentioned")
+    return item
+
+
+def _items(raw: Any, model: type, jd: str, dropped: list[str], name: str,
+           limit: int | None = None) -> list:
+    out = []
+    for i, entry in enumerate(raw if isinstance(raw, list) else []):
+        if isinstance(entry, dict) and entry.get("value") in ("unknown", None, "") \
+                and "value" in entry:
+            continue  # "not stated" written out as an item: nothing to keep or drop
+        if model is Requirement and isinstance(entry, dict) and not entry.get("text"):
+            entry = {**entry, "text": entry.get("quote") or ", ".join(entry.get("terms") or [])}
+        try:
+            item = model.model_validate(entry)
+        except ValidationError:
+            dropped.append(f"{name}[{i}] invalid")
+            continue
+        if not quote_found(getattr(item, "quote", None), jd):
+            dropped.append(f"{name}[{i}]")
+            continue
+        out.append(item)
+    return out[:limit] if limit is not None else out
+
+
+def check_quotes(raw: dict[str, Any], jd: str) -> tuple[Extraction, list[str]]:
+    """Validate the raw LLM JSON and drop every value whose quote is not in the text.
+    Returns the checked extraction and the names of the dropped fields."""
+    dropped: list[str] = []
+    years = _quoted(raw.get("years_required_min"), jd, None, dropped, "years_required_min")
+    if years.value is not None:
+        try:
+            years = Quoted(value=int(years.value), quote=years.quote)
+        except (TypeError, ValueError):
+            dropped.append("years_required_min")
+            years = Quoted(value=None)
+    details = [
+        d for d in (raw.get("specific_details") or [])[:MAX_DETAILS]
+        if isinstance(d, str) and detail_ok(d, jd)
+    ]
+    extraction = Extraction(
+        years_required_min=years,
+        seniority_title_flag=_quoted(raw.get("seniority_title_flag"), jd, "none", dropped,
+                                     "seniority_title_flag"),
+        languages=_items(raw.get("languages"), Language, jd, dropped, "languages"),
+        contract_types=_items(raw.get("contract_types"), Quoted, jd, dropped, "contract_types"),
+        mandatory_requirements=_items(raw.get("mandatory_requirements"), Requirement, jd,
+                                      dropped, "mandatory_requirements", MAX_REQUIREMENTS),
+        nice_to_have=_items(raw.get("nice_to_have"), Requirement, jd, dropped, "nice_to_have",
+                            MAX_NICE),
+        sponsorship=_sponsorship(_quoted(raw.get("sponsorship"), jd, "not_mentioned", dropped,
+                                         "sponsorship"), dropped),
+        work_mode=_quoted(raw.get("work_mode"), jd, "unknown", dropped, "work_mode"),
+        salary_text=_quoted(raw.get("salary_text"), jd, None, dropped, "salary_text"),
+        expires=_quoted(raw.get("expires"), jd, None, dropped, "expires"),
+        agency_posting=_quoted(raw.get("agency_posting"), jd, None, dropped, "agency_posting"),
+        specific_details=details,
+    )
+    # "preferred" languages never count as mandatory, whatever the model said.
+    for lang in extraction.languages:
+        if lang.level not in ("mandatory", "preferred"):
+            lang.level = "preferred"
+    return extraction, dropped
+
+
+def extract(
+    llm: LLMClient, *, title: str, company: str, country: str, jd: str, key: str | None = None,
+) -> tuple[Extraction, list[str]]:
+    """One LLM call per job, then the quote check. The LLM gets only the job text: never
+    contacts, emails or phone numbers."""
+    raw = llm.complete_json(
+        STAGE, SYSTEM_PROMPT, request_text(title, company, country, jd), key=key,
+        max_tokens=MAX_OUTPUT_TOKENS,
+    )
+    return check_quotes(raw, jd)
+
+
+def request_text(title: str, company: str, country: str, jd: str) -> str:
+    """The user prompt for one job (also sent in batches). The LLM reads the description
+    without legal boilerplate (fewer input tokens); quotes are still checked against the full
+    text, which contains every trimmed line."""
+    return user_prompt(title, company, country, trim_jd(jd))

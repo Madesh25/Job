@@ -1,0 +1,5 @@
+{
+ "valid": "Thanks,\n{profile.name}\n{profile.phone} | <a href=\"{profile.linkedin_url}\">LinkedIn</a>\n<a href=\"{profile.website_url}\">{profile.website}</a>",
+ "extra_link": "Thanks,\n{profile.name}\n<a href=\"https://tracker.example.org/x\">LinkedIn</a>\n<a href=\"{profile.website_url}\">{profile.website}</a>",
+ "tel_link": "Thanks,\n{profile.name}\n<a href=\"tel:{profile.phone}\">{profile.phone}</a> | <a href=\"{profile.linkedin_url}\">LinkedIn</a>"
+}

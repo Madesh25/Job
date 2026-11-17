@@ -1,0 +1,59 @@
+{
+  "years_required_min": {
+    "value": 7,
+    "quote": "at least 7 years of experience"
+  },
+  "seniority_title_flag": {
+    "value": "none",
+    "quote": null
+  },
+  "languages": [],
+  "contract_types": [
+    {
+      "value": "UoP",
+      "quote": "Employment contract"
+    }
+  ],
+  "mandatory_requirements": [
+    {
+      "text": "Linux, Ansible and Terraform",
+      "terms": [
+        "Linux",
+        "Ansible",
+        "Terraform"
+      ],
+      "kind": "tool",
+      "quote": "Linux, Ansible and Terraform"
+    },
+    {
+      "text": "Java",
+      "terms": [
+        "Java"
+      ],
+      "kind": "tool",
+      "quote": "5 years of Java development"
+    }
+  ],
+  "nice_to_have": [],
+  "sponsorship": {
+    "value": "stated_yes",
+    "quote": "we sponsor work permits"
+  },
+  "work_mode": {
+    "value": "Hybrid",
+    "quote": "Hybrid in Krak\u00f3w"
+  },
+  "salary_text": {
+    "value": null,
+    "quote": null
+  },
+  "expires": {
+    "value": null,
+    "quote": null
+  },
+  "agency_posting": {
+    "value": null,
+    "quote": null
+  },
+  "specific_details": []
+}

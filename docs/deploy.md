@@ -1,0 +1,329 @@
+# Deploy (Module 09)
+
+One container runs on Cloud Run as two services: `job-engine-dev` (deployed from `develop`)
+and `job-engine-prod` (deployed from `main`). It serves the Telegram webhook, the scheduled
+tasks and a health check. GitHub Actions deploys it after CI passes, without service account
+keys (Workload Identity Federation).
+
+Part A (the code) is in this repository. **Part B below is console and Notion work done by
+hand**; nothing in Part B is done from code. Work through it top to bottom.
+
+## What runs where
+
+| Path | Who may call it | Does |
+|---|---|---|
+| `GET /healthz` | anyone | `ok` and nothing else |
+| `POST /telegram/webhook` | Telegram (secret header `X-Telegram-Bot-Api-Secret-Token`) | dedupes the update, answers 200 at once, handles it in the background worker (same handler as long polling, so the chat ID lock still applies) |
+| `POST /tasks/daily` | Cloud Scheduler (OIDC token) | daily check (Module 07), then the strategy reminder (Module 08) |
+| `POST /tasks/digest` | Cloud Scheduler | weekly digest |
+| `POST /tasks/autopilot` | Cloud Scheduler | scheduled /autopilot, only when Config `schedule.autopilot` is `true`; answered at once (202), the run reports in Telegram ([autopilot.md](autopilot.md)) |
+| `POST /tasks/mail` | Cloud Scheduler | sends one queued mail whose recipient's morning has come (mail mode send, [gmail.md](gmail.md)) |
+| `POST /tasks/replies` | Cloud Scheduler | pings new replies from contacts and employers at once ([tracking.md](tracking.md)) |
+| `POST /tasks/apply` | Cloud Scheduler | the auto-apply queue: asks "Is your laptop on?" or fills 3 dry runs ([apply-pack.md](apply-pack.md)) |
+| `POST /tasks/nudge` | Cloud Scheduler | the apply nudge from 22:00, at most 5 an evening ([autopilot.md](autopilot.md)) |
+| `POST /tasks/health` | Cloud Scheduler | the morning check before the morning run, once a day from Config `schedule.health_time` (default 06:30): what would stop the run first ([autopilot.md](autopilot.md)) |
+| `POST /tasks/report` | Cloud Scheduler | the daily report, in Telegram and by email to you, once a day from Config `schedule.report_time` ([tracking.md](tracking.md)) |
+| `POST /tasks/sweep` | Cloud Scheduler | sweep and screening, only when Config `schedule.auto_fetch` is `true` (the strategy gate still applies) |
+
+The service allows unauthenticated calls (Telegram must reach it); every path is protected in
+code. A task failure returns 500 (Scheduler records it) and sends you a Telegram message and
+an email (at most once an hour per task).
+
+Local runs keep long polling: `python -m jobengine.telegram_bot` (and `--fake`). With
+`BOT_MODE=webhook` the polling bot refuses to start.
+
+`/end` is answered by the webhook itself, before the worker queue, so it can stop a running
+`/fetch`, `/screen` or `/autopilot` at its next step. `/restart` only applies to the bot on
+your PC; on Cloud Run each deploy starts a new instance.
+
+## Settings used below
+
+```bash
+PROJECT=job-search-engine-509510
+REGION=europe-west1          # see step B1.1
+PROJECT_NUMBER="$(gcloud projects describe $PROJECT --format='value(projectNumber)')"
+```
+
+## B1. Google Cloud setup
+
+- [ ] **1. Region.** Default `europe-west1` (a Tier 1 Cloud Run region). Check the current
+      Cloud Run pricing and free tier for the region before choosing; use the same region for
+      both services, Artifact Registry and Cloud Scheduler.
+- [ ] **2. APIs.**
+      ```bash
+      gcloud services enable run.googleapis.com artifactregistry.googleapis.com \
+        cloudbuild.googleapis.com cloudscheduler.googleapis.com secretmanager.googleapis.com \
+        iamcredentials.googleapis.com --project $PROJECT
+      ```
+- [ ] **3. Artifact Registry** Docker repo `job-engine`:
+      ```bash
+      gcloud artifacts repositories create job-engine --repository-format=docker \
+        --location=$REGION --project $PROJECT
+      ```
+- [ ] **4. Service accounts.**
+      ```bash
+      gcloud iam service-accounts create job-engine-dev-runner --project $PROJECT
+      gcloud iam service-accounts create job-engine-scheduler --project $PROJECT
+      gcloud iam service-accounts create job-engine-deployer --project $PROJECT
+      # job-pipeline-runner (prod runtime) already exists.
+      DEPLOYER=job-engine-deployer@$PROJECT.iam.gserviceaccount.com
+      # secretmanager.viewer: the deploy checks which optional secrets exist (names only,
+      # never their values).
+      for role in roles/run.admin roles/artifactregistry.writer roles/cloudbuild.builds.editor \
+                  roles/secretmanager.viewer; do
+        gcloud projects add-iam-policy-binding $PROJECT \
+          --member serviceAccount:$DEPLOYER --role $role
+      done
+      for sa in job-engine-dev-runner job-pipeline-runner; do
+        gcloud iam service-accounts add-iam-policy-binding \
+          $sa@$PROJECT.iam.gserviceaccount.com \
+          --member serviceAccount:$DEPLOYER --role roles/iam.serviceAccountUser
+      done
+      ```
+      The scheduler account needs no `roles/run.invoker` (the service is public); its OIDC
+      token identity is checked in code. Whoever creates the Scheduler jobs needs
+      `roles/iam.serviceAccountUser` on `job-engine-scheduler`.
+- [ ] **5. Workload Identity Federation** (GitHub, limited to `Madesh25/Job`):
+      ```bash
+      gcloud iam workload-identity-pools create github --location=global --project $PROJECT
+      gcloud iam workload-identity-pools providers create-oidc github \
+        --location=global --workload-identity-pool=github --project $PROJECT \
+        --issuer-uri=https://token.actions.githubusercontent.com \
+        --attribute-mapping="google.subject=assertion.sub,attribute.repository=assertion.repository" \
+        --attribute-condition="assertion.repository=='Madesh25/Job'"
+      gcloud iam service-accounts add-iam-policy-binding $DEPLOYER --project $PROJECT \
+        --role roles/iam.workloadIdentityUser \
+        --member "principalSet://iam.googleapis.com/projects/$PROJECT_NUMBER/locations/global/workloadIdentityPools/github/attribute.repository/Madesh25/Job"
+      ```
+- [ ] **6. GitHub repository variables** (Settings > Secrets and variables > Actions >
+      Variables; they are not secrets):
+      `GCP_WIF_PROVIDER` = `projects/<PROJECT_NUMBER>/locations/global/workloadIdentityPools/github/providers/github`,
+      `GCP_DEPLOY_SA` = `job-engine-deployer@job-search-engine-509510.iam.gserviceaccount.com`,
+      `GCP_PROJECT_ID` = `job-search-engine-509510`, `GCP_PROJECT_NUMBER` = the number above,
+      `GCP_REGION` = the region. Optional: add a required reviewer to the `prod` environment.
+- [ ] **7. Budget alert** already exists; keep it.
+- [ ] **8. Cost note.** CPU is always allocated while an instance is alive
+      (`--no-cpu-throttling`, needed for the background worker); it scales to zero when idle
+      (`--min-instances 0`). A few interactions a day stay in or near the free tier. Check the
+      billing report after the first week.
+
+## B2. Secrets (Secret Manager)
+
+Create the missing ones (`printf '%s' "$VALUE" | gcloud secrets create NAME --data-file=- --project $PROJECT`,
+or `gcloud secrets versions add NAME --data-file=-` for a new value). Names are exactly these:
+
+| Env var | dev secret | prod secret |
+|---|---|---|
+| `NOTION_TOKEN` | `notion-token-dev` | `notion-token-prod` |
+| `TELEGRAM_BOT_TOKEN` | `telegram-token-dev` | `telegram-token-prod` |
+| `TELEGRAM_CHAT_ID` | `telegram-chat-id` | `telegram-chat-id` |
+| `TELEGRAM_WEBHOOK_SECRET` | `telegram-webhook-secret-dev` | `telegram-webhook-secret-prod` |
+| `ANTHROPIC_API_KEY` | `anthropic-key-dev` | `anthropic-key-prod` |
+| `GMAIL_ALERTS_TOKEN_JSON` (read as the m02 alerts mailbox) | `gmail-m02-token` | `gmail-m02-token` |
+| `GMAIL_ALERTS_TOKEN_JSON_mm` (second alerts mailbox, optional) | `gmail-mm-token` | `gmail-mm-token` |
+| `GMAIL_SENDER_TOKEN_JSON` | `gmail-m02-token` | `gmail-main-token` |
+| `ADZUNA_APP_ID`, `ADZUNA_APP_KEY` | `adzuna-app-id`, `adzuna-app-key` | same |
+| `APOLLO_API_KEY`, `HUNTER_API_KEY` | not mounted | `apollo-api-key`, `hunter-api-key` |
+| `SNOV_CLIENT_ID`, `SNOV_CLIENT_SECRET` | not mounted | `snov-client-id`, `snov-client-secret` |
+| `JOOBLE_API_KEY` (optional) | `jooble-api-key` | `jooble-api-key` |
+| `GITHUB_TOKEN` (optional) | `github-token` | `github-token` |
+| `PROSPEO_API_KEY`, `TOMBA_API_KEY`, `TOMBA_API_SECRET` (optional) | not mounted | `prospeo-api-key`, `tomba-api-key`, `tomba-api-secret` |
+| `APOLLO_API_KEY_2`, `HUNTER_API_KEY_2`, `SNOV_CLIENT_ID_2`, `SNOV_CLIENT_SECRET_2`, `PROSPEO_API_KEY_2`, `TOMBA_API_KEY_2`, `TOMBA_API_SECRET_2` (optional second accounts) | not mounted | `apollo-api-key-2`, `hunter-api-key-2`, `snov-client-id-2`, `snov-client-secret-2`, `prospeo-api-key-2`, `tomba-api-key-2`, `tomba-api-secret-2` |
+| `LUSHA_API_KEY` (optional) | not mounted | `lusha-api-key` |
+| `GEMINI_API_KEY` (optional, docs/ai-models.md) | not mounted | `gemini-api-key` |
+| `DEEPSEEK_API_KEY` (optional, docs/ai-models.md) | not mounted | `deepseek-api-key` |
+
+Optional secrets are mounted only when they exist: the deploy checks each name and logs
+"Mounting optional secret ..." or "... not found: skipped". Create one, give the runtime
+account access (below), and the next deploy picks it up; no change to deploy.yml.
+
+- [ ] Create a DEV bot with @BotFather; store its token as `telegram-token-dev`. The existing
+      `telegram-bot-token` value becomes `telegram-token-prod`.
+- [ ] Webhook secrets: 32+ random letters and digits each, for example
+      `python -c "import secrets,string;print(''.join(secrets.choice(string.ascii_letters+string.digits) for _ in range(48)))"`.
+- [ ] `gmail-m02-token` and `gmail-main-token` hold the full authorised-user JSON from
+      `python -m jobengine.gmail_auth` (Module 06, with gmail.modify).
+- [ ] **Access, dev:** `job-engine-dev-runner` gets `roles/secretmanager.secretAccessor` on
+      the dev secrets, `telegram-chat-id`, `adzuna-app-id`, `adzuna-app-key` and
+      `gmail-m02-token` only:
+      ```bash
+      for s in notion-token-dev telegram-token-dev telegram-chat-id telegram-webhook-secret-dev \
+               anthropic-key-dev gmail-m02-token adzuna-app-id adzuna-app-key \
+               jooble-api-key github-token; do
+        gcloud secrets add-iam-policy-binding $s --project $PROJECT \
+          --member serviceAccount:job-engine-dev-runner@$PROJECT.iam.gserviceaccount.com \
+          --role roles/secretmanager.secretAccessor
+      done
+      ```
+- [ ] **Access, prod:** `job-pipeline-runner` gets the same role on the prod secrets
+      (`notion-token-prod`, `telegram-token-prod`, `telegram-chat-id`,
+      `telegram-webhook-secret-prod`, `anthropic-key-prod`, `gmail-m02-token`,
+      `gmail-main-token`, `adzuna-*`, `apollo-api-key`, `hunter-api-key`, `snov-client-*`,
+      and the optional ones you created: `jooble-api-key`, `github-token`,
+      `prospeo-api-key`, `tomba-api-*`, `lusha-api-key`). An optional secret the runtime
+      account cannot read makes the deploy fail, so grant access before the next deploy.
+      The dev account must not be able to read any prod secret.
+- [ ] After go-live, delete the old refresh-token-only secrets.
+
+## B3. Notion production changes (reviewer, with your OK)
+
+These exist on the DEV copies since Modules 02 to 08 and are now applied to production:
+
+- [ ] Job Opportunities: `Posting IDs` (text); Status options `Approved`, `Declined`.
+- [ ] Resume Log: `Approved` (checkbox), `Revision` (number).
+- [ ] Contacts: `Follow-up draft ID` (text); Status option `Ghosted`.
+- [x] `Bot State` (Key title, Value text, Updated date) under the Job Engine page, in
+      `config/prod.yaml` as `notion.write.bot_state` (26 Oct). Also `Answer bank` and
+      `Auto-apply issues` (Autopilot H8) as `answer_bank` and `autoapply_issues`. Connect the
+      prod integration to the three tables if Notion asks (… > Connections).
+- [ ] Share the Job Engine page with the prod Notion integration.
+- [ ] Job Opportunities: add the Skip reason option `No sponsorship` (jobs that offer no
+      visa sponsorship are skipped with it; without the option Notion would add it itself).
+- [ ] Config: add `schedule.auto_fetch` = `false`.
+
+## B4. Cloud Scheduler (time zone Asia/Kolkata)
+
+All jobs: HTTP POST, OIDC as `job-engine-scheduler`, audience = the service URL, attempt
+deadline 900 s, 1 retry.
+
+```bash
+SCHED=job-engine-scheduler@$PROJECT.iam.gserviceaccount.com
+DEV_URL="https://job-engine-dev-$PROJECT_NUMBER.$REGION.run.app"
+PROD_URL="https://job-engine-prod-$PROJECT_NUMBER.$REGION.run.app"
+job() {  # name schedule url path
+  gcloud scheduler jobs create http "$1" --project $PROJECT --location $REGION \
+    --schedule "$2" --time-zone "Asia/Kolkata" --uri "$3$4" --http-method POST \
+    --oidc-service-account-email "$SCHED" --oidc-token-audience "$3" \
+    --attempt-deadline 900s --max-retry-attempts 1
+}
+job je-daily-dev   "30 7 * * *" "$DEV_URL"  /tasks/daily  && gcloud scheduler jobs pause je-daily-dev --project $PROJECT --location $REGION
+job je-daily-prod  "30 7,21 * * *" "$PROD_URL" /tasks/daily
+job je-digest-prod "0 20 * * 0" "$PROD_URL" /tasks/digest && gcloud scheduler jobs pause je-digest-prod --project $PROJECT --location $REGION
+job je-sweep-prod  "0 8 * * *"  "$PROD_URL" /tasks/sweep
+# Scheduled /autopilot (H6): 07:00 and 19:30 India time, every day; every 30 minutes for
+# 3 hours after each. The first call starts that run, later calls carry on with its batch.
+gcloud scheduler jobs create http je-autopilot-prod --project $PROJECT --location $REGION \
+  --schedule "*/30 7-9,19-22 * * *" --time-zone "Asia/Kolkata" --uri "$PROD_URL/tasks/autopilot" \
+  --http-method POST --oidc-service-account-email "$SCHED" --oidc-token-audience "$PROD_URL" \
+  --attempt-deadline 60s --max-retry-attempts 1
+# Afternoon check (/fetch and /screen, screen/check.py): every 30 minutes 15:00 to 16:30 India
+# time, every day (the autopilot days). It does nothing unless Config schedule.check is true; it runs once
+# per time in schedule.check_times.
+gcloud scheduler jobs create http je-check-prod --project $PROJECT --location $REGION \
+  --schedule "*/30 15-16 * * *" --time-zone "Asia/Kolkata" --uri "$PROD_URL/tasks/check" \
+  --http-method POST --oidc-service-account-email "$SCHED" --oidc-token-audience "$PROD_URL" \
+  --attempt-deadline 60s --max-retry-attempts 1
+# The mail queue (mail mode send): every 10 minutes 07:00 to 12:50 Warsaw time (08:00 to
+# 11:00 in Warsaw, Amsterdam and Dublin), Monday to Friday. Up to 3 mails per call
+# (Config mail.per_check), follow-ups and the best jobs first.
+gcloud scheduler jobs create http je-mail-prod --project $PROJECT --location $REGION \
+  --schedule "*/10 7-12 * * 1-5" --time-zone "Europe/Warsaw" --uri "$PROD_URL/tasks/mail" \
+  --http-method POST --oidc-service-account-email "$SCHED" --oidc-token-audience "$PROD_URL" \
+  --attempt-deadline 300s --max-retry-attempts 1
+# Instant reply ping: every 15 minutes from 07:00 to 23:45 India time, every day.
+gcloud scheduler jobs create http je-replies-prod --project $PROJECT --location $REGION \
+  --schedule "*/15 7-23 * * *" --time-zone "Asia/Kolkata" --uri "$PROD_URL/tasks/replies" \
+  --http-method POST --oidc-service-account-email "$SCHED" --oidc-token-audience "$PROD_URL" \
+  --attempt-deadline 300s --max-retry-attempts 0
+# Morning check (Autopilot C): 06:30 India time, every day (once a day; later calls do nothing).
+job je-health-prod "30 6 * * *" "$PROD_URL" /tasks/health
+# Daily report: 21:45 India time, every day (sent once a day; a later call does nothing).
+job je-report-prod "45 21 * * *" "$PROD_URL" /tasks/report
+# Auto-apply queue (H8): every 15 minutes, 07:00 to 23:45 India time (nothing when empty).
+job je-apply-prod "*/15 7-23 * * *" "$PROD_URL" /tasks/apply
+# Apply nudge (H7): every 30 minutes from 22:00 to 00:30 India time (it sends at most 5).
+job je-nudge-prod "*/30 22-23,0 * * *" "$PROD_URL" /tasks/nudge
+```
+
+- [ ] `je-daily-dev`: paused (run it by hand with `gcloud scheduler jobs run`).
+- [ ] `je-daily-prod`: `30 7,21 * * *` (07:30 and 21:30 India time, 5 Nov: the evening
+      check records the day's replies before the 21:45 report; the once-a-day messages come
+      with the 07:30 call only), enabled at go-live step 3.
+- [ ] `je-digest-prod`: `0 20 * * 0` (Sunday 20:00), paused until go-live step 4.
+- [ ] `je-sweep-prod`: `0 8 * * *`; it does nothing unless Config `schedule.auto_fetch` is `true`.
+- [ ] `je-autopilot-prod`: `*/30 7-9,19-22 * * *` in Asia/Kolkata; it does nothing unless Config
+      `schedule.autopilot` is `true`. Needs the prod `Bot State` (B3) so a run is not started
+      twice after a restart. Config: add `schedule.autopilot` = `false` (turn it on after
+      go-live step 4).
+- [ ] `je-check-prod`: `*/30 15-16 * * *` in Asia/Kolkata (the autopilot time zone since H6); it does nothing unless Config
+      `schedule.check` is `true` (add it as `false`; times in `schedule.check_times`).
+- [ ] `je-mail-prod`: `*/10 7-12 * * 1-5` in Europe/Warsaw; sends nothing unless mail mode is
+      send and a queued mail is due. Change it with `mail.send_window` in the yaml.
+- [ ] `je-replies-prod`: `*/15 7-23 * * *` in Asia/Kolkata; reads Gmail only and pings new
+      replies in Telegram (no Notion write).
+- [ ] `je-apply-prod`: `*/15 7-23 * * *` in Asia/Kolkata; nothing while the queue is empty
+      or the laptop takes it. Filling on Cloud Run needs the browser in the image (every
+      build since 30 Oct; not with `--build-arg FORM_BOT=false`).
+- [ ] `je-nudge-prod`: `*/30 22-23,0 * * *` in Asia/Kolkata; nothing when no job is ready
+      or Config `schedule.nudge` is `false`.
+- [ ] `je-report-prod`: `45 21 * * *` in Asia/Kolkata; the daily report in Telegram and by
+      email to you (Config `schedule.report` `false` turns it off).
+
+## How deploys treat DRY_RUN
+
+The workflow never sets `DRY_RUN`, so a new service runs with the safe default (true). It
+applies `APP_ENV`, `BOT_MODE`, `SERVICE_URL` and `SCHEDULER_SA_EMAIL` with
+`--update-env-vars`, which **keeps every other variable already on the service**. So once you
+turn DRY_RUN off by hand (go-live steps 2 and 4), later deploys keep it off; turn it back on
+the same way. Do not use `--set-env-vars` or edit the variables in the console "replace all"
+way, or DRY_RUN would be lost (and default back to true).
+
+## Go-live in 4 steps
+
+Each step has a pass condition. Do not skip ahead.
+
+**Step 1: dev on Cloud Run, DRY_RUN true.**
+- [ ] Merge this PR into `develop` (auto-deploys `job-engine-dev` after CI).
+- [ ] Point the DEV bot at it (with the dev token and secret in your shell):
+      `TELEGRAM_BOT_TOKEN=... TELEGRAM_WEBHOOK_SECRET=... python -m jobengine.deploy.set_webhook --url $DEV_URL`
+- [ ] In Telegram (DEV bot): `/health`, `/fetch`, `/pending`, approve one job, approve the
+      resume, check contacts come from fixtures and drafts say DRY RUN, `/today`, `/update`.
+- [ ] Pass: every reply starts with `[DEV]`; Notion writes only in the DEV Sandbox; no Gmail
+      drafts; no provider calls in the logs.
+
+**Step 2: dev, DRY_RUN false.**
+- [ ] `gcloud run services update job-engine-dev --region $REGION --update-env-vars DRY_RUN=false`
+- [ ] Repeat one job end to end.
+- [ ] Pass: drafts in madeshwaranm02's Gmail with `[DEV] to <address> |` subjects and the PDF
+      attached; the PDF is in `Job Engine Resumes (DEV)` on m02's Drive; sending one draft to
+      yourself and running `/today` marks it Contacted; replying to it marks it Replied.
+
+**Step 3: prod, DRY_RUN true.**
+- [ ] B3 (Notion production changes) done.
+- [ ] Open a PR `develop` into `main` and merge it (auto-deploys `job-engine-prod`).
+- [ ] `set_webhook --url $PROD_URL` with the prod token and secret.
+- [ ] Unpause nothing yet except `je-daily-prod`.
+- [ ] Pass: the prod bot replies without a prefix; sweep and screening write to production
+      Job Opportunities; resume previews arrive; no Gmail drafts, no Drive uploads, no
+      Apollo/Hunter/Snov calls.
+- [ ] Run the contact provider probes once each (`python -m jobengine.contacts --probe
+      apollo|hunter|snov --domain <domain>` with prod settings and `DRY_RUN=false` in your
+      shell, Module 05) and record the results in the Config notes.
+
+**Step 4: prod, DRY_RUN false.**
+- [ ] `gcloud run services update job-engine-prod --region $REGION --update-env-vars DRY_RUN=false`
+- [ ] Do one real job (for example the Coforge role) end to end, reading every draft before
+      sending.
+- [ ] Pass: drafts in madeshwaran.manikam's Gmail with no prefix, the right signature and the
+      PDF; credit counters in Config move; the next day's report shows the sent mails.
+- [ ] Then resume `je-digest-prod`:
+      `gcloud scheduler jobs resume je-digest-prod --project $PROJECT --location $REGION`
+
+## Rollback (any step)
+
+- Previous revision: `gcloud run revisions list --service <service> --region $REGION`, then
+  `gcloud run services update-traffic <service> --region $REGION --to-revisions <previous revision>=100`
+- Stop real actions: `gcloud run services update <service> --region $REGION --update-env-vars DRY_RUN=true`
+- Silence the bot: `python -m jobengine.deploy.set_webhook --delete` (then long polling works
+  again locally).
+- Pause a job: `gcloud scheduler jobs pause <job> --project $PROJECT --location $REGION`
+
+## Troubleshooting
+
+- The revision fails to start: the startup check refused the configuration (a prod ID in dev,
+  a missing `TELEGRAM_*` or `SERVICE_URL` variable, or a missing secret). The Cloud Run logs say
+  which; nothing runs half-configured.
+- Telegram shows "Wrong response from the webhook: 401": the webhook secret in Secret Manager
+  and the one used with `set_webhook` differ. Run `set_webhook` again.
+- A Scheduler job fails with 401/403: its OIDC audience must be the service URL exactly, and
+  it must run as `job-engine-scheduler`.

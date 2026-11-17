@@ -1,0 +1,51 @@
+{
+  "years_required_min": {
+    "value": 5,
+    "quote": "5 years of experience"
+  },
+  "seniority_title_flag": {
+    "value": "none",
+    "quote": null
+  },
+  "languages": [],
+  "contract_types": [
+    {
+      "value": "permanent",
+      "quote": "Permanent, full time"
+    }
+  ],
+  "mandatory_requirements": [
+    {
+      "text": "Kubernetes, Terraform and Python",
+      "terms": [
+        "Kubernetes",
+        "Terraform",
+        "Python"
+      ],
+      "kind": "tool",
+      "quote": "Kubernetes, Terraform and Python"
+    }
+  ],
+  "nice_to_have": [],
+  "sponsorship": {
+    "value": "not_mentioned",
+    "quote": null
+  },
+  "work_mode": {
+    "value": "Hybrid",
+    "quote": "Hybrid from our Dublin office"
+  },
+  "salary_text": {
+    "value": null,
+    "quote": null
+  },
+  "expires": {
+    "value": null,
+    "quote": null
+  },
+  "agency_posting": {
+    "value": null,
+    "quote": null
+  },
+  "specific_details": []
+}

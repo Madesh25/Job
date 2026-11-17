@@ -1,0 +1,281 @@
+"""/add <job link> (23 Oct, your request): a job you open from LinkedIn or another app usually
+sends you to the company's own site. Paste that link and the bot reads the job page, saves the
+job, screens it, builds your resume, and adds the company to Target Companies (with its job
+board when the link shows one), so every /fetch checks that company from then on.
+
+Pure parts here; the desk (screen/desk.py) does the reads and writes.
+"""
+
+from __future__ import annotations
+
+import json
+import re
+from collections.abc import Iterable, Mapping
+from dataclasses import dataclass
+from datetime import date
+from typing import Any
+from urllib.parse import urlsplit
+
+from bs4 import BeautifulSoup
+
+from jobengine.sweep import fulltext
+from jobengine.sweep.normalize import without_region
+from jobengine.sweep.sources.ats import Board, board_from_url, canon_name
+
+COUNTRIES = ("Poland", "Netherlands", "Ireland")
+# The ATS platform options of Target Companies; any other board is "Custom".
+ATS_OPTIONS = {"greenhouse": "Greenhouse", "lever": "Lever", "workday": "Workday",
+               "smartrecruiters": "SmartRecruiters"}
+COUNTRY_CODES = {"PL": "Poland", "NL": "Netherlands", "IE": "Ireland", "POL": "Poland",
+                 "NLD": "Netherlands", "IRL": "Ireland"}
+
+
+@dataclass
+class PageJob:
+    """What a job page says about itself (schema.org JobPosting first, the page next)."""
+
+    url: str
+    title: str = ""
+    company: str = ""
+    location: str = ""
+    description: str | None = None
+    valid_through: str = ""
+    company_from_link: bool = False  # the page did not name it: taken from the address
+
+
+def _text(value: Any) -> str:
+    if isinstance(value, Mapping):
+        value = value.get("name") or ""
+    return str(value or "").strip()
+
+
+def _country(value: Any) -> str:
+    name = _text(value)
+    return COUNTRY_CODES.get(name.upper(), name)
+
+
+def _locations(value: Any) -> str:
+    places = []
+    for place in value if isinstance(value, list) else [value]:
+        if not isinstance(place, Mapping):
+            continue
+        address = place.get("address") or {}
+        if isinstance(address, Mapping):
+            parts = [_text(address.get("addressLocality")), _country(address.get("addressCountry"))]
+            places.append(", ".join(p for p in parts if p))
+    return " / ".join(dict.fromkeys(p for p in places if p))
+
+
+def _posting(soup: BeautifulSoup) -> Mapping[str, Any] | None:
+    for script in soup.find_all("script", type="application/ld+json"):
+        try:
+            data = json.loads(script.string or script.get_text() or "")
+        except ValueError:
+            continue
+        for node in fulltext._walk(data):
+            if fulltext._is_job_posting(node):
+                return node
+    return None
+
+
+def _meta(soup: BeautifulSoup, name: str) -> str:
+    tag = soup.find("meta", attrs={"property": name}) or soup.find("meta", attrs={"name": name})
+    return str(tag.get("content") or "").strip() if tag else ""
+
+
+# A Greenhouse job link (10 Nov, Phase 23 6-01): job-boards.greenhouse.io answers a script page
+# that sends the bot to the company's board, so the job's title and place were missing and
+# the board page was saved. Its public jobs API gives the job itself.
+GREENHOUSE_JOB = re.compile(
+    r"^https?://(?:job-)?boards(?:\.eu)?\.greenhouse\.io/([\w-]+)/jobs/(\d+)", re.I)
+GREENHOUSE_JOB_API = "https://boards-api.greenhouse.io/v1/boards/{token}/jobs/{job}"
+
+
+def greenhouse_api(url: str) -> str | None:
+    """The public API address of a Greenhouse job link, else None."""
+    match = GREENHOUSE_JOB.match(url.strip())
+    if not match or match.group(1).lower() == "embed":
+        return None
+    return GREENHOUSE_JOB_API.format(token=match.group(1), job=match.group(2))
+
+
+def closed_board_page(final_url: str) -> bool:
+    """True when a job link ended on a Greenhouse board page with error=true: Greenhouse
+    sends a closed job's link there (6-01, 11 Nov)."""
+    parts = urlsplit(final_url)
+    host = (parts.hostname or "").lower()
+    return host.endswith("greenhouse.io") and "error=true" in parts.query.lower()
+
+
+def from_greenhouse(url: str, raw: str) -> PageJob | None:
+    """The job from Greenhouse's API answer (JSON text), None when it is not a job."""
+    import html as html_lib
+
+    try:
+        data = json.loads(raw)
+    except ValueError:
+        return None
+    if not isinstance(data, Mapping) or not data.get("title"):
+        return None
+    content = html_lib.unescape(str(data.get("content") or ""))
+    token = (GREENHOUSE_JOB.match(url.strip()) or [None, ""])[1]
+    company = _text(data.get("company_name")) or str(token).replace("-", " ").title()
+    return PageJob(url=url, title=_text(data.get("title")),
+                   company=short_company(company),
+                   location=_text(data.get("location")),
+                   description=fulltext.extract(f"<html><body>{content}</body></html>")
+                   or textblocks_text(content) or None)
+
+
+def textblocks_text(html_text: str) -> str:
+    from jobengine import textblocks
+
+    return textblocks.tidy(textblocks.text_of(BeautifulSoup(html_text, "html.parser")))
+
+
+def read_page(url: str, page: str) -> PageJob:
+    """Title, company, place and description of a job page; empty fields when unknown."""
+    soup = BeautifulSoup(page, "html.parser")
+    job = PageJob(url=url, description=fulltext.extract(page))
+    posting = _posting(soup)
+    if posting:
+        job.title = _text(posting.get("title"))
+        job.company = _text(posting.get("hiringOrganization"))
+        job.location = _locations(posting.get("jobLocation"))
+        if posting.get("jobLocationType") == "TELECOMMUTE":
+            job.location = f"{job.location} (Remote)".strip()
+        job.valid_through = _text(posting.get("validThrough"))
+    if not job.title:
+        title = _meta(soup, "og:title") or (soup.title.get_text() if soup.title else "")
+        job.title = title.split("|")[0].split(" - ")[0].strip()
+    if not job.company:
+        job.company = _meta(soup, "og:site_name")
+    if not job.company:
+        job.company = company_from_host(url)
+        job.company_from_link = bool(job.company)
+    job.company = short_company(job.company)
+    return job
+
+
+# Parts of a careers host that are not the company ("kariera.comarch.pl" -> "comarch").
+HOST_WORDS = {"www", "careers", "career", "kariera", "jobs", "job", "praca", "werken",
+              "vacatures", "apply", "join", "work", "en", "pl", "nl"}
+SECOND_LEVEL = {"co", "com", "org", "net", "gov", "ac"}  # "company.com.pl", "firm.co.uk"
+
+
+def parse_company_country(text: str | None, rules: Any) -> tuple[str, str, str] | None:
+    """"<company>, <country>[, <role>]" typed after a job link (Phase 12, 28 Oct: LinkedIn
+    jobs, which the bot never opens): (company, country, role) or None. The country may be a
+    city of one ("Acme, Warsaw, SRE")."""
+    from jobengine.sweep.normalize import place
+
+    parts = [p.strip() for p in (text or "").split(",") if p.strip()]
+    if len(parts) < 2:
+        return None
+    country = None
+    role: list[str] = []
+    for part in parts[1:]:
+        found = None
+        if country is None:
+            word = part.strip().casefold()
+            found = next((c for c in COUNTRIES if c.casefold() == word),
+                         COUNTRY_CODES.get(part.strip().upper()))
+            if found is None:
+                place_country, _city = place(part, rules)
+                found = place_country if place_country in COUNTRIES else None
+        if found:
+            country = found
+        else:
+            role.append(part)
+    if not parts[0] or country is None:
+        return None
+    return parts[0], country, ", ".join(role) or "the role"
+
+
+def company_from_host(url: str) -> str:
+    """The company's name read from its own site's address, "" when unclear:
+    https://kariera.comarch.pl/praca/... -> "Comarch", https://sii.pl/en/job-ads/... -> "Sii"."""
+    labels = [p for p in (urlsplit(url).hostname or "").lower().split(".") if p]
+    if len(labels) < 2:
+        return ""
+    labels = labels[:-1]  # the country or .com
+    if len(labels) > 1 and labels[-1] in SECOND_LEVEL:
+        labels = labels[:-1]
+    name = labels[-1] if labels else ""
+    if not name or name in HOST_WORDS or name.isdigit():
+        return ""
+    return name[:1].upper() + name[1:]
+
+
+# Legal forms the page's company name may carry (PwC: "PwC Advisory spółka z ograniczoną
+# odpowiedzialnością sp.k."); the Company cell keeps the name people use.
+LEGAL_FORMS = re.compile(
+    r"[\s,]+(?:sp\.?\s*z\s*o\.?\s*o\.?|spółka z ograniczoną odpowiedzialnością|"
+    r"spółka komandytowa|spółka akcyjna|sp\.?\s*k\.?|sp\.?\s*j\.?|s\.\s*a\.?|"
+    r"b\.\s*v\.?|n\.\s*v\.?|ltd\.?|limited|gmbh|inc\.?|plc|llc|dac|uc)\s*$", re.I)
+
+
+def short_company(name: str) -> str:
+    """The company without its legal form(s), as people say it."""
+    value = " ".join(name.split())
+    while True:
+        shorter = LEGAL_FORMS.sub("", value).strip(" ,")
+        if shorter == value or not shorter:
+            return value
+        value = shorter
+
+
+def board_link(board: Board) -> str:
+    """The job board's own list page, kept as the company's Careers URL."""
+    links = {
+        "greenhouse": f"https://boards.greenhouse.io/{board.token}",
+        "lever": f"https://jobs{'.eu' if board.eu else ''}.lever.co/{board.token}",
+        "smartrecruiters": f"https://careers.smartrecruiters.com/{board.token}",
+        "workday": f"https://{board.host}/{board.site}" if board.host else "",
+        "ashby": f"https://jobs.ashbyhq.com/{board.token}",
+        "workable": f"https://apply.workable.com/{board.token}/",
+        "recruitee": f"https://{board.token}.recruitee.com/",
+        "personio": f"https://{board.token}.jobs.personio.{board.site or 'de'}/",
+        "teamtailor": f"https://{board.token}.teamtailor.com/jobs",
+        "eightfold": f"https://{board.host}/careers?domain={board.token}",
+    }
+    return links.get(board.ats, "")
+
+
+def careers_url(job_url: str) -> tuple[str, str]:
+    """(Careers URL, ATS platform option) for the company of a job link: its job board when
+    the link shows one, else the site's home page (its careers page is found from there)."""
+    board = board_from_url(job_url)
+    if board is not None and board_link(board):
+        return board_link(board), ATS_OPTIONS.get(board.ats, "Custom")
+    parts = urlsplit(job_url)
+    return f"{parts.scheme}://{parts.netloc}/", "Unknown"
+
+
+def known_company(name: str, companies: Iterable[str]) -> str | None:
+    """The Target Companies row that is this company ("Acme Cloud (IE)" for "Acme Cloud")."""
+    key = canon_name(without_region(name))
+    for company in companies:
+        if canon_name(without_region(company)) == key:
+            return company
+    return None
+
+
+def company_props(company: str, job_url: str, country: str | None, today: date,
+                  note: str | None = None) -> dict[str, Any]:
+    """A new Target Companies row: never more than these fields (safety allowlist). Without a
+    job link (/newcompanies, only job boards seen) the Careers URL stays empty and /fetch
+    looks for the job board by the company's name."""
+    url, platform = careers_url(job_url) if job_url else ("", "Unknown")
+    props: dict[str, Any] = {
+        "Company": company,
+        "ATS platform": platform,
+        "Active": True,
+        "Last checked": today,
+        "Notes": note or f"Added by /add on {today.isoformat()} from {job_url}",
+    }
+    if url:
+        props["Careers URL"] = url
+    if country in COUNTRIES:
+        props["Region"] = country
+    return props

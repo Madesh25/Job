@@ -1,0 +1,39 @@
+{
+  "error": false,
+  "results": [
+    {
+      "person": {
+        "person_id": "prs-1",
+        "first_name": "Ewa",
+        "last_name": "Example",
+        "full_name": "Ewa Example",
+        "current_job_title": "Platform Engineer",
+        "location": {"city": "Krakow", "country": "Poland", "country_code": "PL"}
+      },
+      "company": {"company_id": "cmp-1", "name": "Vistula Cloud", "domain": "vistula.example.com"}
+    },
+    {
+      "person": {
+        "person_id": "prs-2",
+        "first_name": "Piotr",
+        "last_name": "Sample",
+        "full_name": "Piotr Sample",
+        "current_job_title": "Engineering Manager, Infrastructure",
+        "location": {"city": "Warsaw", "country": "Poland", "country_code": "PL"}
+      },
+      "company": {"company_id": "cmp-1", "name": "Vistula Cloud", "domain": "vistula.example.com"}
+    },
+    {
+      "person": {
+        "person_id": "prs-3",
+        "first_name": "Olga",
+        "last_name": "Example",
+        "full_name": "Olga Example",
+        "current_job_title": "Office Manager",
+        "location": {"city": "Krakow", "country": "Poland", "country_code": "PL"}
+      },
+      "company": {"company_id": "cmp-1", "name": "Vistula Cloud", "domain": "vistula.example.com"}
+    }
+  ],
+  "pagination": {"current_page": 1, "per_page": 25, "total_page": 1, "total_count": 3}
+}

@@ -9,6 +9,10 @@ PROD_WRITE = {
     "target_companies": "064bf98d-ab49-498d-9b94-2ecc41640230",
     "config": "84f44e56-ff55-4806-9859-50b3744fc325",
     "strategy": "4097af1c-faaf-455f-9616-728301043408",
+    "bot_state": "8c14b838-9421-4b43-bd6c-0d127f25bdb1",
+    "answer_bank": "c6472f12-102b-41ec-9ff3-f97095f8cde0",
+    "autoapply_issues": "3e7b684b-45c4-4c64-9074-aabfe728831d",
+    "weekly_audit": "3d9a954f-4af3-4b28-83d7-d44544f148a9",
 }
 
 
@@ -59,8 +63,9 @@ def test_missing_secrets_are_none_and_present_ones_are_read():
     assert s.gmail_sender_token_json is None
 
 
-def test_dev_and_local_force_haiku():
-    for env in ("local", "dev"):
+def test_dev_forces_haiku_and_local_gemini():
+    for env, model in (("local", "gemini-3.5-flash-lite"), ("dev", "claude-haiku-4-5")):
         s = load_settings(env, {})
-        assert s.force_model == "claude-haiku-4-5"
+        assert s.force_model == model  # local: Gemini on Vertex AI since 28 Oct
         assert s.gmail_sender == "madeshwaranm02@gmail.com"
+        assert (s.vertex_project, s.vertex_location) == ("job-search-engine-509510", "global")

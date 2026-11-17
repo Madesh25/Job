@@ -1,0 +1,41 @@
+{
+  "data": {
+    "organization": {"website_url": "vistula.example.com"},
+    "emails": [
+      {
+        "email": "marta.example@vistula.example.com",
+        "first_name": "Marta",
+        "last_name": "Example",
+        "full_name": "Marta Example",
+        "type": "personal",
+        "country": "PL",
+        "position": "Site Reliability Engineer",
+        "department": "engineering",
+        "verification": {"date": "2026-09-01", "status": "valid"}
+      },
+      {
+        "email": "tomasz.example@vistula.example.com",
+        "first_name": "Tomasz",
+        "last_name": "Example",
+        "full_name": "Tomasz Example",
+        "type": "personal",
+        "country": null,
+        "position": "Talent Acquisition Partner",
+        "department": "hr",
+        "verification": {"date": null, "status": "accept_all"}
+      },
+      {
+        "email": "jobs@vistula.example.com",
+        "first_name": null,
+        "last_name": null,
+        "full_name": null,
+        "type": "generic",
+        "country": null,
+        "position": null,
+        "department": null,
+        "verification": {"date": null, "status": "valid"}
+      }
+    ]
+  },
+  "meta": {"total": 3}
+}

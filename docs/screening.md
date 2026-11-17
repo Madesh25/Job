@@ -1,0 +1,393 @@
+# Screening (Module 03)
+
+Screening reads every Job Opportunities row whose `Screen verdict` is `Unscreened`, asks the
+LLM what the job description actually says, and decides: `Skip` (with a reason), `Apply high`,
+`Apply normal`, `Apply low` or `Needs review`. You then go through the results in Telegram
+with `/pending`, one job at a time.
+
+## Running it
+
+```bash
+# Fixture rows, fake LLM answers and a fake IND register. No network, nothing real written.
+python -m jobengine.screen --fake --today 2026-10-01
+
+# Real run: screens every Unscreened row in Job Opportunities for this env
+python -m jobengine.screen
+
+# Show the verdicts without writing anything (safe on real data)
+python -m jobengine.screen --no-write
+
+# Screen one row again: page ID, URL or posting ID (for example linkedin:4012345678)
+python -m jobengine.screen --row https://jobs.example.com/123
+```
+
+## Daily limit
+
+At most `screening.daily_limit` jobs (50 since 20 Oct, 30 before; in `config/base.yaml`) go to the LLM per day,
+counting every run that day together (CLI, `/fetch`, `/screen`, the daily job). The newest
+postings go first; the rest stay `Unscreened` and are picked up by the next day's runs.
+
+- The count is in Bot State, key `screen.day` (`{"date": ..., "count": ...}`).
+- Rows without a description never reach the LLM and do not count.
+- `--no-write` runs are capped too but do not use up the day.
+- `--row` / `/screen <url>` / `/jd` always run (your explicit ask) and count toward the day.
+- `--limit N` caps one CLI run at N instead of what is left of today.
+
+When the limit is reached the summary says so:
+`daily limit 30 reached (30 screened today): 99 Unscreened rows wait for the next run.`
+
+**`/screen` takes today's jobs (6 Nov).** A bare `/screen` screens only the Unscreened jobs a
+`/fetch` found today (their Swept date is today). `/screen week` takes the jobs found in the
+last 7 days, `/screen all` (or `/screen whole`) every job waiting. The summary says how many
+older jobs it left out and which form takes them. `/autopilot`, the afternoon check,
+`/screen batch` and the CLI always take every waiting job.
+
+**`/screen` asks first (23 Oct, Phase 9 P9-19).** When more jobs wait than today's limit
+leaves, `/screen` screens nothing yet and shows how many wait (of the jobs its form takes), the limit, and the cost over
+it (about $0.003 a job on Haiku), with buttons:
+
+- **Today's N**: what is left of today's limit (the best N first), the rest wait for tomorrow;
+- **M (over the limit)**: today's room plus one more day's limit;
+- **All N**: every waiting job now.
+
+A button runs that many with the usual progress message and counts toward the day; the
+summary then says "this run's limit of M reached" when jobs are still left. When the limit
+covers every waiting job, `/screen` runs at once as before. `/autopilot` and the afternoon
+check never ask (they keep to the daily limit).
+
+On your laptop use `APP_ENV=local` (the default): only `local` reads `.env`, and it still
+writes to the DEV Sandbox. On Windows cmd: `set APP_ENV=local`. A real run needs
+`NOTION_TOKEN` and `ANTHROPIC_API_KEY` in `.env`, and the `job-engine-dev` integration
+connected to every reference database (a 404 "Could not find database" means one is not).
+`DRY_RUN` does not block LLM calls. Outside prod the model is always `claude-haiku-4-5`.
+
+Fake output:
+
+```
+Screening done: 14 screened (5 high, 1 normal, 2 low, 1 needs review, 5 skipped), 1 waiting for JD.
+- Apply high: Tulip Data B.V., Cloud Engineer (Utrecht) | ... | visa: On IND register, Sponsorship stated
+- Apply high: Vistula Cloud, DevOps Engineer (Kraków) | 3 strong, 1 transferable, 0 gaps
+...
+- Skip (Tech mismatch): Odra Systems S.A., Platform Engineer (Poznań) | ...
+```
+
+## Free checks before the AI
+
+Before a job goes to the LLM it is checked for free, with the same rules the sweep uses
+(docs/sweep.md, "Only jobs you can take"):
+
+- a Lead, Principal, Staff, Head of, VP or Vice President title;
+- the years, the higher of `Years required` and the years in the description text, over
+  `screening.max_years_required` (4); with no years stated, a Senior title or a description
+  that calls the role senior;
+- a language other than English required, in the description or the title, or a posting
+  written in Polish or Dutch, even when it also asks for English (`Polish required` / `Dutch
+  required`; other languages are `Other`, with the language in the note);
+- a job in Poland with a B2B contract only (`B2B only`);
+- no visa sponsorship or relocation stated, or the right to work required (`No
+  sponsorship`, note `No visa sponsorship`). The Skip reason options are not changed from
+  code: the `No sponsorship` option is added to the column by hand (done in DEV; prod in
+  go-live step B3).
+
+Such a job is skipped at once (`Skip`, reason `Seniority`, `Experience >5 yrs` above 5
+years, or the language or contract reason) with the note `(no AI used)`; it does not count
+toward the daily 30. When the description asks for more years than the `Years required`
+cell says, the cell is raised (`2 years` becomes `5 years`). The same limit applies after
+the LLM reads the years.
+
+## Several jobs at once
+
+After the first job goes through the LLM, screening sends `screening.workers` (4) jobs at the
+same time, never more than what is left of the daily limit. The first job goes alone, so a
+refused API key still stops the run after one call. Results and the daily count are the same
+as one at a time; only the wait is shorter. `screening.workers: 1` screens one at a time.
+
+## Keeping the AI cheap
+
+- The free checks above skip many jobs before any AI call; the reply says how many
+  (`N skipped without the AI`).
+- The AI reads the description without legal boilerplate (`src/jobengine/jdtrim.py`):
+  privacy and data-processing notices (GDPR, the Polish RODO clause) and equal-opportunity
+  statements, when they are a paragraph of 120 characters or more, and repeated lines. A
+  short line such as "Knowledge of GDPR" is a requirement and stays. Quotes are still checked
+  against the full description, and the Notion page keeps the full text.
+- The reply ends with `AI used: N calls, X tokens in, Y out, about $Z` for that run, priced
+  from `PRICES_PER_MTOK` in `src/jobengine/llm.py` (cache reads at a tenth of the input
+  price). Web searches (`/update`) are billed on top and are not in that figure.
+- Resumes use Haiku too (Config `model.tailor` = `claude-haiku-4-5`; local and dev always
+  use Haiku). Each AI job can use its own model, Gemini included: see docs/ai-models.md.
+  When `model.score` is a Gemini model, `/screen batch` and /autopilot screen at once
+  instead of sending a batch (the batch exists only on Claude).
+
+## Half-price batch
+
+`/screen batch` (CLI: `python -m jobengine.screen --batch`) runs the free checks now (skips
+are written at once) and sends the other Unscreened jobs, up to what is left of today's
+limit, to Anthropic's Message Batches API in one batch. Batch calls cost half the normal
+price. Anthropic answers most batches within an hour, at most within 24 hours. The batch ID
+and its rows are kept in Bot State (`screen.batch`), and the daily count goes up when the
+batch is sent.
+
+`/screen collect` (CLI: `--collect`) checks the batch. While it is still working, the reply
+says how many answers are ready. Once it has ended, each answer goes through the same quote
+check, gates, tier and Notion writes as a normal screening, and the reply ends with the half
+price `AI used` line. A row whose answer failed stays Unscreened for the next `/screen`.
+
+Only one batch waits at a time. Plain `/screen` leaves the rows of a waiting batch alone and
+says how many wait, so no job is paid for twice. A good habit: `/screen batch` in the
+evening, `/screen collect` in the morning.
+
+## When the API key is refused
+
+If Anthropic answers HTTP 401 or 403 (a wrong or revoked `ANTHROPIC_API_KEY`, or an account
+without credit), screening stops after the first job with `Screening stopped: Anthropic
+refused ANTHROPIC_API_KEY (HTTP 401) ...` instead of trying every job. Nothing is written and
+the daily count does not change. The key is read only when the bot starts: put the new key in
+`.env`, stop the bot and start it again (on Cloud Run: add a secret version and redeploy),
+then run `/screen`.
+
+## The flow
+
+1. Load Config, the reference data (Skills Inventory, Term Map, Target Companies, all read
+   only) and the rows with `Screen verdict` = `Unscreened`.
+2. Read the description from the page body: the newest block that starts with
+   `Description source:`, up to the next one or a `Screening (` section.
+   - `full`: at least 600 characters (`screening.full_min_chars`) and not `(snippet only)`
+   - `snippet`: marked `(snippet only)` or shorter
+   - `none`: no description. The row stays `Unscreened` and counts as "waiting for JD".
+     LinkedIn is never fetched, so LinkedIn rows wait here until you paste the JD with `/jd`,
+     unless the sweep found the same job on another site (see "LinkedIn descriptions from other
+     sites" in [sweep.md](sweep.md)).
+3. One LLM call (stage `score`) extracts the facts, then the quote check, the gates, the
+   tier and the visa checks run, and the results are written.
+
+## The quote rule (nothing is invented)
+
+Every value the LLM returns must carry a verbatim quote from the description. The quote is
+compared whitespace- and case-insensitively. A value whose quote is not in the text is
+dropped and treated as "not stated", and the run logs which fields were dropped. Salary,
+sponsorship and dates are only taken when the text states them. `specific_details` (for
+Module 06 mails) must have at least 60% of their content words in the description, at most
+8 words each, at most 3. The LLM only ever gets the job title, company, country and
+description: never contacts, emails or phone numbers.
+
+## Gates (first hit wins, verdict `Skip`)
+
+| # | Gate | Fires when | Skip reason |
+|---|---|---|---|
+| 1 | Seniority / years | `lead`, `principal`, `head of`, `staff`, `vp` in the title; more years required than the limit; lead or principal in the text only when no years are stated ("3+ years" and "lead technical projects" passes) | `Seniority` / `Experience >5 yrs` |
+| 2 | Language | Polish or Dutch is mandatory ("a plus" or "preferred" never skips) | `Polish required` / `Dutch required` |
+| 3 | B2B only | Poland and B2B is the only contract stated | `B2B only` |
+| 4 | Tech mismatch | a mandatory tool has no term backed by a Production or Hands-on skill or an Active Term Map row (`Learning` skills and `(none)` rows do not back). Terms match without extra words (`MS Azure` is Azure, `Linux OS` is Linux, `Apache Kafka` is Kafka), each part of a slash term counts (`Unix/Linux` is backed by Linux) and by other names (`Amazon Web Services` is AWS, `K8s` is Kubernetes). General phrases with no tool name (`build tooling`, `artifact repositories`, `CI/CD pipelines`) never fail it. **Off by default since 1 Oct** (`screening.tech_mismatch_skips: false`): the unbacked tools go to `Gaps`, each counts as one gap in the tier (so 2 missing tools give at best Apply low), and you decide in /pending | `Tech mismatch` only when switched on; unbacked terms in `Gaps` |
+| 5 | Already applied | another row with the same Dedupe key, or the same company and role, is Applied or later | `Already applied` |
+| 6 | Expired | Expires is before today | `Expired` |
+| 8 | Remote (23 Oct) | `sweep.remote_jobs: false` (office or hybrid only) and the row's City is `Remote`, or the description says fully remote with no hybrid or office wording (sweep/fit.py) | `Other` ("remote job, you want office or hybrid" / "Fully remote" in the notes) |
+
+Exactly 5 years passes and only ranks lower.
+
+## Tier
+
+Every requirement gets a strength: `Strong` (Production skill or Active Term Map row),
+`Transferable` (Hands-on skill) or `Gap`. `gap_count` counts the gaps in mandatory non-tool
+requirements and nice-to-haves.
+
+- Employer size (Config `employer.size_rules`): `large` for Target Companies Tier 1, 2, 3, 4
+  or 6, or `On IND register`; `weak` for a company outside Target Companies without stated
+  sponsorship, `Agency posting (IE)` or `Not on IND register`; otherwise `normal`.
+- Permanent contract: Poland `UoP` or both; Netherlands and Ireland `permanent` stated, or not
+  stated as `contract`.
+- Base: 0 gaps, large employer and permanent contract: `Apply high`. At most 1 gap:
+  `Apply normal`. 2 gaps: `Apply low`. 3 or more: `Needs review`.
+- Then: stated sponsorship moves up one tier and adds the Visa flag `Sponsorship stated`; a
+  weak employer is capped at `Apply low`; a job that cannot sponsor (sponsorship stated no,
+  `Not on IND register`, `Agency posting (IE)`) becomes at most `Apply low` and goes to the
+  bottom of `/pending`. A `Needs review` row is never promoted by this rule.
+- A snippet that survives the gates is `Needs review` ("snippet only, paste the full JD
+  with /jd").
+
+`/pending` order: tier, then rows that cannot sponsor last, then points: years 2 to 4 +3,
+unknown +1, exactly 5 -2; sponsorship stated +3; Target Companies tier 1 to 4 or 6 +2; ghost
+risk High -5, Medium -2; posted today or in the 2 days before +3 (freshest first, 28 Oct: the first applicants get the most
+replies; the /pending card marks these jobs 🆕), posted 3 to 7 days ago +1.
+
+## Country rules
+
+- Netherlands: Target Companies `IND sponsor` `Verified` gives `On IND register`, `Not listed`
+  gives `Not on IND register`. Other companies are looked up in the IND public register
+  (Config `ind_register.url`), downloaded once per run through `http.py` (`ind.nl` is on the
+  allowlist). Names are compared without `B.V.`, `N.V.`, `Holding`, `Nederland` and
+  `Netherlands`, with rapidfuzz token-set ratio 90 or more. A second check (token-sort ratio
+  75 or more) stops a short name matching a longer one only because its words are a subset
+  ("Tulip" is not "Tulip Data"). If the page cannot be downloaded or parsed there is no flag
+  and the summary says "IND register unavailable".
+- Ireland: companies that received Irish employment permits last year (the DETE "Permits
+  issued to companies" list, `ie_permits.py`, Config `ie_permits.url`) rank higher in
+  /pending and their card says "Irish permits: N issued to <name> (DETE list)". gov.ie
+  answers the bot with HTTP 403 (Phase 9 P9-20, seen 26 Oct), so the copy you save yourself
+  is read instead: download the yearly file in your browser and save it as
+  `out/ie_permits.xlsx` (or `.xls`, `.pdf`, `.csv`). `/health` says where the list came from,
+  or what to do when it could not be read.
+- Agency posts (all countries since 30 Sep): the text says it is posted for a client, the
+  company starts with a known agency name (`screen/visa.py` KNOWN_AGENCIES, plus Config
+  `agency_names` and `ireland.agency_names`, comma-separated), or its name says recruitment,
+  staffing, personnel, headhunting, executive search, talent solutions or human capital.
+  Ireland: `Agency posting (IE)` (an agency cannot hold a Critical Skills permit for you, so
+  the job is capped as below). Other countries: `Agency posting`, the job is kept as it is.
+  `/fetch` already marks a new job whose company name is an agency's, and screening marks
+  it even when a skip rule fires (1 Oct: Verks Recruitment and VERITA HR were skipped
+  unmarked). Either way the outreach planner and `/fetchcontacts` send no cold mails and spend no
+  credits on it (apply through the agency); `/contacts <job>` still works if you want.
+- Salary: `Salary below visa minimum` only when the text states a salary with a clear period
+  (per year or per month) and Config has `visa.salary_threshold.<country>`. Ireland also gets
+  `IE lower band - degree risk` when Config has `visa.ie_lower_band_max`. Thresholds are never
+  hardcoded; without the Config keys nothing is flagged. Hourly or daily pay, or text without
+  a period, is ambiguous and ignored.
+
+## What gets written
+
+`Screen verdict`, `Skip reason` (Skip only), `Status` = `Screened` (only from `New`),
+`Language required`, `Contract type` (Poland; others `Unknown`), `Sponsorship`, `Work mode`
+and `Expires` (only if stated), `Salary` and `Years required` (only if empty, as `3+ years`, or raised when the description
+asks for more),
+`Visa flags`
+(merged, never removed), `Tech stack`, `Gaps`, and a body section:
+
+```
+Screening (V16, 2026-10-01)
+Strong | Kubernetes in production | Kubernetes
+Transferable | Prometheus | Prometheus
+Gap | CS degree | none
+Specific details: moving our workloads to EKS ; running GitOps with Argo CD
+Verdict: Apply high
+```
+
+A re-screen (`/screen <ref>` or `--row`) appends a new section and never deletes blocks. It
+sets `Status` to `Screened` only if it is `New` or `Screened`, so a row never moves backwards.
+
+## Telegram
+
+- **Apply high alert:** after `/screen` (and `/screen collect`), each new Apply high job
+  comes as its own card, starting with `Apply high: apply today while the posting is fresh.`,
+  with **Approve** and **Skip**, so you can apply the same day. At most 5 cards at once; the
+  rest are in `/pending`. Jobs you already approved or skipped get no card. `/autopilot`
+  approves them itself, so it sends no alert.
+- Typing `/` shows the command menu. The bot registers it with Telegram (`setMyCommands`)
+  each time it starts, and `python -m jobengine.deploy.set_webhook` does the same for
+  Cloud Run.
+- Every command and button shows "typing..." until the reply is ready (sent again every 4
+  seconds, since Telegram clears it after about 5).
+- `/screen` without a job keeps one progress message updated ("Screening: 10 of 24 jobs
+  checked"), like `/fetch`.
+- A button tap is answered at once with a short note ("Skipping...", "Approving, building
+  your resume...") and "typing...", then the reply follows. Skip reuses the review list it
+  already read, so it needs 2 Notion requests instead of 4.
+- `/fetch` runs the sweep, then screening, and ends with `N ready to review: /pending`.
+- `/pending` shows one card at a time, best first, with `Approve`, `Skip` and `Next`.
+- Which days (8 Nov, #284; 12 Nov, your rule): Telegram's bare `/pending` shows the jobs
+  **found today** (First seen = today, the same list as the Today group of the Notion "By
+  day" view; the Swept date, then the Posted date, only when First seen is empty). The Swept
+  date moves to today whenever a /fetch sees a job again, so it is not used first (12 Nov:
+  Poland showed 36 "today" against 6 in Notion). The buttons `Last 3 days` (first seen in the
+  last 3 days, `/pending week`) and `Everything` (`/pending all`) show more. From 10 to 12 Nov
+  Today meant posted today.
+- Country first, then the day (12 Nov): the bare `/pending` shows the country buttons in
+  short, with that day's count: `PL 5`, `NL 5`, `IE 0`, `EU` (remote jobs open
+  across Europe); a country with only older jobs is there too. Tap one: that country's
+  jobs found today, one card at a time. Each card has `Last 3 days (n)` and `Everything (n)`
+  for the same country and `Change country`; these buttons change the day, not the country.
+  When the country has no more jobs that day, its older ones are offered.
+- One country at a time (30 Sep): when the jobs waiting are in more than one country,
+  `/pending` first shows a button per country with its count (Poland, Netherlands, Ireland,
+  Remote EU for remote jobs open across Europe) and All. After a tap only that country's
+  jobs come, and the next job after Skip, I applied or Not applying stays in it, so the VPN
+  is switched once per country. Each card has `Change country`; when a country is done the
+  buttons of the others come. `/pending poland` (pl), `netherlands` (nl), `ireland` (ie),
+  `remote` or `all` goes straight to one. The choice is kept in Bot State `pending.country`.
+  Below the screening match counts the card shows, from the description and your reference
+  data (free, no AI, `sweep/rank.py`):
+  - `Skill match: 75% (3 of 4 tools it names)`: the tools the job names that you have.
+  - `Missing keywords: java, snowflake`: tools it names that you do not have (at most 6).
+  - `Use their word: EKS (your Kubernetes on AWS)`: the job's word for a skill you have under
+    another name (Active Term Map rows); say it their way in the resume and the mail.
+  Approve sets `Status` = `Approved` and builds the resume (see `docs/resume-builder.md`),
+  Skip sets `Declined`. A card already handled (a double tap, or changed in Notion) answers
+  "Already handled". Buttons only work for your chat ID.
+- `/jd <url>` starts a paste. Send the description in as many messages as you like, then
+  `/done`. It is saved in the page body as `Description source: pasted (full)` and screened at
+  once. If the job is not in Notion yet, start with `Company: ...` and `Role: ...` lines
+  (optionally `Country:` and `City:`). The paste is kept in Bot State (key `jd_capture`), so a
+  bot restart does not lose it; after 20 minutes without `/done` it is discarded.
+- `/jd` alone (10 Nov, your requests: one flow for every board; only recent jobs) shows a
+  button per board (LinkedIn first, then by count) with its jobs posted in the last 3 days
+  (`JD_DAYS`; the Swept date when there is no Posted date), and All. Older ones are not
+  shown (the menu says how many; `/jd list` lists them all). Tap a board: its jobs come one
+  at a time, the best /fetch match score first (they have no verdict before their
+  description), then the newest, with the link, the posted date and the buttons Done, Next
+  and Not interested. `/linkedin` opens the LinkedIn board; the "No description (N)" button
+  in the /pending country menu opens the board menu.
+- For each job: open the link, save the page (Ctrl+S; Chrome or Edge "Webpage, Single File",
+  .mhtml; Firefox "Web Page, complete", send the .htm or .html file only, not its folder)
+  and send the file to the bot. Or paste the text and tap Done. It is saved as
+  `Description source: saved page (full)` (or `pasted (full)`), screened at once (one AI
+  call), the job's card comes with its buttons (also when the job is outside the /pending day
+  or country you chose; until 10 Nov only a line came), then "N more job(s) wait for a
+  description" with a "Next job" button. Done after a saved page shows the next job. "Not interested" Declines the job
+  without any AI call. (Your idea of 1 Oct; one flow 10 Nov.)
+- The bot reads only the file, never the site. Without an open `/jd` the job is the one whose
+  link the page names (LinkedIn's job id, "saved from url", the canonical link). From a
+  LinkedIn page only the job is taken: the text after "About the job" up to "Set alert for
+  similar jobs", "About the company" or "More jobs" (3-06: Firefox keeps the whole page,
+  with Premium lines and 13 other jobs). Other sites give their JobPosting description or
+  their longest text block. A page without a description (a sign-in page) says so and the
+  `/jd` stays open.
+- `/screen` screens what is not screened yet; `/screen <url or id>` screens one job again.
+
+In the fake bot (`python -m jobengine.telegram_bot --fake`), `tap <data>` presses a button,
+for example `tap ap:pl-clean`. The fake bot uses the sweep and screening fixtures in one
+in-memory Job Opportunities; rows without an LLM fixture are screened as "nothing stated".
+
+## /add <job link> (23 Oct, your request)
+
+When LinkedIn or another app sends you to the company's own job page, send that link with
+`/add <link>`. The bot:
+
+1. opens the page (never LinkedIn or a site on `sweep.fulltext.blocked_hosts`: those answer
+   with the /jd way instead) and reads the job from its schema.org JobPosting (title,
+   company, place, description), else from the page itself;
+2. saves the job in Job Opportunities (Board `Company site`; the same row when the link is
+   already there) with the description, and screens it;
+3. adds the company to Target Companies, unless it is already there (`Citi` matches
+   `Citi (IE)`) or a recruitment agency: Careers URL is its job board when the link shows one
+   (Greenhouse, Lever, SmartRecruiters, Workday, Ashby, Workable, Recruitee, Personio,
+   Teamtailor), else the site's home page (its board is found on the next /fetch); Region
+   from the job's country; Active ticked; a Notes line with the link. An **Undo** button
+   unticks Active. Only these fields are written (`safety.target_companies_add_fields`), and
+   Target Companies is shared by every env (your decision of 23 Oct, like Skills Inventory);
+4. marks the job Approved and builds the resume (a remote job is saved too, with a note).
+   When screening says Skip (Phase 13 B-03: "Minimum 5 years" and your limit of 4), it says
+   why and builds nothing yet: **Build the resume anyway** (the verdict becomes Needs review,
+   the Skip reason stays) or **Not applying**.
+
+A page that shows no description (it loads it with scripts) or no role answers with the /jd
+way: `/jd <link>`, paste the text, `/done`.
+
+Phase 13 B-03 (26 Oct): a page that does not name the company (no schema.org data, no
+`og:site_name`, like kariera.comarch.pl) gets it from the link (`kariera.comarch.pl` gives
+`Comarch`, `sii.pl` gives `Sii`), and the bot says so: fix the Company field in Notion if it
+is wrong. The page gets 30 seconds (`ADD_TIMEOUT`, a /fetch page gets 12) and one more try
+after a time-out, because you wait for that one page.
+
+Also from the B-03 retests: a job already saved from an alert (only a snippet) gets the
+company page's full text as its newest description, so its stated years count in screening
+(Sii: "Minimum 5 years"); the place is read from the job text when the page data has none
+(Comarch); the company name loses its legal form ("PwC Advisory spółka z ograniczoną
+odpowiedzialnością sp.k." becomes "PwC Advisory"); a second tap on Approve resume answers
+"Already approved" instead of sending the Apply pack again.
+
+## Checking it on your laptop
+
+1. `python -m jobengine.screen --fake --today 2026-10-01` prints the summary above.
+2. With `APP_ENV=local` and `NOTION_TOKEN` and `ANTHROPIC_API_KEY` in `.env`:
+   `python -m jobengine.screen --no-write` shows what real screening would decide.
+3. Then `python -m jobengine.screen` writes the results to Job Opportunities (DEV).
+4. In Telegram: `/pending`, tap the buttons, and try `/jd` with a LinkedIn job.

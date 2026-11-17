@@ -1,0 +1,32 @@
+{
+  "total": 3,
+  "jobPostings": [
+    {
+      "title": "DevOps Engineer",
+      "externalPath": "/job/Warsaw/DevOps-Engineer_JR1001",
+      "locationsText": "Warsaw",
+      "postedOn": "Posted 2 Days Ago",
+      "bulletFields": [
+        "JR1001"
+      ]
+    },
+    {
+      "title": "Cloud Engineer",
+      "externalPath": "/job/Dublin/Cloud-Engineer_JR1002",
+      "locationsText": "2 Locations",
+      "postedOn": "Posted Today",
+      "bulletFields": [
+        "JR1002"
+      ]
+    },
+    {
+      "title": "Java Developer",
+      "externalPath": "/job/Warsaw/Java-Developer_JR1003",
+      "locationsText": "Warsaw",
+      "postedOn": "Posted 30+ Days Ago",
+      "bulletFields": [
+        "JR1003"
+      ]
+    }
+  ]
+}

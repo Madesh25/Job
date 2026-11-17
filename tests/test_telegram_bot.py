@@ -46,6 +46,8 @@ class FakeTelegram:
         if method == "sendMessage":
             self.sent.append((payload["chat_id"], payload["text"]))
             return {"ok": True, "result": {}}
+        if method == "setMyCommands":
+            return {"ok": True, "result": True}
         return {"ok": False, "description": f"unexpected {method}"}
 
 
@@ -106,6 +108,28 @@ def test_poll_once_answers_and_advances_offset():
     assert len(fake.sent) == 1
     assert fake.sent[0][0] == CHAT_ID
     assert "offset" not in fake.calls[0][1]
+
+
+def test_fetch_sent_before_the_bot_started_is_not_run_again():
+    old = update(20, "/fetch")
+    old["message"]["date"] = 1_000
+    new = update(21, "/fetch")
+    new["message"]["date"] = 2_000
+    ran = []
+    fake = FakeTelegram([[old, new]])
+    offset = tb.poll_once(tb.TelegramClient(fake), settings(), None,
+                          lambda progress: ran.append(1) or "Sweep done", started=1_500)
+    assert offset == 22 and ran == [1]  # only the /fetch sent after the start ran
+    texts = [text for _, text in fake.sent]
+    assert any("Not running /fetch: it was sent before the bot started" in t for t in texts)
+
+
+def test_other_commands_before_the_start_still_run():
+    old = update(30, "/start")
+    old["message"]["date"] = 1_000
+    fake = FakeTelegram([[old]])
+    tb.poll_once(tb.TelegramClient(fake), settings(), None, started=1_500)
+    assert len(fake.sent) == 1 and "Not running" not in fake.sent[0][1]
 
 
 def test_poll_once_passes_offset_and_keeps_it_when_empty():
@@ -326,10 +350,10 @@ def test_fake_bot_fetch_shows_start_progress_and_summary(monkeypatch, capsys):
     out = capsys.readouterr().out
     assert "bot> [LOCAL] \U0001F50E Searching for jobs (started " in out
     assert "bot (updated)> [LOCAL] \u2705 Job search done in under a minute." in out
-    assert "\U0001F1F5\U0001F1F1 Poland: 4" in out
+    assert "\U0001F1F5\U0001F1F1 Poland: 3" in out
     assert "\U0001F1F3\U0001F1F1 Netherlands: 2" in out
-    assert "\U0001F1EE\U0001F1EA Ireland: 2" in out
-    assert "Already in Notion, seen again: 6" in out
+    assert "\U0001F1EE\U0001F1EA Ireland: 3" in out
+    assert "Already in Notion, seen again: 5" in out
     assert "Not a match (skipped): 3" in out
 
 
@@ -339,3 +363,818 @@ def test_poll_once_routes_fetch_to_run_fetch():
     texts = [text for _, text in fake.sent]
     assert texts[0].startswith("[LOCAL] \U0001F50E Searching for jobs")
     assert texts[-1] == "[LOCAL] Sweep done"
+
+
+# ---------------------------------------------------------------- Module 03: screening desk
+
+from datetime import datetime, timedelta  # noqa: E402
+
+from jobengine.screen.desk import APPROVED_TEXT, fake_desk  # noqa: E402
+from jobengine.sweep.fakes import FAKE_TODAY  # noqa: E402
+
+
+class ButtonTelegram(FakeTelegram):
+    """FakeTelegram that also records buttons and answers callback queries."""
+
+    def __init__(self, batches=None):
+        super().__init__(batches)
+        self.buttons = []
+        self.documents = []
+
+    def __call__(self, method, payload, timeout):
+        if method in ("answerCallbackQuery", "sendChatAction"):
+            self.calls.append((method, payload))
+            return {"ok": True, "result": True}
+        if method in ("sendMessage", "sendDocument"):
+            rows = (payload.get("reply_markup") or {}).get("inline_keyboard") or []
+            self.buttons.append([b["callback_data"] for row in rows for b in row])
+        if method == "sendDocument":
+            self.calls.append((method, payload))
+            self.sent.append((payload["chat_id"], payload["caption"]))
+            self.documents.append(payload["_document"])
+            return {"ok": True, "result": {"message_id": len(self.sent)}}
+        return super().__call__(method, payload, timeout)
+
+
+def tap(update_id, data, user=CHAT_ID):
+    return {"update_id": update_id, "callback_query": {
+        "id": f"cb{update_id}", "from": {"id": int(user)},
+        "message": {"chat": {"id": int(user)}}, "data": data}}
+
+
+class Clock:
+    def __init__(self):
+        self.now = datetime(2026, 10, 1, 9, 0)
+
+    def __call__(self):
+        return self.now
+
+
+LINKS = ["mailto:alex@example.com", "tel:+15550100000", "https://alex.example.com",
+         "https://github.com/alex-example", "https://www.linkedin.com/in/alex-example/"]
+
+
+def fake_rendering(d, tmp_path):
+    """Resume rendering without WeasyPrint: tests run anywhere."""
+    from jobengine.resume.models import Measure
+
+    d.resume.render = lambda html: b"%PDF-fake"
+    d.resume.measure = lambda html: Measure(pages=1, fill=91.0, text="", links=LINKS,
+                                            fonts={"Lato"})
+    d.resume.out_dir = tmp_path
+
+
+@pytest.fixture
+def desk(tmp_path):
+    s = settings()
+    d = fake_desk(s, FAKE_TODAY, now=Clock())
+    fake_rendering(d, tmp_path)
+    d.screen()  # screen the fixture rows first
+    return d
+
+
+def talk(desk, *items):
+    fake = ButtonTelegram([[item if isinstance(item, dict) else update(i, item)]
+                           for i, item in enumerate(items, 1)])
+    client = tb.TelegramClient(fake)
+    offset = None
+    for _ in items:
+        offset = tb.poll_once(client, settings(), offset, desk=desk)
+    return fake
+
+
+def test_pending_shows_one_card_in_rank_order(desk):
+    fake = talk(desk, "/pending all")
+    assert len(fake.sent) == 1
+    text = fake.sent[0][1]
+    assert text.startswith("[LOCAL] [1/")
+    assert "Apply high\nTulip Data B.V., Cloud Engineer" in text
+    assert "Match: 1 strong, 0 transferable, 1 gaps" in text
+    assert "2 jobs need the JD (1 LinkedIn, 1 Company site): /jd" in text
+    assert fake.buttons[0] == ["ap:nl-sponsor-yes", "sk:nl-sponsor-yes", "nx:1"]
+    order = [r.page_id for r in desk.ranked()]
+    assert "ie-5-years" not in order  # 5 years: over the 4-year limit, skipped with no AI
+    assert order.index("pl-clean") < order.index("pl-polish-plus")  # tier first
+    assert order.index("nl-not-register") > order.index("pl-polish-plus")
+
+
+def test_next_approve_builds_resume_and_second_tap_shows_it_again(desk):
+    fake = talk(desk, tap(1, "nx:1"), tap(2, "ap:pl-clean"), tap(3, "ap:pl-clean"),
+                tap(4, "sk:nl-ind"), tap(5, "sk:nl-ind"))
+    texts = [t for _, t in fake.sent]
+    assert "Vistula Cloud, DevOps Engineer" in texts[0]
+    assert texts[1] == "[LOCAL] " + APPROVED_TEXT.format(job="Vistula Cloud, DevOps Engineer")
+    assert texts[2] == "[LOCAL] Building resume for Vistula Cloud..."
+    assert texts[3].startswith("[LOCAL] Resume for Vistula Cloud, DevOps Engineer (version 1)\n"
+                               "One page, 91.0% full")
+    assert fake.documents[0] == ("Alex_Devops_VistulaCloud.pdf", b"%PDF-fake")
+    assert fake.buttons[3] == ["ra:00000001000040008000000000000001",
+                               "rq:00000001000040008000000000000001", "fg:pl-clean:Istio"]
+    # Second Approve tap: the same preview again, no second build.
+    assert texts[6].startswith("[LOCAL] Resume for Vistula Cloud, DevOps Engineer (version 1)")
+    assert len(desk.resume.resume_log.rows) == 1
+    assert desk.repo.rows["pl-clean"]["Status"] == "Resume built"
+    assert desk.repo.rows["nl-ind"]["Status"] == "Declined"
+    assert "[LOCAL] Already handled" in texts
+    assert [m for m, _ in fake.calls if m == "answerCallbackQuery"] == ["answerCallbackQuery"] * 5
+
+
+def test_buttons_from_other_users_are_ignored(desk):
+    fake = talk(desk, tap(1, "ap:pl-clean", user="999"))
+    assert fake.sent == []
+    assert desk.repo.rows["pl-clean"]["Status"] == "Screened"
+
+
+def test_jd_two_messages_then_done_screens_the_row(desk):
+    fake = talk(desk, "/jd https://www.linkedin.com/jobs/view/4012345678",
+                "Northwind Cloud is hiring a Platform Engineer in Cork.",
+                "You run Kubernetes and Terraform on AWS.", "/done")
+    texts = [t for _, t in fake.sent]
+    assert "Collecting the job description for Northwind Cloud, Platform Engineer" in texts[0]
+    assert "characters so far" in texts[1]
+    body = desk.repo.rows["li-no-jd"]["body"]
+    assert body[0] == "Description source: pasted (full)"
+    assert body[1] == ("Northwind Cloud is hiring a Platform Engineer in Cork.\n"
+                       "You run Kubernetes and Terraform on AWS.")
+    assert desk.repo.rows["li-no-jd"]["Screen verdict"] == "Needs review"  # short paste
+    assert any(t.startswith("[LOCAL] Screening done: 1 screened") for t in texts)
+    assert desk.captures.get() is None
+
+
+def test_jd_for_a_new_url_creates_the_row(desk):
+    talk(desk, "/jd https://www.irishjobs.ie/job/77\nCompany: Harbour Soft\nRole: SRE",
+         "We run Kubernetes and Terraform on AWS for our trading platform in Dublin, "
+         "with on-call shared across the team.", "/done")
+    url = "https://www.irishjobs.ie/job/77"
+    created = [r for r in desk.repo.rows.values() if r.get("URL") == url]
+    assert len(created) == 1
+    row = created[0]
+    assert (row["Company"], row["Role"], row["Board"]) == ("Harbour Soft", "SRE", "IrishJobs.ie")
+    assert (row["Status"], row["Times seen"], row["First seen"]) == ("Screened", 1, FAKE_TODAY)
+
+
+def test_jd_asks_for_company_and_role(desk):
+    fake = talk(desk, "/jd https://jobs.example.com/unknown", "We run Kubernetes.",
+                "Company: Acme Cloud\nRole: DevOps Engineer", "/done")
+    texts = [t for _, t in fake.sent]
+    assert "Send the company and role first" in texts[0]
+    assert "Still need the company and role" in texts[1]
+    assert any("Acme Cloud" == r.get("Company") for r in desk.repo.rows.values())
+
+
+def test_old_capture_is_discarded(desk):
+    talk(desk, "/jd https://www.linkedin.com/jobs/view/4012345678")
+    desk.now.now += timedelta(minutes=21)
+    fake = talk(desk, "pasted text")
+    assert "older than 20 minutes and was discarded" in fake.sent[0][1]
+    assert desk.captures.get() is None
+    assert "body" not in desk.repo.rows["li-no-jd"] or not desk.repo.rows["li-no-jd"]["body"]
+
+
+def test_jd_list_lists_waiting_rows(desk):
+    fake = talk(desk, "/jd list")
+    assert "2 jobs wait for a description (1 LinkedIn, 1 Company site)" in fake.sent[0][1]
+    assert "https://www.linkedin.com/jobs/view/4012345678" in fake.sent[0][1]
+    assert "Company site:\n- Northwind Cloud" in fake.sent[0][1]
+
+
+def test_plain_text_without_capture_gets_the_usual_answer(desk):
+    fake = talk(desk, "hello")
+    assert fake.sent[0][1] == "[LOCAL] I only understand commands for now. Send /help to see them."
+
+
+def test_screen_command(desk):
+    fake = talk(desk, "/screen", "/screen pl-clean")
+    assert fake.sent[0][1].startswith("[LOCAL] \U0001F50E Screening new jobs (started ")
+    assert fake.sent[1][1].startswith("[LOCAL] Screening done: 0 screened")
+    assert fake.sent[2][1].startswith("[LOCAL] Screening done: 1 screened (1 high")
+    assert "ready to review: /pending" in fake.sent[2][1]
+
+
+def test_screen_with_a_word_explains_the_forms(desk):
+    fake = talk(desk, "/screen pending")
+    assert fake.sent[0][1].startswith("[LOCAL] /screen screens the jobs today's /fetch found")
+    assert "/screen <job link or page id>" in fake.sent[0][1]
+
+
+def test_fetch_never_screens_by_itself():
+    s = settings()
+    d = fake_desk(s, FAKE_TODAY)
+    calls = []
+    d.screen = lambda *a, **k: calls.append(1) or "screened"
+    text = tb.make_fetcher(s, True, d)(lambda line: None)
+    assert "New jobs added to Notion: 8" in text
+    assert calls == [] and "Screening done" not in text
+    assert text.endswith("Next: /screen checks the new jobs against your profile (uses the AI, "
+                         "at most 50 jobs a day).")
+
+
+def test_desk_failures_are_reported_not_raised(desk):
+    def boom(index=0, scope="all"):
+        raise RuntimeError("notion down")
+
+    desk.pending_command = boom
+    fake = talk(desk, "/pending")
+    assert fake.sent[0][1] == "[LOCAL] /pending failed: notion down"
+
+
+def test_fake_harness_taps(monkeypatch, capsys):
+    monkeypatch.setattr(tb, "get_settings", lambda: load_settings("local", {}))
+    monkeypatch.setattr(sys, "stdin", io.StringIO("/screen all\n/pending\ntap ap:nl-sponsor-yes\n"))
+    assert tb.main(["--fake"]) == 0
+    out = capsys.readouterr().out
+    assert "[Approve: tap ap:nl-sponsor-yes]" in out
+    assert "bot> [LOCAL] Approved: Tulip Data B.V., Cloud Engineer." in out
+    assert "bot> [LOCAL] Building resume for Tulip Data B.V...." in out
+
+
+def test_help_lists_screening_commands():
+    for command in ("/pending", "/jd", "/done", "/screen"):
+        assert command in tb.HELP_TEXT
+
+
+def test_missing_llm_key_is_a_clear_reply(desk):
+    from jobengine.llm import LLMError
+
+    def no_key(config):
+        raise LLMError("ANTHROPIC_API_KEY is not set, so LLM screening cannot run")
+
+    desk.deps.llm = no_key
+    desk.repo.rows["pl-clean"]["Screen verdict"] = "Unscreened"
+    fake = talk(desk, "/screen")
+    assert fake.sent[1][1] == (
+        "[LOCAL] Screening could not run: ANTHROPIC_API_KEY is not set, so LLM screening "
+        "cannot run"
+    )
+
+
+# ---------------------------------------------------------------- Module 04: resume buttons
+
+
+def preview_ref(fake):
+    return next(t for _, t in fake.sent if "Ref RL-" in t)
+
+
+def test_reply_to_preview_builds_revision_two(desk):
+    fake = talk(desk, tap(1, "ap:pl-clean"))
+    caption = preview_ref(fake)
+    reply = {"update_id": 2, "message": {
+        "chat": {"id": int(CHAT_ID)}, "text": "drop Oracle",
+        "reply_to_message": {"message_id": 3, "caption": caption.removeprefix("[LOCAL] ")}}}
+    fake = talk(desk, reply)
+    texts = [t for _, t in fake.sent]
+    assert texts[0] == "[LOCAL] Building resume for Vistula Cloud..."
+    assert texts[1].startswith("[LOCAL] Resume for Vistula Cloud, DevOps Engineer (version 2)")
+    assert "Oracle" in texts[1].split("- Removed: ")[1].splitlines()[0]
+    assert "Ref RL-00000002" in texts[1]
+    assert fake.documents[0][0] == "Alex_Devops_VistulaCloud.pdf"
+
+
+def test_reply_to_unrelated_message_is_not_a_correction(desk):
+    talk(desk, tap(1, "ap:pl-clean"))
+    reply = {"update_id": 2, "message": {
+        "chat": {"id": int(CHAT_ID)}, "text": "drop Oracle",
+        "reply_to_message": {"message_id": 1, "text": "[1/17] Apply high ..."}}}
+    fake = talk(desk, reply)
+    assert fake.sent[0][1] == "[LOCAL] I only understand commands for now. Send /help to see them."
+    assert len(desk.resume.resume_log.rows) == 1
+
+
+def test_approve_resume_old_revision_rebuild_and_i_applied(desk):
+    talk(desk, tap(1, "ap:pl-clean"))
+    fake = talk(desk, tap(1, "rb:pl-clean"))
+    assert "Vistula Cloud, DevOps Engineer (version 2)" in fake.sent[1][1]
+    old, new = "00000001000040008000000000000001", "00000002000040008000000000000002"
+    fake = talk(desk, tap(1, f"ra:{old}"))
+    assert fake.sent[0][1] == "[LOCAL] A newer revision exists"
+    assert "(version 2)" in fake.sent[1][1]
+    fake = talk(desk, tap(1, f"ra:{new}"))
+    assert fake.sent[0][1].startswith("[LOCAL] Apply pack (")  # the form answers first
+    assert "JE1:" in fake.sent[1][1]  # the form autofill code (feature 9)
+    assert fake.sent[2][1] == ("[LOCAL] Resume approved and saved. Apply here: "
+                               "https://jobs.example.com/pl-clean\nWhen you are done, tap I "
+                               "applied (or Not applying): then the next job comes.\nAfter your "
+                               "last job: /fetchcontacts finds the contacts and writes the Gmail "
+                               "drafts, with the resume attached, for every job you applied to "
+                               "today.")
+    assert fake.buttons[2] == ["ia:pl-clean", "na:pl-clean"]
+    row = desk.resume.resume_log.get(new)
+    assert row["Approved"] is True and row["File"].startswith("DRY RUN: ")
+    fake = talk(desk, tap(1, "ia:pl-clean"))
+    assert fake.sent[0][1].startswith("[LOCAL] Marked as applied on 2026-10-01")
+    assert len(fake.sent) == 2  # then the next job to review (or "Nothing to review")
+    fake = talk(desk, tap(2, "ia:pl-clean"))
+    assert fake.sent[0][1] == "[LOCAL] Already handled (Status is Applied)."
+    assert desk.repo.rows["pl-clean"]["Status"] == "Applied"
+
+
+def test_resume_build_failure_is_a_message(desk):
+    desk.resume.blocks = lambda: []
+    fake = talk(desk, tap(1, "ap:pl-clean"))
+    assert fake.sent[-1][1].startswith(
+        "[LOCAL] Golden Master not found in Notion. Nothing built.\nThe job stays Approved")
+    assert fake.buttons[-1] == ["rb:pl-clean", "na:pl-clean"]
+    assert desk.repo.rows["pl-clean"]["Status"] == "Approved"
+
+
+def test_send_document_is_multipart():
+    body, content_type = tb.multipart({"chat_id": "1", "caption": "c",
+                                       "reply_markup": {"inline_keyboard": []},
+                                       "_document": ("a.pdf", b"%PDF-1")})
+    assert content_type.startswith("multipart/form-data; boundary=")
+    assert b'name="document"; filename="a.pdf"' in body and b"%PDF-1" in body
+    assert b'name="reply_markup"' in body and b'{"inline_keyboard": []}' in body
+
+
+def test_console_reply_command_carries_the_caption(tmp_path):
+    out = io.StringIO()
+    transport = tb.console_transport("1", io.StringIO("reply 1 drop Oracle\n"), out, tmp_path)
+    transport("sendDocument", {"chat_id": "1", "caption": "Ref RL-00000001",
+                               "_document": ("a.pdf", b"%PDF")}, 5)
+    update = transport("getUpdates", {}, 5)["result"][0]["message"]
+    assert update["text"] == "drop Oracle"
+    assert update["reply_to_message"]["caption"] == "Ref RL-00000001"
+    assert (tmp_path / "a.pdf").read_bytes() == b"%PDF"
+
+
+# ---------------------------------------------------------------- Module 05: contacts
+
+
+def test_resume_approval_offers_contacts_then_drafts_as_buttons(desk):
+    talk(desk, tap(1, "ap:pl-clean"))
+    fake = talk(desk, tap(1, "ra:00000001000040008000000000000001"))
+    texts = [t for _, t in fake.sent]
+    assert len(texts) == 3 and texts[2].startswith("[LOCAL] Resume approved and saved.")
+    assert texts[0].startswith("[LOCAL] Apply pack (")  # PR 11: ready form answers
+    assert "JE1:" in texts[1]  # feature 9: the form autofill code
+    # Nothing looked up yet; the buttons are on the last message. Contacts come later with
+    # /fetchcontacts; an old Find contacts button (ct:) still works.
+    assert fake.buttons[2] == ["ia:pl-clean", "na:pl-clean"]
+    assert not desk.repo.rows["pl-clean"].get("Contacts")
+    fake = talk(desk, tap(2, "ct:pl-clean"))
+    texts = [t for _, t in fake.sent]
+    # Module 10: an Apply high job at a large target company gets outreach.
+    assert texts[0] == ("[LOCAL] Outreach for Vistula Cloud: yes (priority A; 10 of 11 left "
+                        "this week).")
+    assert texts[1] == "[LOCAL] Finding contacts for Vistula Cloud..."
+    summary = texts[2]
+    assert summary.startswith("[LOCAL] Contacts for Vistula Cloud, DevOps Engineer (Poland)")
+    assert "Peer engineer: Kasia Example (Platform Engineer) [cache]" in summary
+    assert "found. Credits: Apollo" in summary
+    assert desk.repo.rows["pl-clean"]["Contacts"]
+    assert len(texts) == 3 and "Next: tap Write Gmail drafts" in summary
+    assert fake.buttons[-1] == ["ln:pl-clean", "dr:pl-clean"]  # LinkedIn notes, then drafts
+    # Module 06: drafts only on the tap (DRY_RUN here: nothing created, a preview instead).
+    fake = talk(desk, tap(3, "dr:pl-clean"))
+    texts = [t for _, t in fake.sent]
+    assert texts[0] == "[LOCAL] Writing Gmail drafts (never sent)..."
+    drafts = texts[1]
+    assert drafts.startswith("[LOCAL] Drafts for Vistula Cloud, DevOps Engineer")
+    assert "DRY RUN: 4 drafts not created." in drafts
+    assert "Subject: [LOCAL] to piotr.example@vistula.example.com | " in drafts
+    assert "Attachment: Alex_Devops_VistulaCloud.pdf" in drafts
+
+
+def test_drafts_command(desk):
+    talk(desk, tap(1, "ap:pl-clean"))
+    talk(desk, tap(1, "ra:00000001000040008000000000000001"))
+    talk(desk, tap(2, "ct:pl-clean"))
+    fake = talk(desk, "/drafts pl-clean")
+    assert fake.sent[-1][1].startswith("[LOCAL] Drafts for Vistula Cloud, DevOps Engineer")
+    assert talk(desk, "/drafts").sent[0][1] == "[LOCAL] Send /drafts <job URL or page id>."
+    fake = talk(desk, "/drafts https://jobs.example.com/nl-ind")
+    assert fake.sent[0][1].startswith("[LOCAL] No approved resume for this job")
+    assert "/drafts" in tb.HELP_TEXT
+
+
+def test_credits_command(desk):
+    fake = talk(desk, "/credits")
+    text = fake.sent[0][1]
+    # Fake today is 2026-10-01: September counters start again at 0.
+    assert "Apollo: 0 / 75 per month (reset for this month), updated 2026-09-28, no key" in text
+    assert "Snov: 0 / 50 per month, updated 2026-08-20, no key" in text
+    assert "Contact lookups: test data" in text
+
+
+def test_contacts_command_asks_for_an_unknown_domain_and_resumes_on_reply(desk):
+    fake = talk(desk, "/contacts https://jobs.example.com/nl-ind")
+    question = fake.sent[-1][1]
+    assert question == ("[LOCAL] What is the email domain for Canal Payments? Tap the right one "
+                        "below (found on the job or careers page), or send the domain, e.g. "
+                        "example.com. Ref JOB-nlind")
+    assert fake.buttons[-1] == ["dm:JOB-nlind:example.com"]  # the job link's own site
+    reply = {"update_id": 2, "message": {
+        "chat": {"id": int(CHAT_ID)}, "text": "canal.example.com",
+        "reply_to_message": {"message_id": 2, "text": question.removeprefix("[LOCAL] ")}}}
+    fake = talk(desk, reply)
+    texts = [text for _, text in fake.sent]
+    assert texts[-1].startswith("[LOCAL] Contacts for Canal Payments")
+    bad = dict(reply, message=dict(reply["message"], text="canal.greenhouse.io"))
+    fake = talk(desk, bad)
+    assert "no longer open" in fake.sent[-1][1]  # already answered
+
+
+def test_a_domain_sent_on_its_own_answers_the_open_question(desk):
+    talk(desk, "/contacts https://jobs.example.com/nl-ind")
+    fake = talk(desk, "canal.example.com")  # not a Telegram reply (Phase 6, P6-3.1)
+    assert fake.sent[-1][1].startswith("[LOCAL] Contacts for Canal Payments")
+    # Answered: a later plain domain is just text again.
+    assert talk(desk, "canal.example.com").sent[-1][1].endswith("Send /help to see them.")
+
+
+def test_a_wrong_domain_sent_on_its_own_gets_an_answer(desk):
+    # P9-24 (16 Oct): a refused domain fell through to "I only understand commands".
+    talk(desk, "/contacts https://jobs.example.com/nl-ind")
+    fake = talk(desk, "canal.greenhouse.io")
+    assert fake.sent[-1][1].startswith(
+        "[LOCAL] canal.greenhouse.io does not look like a company email domain")
+    # The question stays open: the right domain still answers it.
+    assert talk(desk, "canal.example.com").sent[-1][1].startswith(
+        "[LOCAL] Contacts for Canal Payments")
+
+
+def test_a_lost_send_is_tried_once_more():
+    calls, waits = [], []
+
+    def transport(method, payload, timeout):
+        calls.append(method)
+        if len(calls) == 1:
+            raise tb.TelegramNetworkError("sendMessage failed: URLError EOF")
+        return {"ok": True, "result": {"message_id": 7}}
+
+    client = tb.TelegramClient(transport, sleep=waits.append)
+    assert client.send_message(CHAT_ID, "hi") == 7
+    assert calls == ["sendMessage", "sendMessage"] and waits == [tb.SEND_RETRY_SECONDS]
+
+
+def test_get_updates_is_not_retried_inside_the_call():
+    def transport(method, payload, timeout):
+        raise tb.TelegramNetworkError("getUpdates failed: URLError EOF")
+
+    client = tb.TelegramClient(transport, sleep=lambda seconds: None)
+    with pytest.raises(tb.TelegramNetworkError):
+        client.get_updates(None)
+
+
+def test_a_domain_button_answers_the_question(desk):
+    talk(desk, "/contacts https://jobs.example.com/nl-ind")
+    replies = desk.tap("dm:JOB-nlind:canal.example.com")
+    assert replies[-1].text.startswith("Contacts for Canal Payments")
+    assert desk.tap("dm:JOB-nlind:canal.example.com")[-1].text.startswith(
+        "That domain question is no longer open")
+
+
+def test_contacts_command_needs_a_job(desk):
+    overview = talk(desk, "/contacts").sent[0][1]
+    assert overview.startswith("[LOCAL] Contacts: ") and " in Notion (" in overview
+    assert "This week (from Monday" in overview and "Send /contacts <job link or id>." in overview
+    assert "No Job Opportunities row" in talk(desk, "/contacts nothing-here").sent[0][1]
+
+
+def test_help_lists_contacts_and_credits():
+    assert "/contacts" in tb.HELP_TEXT and "/credits" in tb.HELP_TEXT
+
+
+# ---------------------------------------------------------------- Module 07: tracking
+
+
+def texts(fake):
+    return [text for _, text in fake.sent]
+
+
+def test_today_sends_the_report_then_the_cards(desk):
+    fake = talk(desk, "/today")
+    sent = texts(fake)
+    assert sent[0] == "[LOCAL] Running the daily check..."
+    assert sent[1].startswith("[LOCAL] Daily check 2026-10-15 (since 2026-10-01 08:00)")
+    assert "Replies: Piotr Example (Vistula Cloud) -> Interview" in sent[1]
+    assert "Tokens: alerts OK, sender OK" in sent[1]
+    assert any("Reply from marek.example@vistula.example.com" in t for t in sent)
+    assert ["lk:jobfjord:t-fjord-a", "lk:jobfjord:-"] in fake.buttons
+    assert "rd:20261015" in [b for row in fake.buttons for b in row]
+
+
+def test_card_taps(desk):
+    talk(desk, "/today")
+    fake = talk(desk, tap(1, "rc:c:cmarek:positive"))
+    assert fake.sent[-1][1] == "[LOCAL] Applied: Marek Example (Vistula Cloud) -> Replied"
+    fake = talk(desk, tap(2, "lk:jobfjord:t-fjord-a"))
+    assert fake.sent[-1][1] == "[LOCAL] Linked Fjord Data."
+    fake = talk(desk, tap(3, "rd:20261015"))
+    assert fake.sent[-1][1] == "[LOCAL] DRY RUN: would delete 1 old contacts (only prod deletes)."
+
+
+def test_status_is_extended(desk):
+    text = talk(desk, "/status").sent[0][1]
+    assert text.startswith("[LOCAL] Job Engine | env=local")
+    assert "Jobs by Status: Applied 5" in text
+    assert "Contacts by Status: Contacted 8" in text
+    assert "Drafts waiting: 3 cold mails, 2 follow-ups" in text
+    assert "Last daily check: never" in text
+
+
+def test_stats_followups_health_sources_digest(desk):
+    stats = talk(desk, "/stats").sent[0][1]
+    assert "Last 30 days: applied 5, replied 0" in stats  # before /today
+    assert "All time: applied 8, replied 1, screening 1, interview 1, offer 1" in stats
+    follow = talk(desk, "/followups").sent[0][1]
+    assert "- Ola Example (Vistula Cloud): due 2026-10-17" in follow
+    health = talk(desk, "/health").sent[0][1]
+    assert "Notion: OK" in health and "Gmail sender token: OK" in health
+    assert "Environment: local, DRY_RUN on" in health
+    # Phase 19 A-00 (3 Nov): the AI money lines, as in the morning check.
+    assert "AI in October" in health and "Credit balancer: off" in health
+    tb.make_fetcher(settings(), True, desk)(lambda line: None)  # a fake sweep stores counts
+    sources = talk(desk, "/sources").sent[0][1]
+    assert "Sweep sources (last sweep: 2026-10-01)" in sources
+    assert "ats: enabled, no secret needed, last sweep" in sources
+    digest = talk(desk, "/digest").sent[0][1]
+    assert digest.startswith("[LOCAL] Weekly digest 2026-10-15")
+    assert "Strategy gate:" in digest
+
+
+def test_help_lists_tracking_commands():
+    for command in ("/today", "/followups", "/stats", "/sources", "/health", "/digest"):
+        assert command in tb.HELP_TEXT
+
+
+# ---------------------------------------------------------------- Module 08: strategy
+
+
+def reply_to(update_id, replied_text, text):
+    return {"update_id": update_id, "message": {
+        "chat": {"id": int(CHAT_ID)}, "text": text,
+        "reply_to_message": {"message_id": 1, "text": replied_text}}}
+
+
+def test_update_cards_notes_and_gate(desk):
+    fake = talk(desk, "/update")
+    sent = texts(fake)
+    assert sent[0] == "[LOCAL] Researching current practice. This takes a minute."
+    assert sent[1].startswith("[LOCAL] Research done: 3 tips to review, 3 rejected")
+    assert sent[2].startswith("[LOCAL] IND register: 4 NL companies checked, 2 changed")
+    cards = [t for t in sent if "Ref ST-" in t]
+    assert len(cards) == 3 and cards[0].startswith("[LOCAL] Tip 1/3 (ATS, All)")
+    buttons = [row for row in fake.buttons if row]
+    assert buttons[0][0].startswith("sa:") and buttons[0][1].startswith("sr:")
+    # A reply to a card is stored as a note.
+    note = talk(desk, reply_to(9, cards[0].removeprefix("[LOCAL] "), "Worth trying"))
+    assert note.sent[-1][1] == "[LOCAL] Note saved on the tip."
+    # /update again re-sends the undecided cards, without a new research call.
+    again = texts(talk(desk, "/update"))
+    assert again[0].startswith("[LOCAL] You still have 3 to review")
+    assert not any("Researching" in t for t in again)
+    # Deciding every tip stamps the gate (bot_state outside prod).
+    for i, row in enumerate(buttons, 1):
+        fake = talk(desk, tap(10 + i, row[0] if i != 2 else row[1]))
+    assert "Strategy updated. /fetch is open until 2026-10-31." in fake.sent[-1][1]
+    assert desk.state.get("last_strategy_update") == {"date": "2026-10-01"}
+
+
+def test_rules_command(desk):
+    text = talk(desk, "/rules").sent[0][1]
+    assert "V16 rules: https://app.notion.com/p/3e36edc2b0d481348577f84b2c39d066" in text
+    assert "- Exceed one page." in text
+    assert "/fetch is open until" in text
+    assert "/update" in tb.HELP_TEXT and "/rules" in tb.HELP_TEXT
+    assert "Targets: Poland, Netherlands and Ireland only" in text
+    assert "An /update review is open" not in text
+
+
+def test_rules_names_an_open_update_review(desk):
+    """Phase 22 Q-03: the research ran, but the date moves only when every tip is decided."""
+    talk(desk, "/update")
+    text = talk(desk, "/rules").sent[0][1]
+    assert "An /update review is open: " in text and "wait for Adopt or Reject" in text
+
+
+
+# ---------------------------------------------------------------- Module 10: outreach budget
+
+
+def test_apply_only_when_the_week_is_used_up_then_find_contacts_anyway(desk):
+    from jobengine.outreach.budget import week_key
+
+    week = week_key(FAKE_TODAY)
+    desk.state.set("outreach.week", {"week": week, "allowance": 2, "jobs": ["a", "b"]})
+    talk(desk, tap(1, "ap:pl-clean"))
+    talk(desk, tap(1, "ra:00000001000040008000000000000001"))
+    fake = talk(desk, tap(2, "ct:pl-clean"))
+    texts = [t for _, t in fake.sent]
+    assert texts[0].startswith("[LOCAL] Apply only for Vistula Cloud: this week's outreach "
+                               "budget is used up.")
+    assert ["oc:pl-clean"] in fake.buttons
+    assert texts[1] == "[LOCAL] Checking free contacts for Vistula Cloud..."
+    summary = texts[2]
+    assert "Kasia Example (Platform Engineer) [cache]" in summary  # free: the cache
+    assert "Apply only: no paid lookup for this job" in summary
+    assert "[Apollo" not in summary  # no provider was searched
+    fake = talk(desk, tap(2, "oc:pl-clean"))
+    texts = [t for _, t in fake.sent]
+    assert texts[0] == "[LOCAL] Finding contacts for Vistula Cloud..."
+    assert "4 of 4 found" in texts[1]
+    assert "pl-clean" in desk.state.get("outreach.week")["jobs"]
+
+
+def test_outreach_command(desk):
+    text = talk(desk, "/outreach").sent[0][1]
+    assert text.startswith("[LOCAL] Outreach budget, week ")
+    assert "0 of 11 jobs used, 11 left." in text
+    assert "About 55 more jobs this month (5 week(s) left" in text
+    assert "/outreach" in tb.HELP_TEXT
+
+
+def test_bot_commands_menu_lists_every_help_command_once():
+    commands = tb.bot_commands()
+    names = [c["command"] for c in commands]
+    assert names[:5] == ["start", "next", "status", "fetch", "autopilot"]
+    assert names.count("jd") == 1 and names.count("screen") == 1
+    assert "help" in names
+    assert all(c["description"] and len(c["description"]) <= 256 for c in commands)
+    assert all(n == n.lower() and n.isascii() for n in names)
+
+
+def test_run_registers_the_menu_before_announcing():
+    fake = FakeTelegram(fail_with=None)
+    tb.run(settings(), tb.TelegramClient(fake), max_polls=0)
+    methods = [m for m, _ in fake.calls]
+    assert methods[:4] == ["setMyCommands", "setMyCommands", "getMyCommands", "sendMessage"]
+    assert fake.calls[0][1]["commands"] == tb.bot_commands()
+    # 23 Oct: a menu set for your chat hides the default one, so yours is set too.
+    assert fake.calls[1][1]["scope"] == {"type": "chat", "chat_id": CHAT_ID}
+
+
+def test_the_menu_is_read_back_and_a_missing_command_is_logged(caplog):
+    class Menu(FakeTelegram):
+        def __call__(self, method, payload, timeout):
+            if method == "getMyCommands":
+                self.calls.append((method, payload))
+                return {"ok": True, "result": [{"command": "start", "description": "x"}]}
+            return super().__call__(method, payload, timeout)
+
+    with caplog.at_level("WARNING"):
+        tb.register_menu(tb.TelegramClient(Menu()), settings())
+    assert "/ menu: Telegram shows 1 of" in caplog.text and "connections" in caplog.text
+
+
+def test_the_fake_bot_keeps_the_menu_it_was_given():
+    client = tb.TelegramClient(tb.console_transport(CHAT_ID, io.StringIO(""), io.StringIO()))
+    tb.register_menu(client, settings())
+    scope = {"type": "chat", "chat_id": CHAT_ID}
+    assert "connections" in {c["command"] for c in client.get_commands(scope)}
+
+
+def test_tap_answers_at_once_with_a_note_and_typing(desk):
+    fake = talk(desk, tap(1, "sk:pl-clean"))
+    answer = next(p for m, p in fake.calls if m == "answerCallbackQuery")
+    assert answer["text"] == "Skipping..."
+    methods = [m for m, _ in fake.calls]
+    assert methods.index("answerCallbackQuery") < methods.index("sendChatAction") \
+        < methods.index("sendMessage")
+
+
+def test_skip_from_the_list_does_not_read_the_page_again(desk):
+    reads = []
+    real = desk.repo.get_values
+    desk.repo.get_values = lambda pid: reads.append(pid) or real(pid)
+    fake = talk(desk, tap(1, "sk:pl-clean"))
+    assert reads == []
+    assert desk.repo.rows["pl-clean"]["Status"] == "Declined"
+    texts = [t for _, t in fake.sent]
+    assert texts[0] == "[LOCAL] Skipped: Vistula Cloud, DevOps Engineer"
+    assert texts[1].startswith("[LOCAL] [2/10]")  # the next card, from the same list
+
+
+def test_rebuild_asks_what_to_change_and_a_reply_is_the_correction(desk):
+    talk(desk, tap(1, "ap:pl-clean"))
+    log = "00000001000040008000000000000001"
+    fake = talk(desk, tap(1, f"rq:{log}"))
+    ask = fake.sent[0][1]
+    assert ask.startswith("[LOCAL] What should change? Send your instructions as your next")
+    assert ask.endswith("Ref RL-00000001")
+    assert fake.buttons[0] == ["rb:pl-clean"]
+    reply = {"update_id": 9, "message": {
+        "chat": {"id": int(CHAT_ID)}, "text": "drop Oracle",
+        "reply_to_message": {"message_id": 5, "text": ask.removeprefix("[LOCAL] ")}}}
+    fake = talk(desk, reply)
+    assert any("(version 2)" in t for _, t in fake.sent)
+
+
+def test_gaps_lists_the_most_common_gaps_first(desk):
+    for row in desk.repo.rows.values():
+        row.pop("Gaps", None)
+    for pid, gaps in (("pl-clean", "PowerShell, Istio"), ("nl-ind", "powershell"),
+                      ("ie-agency", "Go")):
+        desk.repo.rows[pid]["Gaps"] = gaps
+    fake = talk(desk, "/gaps")
+    lines = fake.sent[0][1].removeprefix("[LOCAL] ").splitlines()
+    assert lines[0].startswith("Skill gaps across ")
+    assert lines[1].startswith("1. PowerShell: 2 jobs (")
+    assert any(line.endswith("1 job (" + desk.repo.rows["ie-agency"]["Company"] + ")")
+               for line in lines)
+    assert lines[-1].startswith("Learned one? Add it to Skills Inventory")
+
+
+def test_after_rebuild_the_next_plain_message_is_the_correction(desk):
+    talk(desk, tap(1, "ap:pl-clean"))
+    talk(desk, tap(1, "rq:00000001000040008000000000000001"))
+    fake = talk(desk, "drop Oracle")  # a normal message, not a Telegram reply
+    assert any("(version 2)" in t for _, t in fake.sent)
+    assert desk.state.get("resume.rebuild_ask") is None
+    fake = talk(desk, "hello")  # only the one message after Rebuild counts
+    assert "I only understand commands" in fake.sent[0][1]
+
+
+def test_rebuild_ask_expires_after_30_minutes(desk):
+    talk(desk, tap(1, "ap:pl-clean"))
+    talk(desk, tap(1, "rq:00000001000040008000000000000001"))
+    desk.now = lambda: datetime(2026, 10, 1, 12, 0)
+    fake = talk(desk, "drop Oracle")
+    assert "I only understand commands" in fake.sent[0][1]
+
+
+def test_add_gap_button_lists_it_in_the_skills_and_says_so(desk):
+    talk(desk, tap(1, "ap:pl-clean"))
+    fake = talk(desk, tap(1, "fg:pl-clean:Istio"))
+    preview = next(t for _, t in fake.sent if "(version 2)" in t)
+    assert "Added at your request (learn it before the interview): Istio" in preview
+    assert "Not in your skills" not in preview
+    assert "fg:pl-clean:Istio" not in fake.buttons[-1]
+
+
+def test_refused_instruction_offers_add_anyway(desk, tmp_path):
+    from jobengine.llm import FakeLLM
+
+    (tmp_path / "tailor").mkdir()
+    (tmp_path / "tailor" / "pl-clean-r2.json").write_text(
+        '{"correction_refused": "Istio is not in Skills Inventory or Term Map."}', encoding="utf-8")
+    desk.resume.llm = lambda config: FakeLLM(tmp_path, default={})
+    talk(desk, tap(1, "ap:pl-clean"))
+    talk(desk, tap(1, "rq:00000001000040008000000000000001"))
+    fake = talk(desk, "add Istio")
+    assert fake.sent[-1][1].startswith("[LOCAL] Correction not applied")
+    assert fake.buttons[-1] == ["fc:pl-clean"]
+    fake = talk(desk, tap(1, "fc:pl-clean"))
+    assert any("Added at your request (learn it before the interview): Istio" in t
+               for _, t in fake.sent)
+    fake = talk(desk, tap(1, "fc:pl-clean"))  # used once only
+    assert fake.sent[0][1] == "[LOCAL] That request is no longer open. Send the instruction again."
+
+
+def test_requested_terms_from_plain_instructions():
+    from jobengine.screen.desk import requested_terms
+
+    assert requested_terms("Add that powershell in that resume", "Istio, PowerShell") == [
+        "PowerShell"]
+    assert requested_terms("add powershell") == ["powershell"]
+    assert requested_terms("please add Go and Istio to the skills") == ["Go", "Istio"]
+    assert requested_terms("drop Oracle") == []
+
+
+def test_commands_show_typing_until_the_reply(desk):
+    fake = talk(desk, "/gaps")
+    methods = [m for m, _ in fake.calls]
+    assert methods.index("sendChatAction") < methods.index("sendMessage")
+
+
+def test_typing_is_sent_again_while_the_work_runs():
+    import threading as th
+
+    calls = []
+    done = th.Event()
+
+    def transport(method, payload, timeout):
+        calls.append(method)
+        if calls.count("sendChatAction") >= 3:
+            done.set()
+        return {"ok": True, "result": True}
+
+    with tb.Typing(tb.TelegramClient(transport), CHAT_ID, every=0.01):
+        assert done.wait(2)
+    assert calls.count("sendChatAction") >= 3
+
+
+def test_forced_skill_is_saved_to_gaps(desk):
+    talk(desk, tap(1, "ap:pl-clean"))
+    assert "PowerShell" not in (desk.repo.rows["pl-clean"].get("Gaps") or "")
+    talk(desk, tap(1, "fg:pl-clean:PowerShell"))  # the plan does not report it as a gap
+    assert "PowerShell" in desk.repo.rows["pl-clean"]["Gaps"]
+
+
+def test_every_button_gets_a_working_note(desk):
+    # 5 Oct test notes: some buttons gave no sign that the bot was working.
+    fake = talk(desk, tap(1, "pc:all"))
+    answer = next(p for m, p in fake.calls if m == "answerCallbackQuery")
+    assert answer["text"] == "Loading that country's jobs..."
+    fake = talk(desk, tap(1, "zz:unknown"))
+    answer = next(p for m, p in fake.calls if m == "answerCallbackQuery")
+    assert answer["text"] == tb.TAP_DEFAULT
+
+
+def test_a_few_words_are_not_saved_as_a_description(desk):
+    """6-01 (10 Nov): "manychat.com", the answer to a domain question, was saved as a job's
+    description by an open /jd."""
+    fake = talk(desk, "/jd https://www.linkedin.com/jobs/view/4012345678", "manychat.com",
+                "/done")
+    assert "Only 12 characters collected: that is not a job description" in fake.sent[-1][1]
+    assert not desk.repo.rows["li-no-jd"].get("body")

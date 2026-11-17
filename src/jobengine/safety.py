@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ipaddress
 from urllib.parse import urlsplit
 
 from jobengine.settings import PROD_WRITE_IDS, Settings
@@ -49,8 +50,60 @@ def gmail_write_allowed(s: Settings) -> bool:
     return not s.dry_run
 
 
+def owner_mail_target(s: Settings) -> str:
+    """The only address the daily report and failure alerts are mailed to (alerts.py): your
+    own (safety.redirect_to). Your decision of 25 Oct: they come even with DRY_RUN on, as
+    they never reach anyone else."""
+    return s.redirect_to
+
+
+# The only Config keys the code may write.
+config_writable_keys = ["credits.apollo", "credits.hunter", "credits.snov",
+                        "credits.prospeo", "credits.tomba", "credits.apollo_2",
+                        "credits.hunter_2", "credits.snov_2", "credits.prospeo_2",
+                        "credits.tomba_2", "last_strategy_update"]
+# The only Target Companies properties the code may write (Module 08, prod only).
+# Domain (22 Oct): the email domain the contact finder found itself, written only when the
+# row has none (contacts/domain_search.py).
+target_companies_writable_fields = ["IND sponsor", "Last checked", "ATS platform", "Domain"]
+
+
+def check_config_write(key: str) -> None:
+    """Raise SafetyError unless `key` is on the Config write allowlist."""
+    if key not in config_writable_keys:
+        raise SafetyError(f"refusing to write Config key {key!r}: not on the allowlist")
+
+
+def check_target_companies_write(fields: list[str] | tuple[str, ...] | set[str]) -> None:
+    """Raise SafetyError unless every field is on the Target Companies allowlist."""
+    bad = [f for f in fields if f not in target_companies_writable_fields]
+    if bad:
+        raise SafetyError(f"refusing to write Target Companies {', '.join(map(repr, bad))}: "
+                          "not on the allowlist")
+
+
+# The contact finders CONTACTS_LIVE turns on outside prod (16 Oct: on the PC every lookup
+# answered from test files, so no real company ever got a contact).
+LIVE_CONTACT_PROVIDERS = frozenset({"apollo", "hunter", "snov", "prospeo", "tomba"})
+
+
 def paid_api_allowed(provider: str, s: Settings) -> bool:
-    return s.app_env == PROD and not s.dry_run
+    """Prod with DRY_RUN off; or, on your PC (APP_ENV local) with CONTACTS_LIVE=true, the
+    contact finders only (DRY_RUN stays on: no mail, no upload, no other paid call)."""
+    if s.app_env == PROD:
+        return not s.dry_run
+    return s.app_env == "local" and s.contacts_live and provider in LIVE_CONTACT_PROVIDERS
+
+
+def contact_lookups(s: Settings) -> str:
+    """How the contact finders answer here, for /health, /credits and the lookup result."""
+    if paid_api_allowed("apollo", s):
+        if s.app_env == PROD:
+            return "real (prod, DRY_RUN off)"
+        return ("real (CONTACTS_LIVE on your PC: free credits are used; the Config "
+                "counters are not written here)")
+    return ("test data: Apollo, Hunter, Snov, Prospeo and Tomba are not asked here (real "
+            "only in prod with DRY_RUN off, or on your PC with CONTACTS_LIVE=true)")
 
 
 def notion_write_target(name: str, s: Settings) -> str | None:
@@ -64,6 +117,68 @@ def notion_write_target(name: str, s: Settings) -> str | None:
     if s.app_env != PROD and ds_id in PROD_WRITE_IDS:
         return None
     return ds_id
+
+
+def skills_write_target(s: Settings) -> str | None:
+    """Skills Inventory, for the /gaps "Hands-on" and "Production" buttons only.
+
+    The one deliberate exception to "a test bot never writes the shared tables": your
+    decision of 5 Oct. Skills Inventory is your own reference table (read by every env), a
+    row is added only when you tap a button for that skill, and nothing else is ever
+    written to it."""
+    return s.notion_read.get("skills_inventory")
+
+
+# /add (23 Oct, your request): the only fields of a new Target Companies row, and "Active" for
+# its Undo button.
+target_companies_add_fields = ["Company", "Careers URL", "ATS platform", "Region", "Active",
+                               "Last checked", "Notes"]
+
+
+def target_companies_add_target(s: Settings) -> str | None:
+    """Target Companies, for /add only: your decision of 23 Oct ("that company needs to be
+    added to my Target Companies list"). The table is shared by every env, like Skills
+    Inventory. A row is added only for the company of a job link you send with /add (never
+    an agency, never one already listed), and its Undo button only unticks Active."""
+    return s.notion_read.get("target_companies")
+
+
+def check_target_companies_add(fields: list[str] | tuple[str, ...] | set[str]) -> None:
+    bad = [f for f in fields if f not in target_companies_add_fields]
+    if bad:
+        raise SafetyError(f"refusing to write Target Companies fields {bad}")
+
+
+# 5 Nov, your ask: the empty columns of a row the bot added itself (/newcompanies, /add,
+# your applications) are filled by /fetch (sweep/company_details.py). Only these, only
+# empty ones, never a row you added by hand.
+target_companies_fill_fields = ["Careers URL", "ATS platform", "Domain", "Hub / City", "Tier",
+                                "IND sponsor"]
+
+
+def check_target_companies_fill(fields: list[str] | tuple[str, ...] | set[str]) -> None:
+    bad = [f for f in fields if f not in target_companies_fill_fields]
+    if bad:
+        raise SafetyError(f"refusing to fill Target Companies fields {bad}")
+
+
+def connections_write_target(s: Settings) -> str | None:
+    """🤝 LinkedIn Connections (contacts/connections.py), your decision of 23 Oct: one table
+    for every env, like Skills Inventory. It is your own reference table, written only when
+    you send your LinkedIn export to the bot; nothing else writes to it."""
+    return s.notion_read.get("linkedin_connections")
+
+
+def llm_allowed(s: Settings) -> bool:
+    """LLM calls need ANTHROPIC_API_KEY. DRY_RUN does not block them: they cost cents and
+    nothing can be tested without them. DRY_RUN blocks Gmail writes, Drive writes and paid
+    contact APIs, not the LLM."""
+    return bool(s.anthropic_api_key)
+
+
+def drive_write_allowed(s: Settings) -> bool:
+    """Drive writes (saving approved resumes) are blocked in DRY_RUN."""
+    return not s.dry_run
 
 
 def resolve_model(requested: str, s: Settings) -> str:
@@ -85,5 +200,37 @@ def assert_fetch_allowed(url: str, s: Settings) -> None:
         raise SafetyError(f"refusing to fetch {host}: linkedin is never fetched")
     if parts.scheme != "https":
         raise SafetyError(f"refusing to fetch {host or '(no host)'}: only https is allowed")
-    if host not in {h.lower() for h in s.allowed_hosts}:
-        raise SafetyError(f"refusing to fetch {host}: host is not on safety.allowed_hosts")
+    if host in {h.lower() for h in s.allowed_hosts}:
+        return
+    if any(host.endswith("." + suffix.lower()) for suffix in s.allowed_host_suffixes):
+        return
+    raise SafetyError(f"refusing to fetch {host}: host is not on safety.allowed_hosts")
+
+
+# Hosts a job page is never read from, even when a posting links to them.
+PRIVATE_SUFFIXES = (".local", ".localhost", ".internal", ".lan", ".home", ".corp")
+
+
+def assert_page_fetch_allowed(url: str, s: Settings) -> None:
+    """Raise SafetyError unless url may be read as a public job page (sweep full text).
+
+    Job pages live on any employer or job board domain, so there is no host allowlist.
+    Instead: https only, a public DNS name (no IP address, no localhost or internal
+    names) and never linkedin. Every redirect is checked again by http.get_page.
+    """
+    parts = urlsplit(url)
+    host = (parts.hostname or "").lower().rstrip(".")
+    if "linkedin" in host:
+        raise SafetyError(f"refusing to fetch {host}: linkedin is never fetched")
+    if parts.scheme != "https":
+        raise SafetyError(f"refusing to fetch {host or '(no host)'}: only https is allowed")
+    try:
+        ipaddress.ip_address(host.strip("[]"))
+    except ValueError:
+        pass
+    else:
+        raise SafetyError(f"refusing to fetch {host}: IP addresses are never fetched")
+    if "." not in host or host == "localhost" or host.endswith(PRIVATE_SUFFIXES):
+        raise SafetyError(f"refusing to fetch {host or '(no host)'}: not a public host")
+    if parts.username or parts.password:
+        raise SafetyError(f"refusing to fetch {host}: URLs with a login are never fetched")

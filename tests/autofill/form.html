@@ -1,0 +1,115 @@
+<!doctype html><html><head><meta charset="utf-8"><title>Autofill test form</title>
+<style>label{display:block;margin-top:8px}[role=listbox]{border:1px solid #999}</style></head><body>
+<form id="plain" onsubmit="window.SUBMITTED=1;return false">
+<label for="fn">First Name *</label><input id="fn" name="first_name" required>
+<label for="ln">Last Name *</label><input id="ln" name="last_name" required>
+<label for="em">Email *</label><input id="em" type="email" name="email" required>
+<label for="ph">Phone</label><input id="ph" type="tel" name="phone">
+<label for="li">LinkedIn Profile</label><input id="li" name="urls[LinkedIn]">
+<label for="loc">Current location</label><input id="loc" name="location" value="Typed by me">
+<label for="sal">What are your salary expectations?</label><input id="sal" name="salary">
+<label for="cur">Base Salary Currency</label><input id="cur" name="currency">
+<label for="deg">Degree*</label><input id="deg" name="degree">
+<label for="trv">What is your expected degree of travel?</label><input id="trv" name="travel">
+<label for="yl">Your Location* (required)</label><input id="yl" name="your_location">
+<label for="spon">Will you now or in the future require visa sponsorship?</label>
+<select id="spon" name="sponsor" required><option value="">Select...</option><option>Yes</option><option>No</option></select>
+<fieldset><legend>Are you legally authorized to work in Ireland?</legend>
+<label><input type="radio" name="auth" value="Yes">Yes</label><label><input type="radio" name="auth" value="No">No</label></fieldset>
+<label for="cl">Cover letter</label><textarea id="cl" name="cover"></textarea>
+<label for="yrs">How many years of experience do you have with Kubernetes?</label><input id="yrs" name="q_k8s" required>
+<label for="mob">Mobile phone</label><input id="mob" type="tel" name="mobile" value="+31">
+<label for="num">Expected yearly salary (EUR)</label><input id="num" type="number" name="salary_number">
+<label for="dt">Available to start</label><input id="dt" type="date" name="start_date">
+<label for="conn">Do you have any connections within Demo Co? If so, share their full name.</label><input id="conn" name="connections">
+<label for="curloc">Where are you currently located?</label><input id="curloc" name="located">
+<label for="allowed">Allowed to work?</label><select id="allowed" name="allowed"><option>Please select</option><option>Yes</option><option>No</option></select>
+<label for="perm">Allowed to work in Ireland?</label><select id="perm" name="perm"><option value="">Please select</option><option>Yes, I am an EU citizen</option><option>Not yet, I need a work permit</option></select>
+<label for="avail">Available from</label><input id="avail" name="available_from">
+<label for="motiv">Motivate why you are interested in this particular role</label><textarea id="motiv" name="motivation"></textarea>
+<label for="dpn">Data Protection Information Notice</label><select id="dpn" name="dpn"><option>Select...</option><option>1 month</option><option>Acknowledge</option></select>
+<fieldset><legend>Gender</legend><label><input type="radio" name="gender2" value="m">Male</label><label><input type="radio" name="gender2" value="f">Female</label><label><input type="radio" name="gender2" value="x">Prefer not to answer</label></fieldset>
+<label for="why">Portfolio or anything else? (required, no answer)</label><input id="other" name="other_q" required>
+<label><input type="checkbox" id="consent" name="consent" required> I agree to the privacy policy</label>
+<button type="submit" id="submit" onclick="window.CLICKED=1">Submit application</button>
+</form>
+<div id="combos"></div>
+<script>
+/* A dropdown like Greenhouse's new forms (react-select): the options show while you type,
+   filtered; a choice shows in a single-value box; the typed text is cleared on blur. */
+function combo(id, label, options, required, chosen) {
+  const box = document.createElement('div');
+  box.className = 'select__container field';
+  box.innerHTML = `<label id="${id}-label" for="${id}">${label}</label>
+    <div class="select__control"><div class="select__single-value" id="${id}-value">${chosen || ''}</div>
+    <input id="${id}" role="combobox" aria-autocomplete="list" aria-expanded="false"
+      aria-labelledby="${id}-label" ${required ? 'aria-required="true"' : ''} class="select__input"></div>
+    <div class="select__menu"></div>`;
+  document.getElementById('combos').appendChild(box);
+  const input = box.querySelector('input'), menu = box.querySelector('.select__menu');
+  input.addEventListener('input', () => {
+    setTimeout(() => {
+      const typed = input.value.toLowerCase();
+      const words = typed.split(/[ ,]+/).filter(Boolean);  /* a search by words, like a geocoder */
+      const shown = options.filter(o => words.every(w => o.toLowerCase().includes(w)));
+      menu.innerHTML = shown.length ? `<div role="listbox" id="${id}-listbox">` +
+        shown.map((o, i) => `<div role="option" id="${id}-opt-${i}">${o}</div>`).join('') + '</div>' : '';
+      input.setAttribute('aria-controls', `${id}-listbox`);
+      for (const opt of menu.querySelectorAll('[role=option]')) {
+        opt.addEventListener('click', () => {
+          box.querySelector('.select__single-value').textContent = opt.textContent;
+          input.value = ''; menu.innerHTML = '';
+        });
+      }
+    }, 50);
+  });
+  input.addEventListener('blur', () => setTimeout(() => { input.value = ''; menu.innerHTML = ''; }, 400));
+}
+combo('q1', 'Are you legally authorized to work in Ireland? *', ['Yes', 'No'], true);
+combo('q2', 'Will you require visa sponsorship? *', ['Yes', 'No'], true, 'No, I chose this');
+combo('q3', 'Location (City) *', ['Dublin, County Dublin, Ireland', 'Dublin, Ohio, United States'], true);
+combo('q7', 'Where do you live? *', ['Chennai Central, Chennai', 'Chennai, Tamil Nadu, India'], true);
+combo('q5', 'Are you authorized to work in Ireland without visa sponsorship? *', ['Yes', 'No'], true);
+combo('q6', 'Are you legally authorized to work in Ireland, or will you require sponsorship? *', ['Yes', 'No'], true);
+combo('q4', 'What is your notice period? *', ['Immediately', '2 weeks', '3 months or more'], true);
+/* Like the real Greenhouse form (16 Nov, BearingPoint): its wrapper opens the menu only on
+   key-up or mouse-up, never on typing alone; options have ids react-select-<input id>-option-N;
+   a hidden required twin box (aria-hidden) sits next to it. */
+function ghCombo(id, label, options, chosen) {
+  const box = document.createElement('div');
+  box.className = 'select__container';
+  box.innerHTML = `<label id="${id}-label" for="${id}">${label}</label>
+    <div class="gh-wrap"><div class="select__control"><div class="select__value-container">
+    <div class="select__single-value" id="${id}-value">${chosen || ''}</div>
+    <div class="select__input-container"><input id="${id}" role="combobox" aria-autocomplete="list"
+      aria-expanded="false" aria-labelledby="${id}-label" aria-required="true"
+      class="select__input"></div></div></div>
+    <div class="select__menu"></div></div>
+    <input required tabindex="-1" aria-hidden="true" id="${id}-twin" style="opacity:0;height:1px">`;
+  document.getElementById('combos').appendChild(box);
+  const input = box.querySelector('input[role=combobox]'), menu = box.querySelector('.select__menu');
+  let open = false;
+  const render = () => {
+    const typed = input.value.toLowerCase();
+    const shown = open ? options.filter(o => o.toLowerCase().includes(typed)) : [];
+    input.setAttribute('aria-expanded', String(open));
+    menu.innerHTML = shown.map((o, i) => `<div role="option" id="react-select-${id}-option-${i}">${o}</div>`).join('');
+    for (const opt of menu.querySelectorAll('[role=option]')) {
+      opt.addEventListener('click', () => {
+        box.querySelector('.select__single-value').textContent = opt.textContent;
+        box.querySelector('[aria-hidden]').value = opt.textContent;
+        input.value = ''; open = false; render();
+      });
+    }
+  };
+  input.addEventListener('input', render);
+  const wrap = box.querySelector('.gh-wrap');
+  wrap.addEventListener('keyup', () => { open = true; render(); });
+  wrap.addEventListener('mouseup', () => { open = true; render(); });
+  input.addEventListener('blur', () => setTimeout(() => { input.value = ''; open = false; render(); }, 400));
+}
+ghCombo('gh1', 'Will you require visa sponsorship to work in Ireland? *', ['Yes', 'No']);
+ghCombo('gh2', 'Do you need a visa sponsorship for this role? *', ['Yes', 'No'], 'Yes');
+</script>
+<ul class="iti__country-list" role="listbox"><li class="iti__country" role="option" data-dial-code="47">Yes</li></ul>
+</body></html>

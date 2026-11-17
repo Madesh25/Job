@@ -1,0 +1,30 @@
+{
+ "thread_id": "t-piotr",
+ "messages": [
+  {
+   "id": "m-piotr-1",
+   "when": "2026-10-03T08:00:00+00:00",
+   "from": "madeshwaranm02@gmail.com",
+   "subject": "DevOps Engineer on your team at Vistula Cloud",
+   "text": "Hi Piotr, invented cold mail text.",
+   "labels": [
+    "SENT"
+   ],
+   "headers": {
+    "message-id": "<m-piotr-1@mail.example.com>",
+    "to": "piotr.example@vistula.example.com"
+   }
+  },
+  {
+   "id": "m-piotr-2",
+   "when": "2026-10-08T11:30:00+00:00",
+   "from": "piotr.example@vistula.example.com",
+   "subject": "Re: DevOps Engineer on your team at Vistula Cloud",
+   "text": "Hi Alex,\n\nThanks for reaching out. Could we set up a technical interview next week? Tuesday or Wednesday works.\n\nPiotr\n\nOn Sat, 3 Oct 2026 at 10:00, Alex Example <alex@example.com> wrote:\n> Hi Piotr, invented cold mail text.",
+   "labels": [
+    "INBOX"
+   ],
+   "headers": {}
+  }
+ ]
+}

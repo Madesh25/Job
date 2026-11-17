@@ -1,0 +1,16 @@
+{
+ "thread_id": "t-harbor-job",
+ "messages": [
+  {
+   "id": "m-harbor-1",
+   "when": "2026-10-12T09:00:00+00:00",
+   "from": "talent@harbor.example.com",
+   "subject": "Interview invitation: Harbor Example Systems",
+   "text": "We would like to invite you to a technical interview for the SRE role. Please pick a slot.",
+   "labels": [
+    "INBOX"
+   ],
+   "headers": {}
+  }
+ ]
+}

@@ -1,0 +1,161 @@
+"""Country rules (spec section 7, V16 section 13): Visa flags from facts only.
+
+Salary thresholds come from Config (`visa.salary_threshold.<country>`,
+`visa.ie_lower_band_max`) and are never hardcoded: when a key is missing nothing is flagged.
+"""
+
+from __future__ import annotations
+
+import re
+from dataclasses import dataclass, field
+
+from jobengine.config_store import ConfigStore
+from jobengine.ind_register import IndRegister
+from jobengine.reference import Reference, company_key
+from jobengine.screen.models import Extraction, JobRow
+
+ON_IND = "On IND register"
+NOT_ON_IND = "Not on IND register"
+AGENCY_IE = "Agency posting (IE)"
+AGENCY = "Agency posting"  # any other country: kept, but no cold mails (decision of 30 Sep)
+AGENCY_FLAGS = (AGENCY, AGENCY_IE)
+# Recruitment agencies that post DevOps jobs in PL, NL and IE. Config agency_names (and
+# ireland.agency_names) add more, comma-separated.
+KNOWN_AGENCIES = (
+    "Hays", "Randstad", "Michael Page", "Page Personnel", "Robert Walters", "Robert Half",
+    "Hudson RPO", "Adecco", "Antal", "Experis", "ManpowerGroup", "Harvey Nash", "Computer Futures",
+    "Progressive Recruitment", "SThree", "Huxley", "Nigel Frank", "Jefferson Frank",
+    "Frank Recruitment Group", "Grafton Recruitment", "Morgan McKinley", "Sigmar Recruitment",
+    "Cpl Resources", "Cpl", "Reperio Human Capital", "Nicoll Curtin", "Verita HR",
+    "Undutchables", "Independent Recruiters", "YoungCapital", "Brunel", "Olympia",
+    "Understanding Recruitment", "Oliver Bernard", "Stanton House", "Hirecode", "Grafton",
+)
+AGENCY_WORDS = re.compile(r"\b(recruit\w*|staffing|personnel|headhunt\w*|executive search|"
+                          r"talent solutions|talent acquisition|human capital|employment agency)\b",
+                          re.IGNORECASE)
+SALARY_LOW = "Salary below visa minimum"
+IE_LOWER_BAND = "IE lower band - degree risk"
+SPONSORSHIP_STATED = "Sponsorship stated"
+
+YEAR_WORDS = r"(per\s+year|per\s+annum|p\.?\s?a\.?|a\s+year|/\s*year|/\s*yr|yearly|annual(?:ly)?)"
+MONTH_WORDS = r"(per\s+month|a\s+month|/\s*month|/\s*mo\b|monthly|mies|miesi)"
+OTHER_PERIODS = r"(per\s+(hour|day|week)|/\s*(h|hour|day|week)\b|hourly|daily|weekly|godz)"
+AMOUNT = re.compile(r"(\d{1,3}(?:[ ,. ]\d{3})+|\d+(?:\.\d+)?)\s*(k\b)?", re.IGNORECASE)
+
+
+@dataclass
+class VisaResult:
+    flags: list[str] = field(default_factory=list)
+    notes: list[str] = field(default_factory=list)
+
+    def add(self, flag: str) -> None:
+        if flag not in self.flags:
+            self.flags.append(flag)
+
+
+def _amounts(text: str) -> list[float]:
+    out = []
+    for number, k in AMOUNT.findall(text):
+        digits = re.sub(r"[ ,. ](?=\d{3}\b)", "", number)
+        try:
+            value = float(digits)
+        except ValueError:
+            continue
+        out.append(value * 1000 if k else value)
+    return out
+
+
+def annual_amount(text: str | None) -> float | None:
+    """Lowest yearly amount in a salary text, or None when the text is ambiguous.
+
+    Needs an explicit period (per year or per month). Hourly, daily or weekly pay, both
+    periods at once, or no number at all count as ambiguous.
+    """
+    if not text:
+        return None
+    low = text.lower()
+    yearly = re.search(YEAR_WORDS, low) is not None
+    monthly = re.search(MONTH_WORDS, low) is not None
+    if yearly == monthly or re.search(OTHER_PERIODS, low):
+        return None
+    amounts = [a for a in _amounts(low) if a >= 100]
+    if not amounts:
+        return None
+    lowest = min(amounts)
+    return lowest * 12 if monthly else lowest
+
+
+def config_amount(config: ConfigStore, key: str) -> float | None:
+    """A threshold from Config. A bare number is a yearly amount."""
+    value = config.get(key)
+    if not value:
+        return None
+    if re.search(MONTH_WORDS, value.lower()):
+        return annual_amount(value)
+    amounts = [a for a in _amounts(value.lower()) if a >= 100]
+    return min(amounts) if amounts else None
+
+
+def _agency_names(config: ConfigStore) -> set[str]:
+    raw = f"{config.get('ireland.agency_names') or ''},{config.get('agency_names') or ''}"
+    names = {company_key(part) for part in raw.split(",") if part.strip()}
+    return names | {company_key(name) for name in KNOWN_AGENCIES}
+
+
+def agency_flag(country: str | None) -> str:
+    return AGENCY_IE if country == "Ireland" else AGENCY
+
+
+def agency_by_name(company: str | None, config: ConfigStore) -> bool:
+    """The company is a known agency, or its name says recruitment, staffing, personnel and
+    the like. Used by /fetch, before any AI reads the job."""
+    if not company:
+        return False
+    key = company_key(company)
+    # "Hays Poland", "Verita HR Polska": the agency's name, then a country or a branch.
+    named = any(key == name or key.startswith(name + " ") for name in _agency_names(config))
+    return named or AGENCY_WORDS.search(company) is not None
+
+
+def is_agency(company: str | None, ext: Extraction, config: ConfigStore) -> bool:
+    """A recruitment agency's post: the screening answer says so, or agency_by_name."""
+    return ext.agency_posting.value is True or agency_by_name(company, config)
+
+
+def visa_checks(
+    row: JobRow,
+    ext: Extraction,
+    ref: Reference,
+    config: ConfigStore,
+    register: IndRegister | None,
+) -> VisaResult:
+    """Visa flags for one row. `register` None means the IND register could not be loaded."""
+    result = VisaResult()
+    country = row.country or ""
+    if country == "Netherlands":
+        company = ref.company(row.company)
+        sponsor = company.ind_sponsor if company else None
+        if sponsor == "Verified":
+            result.add(ON_IND)
+        elif sponsor == "Not listed":
+            result.add(NOT_ON_IND)
+        elif register is None:
+            result.notes.append("IND register unavailable")
+        elif register.match(row.company):
+            result.add(ON_IND)
+        else:
+            result.add(NOT_ON_IND)
+    if is_agency(row.company, ext, config):
+        # Ireland: an agency cannot hold a Critical Skills permit for you (tiering caps it).
+        # Elsewhere the job is kept as it is, only no cold mails go out for it.
+        result.add(agency_flag(country))
+
+    salary = annual_amount(ext.salary_text.value)
+    threshold = config_amount(config, f"visa.salary_threshold.{country.lower()}")
+    if salary is not None and threshold is not None and salary < threshold:
+        result.add(SALARY_LOW)
+    if country == "Ireland" and salary is not None:
+        lower_band = config_amount(config, "visa.ie_lower_band_max")
+        if lower_band is not None and salary <= lower_band:
+            result.add(IE_LOWER_BAND)
+    return result

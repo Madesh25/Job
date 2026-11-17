@@ -1,0 +1,30 @@
+{
+ "thread_id": "t-rita",
+ "messages": [
+  {
+   "id": "m-rita-1",
+   "when": "2026-10-02T08:00:00+00:00",
+   "from": "madeshwaranm02@gmail.com",
+   "subject": "DevOps Engineer application, Vistula Cloud Krakow",
+   "text": "Hi Rita, invented cold mail text.",
+   "labels": [
+    "SENT"
+   ],
+   "headers": {
+    "message-id": "<m-rita-1@mail.example.com>",
+    "to": "rita.example@vistula.example.com"
+   }
+  },
+  {
+   "id": "m-rita-2",
+   "when": "2026-10-05T12:00:00+00:00",
+   "from": "rita.example@vistula.example.com",
+   "subject": "Re: DevOps Engineer application, Vistula Cloud Krakow",
+   "text": "Please remove me from your list. Thanks.",
+   "labels": [
+    "INBOX"
+   ],
+   "headers": {}
+  }
+ ]
+}

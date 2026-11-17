@@ -1,0 +1,139 @@
+{
+  "skills_main": [
+    {
+      "label": "Kubernetes",
+      "items": [
+        "EKS",
+        "Helm",
+        "Docker",
+        "kubeadm clusters",
+        "AKS"
+      ]
+    },
+    {
+      "label": "Cloud (AWS)",
+      "items": [
+        "EC2",
+        "VPC",
+        "IAM",
+        "S3",
+        "RDS",
+        "ELB",
+        "Route 53",
+        "CloudWatch"
+      ]
+    },
+    {
+      "label": "Infrastructure as Code",
+      "items": [
+        "Terraform",
+        "Ansible"
+      ]
+    },
+    {
+      "label": "CI/CD Pipelines",
+      "items": [
+        "GitLab CI",
+        "Jenkins",
+        "Azure DevOps Pipelines"
+      ]
+    },
+    {
+      "label": "GitOps & Registry",
+      "items": [
+        "Argo CD",
+        "Harbor",
+        "GitHub Actions"
+      ]
+    },
+    {
+      "label": "Observability",
+      "items": [
+        "Prometheus",
+        "Grafana",
+        "Loki"
+      ]
+    },
+    {
+      "label": "Systems & Scripting",
+      "items": [
+        "Linux (RHEL / Ubuntu)",
+        "Bash",
+        "Python",
+        "Windows Server"
+      ]
+    }
+  ],
+  "skills_also": [
+    {
+      "label": "Cloud (GCP)",
+      "items": [
+        "GKE",
+        "Compute Engine",
+        "Cloud Storage"
+      ]
+    },
+    {
+      "label": "Azure",
+      "items": [
+        "VNet",
+        "Azure Monitor"
+      ]
+    },
+    {
+      "label": "Databases",
+      "items": [
+        "PostgreSQL",
+        "MySQL",
+        "Oracle"
+      ]
+    }
+  ],
+  "bullet_edits": [
+    {
+      "id": "j0b0",
+      "text": "Sole owner of example platform migrations from on-premises servers to containerised Kubernetes environments on AWS, running discovery, target design, build, cutover and validation across development, testing and production."
+    },
+    {
+      "id": "j0b3",
+      "text": "Replaced manual recovery of failed releases on self-managed Kubernetes clusters with a GitLab CI pipeline that detects failure, retries and rolls back on its own, so environments recover without an engineer."
+    },
+    {
+      "id": "j1b1",
+      "text": "Met recovery targets by designing multi-zone topologies on AWS with EKS, provisioned with Terraform and configured with Ansible across EC2, VPC, IAM, S3, RDS, ELB and CloudWatch, proven through 4 scheduled failover tests a year."
+    }
+  ],
+  "term_mappings": [
+    {
+      "jd_term": "EKS",
+      "used_as": "EKS",
+      "where": "j1b1"
+    },
+    {
+      "jd_term": "GitHub Actions",
+      "used_as": "GitHub Actions",
+      "where": "skills"
+    }
+  ],
+  "priority": {
+    "bullet_edits": [
+      "j0b0",
+      "j1b1",
+      "j0b3"
+    ],
+    "skill_items_low_relevance": [
+      "Windows Server",
+      "Loki",
+      "Harbor",
+      "Azure DevOps Pipelines"
+    ]
+  },
+  "focus": {
+    "skills": "Kubernetes on AWS and CI/CD first",
+    "experience": "migration and pipeline work in Kubernetes and AWS terms",
+    "summary": "unchanged"
+  },
+  "gaps_reported": [
+    "Istio"
+  ]
+}

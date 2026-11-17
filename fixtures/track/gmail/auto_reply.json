@@ -1,0 +1,32 @@
+{
+ "thread_id": "t-ola",
+ "messages": [
+  {
+   "id": "m-ola-1",
+   "when": "2026-10-10T08:00:00+00:00",
+   "from": "madeshwaranm02@gmail.com",
+   "subject": "DevOps Engineer application, Vistula Cloud Krakow",
+   "text": "Hi Ola, invented cold mail text.",
+   "labels": [
+    "SENT"
+   ],
+   "headers": {
+    "message-id": "<m-ola-1@mail.example.com>",
+    "to": "ola.example@vistula.example.com"
+   }
+  },
+  {
+   "id": "m-ola-2",
+   "when": "2026-10-10T08:01:00+00:00",
+   "from": "ola.example@vistula.example.com",
+   "subject": "Automatic reply: DevOps Engineer application, Vistula Cloud Krakow",
+   "text": "I am out of office until 20 October.",
+   "labels": [
+    "INBOX"
+   ],
+   "headers": {
+    "auto-submitted": "auto-replied"
+   }
+  }
+ ]
+}

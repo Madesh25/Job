@@ -9,6 +9,7 @@ from jobengine.sweep import fakes
 from jobengine.sweep.__main__ import main as sweep_main
 from jobengine.sweep.models import RawPosting, SourceResult
 from jobengine.sweep.runner import SweepDeps, SweepError, fake_deps, real_deps, run_sweep
+from jobengine.sweep.sources import gmail_alerts
 
 TODAY = date(2026, 10, 1)
 S = load_settings("local", {})
@@ -28,8 +29,8 @@ def fake_run():
 def test_fake_sweep_summary(fake_run):
     summary, _ = fake_run
     assert summary.text().splitlines()[0] == (
-        "Sweep done: 8 new, 1 updated, 5 reposts, 3 skipped (out of scope), "
-        "1 high ghost risk. Sources: gmail 6, adzuna 7, ats 4. Not supported: 2 companies."
+        "Sweep done: 10 new, 4 updated, 2 reposts, 3 skipped (out of scope), "
+        "1 high ghost risk. Sources: gmail 6, adzuna 7, ats 6. Not supported: 1 companies."
     )
     assert summary.text().splitlines()[-1] == "- Maas Logistics, Medior DevOps Engineer (Rotterdam)"
 
@@ -37,12 +38,14 @@ def test_fake_sweep_summary(fake_run):
 def test_same_job_from_adzuna_and_gmail_gives_one_row(fake_run):
     _, repo = fake_run
     _, row = rows_by_key(repo)["vistula cloud|devops engineer|krakow"]
-    assert row["Times seen"] == 2
+    # Another board is not a repost: 2 posting IDs, Times seen stays 1.
+    assert row["Times seen"] == 1
     assert row["Posting IDs"] == (
         "gmail:vistula-cloud-devops-engineer-krakow-devops, adzuna:4300000001"
     )
-    # Created from the email (no salary), then the Adzuna salary and date filled the gaps.
-    assert row["Salary"] == "18000 - 24000 PLN (Adzuna)"
+    # Created from the email with the salary on its card (read since FETCH 13d), then the
+    # Adzuna date filled the gap.
+    assert row["Salary"] == "18 000 - 24 000 PLN (JustJoin IT)"
     assert row["Posted date"] == date(2026, 9, 29)
     assert row["body"][0] == "Description source: adzuna (snippet only)"
 
@@ -70,7 +73,8 @@ def test_status_and_screen_verdict_never_change(fake_run):
 def test_reposts_and_ghost_risk(fake_run):
     _, repo = fake_run
     repost = repo.rows["seed-repost"]
-    assert repost["Times seen"] == 3  # ats + LinkedIn alert, two new posting IDs
+    # ats:4001001 is a repost (same source, new ID); the LinkedIn alert is another board.
+    assert repost["Times seen"] == 2
     assert repost["First seen"] == date(2026, 8, 20)
     assert repost["Ghost job risk"] == "Medium"
     ghost = repo.rows["seed-old-ghost"]
@@ -80,17 +84,17 @@ def test_reposts_and_ghost_risk(fake_run):
 def test_new_rows(fake_run):
     _, repo = fake_run
     rows = rows_by_key(repo)
-    _, baltic = rows["baltic bank|junior devops engineer|gdansk"]
+    _, baltic = rows["baltic|junior devops engineer|gdansk"]
     assert baltic["Status"] == "New" and baltic["Screen verdict"] == "Unscreened"
     assert baltic["Seniority"] == "Junior" and baltic["Ghost job risk"] == "Medium"
     assert baltic["City"] == "Gdańsk" and baltic["Board"] == "Adzuna"
     _, tulip = rows["tulip data|platform engineer|den haag"]
-    assert tulip["Board"] == "LinkedIn" and tulip["Times seen"] == 2
+    assert tulip["Board"] == "LinkedIn" and tulip["Times seen"] == 1
     assert tulip["Salary"] == "60000 - 75000 EUR per year salary (Lever)"
     _, liffey = rows["liffey analytics|site reliability engineer|cork"]
     assert liffey["Country"] == "Ireland" and liffey["Ghost job risk"] == "Unknown"
     assert "body" in liffey and liffey["body"] == []
-    _, odra = rows["odra systems|mid cloud engineer|wroclaw"]
+    _, odra = rows["odra|mid cloud engineer|wroclaw"]
     assert odra["City"] == "Wrocław"
     assert not any("lead" in key for key in rows)  # Lead titles dropped
     assert not any("wawel" in key for key in rows)  # Berlin job dropped
@@ -102,7 +106,7 @@ def test_second_run_next_day_only_updates(fake_run):
     deps.repo = repo
     summary = run_sweep(S, deps, date(2026, 10, 2))
     assert summary.new == 0 and summary.reposts == 0
-    assert summary.updated == 14
+    assert summary.updated == 16
     assert repo.rows["seed-seen-again"]["Times seen"] == 1
 
 
@@ -125,7 +129,7 @@ def test_missing_write_target_means_dry_run(caplog):
     assert deps.repo is None
     assert "DRY RUN: would write to job_opportunities" in caplog.text
     summary = run_sweep(s, deps, TODAY)
-    assert summary.new == 11  # no index without a repo: the 3 seeded jobs count as new
+    assert summary.new == 11  # no index: the seeded jobs count as new (2 ask for too much)
     assert "DRY RUN: would write to job_opportunities (no rows written)" in summary.notes
 
 
@@ -142,7 +146,7 @@ def test_single_source_and_skipped_sources():
 def test_real_mode_skips_sources_without_secrets():
     s = load_settings("local", {"NOTION_TOKEN": "dummy"})
     deps = real_deps(s)
-    assert deps.gmail().skipped_reason == "gmail skipped: GMAIL_ALERTS_TOKEN_JSON missing"
+    assert deps.gmail().skipped_reason == f"gmail skipped: {gmail_alerts.MISSING}"
     assert deps.adzuna().skipped_reason.startswith("adzuna skipped")
     with pytest.raises(SweepError, match="NOTION_TOKEN missing"):
         real_deps(S)
@@ -160,7 +164,7 @@ def test_cli_fake_run(capsys, monkeypatch):
     monkeypatch.setattr("jobengine.sweep.__main__.get_settings", lambda: S)
     assert sweep_main(["--fake", "--today", "2026-10-01"]) == 0
     out = capsys.readouterr().out
-    assert "Sweep done: 8 new" in out
+    assert "Sweep done: 10 new" in out
 
 
 def test_cli_parse_report_writes_nothing(capsys, monkeypatch):
@@ -192,7 +196,7 @@ def test_description_filled_on_existing_row_without_body():
         config=fakes.config, companies=lambda: [], repo=repo,
         gmail=lambda: SourceResult("gmail"),
         adzuna=lambda: SourceResult("adzuna", postings=[posting, posting]),
-        ats=lambda companies, keep: SourceResult("ats"),
+        ats=lambda companies, keep, state=None: SourceResult("ats"),
     )
     run_sweep(S, deps, TODAY)
     appends = [w for w in repo.writes if w[0] == "append_body"]
@@ -216,7 +220,7 @@ def test_existing_non_email_rows_skip_the_body_check():
         config=fakes.config, companies=lambda: [], repo=repo,
         gmail=lambda: SourceResult("gmail"),
         adzuna=lambda: SourceResult("adzuna", postings=[posting]),
-        ats=lambda companies, keep: SourceResult("ats"),
+        ats=lambda companies, keep, state=None: SourceResult("ats"),
     )
     summary = run_sweep(S, deps, TODAY)
     assert summary.updated == 1
@@ -225,28 +229,34 @@ def test_existing_non_email_rows_skip_the_body_check():
 
 def test_friendly_summary_counts_new_jobs_per_country(fake_run):
     summary, _ = fake_run
-    assert summary.new_by_country == {"Netherlands": 2, "Poland": 4, "Ireland": 2}
+    assert summary.new_by_country == {"Netherlands": 2, "Poland": 5, "Ireland": 3}
     text = summary.friendly_text()
     lines = text.splitlines()
     assert lines[0] == "\u2705 Job search finished"
     # Countries follow Config countries.active order, each with its flag.
     assert lines[3:6] == [
-        "\U0001F1F5\U0001F1F1 Poland: 4",
+        "\U0001F1F5\U0001F1F1 Poland: 5",
         "\U0001F1F3\U0001F1F1 Netherlands: 2",
-        "\U0001F1EE\U0001F1EA Ireland: 2",
+        "\U0001F1EE\U0001F1EA Ireland: 3",
     ]
     assert "- Maas Logistics, Medior DevOps Engineer (Rotterdam)" in lines
+    assert "\U0001F4C4 Full descriptions read from the job page: 2 of 9" in lines
+    # The 3 alert emails, with the jobs found in them.
+    assert ("\U0001F4E7 Email alerts: 3 email(s) read, 6 job(s) found in them (/alertcheck "
+            "shows each email)") in lines
+    assert ("\U0001F6AB Not a match (skipped): 3 (senior or other excluded title: 2, place not "
+            "recognised: 1)") in lines
     assert "Not checked this time" not in text
 
 
 def test_friendly_summary_lists_sources_not_checked():
     deps = fake_deps(S)
     deps.gmail = lambda: SourceResult(
-        "gmail", skipped_reason="gmail skipped: GMAIL_ALERTS_TOKEN_JSON missing"
+        "gmail", skipped_reason=f"gmail skipped: {gmail_alerts.MISSING}"
     )
     text = run_sweep(S, deps, TODAY).friendly_text()
     assert "\u2139\uFE0F Not checked this time:\n- Email alerts: not set up yet" in text
-    assert "Ireland: 1" in text  # zero-count countries would still be listed
+    assert "Ireland: 2" in text  # zero-count countries would still be listed
 
 
 def test_progress_lines_are_plain_language():
@@ -254,10 +264,22 @@ def test_progress_lines_are_plain_language():
     run_sweep(S, fake_deps(S), TODAY, progress=lines.append)
     assert lines == [
         "Checking what is already in your Notion...",
-        "Searching Email alerts... (0 jobs found so far)",
-        "Searching Adzuna... (6 jobs found so far)",
-        "Searching Company career sites... (13 jobs found so far)",
-        "Found 17 jobs. Saving to your Notion...",
+        "Searching Email alerts, Adzuna, Jooble, NoFluffJobs, IamExpat, Company career sites...",
+        "Searching: 1 of 6 sources done",
+        "Searching: 2 of 6 sources done",
+        "Searching: 3 of 6 sources done",
+        "Searching: 4 of 6 sources done",
+        "Searching: 5 of 6 sources done",
+        "Found 19 jobs. Saving to your Notion...",
+        "Reading full job descriptions: 1 of 9",
+        "Reading full job descriptions: 5 of 9",
+        # the Adzuna snippet row of Tulip Data has the same job on its Lever board (10 Oct)
+        "Descriptions from other sites: checking Tulip Data B.V.",
+        # saved rows still waiting for a description (sweep/backfill.py); Odra Systems is a
+        # JustJoin IT row, whose page is never opened since 10 Oct (its terms)
+        "Descriptions for saved jobs: reading Liffey Analytics Ltd",
+        # old descriptions tidied, DEV only (2 Nov)
+        "Tidying old descriptions: 1 of 13",
     ]
 
 
@@ -265,7 +287,7 @@ def test_failing_progress_callback_does_not_stop_the_sweep():
     def broken(line):
         raise RuntimeError("telegram down")
 
-    assert run_sweep(S, fake_deps(S), TODAY, progress=broken).new == 8
+    assert run_sweep(S, fake_deps(S), TODAY, progress=broken).new == 10
 
 
 def test_blocked_friendly_text_is_the_gate_message():

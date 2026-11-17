@@ -1,0 +1,115 @@
+"""Alert cards where one link holds the whole card, and IrishJobs links that are not jobs
+(1 Oct tests T3, T4, T8). Shapes copied from real alerts, with made-up links and no
+personal data."""
+
+from jobengine.gmail_reader import GmailMessage
+from jobengine.settings import load_settings
+from jobengine.sweep.normalize import Rules, place
+from jobengine.sweep.sources import gmail_alerts
+
+S = load_settings("local", {})
+CFG = S.sweep["gmail"]
+RULES = Rules.from_config(S.sweep)
+
+
+def parse(sender, html):
+    return gmail_alerts.parse_alert(GmailMessage(id="m", sender=sender, subject="s", html=html),
+                                    CFG)
+
+
+def test_linkedin_card_inside_one_link_gives_company_and_place():
+    html = ('<a href="https://www.linkedin.com/comm/jobs/view/4300000001/?t=1"><table>'
+            '<tr><td>Cloud Infrastructure Engineer</td></tr><tr><td>eir Ireland · Dublin'
+            '</td></tr><tr><td>Actively recruiting</td></tr></table></a>'
+            '<a href="https://www.linkedin.com/comm/jobs/view/4300000002/?t=1"><p>DevOps Engineer'
+            '</p><p>MDLN SIA · Zeist (On-site)</p><p>Easy Apply</p></a>')
+    first, second = parse("LinkedIn <jobalerts-noreply@linkedin.com>", html)
+    assert (first.title, first.company, first.location_text) == (
+        "Cloud Infrastructure Engineer", "eir Ireland", "Dublin")
+    assert first.posting_id == "4300000001"
+    assert place(first.location_text, RULES, first.location_area) == ("Ireland", "Dublin")
+    assert (second.title, second.company) == ("DevOps Engineer", "MDLN SIA")
+    assert place(second.location_text, RULES, second.location_area) == ("Netherlands", "Zeist")
+    assert "Easy Apply" not in second.location_area
+
+
+def test_justjoin_card_starts_with_company_and_city():
+    html = ('<a href="https://justjoin.it/job-offer/acme-site-reliability-engineer-warszawa-devops'
+            '?utm_source=mail"><div>Acme Software</div><div>Warszawa</div>'
+            '<div>Site Reliability Engineer</div><div>Undisclosed salary</div><div>Remote</div>'
+            '<div>B2B</div><div>Be the first to apply!</div><div>Apply</div></a>')
+    [job] = parse("justjoin.it <no-reply@justjoin.it>", html)
+    assert (job.title, job.company, job.location_text) == (
+        "Site Reliability Engineer", "Acme Software", "Warszawa")
+    assert job.posting_id == "acme-site-reliability-engineer-warszawa-devops"
+    assert place(job.location_text, RULES, job.location_area)[0] == "Poland"
+    assert "Apply" not in job.location_area
+
+
+def test_irishjobs_more_and_footer_links_are_not_jobs():
+    card = ('<table><tr><td><a href="https://click.example.ie/f/a/1">Cloud Engineer</a></td></tr>'
+            '<tr><td>Cpl Resources</td></tr><tr><td>Dublin, County Dublin</td></tr>'
+            '<tr><td>Permanent Contract</td></tr></table>'
+            '<p>Cloud Engineer for the Data Act team...</p>'
+            '<a href="https://click.example.ie/f/a/2">more</a>')
+    footer = ''.join(f'<a href="https://click.example.ie/f/a/{i}">{text}</a>' for i, text in
+                     enumerate(["See all matching jobs",
+                                "Change criteria for jobs by email", "Contact us",
+                                "Terms of use", "Privacy policy"], start=3))
+    [job] = parse("IrishJobs <info@jobs.irishjobs.ie>", card + footer)
+    assert (job.title, job.company, job.location_text) == (
+        "Cloud Engineer", "Cpl Resources", "Dublin, County Dublin")
+
+
+def test_more_cities_are_known():
+    for text, expected in [("Alkmaar", ("Netherlands", "Alkmaar")),
+                           ("Leeuwarden (Hybrid)", ("Netherlands", "Leeuwarden")),
+                           ("Cracow (Hybrid)", ("Poland", "Kraków")),
+                           ("County Wicklow, Ireland (Hybrid)", ("Ireland", "Wicklow"))]:
+        assert place(text, RULES) == expected
+
+
+def test_linkedin_title_extras_after_a_pipe_are_not_the_company():
+    """30 Oct: "DevOps Engineer | Hybrid | Dublin | Up to EUR 65K" at Ingenio Global was saved
+    with the company "Hybrid", "System Engineer / Site Reliability Engineer | 1." at Inetum
+    with the company "1"."""
+    html = ('<a href="https://www.linkedin.com/comm/jobs/view/4300000011/?t=1"><p>DevOps Engineer'
+            ' | Hybrid | Dublin | Up to €65K</p><p>Ingenio Global · Dublin (Hybrid)</p>'
+            '<p>Easy Apply</p></a>'
+            '<a href="https://www.linkedin.com/comm/jobs/view/4300000012/?t=1"><p>System Engineer'
+            ' / Site Reliability Engineer | 1.</p><p>Inetum · Warsaw</p></a>')
+    first, second = parse("LinkedIn <jobalerts-noreply@linkedin.com>", html)
+    assert (first.title, first.company, first.location_text) == (
+        "DevOps Engineer", "Ingenio Global", "Dublin (Hybrid)")
+    assert (second.title, second.company, second.location_text) == (
+        "System Engineer / Site Reliability Engineer", "Inetum", "Warsaw")
+
+
+def test_a_title_link_alone_keeps_its_card_but_not_the_pipe_extras():
+    html = ('<table><tr><td><a href="https://www.linkedin.com/comm/jobs/view/4300000013/?t=1">'
+            'Platform Engineer | Remote-first</a></td></tr><tr><td>Acme · Dublin</td></tr>'
+            '</table>')
+    [job] = parse("LinkedIn <jobalerts-noreply@linkedin.com>", html)
+    assert (job.title, job.company) == ("Platform Engineer", "Acme")
+
+
+def test_glassdoor_card_starts_with_company_and_rating():
+    """Phase 22 Q-14 (8 Nov): "BNP Paribas | 3.9 ★ | Junior DevOps Engineer" was read as the
+    title "BNP Paribas" and the company "3.9 ★", so every Glassdoor job was out of scope."""
+    html = ('<a href="https://www.glassdoor.com/partner/jobListing.htm?jl=1009000001">'
+            '<div>BNP Paribas</div><div>3.9 ★</div><div>Junior DevOps Engineer</div>'
+            '<div>Warszawa</div><div>Easy Apply</div></a>'
+            '<a href="https://www.glassdoor.com/partner/jobListing.htm?jl=1009000002">'
+            '<div>Scalo</div><div>4,3 ★</div><div>DevOps Engineer</div>'
+            '<div>Harmelen (Hybrid)</div></a>'
+            '<a href="https://www.glassdoor.com/partner/jobListing.htm?jl=1009000003">'
+            '<div>New Startup</div><div>Platform Engineer</div><div>Dublin</div></a>')
+    first, second, third = parse("Glassdoor Jobs <noreply@glassdoor.com>", html)
+    assert (first.title, first.company, first.location_text) == (
+        "Junior DevOps Engineer", "BNP Paribas", "Warszawa")
+    assert place(first.location_text, RULES, first.location_area)[0] == "Poland"
+    assert (second.title, second.company, second.location_text) == (
+        "DevOps Engineer", "Scalo", "Harmelen (Hybrid)")
+    assert (third.title, third.company, third.location_text) == (
+        "Platform Engineer", "New Startup", "Dublin")  # no rating: the same order
+    assert all("★" not in " ".join(job.location_area) for job in (first, second, third))

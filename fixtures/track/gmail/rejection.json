@@ -1,0 +1,27 @@
+{
+ "thread_id": "t-canal-job",
+ "messages": [
+  {
+   "id": "m-canal-1",
+   "when": "2026-10-03T09:00:00+00:00",
+   "from": "jobs@canal.example.com",
+   "subject": "Your application to Canal Payments",
+   "text": "Thank you for applying to Canal Payments. We received your application.",
+   "labels": [
+    "INBOX"
+   ],
+   "headers": {}
+  },
+  {
+   "id": "m-canal-2",
+   "when": "2026-10-11T09:00:00+00:00",
+   "from": "jobs@canal.example.com",
+   "subject": "Your application to Canal Payments",
+   "text": "Unfortunately we have decided not to move forward with your application at this time.",
+   "labels": [
+    "INBOX"
+   ],
+   "headers": {}
+  }
+ ]
+}

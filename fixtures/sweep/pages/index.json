@@ -1,0 +1,12 @@
+{
+  "https://www.adzuna.nl/details/5100000002": {
+    "file": "delft_digital.html"
+  },
+  "https://careers.shamrocksystems.example.com/jobs": {
+    "file": "shamrock_careers.html"
+  },
+  "https://www.adzuna.pl/details/4300000004": {
+    "file": "baltic_bank.html",
+    "final_url": "https://kariera.balticbank.example.com/oferty/junior-devops-engineer"
+  }
+}

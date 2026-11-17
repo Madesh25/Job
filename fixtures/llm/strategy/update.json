@@ -1,0 +1,130 @@
+{
+ "reply": {
+  "tips": [
+   {
+    "tip": "Use standard section headings such as Experience and Skills so ATS parsers map the resume correctly.",
+    "category": "ATS",
+    "countries": [
+     "All"
+    ],
+    "why": "Parsers in common ATS platforms rely on standard headings.",
+    "sources": [
+     "https://careers.example.com/blog/ats-parsing-2026"
+    ],
+    "conflicts_with_v16": false,
+    "published": "2026-08"
+   },
+   {
+    "tip": "Check the current Highly Skilled Migrant salary threshold before applying in the Netherlands.",
+    "category": "Application",
+    "countries": [
+     "Netherlands"
+    ],
+    "why": "The threshold changes every January.",
+    "sources": [
+     "https://recruiting.example.org/netherlands-hsm-salary-2026/"
+    ],
+    "conflicts_with_v16": false,
+    "published": "2026-07"
+   },
+   {
+    "tip": "Expect a live Kubernetes troubleshooting task in DevOps interviews at Polish product companies.",
+    "category": "Interview",
+    "countries": [
+     "Poland"
+    ],
+    "why": "Several hiring guides describe a practical round.",
+    "sources": [
+     "https://hiring.example.com/poland-devops-interviews"
+    ],
+    "conflicts_with_v16": false,
+    "published": "unknown"
+   },
+   {
+    "tip": "Ask a peer engineer for a referral before applying through the portal.",
+    "category": "Outreach",
+    "countries": [
+     "All"
+    ],
+    "why": "Referred candidates reach interviews more often.",
+    "sources": [
+     "https://www.example.org/outreach/referrals-work"
+    ],
+    "conflicts_with_v16": false,
+    "published": "2026-06"
+   },
+   {
+    "tip": "Run your resume through an ATS score checker and aim for 90 percent.",
+    "category": "ATS",
+    "countries": [
+     "All"
+    ],
+    "why": "Checkers claim to predict ranking.",
+    "sources": [
+     "https://guides.example.com/ats-score-checkers"
+    ],
+    "conflicts_with_v16": false,
+    "published": "2026-05"
+   },
+   {
+    "tip": "Add every keyword from the posting to a skills block in small font.",
+    "category": "Resume",
+    "countries": [
+     "All"
+    ],
+    "why": "Keyword stuffing raises the match rate.",
+    "sources": [
+     "https://careers.example.com/blog/ats-parsing-2026"
+    ],
+    "conflicts_with_v16": true,
+    "published": "2026-05"
+   },
+   {
+    "tip": "Add a two-page project appendix to the resume.",
+    "category": "Resume",
+    "countries": [
+     "All"
+    ],
+    "why": "More detail helps screeners.",
+    "sources": [
+     "https://careers.example.com/blog/ats-parsing-2026"
+    ],
+    "conflicts_with_v16": true,
+    "published": "2026-04"
+   },
+   {
+    "tip": "Follow up on an application after about a week if there is no reply.",
+    "category": "Outreach",
+    "countries": [
+     "All"
+    ],
+    "why": "A short follow-up gets more replies.",
+    "sources": [
+     "https://unknown.example.net/not-in-search"
+    ],
+    "conflicts_with_v16": false,
+    "published": "unknown"
+   },
+   {
+    "tip": "Use standard section headings like Experience and Skills so the ATS parser maps your resume correctly.",
+    "category": "ATS",
+    "countries": [
+     "All"
+    ],
+    "why": "Same as the first tip, reworded.",
+    "sources": [
+     "https://careers.example.com/blog/ats-parsing-2026"
+    ],
+    "conflicts_with_v16": false,
+    "published": "2026-08"
+   }
+  ]
+ },
+ "search_urls": [
+  "https://careers.example.com/blog/ats-parsing-2026",
+  "https://recruiting.example.org/netherlands-hsm-salary-2026",
+  "https://hiring.example.com/poland-devops-interviews",
+  "https://www.example.org/outreach/referrals-work",
+  "https://guides.example.com/ats-score-checkers"
+ ]
+}

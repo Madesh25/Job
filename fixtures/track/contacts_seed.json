@@ -1,0 +1,258 @@
+[
+ {
+  "page_id": "c-anna",
+  "Name": "Anna Example",
+  "Title": "",
+  "Email": "anna.example@vistula.example.com",
+  "Company": "Vistula Cloud",
+  "Country": "Poland",
+  "Type": "Peer engineer",
+  "Source": "Apollo",
+  "Status": "Drafted",
+  "Date found": "2026-10-01",
+  "Related jobs": [
+   "job-vistula"
+  ],
+  "Gmail draft ID": "d-anna",
+  "Gmail thread ID": "t-anna",
+  "Notes": "drafted for DevOps Engineer 2026-10-05"
+ },
+ {
+  "page_id": "c-jan",
+  "Name": "Jan Example",
+  "Title": "",
+  "Email": "jan.example@vistula.example.com",
+  "Company": "Vistula Cloud",
+  "Country": "Poland",
+  "Type": "Peer engineer",
+  "Source": "Apollo",
+  "Status": "Drafted",
+  "Date found": "2026-10-01",
+  "Related jobs": [
+   "job-vistula"
+  ],
+  "Gmail draft ID": "d-jan",
+  "Gmail thread ID": "t-jan",
+  "Notes": "drafted for DevOps Engineer 2026-10-05"
+ },
+ {
+  "page_id": "c-kasia",
+  "Name": "Kasia Example",
+  "Title": "",
+  "Email": "kasia.example@vistula.example.com",
+  "Company": "Vistula Cloud",
+  "Country": "Poland",
+  "Type": "Peer engineer",
+  "Source": "Apollo",
+  "Status": "Drafted",
+  "Date found": "2026-10-01",
+  "Related jobs": [
+   "job-vistula"
+  ],
+  "Gmail draft ID": "d-kasia",
+  "Gmail thread ID": "t-kasia",
+  "Notes": "drafted for DevOps Engineer 2026-10-05 (was Unverified)"
+ },
+ {
+  "page_id": "c-piotr",
+  "Name": "Piotr Example",
+  "Title": "",
+  "Email": "piotr.example@vistula.example.com",
+  "Company": "Vistula Cloud",
+  "Country": "Poland",
+  "Type": "Hiring",
+  "Source": "Apollo",
+  "Status": "Contacted",
+  "Date found": "2026-10-01",
+  "Related jobs": [
+   "job-vistula"
+  ],
+  "Gmail thread ID": "t-piotr",
+  "Last contacted": "2026-10-03"
+ },
+ {
+  "page_id": "c-ola",
+  "Name": "Ola Example",
+  "Title": "",
+  "Email": "ola.example@vistula.example.com",
+  "Company": "Vistula Cloud",
+  "Country": "Poland",
+  "Type": "Recruiter/TA",
+  "Source": "Apollo",
+  "Status": "Contacted",
+  "Date found": "2026-10-01",
+  "Related jobs": [
+   "job-vistula"
+  ],
+  "Gmail thread ID": "t-ola",
+  "Last contacted": "2026-10-10"
+ },
+ {
+  "page_id": "c-rita",
+  "Name": "Rita Example",
+  "Title": "",
+  "Email": "rita.example@vistula.example.com",
+  "Company": "Vistula Cloud",
+  "Country": "Poland",
+  "Type": "Recruiter/TA",
+  "Source": "Apollo",
+  "Status": "Contacted",
+  "Date found": "2026-10-01",
+  "Related jobs": [
+   "job-vistula"
+  ],
+  "Gmail thread ID": "t-rita",
+  "Last contacted": "2026-10-02",
+  "Follow-up draft ID": "f-rita",
+  "Notes": "follow-up drafted 2026-10-09"
+ },
+ {
+  "page_id": "c-marek",
+  "Name": "Marek Example",
+  "Title": "",
+  "Email": "marek.example@vistula.example.com",
+  "Company": "Vistula Cloud",
+  "Country": "Poland",
+  "Type": "Peer engineer",
+  "Source": "Apollo",
+  "Status": "Contacted",
+  "Date found": "2026-10-01",
+  "Related jobs": [
+   "job-vistula"
+  ],
+  "Gmail thread ID": "t-marek",
+  "Last contacted": "2026-10-04"
+ },
+ {
+  "page_id": "c-bob",
+  "Name": "Bob Example",
+  "Title": "",
+  "Email": "bob.example@vistula.example.com",
+  "Company": "Vistula Cloud",
+  "Country": "Poland",
+  "Type": "Hiring",
+  "Source": "Apollo",
+  "Status": "Contacted",
+  "Date found": "2026-10-01",
+  "Related jobs": [
+   "job-vistula"
+  ],
+  "Gmail thread ID": "t-bob",
+  "Last contacted": "2026-10-04"
+ },
+ {
+  "page_id": "c-zofia",
+  "Name": "Zofia Example",
+  "Title": "",
+  "Email": "zofia.example@vistula.example.com",
+  "Company": "Vistula Cloud",
+  "Country": "Poland",
+  "Type": "Peer engineer",
+  "Source": "Apollo",
+  "Status": "Contacted",
+  "Date found": "2026-10-01",
+  "Related jobs": [
+   "job-vistula"
+  ],
+  "Gmail thread ID": "t-zofia",
+  "Last contacted": "2026-10-01",
+  "Follow-up draft ID": "f-zofia",
+  "Notes": "follow-up drafted 2026-10-09"
+ },
+ {
+  "page_id": "c-tomek",
+  "Name": "Tomek Example",
+  "Title": "",
+  "Email": "tomek.example@vistula.example.com",
+  "Company": "Vistula Cloud",
+  "Country": "Poland",
+  "Type": "Peer engineer",
+  "Source": "Apollo",
+  "Status": "Contacted",
+  "Date found": "2026-10-01",
+  "Related jobs": [
+   "job-vistula"
+  ],
+  "Gmail thread ID": "t-tomek",
+  "Last contacted": "2026-10-05"
+ },
+ {
+  "page_id": "c-olek",
+  "Name": "Olek Example",
+  "Title": "",
+  "Email": "olek.example@baltic.example.org",
+  "Company": "Baltic Example Bank",
+  "Country": "Poland",
+  "Type": "Peer engineer",
+  "Source": "Apollo",
+  "Status": "Followed up",
+  "Date found": "2026-10-01",
+  "Related jobs": [
+   "job-baltic"
+  ],
+  "Gmail thread ID": "t-olek",
+  "Last contacted": "2026-09-20"
+ },
+ {
+  "page_id": "c-bartek",
+  "Name": "Bartek Example",
+  "Title": "",
+  "Email": "bartek.example@baltic.example.org",
+  "Company": "Baltic Example Bank",
+  "Country": "Poland",
+  "Type": "Hiring",
+  "Source": "Apollo",
+  "Status": "Bounced",
+  "Date found": "2026-10-01",
+  "Related jobs": [
+   "job-baltic"
+  ]
+ },
+ {
+  "page_id": "c-olga",
+  "Name": "Olga Example",
+  "Title": "",
+  "Email": "olga.example@northwind.example.org",
+  "Company": "Northwind Cloud",
+  "Country": "Ireland",
+  "Type": "Hiring",
+  "Source": "Apollo",
+  "Status": "Contacted",
+  "Date found": "2026-10-01",
+  "Related jobs": [
+   "job-northwind"
+  ],
+  "Gmail thread ID": "t-olga",
+  "Last contacted": "2026-10-06"
+ },
+ {
+  "page_id": "c-old",
+  "Name": "Stary Example",
+  "Title": "",
+  "Email": "stary.example@old.example.org",
+  "Company": "Old Example Soft",
+  "Country": "Poland",
+  "Type": "Peer engineer",
+  "Source": "Apollo",
+  "Status": "Verified",
+  "Date found": "2025-08-01",
+  "Related jobs": [
+   "job-old"
+  ]
+ },
+ {
+  "page_id": "c-old-dnc",
+  "Name": "Dawny Example",
+  "Title": "",
+  "Email": "dawny.example@old.example.org",
+  "Company": "Old Example Soft",
+  "Country": "Poland",
+  "Type": "Recruiter/TA",
+  "Source": "Apollo",
+  "Status": "Do not contact",
+  "Date found": "2025-01-01",
+  "Related jobs": [
+   "job-old"
+  ]
+ }
+]

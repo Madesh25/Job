@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import json
 import logging
+import re
+import threading
 import time
 from collections.abc import Callable, Iterator
 from datetime import date
@@ -17,10 +19,11 @@ from pathlib import Path
 from typing import Any, Protocol
 
 from jobengine import http
-from jobengine.safety import notion_write_target
+from jobengine.safety import SafetyError, notion_write_target
 from jobengine.settings import Settings
 from jobengine.sweep.dedupe import IndexRow, parse_posting_ids
 from jobengine.sweep.models import TargetCompany
+from jobengine.sweep.normalize import years_low
 
 log = logging.getLogger("jobengine.notion_repo")
 
@@ -39,7 +42,9 @@ JOB_PROPERTY_TYPES = {
     "Posted date": "date",
     "Salary": "rich_text",
     "Seniority": "select",
-    "Years required": "number",
+    # Text as posted ("2-3 years", "5+ years"). A database where it is still a number column
+    # gets the lowest number instead (NotionJobsRepo checks the column type).
+    "Years required": "rich_text",
     "Dedupe key": "rich_text",
     "Posting IDs": "rich_text",
     "First seen": "date",
@@ -48,7 +53,97 @@ JOB_PROPERTY_TYPES = {
     "Status": "select",
     "Screen verdict": "select",
     "Ghost job risk": "select",
+    # Written by screening (Module 03).
+    "Skip reason": "select",
+    "Language required": "select",
+    "Contract type": "select",
+    "Sponsorship": "select",
+    "Work mode": "select",
+    "Expires": "date",
+    "Visa flags": "multi_select",
+    "Tech stack": "multi_select",
+    "Gaps": "rich_text",
+    # Written by the resume builder (Module 04).
+    "Resume": "relation",
+    "Applied date": "date",
+    "Last activity date": "date",
+    # Written by the contact finder (Module 05).
+    "Contacts": "relation",
+    "Contact source": "select",
+    "Contact person": "rich_text",
+    # Written by tracking (Module 07).
+    "Gmail thread ID": "rich_text",
 }
+
+# Contacts property name -> Notion property type.
+CONTACT_PROPERTY_TYPES = {
+    "Name": "title",
+    "Title": "rich_text",
+    "Email": "email",
+    "Company": "rich_text",
+    "Country": "select",
+    "Type": "select",
+    "Source": "select",
+    "Status": "select",
+    "Date found": "date",
+    "Related jobs": "relation",
+    "Notes": "rich_text",
+    "Gmail draft ID": "rich_text",
+    "Gmail thread ID": "rich_text",
+    "Last contacted": "date",
+    "Follow-up draft ID": "rich_text",
+    # 6 Oct: a contact who answered is reused for the company's next jobs; one who never
+    # answers becomes Status "Dead end" after `tracking.dead_end_after` mails.
+    "Replied": "checkbox",
+    "Mails sent": "number",
+}
+
+# Resume Log property name -> Notion property type.
+RESUME_LOG_PROPERTY_TYPES = {
+    "Resume name": "title",
+    "Date": "date",
+    "Job": "relation",
+    "Skills focus": "rich_text",
+    "Experience focus": "rich_text",
+    "Summary focus": "rich_text",
+    "Diff score": "rich_text",
+    "Page fill": "rich_text",
+    "Engine version": "rich_text",
+    "Evidence used": "relation",
+    "Approved": "checkbox",
+    "Revision": "number",
+    "File": "rich_text",
+}
+
+# Properties screening and /pending read.
+ROW_PROPERTIES = (
+    "Company",
+    "Role",
+    "City",
+    "Country",
+    "Board",
+    "URL",
+    "Dedupe key",
+    "Posting IDs",
+    "Status",
+    "Screen verdict",
+    "Years required",
+    "Expires",
+    "Posted date",
+    "Ghost job risk",
+    "Salary",
+    "Visa flags",
+    "Contract type",
+    "Sponsorship",
+    "Gaps",
+    "Swept date",
+    "First seen",  # /pending Today (12 Nov): the day a /fetch first found the job
+    # Tracking (Module 07).
+    "Applied date",
+    "Last activity date",
+    "Gmail thread ID",
+    "Contacts",
+)
 
 # Properties read when building the dedupe index.
 INDEX_PROPERTIES = (
@@ -63,6 +158,7 @@ INDEX_PROPERTIES = (
     "URL",
     "Salary",
     "Years required",
+    "Visa flags",
 )
 
 
@@ -77,8 +173,73 @@ class JobsRepo(Protocol):
 
     def append_body(self, page_id: str, blocks: list[str]) -> None: ...
 
+    def query_rows(self, where: dict[str, Any] | None = None) -> list[tuple[str, dict]]: ...
+
+    def get_values(self, page_id: str) -> dict[str, Any] | None: ...
+
+    def read_body(self, page_id: str) -> list[str]: ...
+
+    def body_blocks(self, page_id: str) -> list[tuple[str, str]]: ...
+
+    def replace_blocks(self, page_id: str, after_id: str, old_ids: list[str],
+                       texts: list[str]) -> None: ...
+
+    def archive(self, page_id: str) -> None: ...
+
+
+# ---------------------------------------------------------------- short page refs
+
+REF_CHARS = 8
+
+
+def page_ref(page_id: str) -> str:
+    """The 8 characters that name a page in a "Ref XX-..." line or a button: the END of its
+    id. Notion's ids now start the same for pages made close in time (26 Oct: two resumes
+    both showed "Ref RL-4056edc2"); the end is random."""
+    return re.sub(r"[^0-9a-z]", "", page_id.lower())[-REF_CHARS:]
+
+
+def find_by_ref(page_ids: Iterator[str] | list[str], ref: str) -> str | None:
+    """The page with this ref. A message sent before 26 Oct has the START of the id: it
+    counts only when one page has it."""
+    ref = ref.lower()
+    ids = list(page_ids)
+    clean = {pid: re.sub(r"[^0-9a-z]", "", pid.lower()) for pid in ids}
+    found = next((pid for pid in ids if clean[pid].endswith(ref)), None)
+    if found is not None:
+        return found
+    old = [pid for pid in ids if clean[pid].startswith(ref)]
+    return old[0] if len(old) == 1 else None
+
 
 # ---------------------------------------------------------------- value conversion
+
+
+# Notion allows 2000 characters per rich text item, counted in UTF-16 code units: an emoji
+# or another character outside the Basic Multilingual Plane counts as 2.
+NOTION_TEXT_LIMIT = 2000
+
+
+def text_pieces(text: str, limit: int = NOTION_TEXT_LIMIT) -> list[str]:
+    """The text in pieces of at most `limit` UTF-16 code units, never splitting a character."""
+    pieces: list[str] = []
+    current: list[str] = []
+    size = 0
+    for char in text:
+        width = 2 if ord(char) > 0xFFFF else 1
+        if size + width > limit:
+            pieces.append("".join(current))
+            current, size = [], 0
+        current.append(char)
+        size += width
+    if current:
+        pieces.append("".join(current))
+    return pieces
+
+
+def clip(text: str, limit: int = NOTION_TEXT_LIMIT) -> str:
+    """The text cut to at most `limit` UTF-16 code units."""
+    return text_pieces(text, limit)[0] if text else ""
 
 
 def _text(items: list[dict[str, Any]] | None) -> str:
@@ -97,15 +258,19 @@ def plain_value(prop: dict[str, Any]) -> Any:
     if kind == "date":
         start = (value or {}).get("start")
         return date.fromisoformat(start[:10]) if start else None
-    if kind in ("number", "url", "checkbox"):
+    if kind == "multi_select":
+        return [item.get("name") for item in value or [] if item.get("name")]
+    if kind in ("number", "url", "checkbox", "email"):
         return value
+    if kind == "relation":
+        return [item.get("id") for item in value or [] if item.get("id")]
     return None
 
 
 def notion_value(kind: str, value: Any) -> dict[str, Any]:
     """Notion property payload for a plain value."""
     if kind in ("title", "rich_text"):
-        return {kind: [{"type": "text", "text": {"content": str(value)[:2000]}}]}
+        return {kind: [{"type": "text", "text": {"content": clip(str(value))}}]}
     if kind == "select":
         return {"select": {"name": str(value)}}
     if kind == "date":
@@ -114,6 +279,16 @@ def notion_value(kind: str, value: Any) -> dict[str, Any]:
         return {"number": value}
     if kind == "url":
         return {"url": value}
+    if kind == "email":
+        return {"email": value}
+    if kind == "relation":
+        return {"relation": [{"id": str(v)} for v in value or []]}
+    if kind == "checkbox":
+        return {"checkbox": bool(value)}
+    if kind == "multi_select":
+        # Option names cannot contain commas; new options are created by the API.
+        names = [str(v).replace(",", " ").strip()[:100] for v in value or []]
+        return {"multi_select": [{"name": n} for n in dict.fromkeys(names) if n]}
     raise ValueError(f"unsupported property type {kind}")
 
 
@@ -121,15 +296,66 @@ def job_properties(plan: dict[str, Any]) -> dict[str, Any]:
     return {name: notion_value(JOB_PROPERTY_TYPES[name], value) for name, value in plan.items()}
 
 
+def rich_text(text: str) -> list[dict[str, Any]]:
+    """Rich text items of at most 2000 characters each (Notion's limit per item, UTF-16)."""
+    return [{"type": "text", "text": {"content": piece}} for piece in text_pieces(text)] or [
+        {"type": "text", "text": {"content": ""}}]
+
+
+def typed_blocks(blocks: list[tuple[str, ...]]) -> list[dict[str, Any]]:
+    """Blocks from ("heading_2", text), ("paragraph", text) or ("code", text, language)."""
+    out = []
+    for block in blocks:
+        kind, text = block[0], block[1]
+        body: dict[str, Any] = {"rich_text": rich_text(text)}
+        if kind == "code":
+            body["language"] = block[2] if len(block) > 2 else "plain text"
+        out.append({"object": "block", "type": kind, kind: body})
+    return out
+
+
 def paragraph_blocks(texts: list[str]) -> list[dict[str, Any]]:
     return [
         {
             "object": "block",
             "type": "paragraph",
-            "paragraph": {"rich_text": [{"type": "text", "text": {"content": text}}]},
+            "paragraph": {"rich_text": rich_text(text)},
         }
         for text in texts
     ]
+
+
+def select_filter(prop: str, *values: str) -> dict[str, Any]:
+    """Notion filter: select `prop` equals any of `values`."""
+    conditions = [{"property": prop, "select": {"equals": v}} for v in values]
+    return conditions[0] if len(conditions) == 1 else {"or": conditions}
+
+
+def matches(values: dict[str, Any], flt: dict[str, Any] | None) -> bool:
+    """Evaluate the subset of Notion filters used here against plain values (for fakes)."""
+    if not flt:
+        return True
+    if "and" in flt:
+        return all(matches(values, f) for f in flt["and"])
+    if "or" in flt:
+        return any(matches(values, f) for f in flt["or"])
+    value = values.get(flt["property"])
+    for kind in ("select", "rich_text", "url", "title"):
+        if kind in flt:
+            cond = flt[kind]
+            if "equals" in cond:
+                return value == cond["equals"]
+            if "contains" in cond:
+                return cond["contains"] in (value or "")
+    raise ValueError(f"unsupported filter {flt}")
+
+
+def block_text(block: dict[str, Any]) -> str | None:
+    """Plain text of a block that holds rich text (paragraph, heading, list item...)."""
+    body = block.get(block.get("type") or "") or {}
+    if isinstance(body, dict) and "rich_text" in body:
+        return _text(body["rich_text"])
+    return None
 
 
 def index_row(page_id: str, values: dict[str, Any]) -> IndexRow | None:
@@ -146,14 +372,53 @@ def index_row(page_id: str, values: dict[str, Any]) -> IndexRow | None:
         posted_date=values.get("Posted date"),
         url=values.get("URL"),
         salary=values.get("Salary"),
-        years_required=int(years) if years is not None else None,
+        years_required=years_low(years),
         company=values.get("Company") or "",
         role=values.get("Role") or "",
         city=values.get("City"),
+        visa_flags=list(values.get("Visa flags") or []),
     )
 
 
 # ---------------------------------------------------------------- real Notion client
+
+PAGE_PATH = re.compile(r"^/(?:pages|blocks)/([0-9a-fA-F-]{32,36})")
+
+
+def check_page_write(method: str, path: str, s: Settings) -> None:
+    """The V16 page, the Resume Build Spec and the Cold Mail Templates (notion.pages) are
+    read only for code: any write to them, or to their blocks, raises SafetyError."""
+    if method.upper() == "GET":
+        return
+    match = PAGE_PATH.match(path)
+    if not match:
+        return
+    target = match.group(1).replace("-", "").lower()
+    protected = {pid.replace("-", "").lower() for pid in s.notion_pages.values()}
+    if target in protected:
+        raise SafetyError(f"refusing to {method} {path}: pages under notion.pages are edited "
+                          "by hand only")
+
+
+def not_shared_hint(path: str, s: Settings | None = None) -> str:
+    """What to do about a 404: almost always a page or database not shared with the
+    integration this env's NOTION_TOKEN belongs to. A data source ID is not a page link
+    (notion.so/<data source id> says "page not found", 5 Oct test D5), so a table is named by
+    its config key instead."""
+    match = re.search(r"[0-9a-f]{8}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{12}", path)
+    found = match.group(0).replace("-", "").lower() if match else ""
+    if found and "data_sources" in path:
+        pairs = [*(s.notion_read.items() if s else []), *(s.notion_write.items() if s else [])]
+        name = next((key for key, value in pairs
+                     if str(value).replace("-", "").lower() == found), "")
+        table = (f"the {name.replace('_', ' ').title()} table" if name
+                 else f"the table with data source ID {match.group(0)}")
+        return (f"Fix: open {table} in Notion (search for it by name), then ... > Connections "
+                "> Connect to, and pick the integration of this env's NOTION_TOKEN "
+                "(job-engine-dev for local and dev).")
+    target = f"https://www.notion.so/{found}" if found else "it"
+    return (f"Fix: open {target} in Notion, then ... > Connections > Connect to, and pick the "
+            "integration of this env's NOTION_TOKEN (job-engine-dev for local and dev).")
 
 
 class NotionClient:
@@ -175,6 +440,7 @@ class NotionClient:
         self._sleep = sleep
         self._clock = clock
         self._last = -MIN_INTERVAL_SECONDS
+        self._lock = threading.Lock()
 
     def request(
         self,
@@ -183,14 +449,24 @@ class NotionClient:
         json_body: Any = None,
         params: list[tuple[str, Any]] | None = None,
     ) -> Any:
-        wait = self._last + MIN_INTERVAL_SECONDS - self._clock()
-        if wait > 0:
-            self._sleep(wait)
-        self._last = self._clock()
-        return http.request_json(
-            method, f"{NOTION_API}{path}", params=params, headers=self._headers,
-            json=json_body, s=self._s,
-        )
+        check_page_write(method, path, self._s)
+        # Several threads may share this client: each call books the next free slot, so the
+        # rate stays at about 3 requests per second whatever the number of workers.
+        with self._lock:
+            now = self._clock()
+            start = max(now, self._last + MIN_INTERVAL_SECONDS)
+            self._last = start
+        if start > now:
+            self._sleep(start - now)
+        try:
+            return http.request_json(
+                method, f"{NOTION_API}{path}", params=params, headers=self._headers,
+                json=json_body, s=self._s,
+            )
+        except http.HttpError as exc:
+            if exc.status != 404:
+                raise
+            raise http.HttpError(f"{exc}\n{not_shared_hint(path, self._s)}", 404) from None
 
     def property_ids(self, data_source_id: str, names: tuple[str, ...]) -> list[str]:
         schema = self.request("GET", f"/data_sources/{data_source_id}")
@@ -237,6 +513,28 @@ class NotionJobsRepo:
     def __init__(self, client: NotionClient, data_source_id: str):
         self.client = client
         self.data_source_id = data_source_id
+        self._years_type: str | None = None
+        self._lock = threading.Lock()
+
+    def _props(self, plan: dict[str, Any]) -> dict[str, Any]:
+        """Property payloads. "Years required" is text ("2-3 years") unless this database
+        still has it as a number column; then the lowest number is written."""
+        if "Years required" in plan:
+            with self._lock:
+                if self._years_type is None:
+                    schema = self.client.request("GET", f"/data_sources/{self.data_source_id}")
+                    prop = (schema.get("properties") or {}).get("Years required") or {}
+                    self._years_type = prop.get("type") or "rich_text"
+            if self._years_type == "number":
+                plan = {**plan, "Years required": years_low(plan["Years required"])}
+        out = {}
+        for name, value in plan.items():
+            kind = JOB_PROPERTY_TYPES[name]
+            if name == "Years required" and self._years_type == "number":
+                kind = "number"
+            if value is not None:
+                out[name] = notion_value(kind, value)
+        return out
 
     def load_index(self) -> list[IndexRow]:
         rows = []
@@ -249,14 +547,18 @@ class NotionJobsRepo:
     def create(self, plan: dict[str, Any], blocks: list[str]) -> str:
         body: dict[str, Any] = {
             "parent": {"type": "data_source_id", "data_source_id": self.data_source_id},
-            "properties": job_properties(plan),
+            "properties": self._props(plan),
         }
         if blocks:
             body["children"] = paragraph_blocks(blocks)
         return self.client.request("POST", "/pages", body)["id"]
 
     def update(self, page_id: str, props: dict[str, Any]) -> None:
-        self.client.request("PATCH", f"/pages/{page_id}", {"properties": job_properties(props)})
+        self.client.request("PATCH", f"/pages/{page_id}", {"properties": self._props(props)})
+
+    def archive(self, page_id: str) -> None:
+        """Move a job to the Notion trash (a reposted job, 4 Nov: kept there 30 days)."""
+        self.client.request("PATCH", f"/pages/{page_id}", {"in_trash": True})
 
     def has_body(self, page_id: str) -> bool:
         data = self.client.request(
@@ -270,20 +572,72 @@ class NotionJobsRepo:
         )
 
 
+    def query_rows(self, where: dict[str, Any] | None = None) -> list[tuple[str, dict]]:
+        body = {"filter": where} if where else None
+        return [(page["id"], page_values(page))
+                for page in self.client.query(self.data_source_id, body, ROW_PROPERTIES)]
+
+    def get_values(self, page_id: str) -> dict[str, Any] | None:
+        try:
+            page = self.client.request("GET", f"/pages/{page_id}")
+        except http.HttpError as exc:
+            if exc.status == 404:
+                return None
+            raise
+        if page.get("in_trash") or page.get("archived"):
+            return None
+        return page_values(page)
+
+    def read_body(self, page_id: str) -> list[str]:
+        texts: list[str] = []
+        cursor = None
+        while True:
+            params: list[tuple[str, Any]] = [("page_size", 100)]
+            if cursor:
+                params.append(("start_cursor", cursor))
+            data = self.client.request("GET", f"/blocks/{page_id}/children", params=params)
+            for block in data.get("results") or []:
+                text = block_text(block)
+                if text is not None:
+                    texts.append(text)
+            if not data.get("has_more"):
+                return texts
+            cursor = data.get("next_cursor")
+
+    def body_blocks(self, page_id: str) -> list[tuple[str, str]]:
+        """(block id, text) of the page body's text blocks, in order."""
+        out: list[tuple[str, str]] = []
+        cursor = None
+        while True:
+            params: list[tuple[str, Any]] = [("page_size", 100)]
+            if cursor:
+                params.append(("start_cursor", cursor))
+            data = self.client.request("GET", f"/blocks/{page_id}/children", params=params)
+            for block in data.get("results") or []:
+                text = block_text(block)
+                if text is not None:
+                    out.append((str(block["id"]), text))
+            if not data.get("has_more"):
+                return out
+            cursor = data.get("next_cursor")
+
+    def replace_blocks(self, page_id: str, after_id: str, old_ids: list[str],
+                       texts: list[str]) -> None:
+        """Put `texts` right after block `after_id`, then remove the blocks `old_ids` (the same
+        place on the page; the new text is written first, so nothing is lost if a step
+        fails)."""
+        self.client.request("PATCH", f"/blocks/{page_id}/children",
+                            {"children": paragraph_blocks(texts), "after": after_id})
+        for block_id in old_ids:
+            self.client.request("DELETE", f"/blocks/{block_id}")
+
+
 class NotionReader:
     """Read-only access to the reference data sources (notion_read)."""
 
     def __init__(self, client: NotionClient, s: Settings):
         self.client = client
         self.s = s
-
-    def config(self) -> dict[str, str]:
-        values = {}
-        for page in self.client.query(self.s.notion_read["config"], properties=("Key", "Value")):
-            row = page_values(page)
-            if row.get("Key"):
-                values[row["Key"]] = row.get("Value") or ""
-        return values
 
     def target_companies(self) -> list[TargetCompany]:
         body = {"filter": {"property": "Active", "checkbox": {"equals": True}}}
@@ -334,7 +688,8 @@ class FakeJobsRepo:
     def from_fixture(cls, path: Path) -> FakeJobsRepo:
         rows = json.loads(path.read_text(encoding="utf-8"))
         for row in rows:
-            for key in ("First seen", "Posted date", "Swept date"):
+            for key in ("First seen", "Posted date", "Swept date", "Expires", "Applied date",
+                        "Last activity date"):
                 if row.get(key):
                     row[key] = date.fromisoformat(row[key])
         return cls(rows)
@@ -358,9 +713,646 @@ class FakeJobsRepo:
         self.rows[page_id].update(props)
         self.writes.append(("update", page_id, dict(props)))
 
+    def archive(self, page_id: str) -> None:
+        self.rows.pop(page_id, None)
+        self.writes.append(("archive", page_id, None))
+
     def has_body(self, page_id: str) -> bool:
         return bool(self.rows[page_id].get("body"))
 
     def append_body(self, page_id: str, blocks: list[str]) -> None:
         self.rows[page_id].setdefault("body", []).extend(blocks)
         self.writes.append(("append_body", page_id, list(blocks)))
+
+    def query_rows(self, where: dict[str, Any] | None = None) -> list[tuple[str, dict]]:
+        return [(pid, {k: v for k, v in row.items() if k != "body"})
+                for pid, row in self.rows.items() if matches(row, where)]
+
+    def get_values(self, page_id: str) -> dict[str, Any] | None:
+        row = self.rows.get(page_id)
+        return {k: v for k, v in row.items() if k != "body"} if row else None
+
+    def read_body(self, page_id: str) -> list[str]:
+        return list(self.rows[page_id].get("body") or [])
+
+    def body_blocks(self, page_id: str) -> list[tuple[str, str]]:
+        return [(str(i), text) for i, text in enumerate(self.rows[page_id].get("body") or [])]
+
+    def replace_blocks(self, page_id: str, after_id: str, old_ids: list[str],
+                       texts: list[str]) -> None:
+        body = list(self.rows[page_id].get("body") or [])
+        gone = {int(i) for i in old_ids}
+        out: list[str] = []
+        for i, text in enumerate(body):
+            if i not in gone:
+                out.append(text)
+            if i == int(after_id):
+                out.extend(texts)
+        self.rows[page_id]["body"] = out
+        self.writes.append(("replace_blocks", page_id, list(texts)))
+
+
+# ---------------------------------------------------------------- Resume Log
+
+
+class ResumeLogRepo(Protocol):
+    def create(self, props: dict[str, Any], blocks: list[tuple[str, ...]]) -> str: ...
+
+    def update(self, page_id: str, props: dict[str, Any]) -> None: ...
+
+    def get(self, page_id: str) -> dict[str, Any] | None: ...
+
+    def rows_for_job(self, job_id: str) -> list[tuple[str, dict[str, Any]]]: ...
+
+    def approved_rows(self) -> list[tuple[str, dict[str, Any]]]: ...
+
+    def all_rows(self) -> list[tuple[str, dict[str, Any]]]: ...
+
+    def read_body(self, page_id: str) -> list[str]: ...
+
+
+def _hex(page_id: str) -> str:
+    return page_id.replace("-", "").lower()
+
+
+class NotionResumeLogRepo:
+    """Resume Log (one row per resume revision). Written only through the target from
+    safety.notion_write_target("resume_log")."""
+
+    def __init__(self, client: NotionClient, data_source_id: str):
+        self.client = client
+        self.data_source_id = data_source_id
+        self._types: dict[str, str] | None = None
+
+    def _props(self, props: dict[str, Any]) -> dict[str, Any]:
+        if self._types is None:
+            # "Evidence used" may be a text field in an older schema: write the IDs as text.
+            schema = self.client.request("GET", f"/data_sources/{self.data_source_id}")
+            self._types = {name: (value or {}).get("type", "")
+                           for name, value in (schema.get("properties") or {}).items()}
+        out = {}
+        for name, value in props.items():
+            kind = RESUME_LOG_PROPERTY_TYPES[name]
+            if name == "Evidence used" and self._types.get(name) == "rich_text":
+                kind, value = "rich_text", ", ".join(value or [])
+            out[name] = notion_value(kind, value)
+        return out
+
+    def create(self, props: dict[str, Any], blocks: list[tuple[str, ...]]) -> str:
+        body = {
+            "parent": {"type": "data_source_id", "data_source_id": self.data_source_id},
+            "properties": self._props(props),
+            "children": typed_blocks(blocks),
+        }
+        return self.client.request("POST", "/pages", body)["id"]
+
+    def update(self, page_id: str, props: dict[str, Any]) -> None:
+        self.client.request("PATCH", f"/pages/{page_id}", {"properties": self._props(props)})
+
+    def get(self, page_id: str) -> dict[str, Any] | None:
+        return NotionJobsRepo(self.client, self.data_source_id).get_values(page_id)
+
+    def _query(self, body: dict[str, Any] | None) -> list[tuple[str, dict[str, Any]]]:
+        return [(page["id"], page_values(page))
+                for page in self.client.query(self.data_source_id, body)]
+
+    def rows_for_job(self, job_id: str) -> list[tuple[str, dict[str, Any]]]:
+        return self._query({"filter": {"property": "Job", "relation": {"contains": job_id}}})
+
+    def approved_rows(self) -> list[tuple[str, dict[str, Any]]]:
+        return self._query({"filter": {"property": "Approved", "checkbox": {"equals": True}}})
+
+    def all_rows(self) -> list[tuple[str, dict[str, Any]]]:
+        return self._query(None)
+
+    def read_body(self, page_id: str) -> list[str]:
+        return NotionJobsRepo(self.client, self.data_source_id).read_body(page_id)
+
+
+class FakeResumeLogRepo:
+    """In-memory Resume Log. Page IDs look like Notion UUIDs so short references work."""
+
+    def __init__(self) -> None:
+        self.rows: dict[str, dict[str, Any]] = {}
+        self.writes: list[tuple[str, str, Any]] = []
+
+    def _id(self, page_id: str) -> str:
+        return next((k for k in self.rows if _hex(k) == _hex(page_id)), page_id)
+
+    def create(self, props: dict[str, Any], blocks: list[tuple[str, ...]]) -> str:
+        n = len(self.rows) + 1
+        page_id = f"{n:08x}-0000-4000-8000-{n:012x}"
+        self.rows[page_id] = {**props, "body": [b[1] for b in blocks]}
+        self.writes.append(("create", page_id, dict(props)))
+        return page_id
+
+    def update(self, page_id: str, props: dict[str, Any]) -> None:
+        page_id = self._id(page_id)
+        self.rows[page_id].update(props)
+        self.writes.append(("update", page_id, dict(props)))
+
+    def get(self, page_id: str) -> dict[str, Any] | None:
+        row = self.rows.get(self._id(page_id))
+        return {k: v for k, v in row.items() if k != "body"} if row else None
+
+    def _rows(self, keep) -> list[tuple[str, dict[str, Any]]]:
+        return [(pid, {k: v for k, v in row.items() if k != "body"})
+                for pid, row in self.rows.items() if keep(row)]
+
+    def rows_for_job(self, job_id: str) -> list[tuple[str, dict[str, Any]]]:
+        return self._rows(lambda r: _hex(job_id) in {_hex(j) for j in r.get("Job") or []})
+
+    def approved_rows(self) -> list[tuple[str, dict[str, Any]]]:
+        return self._rows(lambda r: bool(r.get("Approved")))
+
+    def all_rows(self) -> list[tuple[str, dict[str, Any]]]:
+        return self._rows(lambda r: True)
+
+    def read_body(self, page_id: str) -> list[str]:
+        return list(self.rows[self._id(page_id)].get("body") or [])
+
+
+def resume_log_for(s: Settings, client: NotionClient) -> NotionResumeLogRepo | None:
+    target = notion_write_target("resume_log", s)
+    if target is None:
+        log.warning("DRY RUN: would write to resume_log")
+        return None
+    return NotionResumeLogRepo(client, target)
+
+
+# ---------------------------------------------------------------- Contacts
+
+
+class ContactsRepo(Protocol):
+    def all_rows(self) -> list[tuple[str, dict[str, Any]]]: ...
+
+    def create(self, props: dict[str, Any]) -> str: ...
+
+    def add_job(self, page_id: str, job_id: str) -> None: ...
+
+    def update(self, page_id: str, props: dict[str, Any]) -> None: ...
+
+    def archive(self, page_id: str) -> None: ...
+
+
+def contact_properties(props: dict[str, Any]) -> dict[str, Any]:
+    return {name: notion_value(CONTACT_PROPERTY_TYPES[name], value)
+            for name, value in props.items() if value not in (None, "")}
+
+
+def cleared_or_value(kind: str, value: Any) -> dict[str, Any]:
+    """Like notion_value, but "" or None clears the property (for updates)."""
+    if value in (None, ""):
+        return {"date": None} if kind == "date" else {kind: []}
+    return notion_value(kind, value)
+
+
+def contact_update_properties(props: dict[str, Any]) -> dict[str, Any]:
+    return {name: cleared_or_value(CONTACT_PROPERTY_TYPES[name], value)
+            for name, value in props.items()}
+
+
+class NotionContactsRepo:
+    """Contacts, written only through safety.notion_write_target("contacts")."""
+
+    def __init__(self, client: NotionClient, data_source_id: str):
+        self.client = client
+        self.data_source_id = data_source_id
+
+    def all_rows(self) -> list[tuple[str, dict[str, Any]]]:
+        names = tuple(CONTACT_PROPERTY_TYPES)
+        return [(page["id"], page_values(page))
+                for page in self.client.query(self.data_source_id, properties=names)]
+
+    def create(self, props: dict[str, Any]) -> str:
+        body = {"parent": {"type": "data_source_id", "data_source_id": self.data_source_id},
+                "properties": contact_properties(props)}
+        return self.client.request("POST", "/pages", body)["id"]
+
+    def add_job(self, page_id: str, job_id: str) -> None:
+        """Add the job to Related jobs. Nothing else on a cached contact is changed."""
+        page = self.client.request("GET", f"/pages/{page_id}")
+        related = plain_value((page.get("properties") or {}).get("Related jobs") or {}) or []
+        if _hex(job_id) in {_hex(j) for j in related}:
+            return
+        self.client.request("PATCH", f"/pages/{page_id}", {"properties": contact_properties(
+            {"Related jobs": [*related, job_id]})})
+
+    def update(self, page_id: str, props: dict[str, Any]) -> None:
+        """Gmail IDs, Status, Notes, Last contacted (Modules 06 and 07). "" clears a field."""
+        self.client.request("PATCH", f"/pages/{page_id}",
+                            {"properties": contact_update_properties(props)})
+
+    def archive(self, page_id: str) -> None:
+        """Move a contact to the Notion trash (retention, after your tap, prod only)."""
+        self.client.request("PATCH", f"/pages/{page_id}", {"in_trash": True})
+
+
+class FakeContactsRepo:
+    def __init__(self, rows: list[dict[str, Any]] | None = None):
+        self.rows: dict[str, dict[str, Any]] = {}
+        self.writes: list[tuple[str, str, Any]] = []
+        for row in rows or []:
+            row = dict(row)
+            for key in ("Date found", "Last contacted"):
+                if isinstance(row.get(key), str):
+                    row[key] = date.fromisoformat(row[key])
+            self.rows[row.pop("page_id")] = row
+
+    @classmethod
+    def from_fixture(cls, path: Path) -> FakeContactsRepo:
+        return cls(json.loads(path.read_text(encoding="utf-8")))
+
+    def all_rows(self) -> list[tuple[str, dict[str, Any]]]:
+        return [(pid, dict(row)) for pid, row in self.rows.items()]
+
+    def create(self, props: dict[str, Any]) -> str:
+        page_id = f"fake-contact-{len(self.rows) + 1}"
+        self.rows[page_id] = dict(props)
+        self.writes.append(("create", page_id, dict(props)))
+        return page_id
+
+    def add_job(self, page_id: str, job_id: str) -> None:
+        related = self.rows[page_id].setdefault("Related jobs", [])
+        if job_id not in related:
+            related.append(job_id)
+            self.writes.append(("add_job", page_id, job_id))
+
+    def update(self, page_id: str, props: dict[str, Any]) -> None:
+        self.rows[page_id].update(props)
+        self.writes.append(("update", page_id, dict(props)))
+
+    def archive(self, page_id: str) -> None:
+        self.rows.pop(page_id, None)
+        self.writes.append(("archive", page_id, None))
+
+
+def contacts_repo_for(s: Settings, client: NotionClient) -> NotionContactsRepo | None:
+    target = notion_write_target("contacts", s)
+    if target is None:
+        log.warning("DRY RUN: would write to contacts")
+        return None
+    return NotionContactsRepo(client, target)
+
+
+def config_writer_for(s: Settings, client: NotionClient, config: Any) -> Any:
+    """Writer for credits.* rows in prod (notion_write_target("config") is None elsewhere).
+    Only allowlisted keys are written (safety.check_config_write)."""
+    from jobengine.safety import check_config_write
+
+    if notion_write_target("config", s) is None:
+        return None
+
+    def write(key: str, value: str, day: date) -> None:
+        check_config_write(key)
+        page_id = config.page_id(key)
+        if not page_id:
+            log.warning("Config %s not found, counter not written", key)
+            return
+        client.request("PATCH", f"/pages/{page_id}", {"properties": {
+            "Value": notion_value("rich_text", value), "Updated": notion_value("date", day)}})
+
+    return write
+
+
+# ---------------------------------------------------------------- Strategy (Module 08)
+
+STRATEGY_PROPERTY_TYPES = {
+    "Tip / rule": "title",
+    "Category": "select",
+    "Status": "select",
+    "Source": "rich_text",
+    "Date added": "date",
+    "Notes": "rich_text",
+}
+
+
+class StrategyRepo(Protocol):
+    def all_rows(self) -> list[tuple[str, dict[str, Any]]]: ...
+
+    def create(self, props: dict[str, Any]) -> str: ...
+
+    def update(self, page_id: str, props: dict[str, Any]) -> None: ...
+
+    def get(self, page_id: str) -> dict[str, Any] | None: ...
+
+
+def strategy_properties(props: dict[str, Any]) -> dict[str, Any]:
+    return {name: cleared_or_value(STRATEGY_PROPERTY_TYPES[name], value)
+            for name, value in props.items()}
+
+
+class NotionStrategyRepo:
+    """Strategy (prod) or Strategy (DEV), through safety.notion_write_target("strategy")."""
+
+    def __init__(self, client: NotionClient, data_source_id: str):
+        self.client = client
+        self.data_source_id = data_source_id
+
+    def all_rows(self) -> list[tuple[str, dict[str, Any]]]:
+        return [(page["id"], page_values(page))
+                for page in self.client.query(self.data_source_id,
+                                              properties=tuple(STRATEGY_PROPERTY_TYPES))]
+
+    def create(self, props: dict[str, Any]) -> str:
+        body = {"parent": {"type": "data_source_id", "data_source_id": self.data_source_id},
+                "properties": strategy_properties(props)}
+        return self.client.request("POST", "/pages", body)["id"]
+
+    def update(self, page_id: str, props: dict[str, Any]) -> None:
+        self.client.request("PATCH", f"/pages/{page_id}",
+                            {"properties": strategy_properties(props)})
+
+    def get(self, page_id: str) -> dict[str, Any] | None:
+        return NotionJobsRepo(self.client, self.data_source_id).get_values(page_id)
+
+
+class FakeStrategyRepo:
+    """In-memory Strategy. New page IDs look like Notion UUIDs so button data works."""
+
+    def __init__(self, rows: list[dict[str, Any]] | None = None):
+        self.rows: dict[str, dict[str, Any]] = {}
+        self.writes: list[tuple[str, str, Any]] = []
+        for row in rows or []:
+            row = dict(row)
+            if isinstance(row.get("Date added"), str):
+                row["Date added"] = date.fromisoformat(row["Date added"])
+            self.rows[row.pop("page_id")] = row
+
+    @classmethod
+    def from_fixture(cls, path: Path) -> FakeStrategyRepo:
+        return cls(json.loads(path.read_text(encoding="utf-8")))
+
+    def _id(self, page_id: str) -> str:
+        return next((k for k in self.rows if _hex(k) == _hex(page_id)), page_id)
+
+    def all_rows(self) -> list[tuple[str, dict[str, Any]]]:
+        return [(pid, dict(row)) for pid, row in self.rows.items()]
+
+    def create(self, props: dict[str, Any]) -> str:
+        n = len(self.rows) + 1
+        page_id = f"5{n:07x}-0000-4000-8000-{n:012x}"
+        self.rows[page_id] = dict(props)
+        self.writes.append(("create", page_id, dict(props)))
+        return page_id
+
+    def update(self, page_id: str, props: dict[str, Any]) -> None:
+        page_id = self._id(page_id)
+        self.rows[page_id].update(props)
+        self.writes.append(("update", page_id, dict(props)))
+
+    def get(self, page_id: str) -> dict[str, Any] | None:
+        row = self.rows.get(self._id(page_id))
+        return dict(row) if row else None
+
+
+def strategy_repo_for(s: Settings, client: NotionClient) -> NotionStrategyRepo | None:
+    target = notion_write_target("strategy", s)
+    if target is None:
+        log.warning("DRY RUN: would write to strategy")
+        return None
+    return NotionStrategyRepo(client, target)
+
+
+# ---------------------------------------------------------------- Target Companies (Module 08)
+
+TARGET_COMPANY_PROPERTY_TYPES = {"IND sponsor": "select", "Last checked": "date",
+                                 "ATS platform": "select", "Domain": "rich_text"}
+
+
+def target_companies_writer(s: Settings, client: NotionClient) -> Any:
+    """(page_id, props) writer for Target Companies, or None when not writable (outside prod).
+    Only safety.target_companies_writable_fields may be written."""
+    from jobengine.safety import check_target_companies_write
+
+    if notion_write_target("target_companies", s) is None:
+        return None
+
+    def write(page_id: str, props: dict[str, Any]) -> None:
+        check_target_companies_write(list(props))
+        client.request("PATCH", f"/pages/{page_id}", {"properties": {
+            name: notion_value(TARGET_COMPANY_PROPERTY_TYPES[name], value)
+            for name, value in props.items()}})
+
+    return write
+
+
+class CompanyAdder:
+    """/add (23 Oct): adds a Target Companies row, and unticks Active for its Undo button.
+    Only safety.target_companies_add_fields, only through safety.target_companies_add_target."""
+
+    TYPES = {"Company": "title", "Careers URL": "url", "ATS platform": "select",
+             "Region": "select", "Active": "checkbox", "Last checked": "date",
+             "Notes": "rich_text", "Domain": "rich_text", "Hub / City": "rich_text",
+             "Tier": "select", "IND sponsor": "select"}
+
+    def __init__(self, client: NotionClient, data_source: str):
+        self.client = client
+        self.data_source = data_source
+
+    def add(self, props: dict[str, Any]) -> str:
+        from jobengine.safety import check_target_companies_add
+
+        check_target_companies_add(list(props))
+        body = {"parent": {"type": "data_source_id", "data_source_id": self.data_source},
+                "properties": {k: notion_value(self.TYPES[k], v) for k, v in props.items()}}
+        return str(self.client.request("POST", "/pages", body)["id"])
+
+    def deactivate(self, page_id: str) -> None:
+        self.client.request("PATCH", f"/pages/{page_id}",
+                            {"properties": {"Active": notion_value("checkbox", False)}})
+
+    def fill(self, page_id: str, props: dict[str, Any]) -> None:
+        """The empty columns of a row the bot added (sweep/company_details.py)."""
+        from jobengine.safety import check_target_companies_fill
+
+        check_target_companies_fill(list(props))
+        self.client.request("PATCH", f"/pages/{page_id}", {"properties": {
+            k: notion_value(self.TYPES[k], v) for k, v in props.items()}})
+
+
+class FakeCompanyAdder:
+    """In-memory CompanyAdder for tests and --fake."""
+
+    def __init__(self) -> None:
+        self.rows: dict[str, dict[str, Any]] = {}
+
+    def add(self, props: dict[str, Any]) -> str:
+        from jobengine.safety import check_target_companies_add
+
+        check_target_companies_add(list(props))
+        page_id = f"tc-{len(self.rows) + 1:04d}"
+        self.rows[page_id] = dict(props)
+        return page_id
+
+    def deactivate(self, page_id: str) -> None:
+        self.rows[page_id]["Active"] = False
+
+    def fill(self, page_id: str, props: dict[str, Any]) -> None:
+        from jobengine.safety import check_target_companies_fill
+
+        check_target_companies_fill(list(props))
+        self.rows.setdefault(page_id, {}).update(props)
+
+
+def company_adder(s: Settings, client: NotionClient) -> CompanyAdder | None:
+    from jobengine.safety import target_companies_add_target
+
+    target = target_companies_add_target(s)
+    return CompanyAdder(client, target) if target else None
+
+
+# ---------------------------------------------------------------- Skills Inventory (/gaps)
+
+
+SKILL_LEVELS = ("Hands-on", "Production")
+
+
+def skill_writer(client: NotionClient, s: Settings) -> Callable[[str, str, str], None] | None:
+    """Adds one Skills Inventory row (Skill, Level, Notes) when you tap a /gaps button.
+    Only through safety.skills_write_target."""
+    from jobengine.safety import skills_write_target
+
+    target = skills_write_target(s)
+    if not target:
+        return None
+
+    def add(name: str, level: str, note: str) -> None:
+        if level not in SKILL_LEVELS:
+            raise ValueError(f"unknown level {level}")
+        body = {"parent": {"type": "data_source_id", "data_source_id": target},
+                "properties": {"Skill": notion_value("title", name),
+                               "Level": notion_value("select", level),
+                               "Notes": notion_value("rich_text", note)}}
+        client.request("POST", "/pages", body)
+
+    return add
+
+
+# ---------------------------------------------------------------- auto-apply (H8)
+
+ANSWER_BANK_TYPES = {
+    "Question": "title", "Answer": "rich_text", "Short answer": "rich_text",
+    "Country": "select", "Source": "select", "Approved": "checkbox", "Last used": "date",
+    "Times used": "number",
+}
+ISSUE_TYPES = {
+    "Issue": "title", "Job": "rich_text", "Form URL": "url", "Form type": "select",
+    "Question": "rich_text", "Bot answer": "rich_text", "Correct answer": "rich_text",
+    "Issue type": "select", "Status": "select", "Date": "date",
+}
+
+
+class NotionTable:
+    """A small table the bot adds rows to and reads (Answer bank, Auto-apply issues).
+    Written only through the target from safety.notion_write_target."""
+
+    def __init__(self, client: NotionClient, data_source_id: str, types: dict[str, str]):
+        self.client, self.data_source_id, self.types = client, data_source_id, types
+
+    def create(self, props: dict[str, Any]) -> str:
+        body = {"parent": {"type": "data_source_id", "data_source_id": self.data_source_id},
+                "properties": {name: notion_value(self.types[name], value)
+                               for name, value in props.items() if value not in (None, "")}}
+        return self.client.request("POST", "/pages", body)["id"]
+
+    def rows(self) -> list[dict[str, Any]]:
+        return [page_values(page) for page in self.client.query(self.data_source_id)]
+
+    def upsert(self, match: dict[str, Any], props: dict[str, Any],
+               new: dict[str, Any] | None = None) -> str:
+        """Update the first row whose `match` values are equal (Phase 23 4-01, 8 Nov: /answer
+        said "Replaced" but the Answer bank row kept the old text), else create one."""
+        for page in self.client.query(self.data_source_id):
+            values = page_values(page)
+            if all(_same_value(values.get(k), v) for k, v in match.items()):
+                body = {"properties": {name: notion_value(self.types[name], value)
+                                       for name, value in props.items()
+                                       if value not in (None, "")}}
+                self.client.request("PATCH", f"/pages/{page['id']}", body)
+                return str(page["id"])
+        return self.create({**match, **props, **(new or {})})
+
+
+def _same_value(have: Any, want: Any) -> bool:
+    if isinstance(want, str):
+        return " ".join(str(have or "").split()).lower() == " ".join(want.split()).lower()
+    return have == want
+
+
+class FakeTable:
+    def __init__(self) -> None:
+        self.created: list[dict[str, Any]] = []
+
+    def create(self, props: dict[str, Any]) -> str:
+        self.created.append(dict(props))
+        return f"fake-{len(self.created)}"
+
+    def rows(self) -> list[dict[str, Any]]:
+        return [dict(r) for r in self.created]
+
+    def upsert(self, match: dict[str, Any], props: dict[str, Any],
+               new: dict[str, Any] | None = None) -> str:
+        for n, row in enumerate(self.created):
+            if all(_same_value(row.get(k), v) for k, v in match.items()):
+                row.update(props)
+                return f"fake-{n + 1}"
+        return self.create({**match, **props, **(new or {})})
+
+
+# ---------------------------------------------------------------- weekly audit (27 Oct)
+
+AUDIT_TYPES = {
+    "Week": "title", "Week start": "date", "Applied": "number", "Replies": "number",
+    "Interviews": "number", "Reply rate": "number", "Mails sent": "number", "Errors": "number",
+    "AI cost": "number", "Verdict": "select", "Status": "select", "Actions": "rich_text",
+}
+MAX_CHILDREN = 100  # Notion's limit per request
+
+
+class AuditTable(NotionTable):
+    """Weekly Audit: one row a week, the report in its page body."""
+
+    def create_page(self, props: dict[str, Any], blocks: list[tuple[str, ...]]) -> str:
+        children = typed_blocks(blocks)
+        body = {"parent": {"type": "data_source_id", "data_source_id": self.data_source_id},
+                "properties": {name: notion_value(self.types[name], value)
+                               for name, value in props.items() if value not in (None, "")},
+                "children": children[:MAX_CHILDREN]}
+        page_id = self.client.request("POST", "/pages", body)["id"]
+        for i in range(MAX_CHILDREN, len(children), MAX_CHILDREN):
+            self.client.request("PATCH", f"/blocks/{page_id}/children",
+                                {"children": children[i:i + MAX_CHILDREN]})
+        return page_id
+
+
+class FakeAuditTable(FakeTable):
+    def __init__(self) -> None:
+        super().__init__()
+        self.bodies: list[list[tuple[str, ...]]] = []
+
+    def create_page(self, props: dict[str, Any], blocks: list[tuple[str, ...]]) -> str:
+        self.bodies.append(list(blocks))
+        return self.create(props)
+
+
+def audit_table(s: Settings, client: NotionClient) -> AuditTable | None:
+    """Weekly Audit, or None when it is not writable here (the audit then comes in Telegram
+    only, with a DRY RUN line)."""
+    target = notion_write_target("weekly_audit", s)
+    if target is None:
+        log.warning("DRY RUN: would write to weekly_audit")
+        return None
+    return AuditTable(client, target, AUDIT_TYPES)
+
+
+def autoapply_tables(s: Settings, client: NotionClient) -> tuple[Any, Any]:
+    """(Answer bank, Auto-apply issues), each None when not writable in this env."""
+    out = []
+    for name, types in (("answer_bank", ANSWER_BANK_TYPES), ("autoapply_issues", ISSUE_TYPES)):
+        target = notion_write_target(name, s)
+        if target is None:
+            log.warning("DRY RUN: would write to %s", name)
+        out.append(NotionTable(client, target, types) if target else None)
+    return out[0], out[1]
+

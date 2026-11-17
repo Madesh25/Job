@@ -1,4 +1,5 @@
-"""CLI: python -m jobengine.sweep [--fake] [--source ...] [--today YYYY-MM-DD] [--parse-report]"""
+"""CLI: python -m jobengine.sweep [--fake] [--source ...] [--today YYYY-MM-DD] [--parse-report]
+[--probe SITE|all] [--check-boards]"""
 
 from __future__ import annotations
 
@@ -11,7 +12,7 @@ from jobengine import http
 from jobengine.main import banner
 from jobengine.safety import SafetyError, check_startup
 from jobengine.settings import Settings, get_settings
-from jobengine.sweep import fakes
+from jobengine.sweep import boards, fakes, probe
 from jobengine.sweep.runner import SOURCES, SweepError, fake_deps, real_deps, run_sweep
 from jobengine.sweep.sources import gmail_alerts
 
@@ -38,6 +39,13 @@ def main(argv: list[str] | None = None) -> int:
                         help="run as if today were this date (YYYY-MM-DD)")
     parser.add_argument("--parse-report", action="store_true",
                         help="print what the Gmail alert parser extracts, write nothing")
+    parser.add_argument("--probe", choices=[*probe.SITES, "all"],
+                        help="measure a job site (or all) for the approved titles and save "
+                             "samples in out/probes; writes nothing to Notion")
+    parser.add_argument("--check-boards", action="store_true",
+                        help="check every Target Company's job board link (proposed links "
+                             "in config/board_candidates.yaml first); writes nothing to "
+                             "Notion, saves out/boards")
     args = parser.parse_args(argv)
 
     # Progress lines go to stderr; the summary is printed to stdout at the end.
@@ -52,17 +60,32 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.parse_report:
         return parse_report(s, args.fake)
+    if args.check_boards:
+        print(boards.check_all(s, args.today or date.today()))
+        return 0
+    if args.probe:
+        names = list(probe.SITES) if args.probe == "all" else [args.probe]
+        print(probe.run(s, names, args.today or date.today()).text())
+        return 0
 
     today = args.today or (fakes.FAKE_TODAY if args.fake else date.today())
     sources = SOURCES if args.source == "all" else (args.source,)
     try:
         deps = fake_deps(s) if args.fake else real_deps(s)
-        summary = run_sweep(s, deps, today, sources)
+        summary = run_sweep(s, deps, today, sources, state=None if args.fake else _state(s))
     except (SweepError, http.HttpError) as exc:
         print(f"Job Engine sweep failed: {exc}", file=sys.stderr)
         return 1
     print(summary.text())
     return 2 if summary.blocked else 0
+
+
+def _state(s):
+    """bot_state (local and dev: /update stamps the strategy gate there), or None."""
+    from jobengine.bot_state import bot_state_for
+    from jobengine.notion_repo import NotionClient
+
+    return bot_state_for(s, NotionClient(s.notion_token, s)) if s.notion_token else None
 
 
 if __name__ == "__main__":

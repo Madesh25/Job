@@ -1,0 +1,372 @@
+"""The Cloud Run app (spec section 2): Telegram webhook, scheduled tasks, health check.
+
+Every path is protected in code (the service allows unauthenticated calls so Telegram can
+reach it): the webhook by the secret token header and the chat ID lock, the task endpoints
+by a Cloud Scheduler OIDC token. Updates go through the same handler as long polling.
+"""
+
+from __future__ import annotations
+
+import logging
+import sys
+from collections import deque
+from collections.abc import Callable
+from dataclasses import dataclass, field
+from datetime import datetime
+from typing import Any
+
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse, PlainTextResponse
+
+from jobengine import telegram_bot as tb
+from jobengine.bot_state import BotState, FakeBotState
+from jobengine.safety import SafetyError, check_startup, telegram_text
+from jobengine.screen.desk import Desk, Reply
+from jobengine.settings import Settings
+from jobengine.web.auth import (
+    SECRET_HEADER,
+    AuthError,
+    Verifier,
+    check_scheduler_token,
+    check_telegram_secret,
+    google_verifier,
+)
+from jobengine.web.worker import Worker
+
+log = logging.getLogger("jobengine.web")
+
+RECENT_KEY = "telegram.recent_updates"
+RECENT_SIZE = 200
+TASK_TIMEOUT = 870  # under the 900 s Cloud Run request timeout
+
+
+class RecentUpdates:
+    """The last 200 update_ids, in memory and in bot_state, so Telegram retries are dropped
+    even after a restart."""
+
+    def __init__(self, state: BotState, size: int = RECENT_SIZE):
+        self.state = state
+        self.size = size
+        try:
+            saved = (state.get(RECENT_KEY) or {}).get("ids") or []
+        except Exception:  # a broken bot_state must not stop the webhook
+            log.exception("could not read %s", RECENT_KEY)
+            saved = []
+        self.ids: deque[int] = deque((int(i) for i in saved), maxlen=size)
+
+    def seen(self, update_id: int) -> bool:
+        """True for a repeat; otherwise remembers the ID and returns False."""
+        if update_id in self.ids:
+            return True
+        self.ids.append(update_id)
+        try:
+            self.state.set(RECENT_KEY, {"ids": list(self.ids)})
+        except Exception:
+            log.exception("could not store %s", RECENT_KEY)
+        return False
+
+
+@dataclass
+class Tasks:
+    """What the scheduled endpoints run. Each returns a short summary for the JSON reply."""
+
+    daily: Callable[[], dict[str, Any]]
+    digest: Callable[[], dict[str, Any]]
+    sweep: Callable[[], dict[str, Any]]
+    # Queued, not awaited: a run with 10 resumes can take longer than the request timeout.
+    autopilot: Callable[[], dict[str, Any]] = field(default=lambda: {"ok": True})
+    mail: Callable[[], dict[str, Any]] = field(default=lambda: {"ok": True})
+    replies: Callable[[], dict[str, Any]] = field(default=lambda: {"ok": True})
+    check: Callable[[], dict[str, Any]] = field(default=lambda: {"ok": True})
+    report: Callable[[], dict[str, Any]] = field(default=lambda: {"ok": True})
+    nudge: Callable[[], dict[str, Any]] = field(default=lambda: {"ok": True})
+    apply: Callable[[], dict[str, Any]] = field(default=lambda: {"ok": True})
+    health: Callable[[], dict[str, Any]] = field(default=lambda: {"ok": True})
+
+
+def desk_tasks(s: Settings, desk: Desk, client: tb.TelegramClient,
+               fetch: tb.Fetcher | None) -> Tasks:
+    """The real task bodies: they run the same desk code as the Telegram commands and send
+    their reports to the chat."""
+    from jobengine.strategy.runner import run_strategy_reminder
+    from jobengine.track.digest import run_weekly_digest
+    from jobengine.track.runner import run_daily
+
+    chat = str(s.telegram_chat_id)
+
+    def send(replies: list[Reply]) -> None:
+        tb.send_replies(client, s, chat, replies)
+
+    def daily() -> dict[str, Any]:
+        if desk.track is None:
+            raise RuntimeError("tracking is not available (see the startup log)")
+        report = run_daily(desk.track, desk.tracking_now())
+        send(desk.report_replies(report))
+        # The monthly /update by itself (I5): on the Friday evening before /fetch closes, so
+        # the 21:30 call counts too (5 Nov); it runs once per gate period whatever calls it.
+        auto = desk.auto_update_tick()
+        send(auto)
+        from jobengine.track import daily_report, timed
+
+        day = daily_report.local(desk.tracking_now(), desk.deps.config()).date()
+        if not timed.extras_due(desk.state, day):  # 21:30: the check only (5 Nov)
+            return {"ok": report.ok, "sent": len(report.sent),
+                    "replies": len(report.replies), "followups": len(report.followups),
+                    "reminder": False}
+        reminder = (run_strategy_reminder(desk.strategy)
+                    if desk.strategy and not auto else None)
+        if reminder:
+            send([Reply(reminder)])
+        send(desk.connections_reminder())  # the monthly LinkedIn export, when it is due
+        send(desk.leftover_tick())  # credits left on the day before a provider renews
+        send(desk.ai_cap_tick())  # the month's AI cap at 80% and 100% (I6)
+        send(desk.sponsor_tick())  # companies from the visa sponsor lists (Saturdays)
+        send(desk.weekly_audit_tick())  # a weekly audit missed on Sunday comes the next day
+        return {"ok": report.ok, "sent": len(report.sent), "replies": len(report.replies),
+                "followups": len(report.followups), "reminder": bool(reminder)}
+
+    def digest() -> dict[str, Any]:
+        if desk.track is None:
+            raise RuntimeError("tracking is not available (see the startup log)")
+        send([Reply(run_weekly_digest(desk.track, desk.tracking_now()))])
+        send(desk.spot_check_tick())  # Sunday 20:00 India time: 2 resumes to look at (H5)
+        send(desk.expired_check_tick())  # the weekly link check: closed jobs Expired (I1)
+        send(desk.board_check_tick())  # the weekly job board check, before the audit
+        send(desk.weekly_audit_tick())  # the weekly self-audit (Sunday from 20:00)
+        return {"ok": True}
+
+    def sweep() -> dict[str, Any]:
+        config = desk.deps.config()
+        if (config.get("schedule.auto_fetch") or "false").strip().lower() != "true":
+            return {"ok": True, "skipped": "Config schedule.auto_fetch is not true"}
+        if fetch is None:
+            raise RuntimeError("the sweep is not available")
+        summary = fetch(lambda line: None)  # the strategy gate is checked inside the sweep
+        send([Reply(summary)])
+        return {"ok": True}
+
+    def autopilot() -> dict[str, Any]:
+        """The morning schedule (screen/schedule.py): start today's run when it is due, or
+        carry on with a run whose half-price batch has answered."""
+        try:
+            replies = desk.autopilot_scheduled(tb.autopilot_fetch(fetch))
+        except Exception as exc:  # queued: nobody waits for the result, so report it here
+            log.exception("scheduled autopilot failed")
+            send([Reply(f"Scheduled autopilot failed: {exc}")])
+            desk.alert_failure("Scheduled autopilot", exc)
+            return {"ok": False, "error": str(exc)}
+        if replies:
+            send(replies)
+        return {"ok": True, "ran": bool(replies)}
+
+    def check() -> dict[str, Any]:
+        """The afternoon check (screen/check.py): /fetch and /screen when it is due."""
+        try:
+            replies = desk.check_scheduled(tb.autopilot_fetch(fetch))
+        except Exception as exc:  # queued: nobody waits for the result, so report it here
+            log.exception("afternoon check failed")
+            send([Reply(f"Afternoon check failed: {exc}")])
+            desk.alert_failure("Afternoon check", exc)
+            return {"ok": False, "error": str(exc)}
+        if replies:
+            send(replies)
+        return {"ok": True, "ran": bool(replies)}
+
+    def mail() -> dict[str, Any]:
+        """Send one queued mail whose recipient's morning has come (mail/timing.py)."""
+        replies = desk.mail_queue_tick()
+        if replies:
+            send(replies)
+        return {"ok": True, "sent": len(replies)}
+
+    def replies() -> dict[str, Any]:
+        """Ping new replies from contacts and employers (track/ping.py)."""
+        pings = desk.reply_ping_tick()
+        if pings:
+            send(pings)
+        return {"ok": True, "pinged": len(pings)}
+
+    def report() -> dict[str, Any]:
+        """The evening report (track/daily_report.py): Telegram and email, once a day."""
+        sent = desk.daily_report_tick()
+        if sent:
+            send(sent)
+        return {"ok": True, "sent": bool(sent)}
+
+    def health() -> dict[str, Any]:
+        """The morning check (track/health_report.py): once a day before the morning run."""
+        sent = desk.health_report_tick()
+        if sent:
+            send(sent)
+        return {"ok": True, "sent": bool(sent)}
+
+    def nudge() -> dict[str, Any]:
+        """The apply nudge from 22:00 India time (track/nudge.py): at most 5 an evening."""
+        sent = desk.nudge_tick()
+        if sent:
+            send(sent)
+        return {"ok": True, "sent": bool(sent)}
+
+    def apply() -> dict[str, Any]:
+        """The auto-apply queue (apply/queue.py): ask about the laptop, or fill 3 forms."""
+        sent = desk.autoapply_tick()
+        if sent:
+            send(sent)
+        return {"ok": True, "sent": len(sent)}
+
+    return Tasks(daily=daily, digest=digest, sweep=sweep, autopilot=autopilot, mail=mail,
+                 replies=replies, check=check, report=report, nudge=nudge, apply=apply,
+                 health=health)
+
+
+def create_app(
+    s: Settings,
+    client: tb.TelegramClient,
+    desk: Desk | None,
+    tasks: Tasks,
+    *,
+    fetch: tb.Fetcher | None = None,
+    state: BotState | None = None,
+    worker: Worker | None = None,
+    verify: Verifier = google_verifier,
+) -> FastAPI:
+    app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
+    worker = worker or Worker()
+    recent = RecentUpdates(state or (desk.state if desk is not None else FakeBotState()))
+    app.state.worker = worker
+
+    def denied(exc: AuthError) -> JSONResponse:
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=exc.status)
+
+    @app.get("/healthz")
+    def healthz() -> PlainTextResponse:
+        return PlainTextResponse("ok")
+
+    @app.post("/telegram/webhook")
+    async def webhook(request: Request) -> JSONResponse:
+        try:
+            check_telegram_secret(request.headers.get(SECRET_HEADER), s)
+        except AuthError as exc:
+            return denied(exc)
+        try:
+            update = await request.json()
+            update_id = int(update["update_id"])
+        except (ValueError, KeyError, TypeError):
+            return JSONResponse({"ok": True, "ignored": "not an update"})
+        if recent.seen(update_id):
+            return JSONResponse({"ok": True, "duplicate": True})
+        if tb.end_now(client, s, update):  # /end must not wait behind the run it stops
+            return JSONResponse({"ok": True})
+        # Answer Telegram at once; the worker runs the (possibly long) handler.
+        worker.submit(lambda: tb.handle_one(client, s, update, fetch, desk))
+        return JSONResponse({"ok": True})
+
+    def run_task(name: str, body: Callable[[], dict[str, Any]],
+                 authorization: str | None) -> JSONResponse:
+        try:
+            check_scheduler_token(authorization, s, verify)
+        except AuthError as exc:
+            return denied(exc)
+        started = datetime.now().astimezone().isoformat(timespec="seconds")
+        try:
+            summary = worker.call(body, timeout=TASK_TIMEOUT)
+        except Exception as exc:  # Scheduler records the 500; you get a Telegram message
+            log.exception("scheduled task %s failed", name)
+            try:
+                client.send_message(str(s.telegram_chat_id), telegram_text(
+                    f"Scheduled task {name} failed: {exc}", s))
+            except Exception:
+                log.exception("could not report the failed task %s", name)
+            if desk is not None:
+                desk.alert_failure(f"Scheduled task {name}", exc)  # by email too (H3)
+            return JSONResponse({"ok": False, "task": name, "error": str(exc)},
+                                status_code=500)
+        return JSONResponse({"task": name, "started": started, **summary})
+
+    @app.post("/tasks/daily")
+    def task_daily(request: Request) -> JSONResponse:
+        return run_task("daily", tasks.daily, request.headers.get("Authorization"))
+
+    @app.post("/tasks/digest")
+    def task_digest(request: Request) -> JSONResponse:
+        return run_task("digest", tasks.digest, request.headers.get("Authorization"))
+
+    @app.post("/tasks/autopilot")
+    def task_autopilot(request: Request) -> JSONResponse:
+        try:
+            check_scheduler_token(request.headers.get("Authorization"), s, verify)
+        except AuthError as exc:
+            return denied(exc)
+        worker.submit(tasks.autopilot)  # answers at once; the run reports in Telegram
+        return JSONResponse({"task": "autopilot", "queued": True}, status_code=202)
+
+    @app.post("/tasks/check")
+    def task_check(request: Request) -> JSONResponse:
+        try:
+            check_scheduler_token(request.headers.get("Authorization"), s, verify)
+        except AuthError as exc:
+            return denied(exc)
+        worker.submit(tasks.check)  # answers at once; the run reports in Telegram
+        return JSONResponse({"task": "check", "queued": True}, status_code=202)
+
+    @app.post("/tasks/mail")
+    def task_mail(request: Request) -> JSONResponse:
+        return run_task("mail", tasks.mail, request.headers.get("Authorization"))
+
+    @app.post("/tasks/replies")
+    def task_replies(request: Request) -> JSONResponse:
+        return run_task("replies", tasks.replies, request.headers.get("Authorization"))
+
+    @app.post("/tasks/report")
+    def task_report(request: Request) -> JSONResponse:
+        return run_task("report", tasks.report, request.headers.get("Authorization"))
+
+    @app.post("/tasks/apply")
+    def task_apply(request: Request) -> JSONResponse:
+        return run_task("apply", tasks.apply, request.headers.get("Authorization"))
+
+    @app.post("/tasks/health")
+    def task_health(request: Request) -> JSONResponse:
+        return run_task("health", tasks.health, request.headers.get("Authorization"))
+
+    @app.post("/tasks/nudge")
+    def task_nudge(request: Request) -> JSONResponse:
+        return run_task("nudge", tasks.nudge, request.headers.get("Authorization"))
+
+    @app.post("/tasks/sweep")
+    def task_sweep(request: Request) -> JSONResponse:
+        return run_task("sweep", tasks.sweep, request.headers.get("Authorization"))
+
+    return app
+
+
+def check_web_settings(s: Settings) -> None:
+    """Startup refuses a half-configured service (Cloud Run marks the revision failed)."""
+    check_startup(s)
+    missing = [name for name, value in (
+        ("TELEGRAM_BOT_TOKEN", s.telegram_bot_token),
+        ("TELEGRAM_CHAT_ID", s.telegram_chat_id),
+        ("TELEGRAM_WEBHOOK_SECRET", s.telegram_webhook_secret),
+        ("SERVICE_URL", s.service_url),
+        ("SCHEDULER_SA_EMAIL", s.scheduler_sa_email),
+    ) if not value]
+    if missing:
+        raise SafetyError(f"missing {', '.join(missing)}")
+
+
+def build_app(s: Settings) -> FastAPI:
+    """The real app. Exits the process on an unsafe or incomplete configuration."""
+    from jobengine.screen.desk import real_desk
+
+    try:
+        check_web_settings(s)
+    except (SafetyError, ValueError) as exc:
+        log.error("Job Engine web startup failed: %s", exc)
+        sys.exit(1)
+    client = tb.TelegramClient(tb.http_transport(s.telegram_bot_token or ""))
+    desk = real_desk(s)
+    fetch = tb.make_fetcher(s, False, desk)
+    if desk is None:
+        log.error("Job Engine web startup failed: NOTION_TOKEN missing")
+        sys.exit(1)
+    return create_app(s, client, desk, desk_tasks(s, desk, client, fetch), fetch=fetch)

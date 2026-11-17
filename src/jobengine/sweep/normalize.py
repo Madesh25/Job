@@ -44,17 +44,7 @@ _SENIORITY = (
     ("Senior", re.compile(r"\b(senior|sr)\b")),
 )
 
-# Years of experience. The first group is always the lower bound.
 _DASH = r"[-\u2013\u2014]"
-_YEARS = (
-    re.compile(rf"(\d{{1,2}})\s*{_DASH}\s*\d{{1,2}}\s*(?:years?|yrs?|lat[a]?)\b"),
-    re.compile(r"(\d{1,2})\s*\+\s*(?:years?|yrs?|lat[a]?)\b"),
-    re.compile(r"at\s+least\s+(\d{1,2})\s*(?:years?|yrs?)\b"),
-    re.compile(r"minimum(?:\s+of)?\s+(\d{1,2})\s*(?:years?|yrs?)\b"),
-    re.compile(r"min\.?\s*(\d{1,2})\s*(?:lat[a]?|years?|yrs?)\b"),
-    re.compile(r"\b(\d{1,2})\s+lat[a]?\b"),
-    re.compile(r"\b(\d{1,2})\s+years?\s+(?:of\s+)?(?:experience|exp)\b"),
-)
 
 
 def canon(text: str | None) -> str:
@@ -96,10 +86,72 @@ def canon_city(city: str | None) -> str:
     return CITY_ALIASES.get(value, value)
 
 
+# Target Companies lists one company per country: "Citi" and "Citi (IE)". The tag is not part
+# of the company, so the same job found through both is one job.
+_REGION_TAG = re.compile(r"\s*\((?:ie|nl|pl|ireland|netherlands|poland)\)\s*$", re.IGNORECASE)
+
+
+def without_region(company: str | None) -> str:
+    return _REGION_TAG.sub("", company or "")
+
+
+# Phase 23 2-05 (8 Nov): one job came twice under two names of the same employer ("Motorola
+# Solutions" and "Motorola Solutions Systems Polska", "Akamai" and "Akamai Technologies, Inc.",
+# "BNP Paribas" and "BNP Paribas Bank Polska"). These words at the end of a name are left out
+# of the Dedupe key only (Target Companies keeps its one row per country, canon_company).
+DEDUPE_TAIL_WORDS = frozenset({
+    "technologies", "technology", "solutions", "systems", "services", "holdings",
+    "corporation", "corp", "company", "co", "bank", "international", "europe", "emea",
+    "polska", "poland", "ireland", "nederland", "netherlands", "the netherlands",
+})
+DEDUPE_ALIASES = {"p g": "procter gamble", "pg": "procter gamble"}
+
+
+def dedupe_company(company: str | None) -> str:
+    """The company part of the Dedupe key: canonical, without a region tag, a legal suffix
+    or a trailing country or generic word; never empty while the name has a first word."""
+    value = canon_company(without_region(company))
+    words = value.split()
+    while len(words) > 1 and (words[-1] in DEDUPE_TAIL_WORDS
+                              or " ".join(words[-2:]) in DEDUPE_TAIL_WORDS):
+        words = words[:-2] if " ".join(words[-2:]) in DEDUPE_TAIL_WORDS else words[:-1]
+        words = canon_company(" ".join(words)).split() or words
+    value = " ".join(words)
+    return DEDUPE_ALIASES.get(value, value)
+
+
 def dedupe_key(company: str, title: str, city: str | None, country: str) -> str:
-    """V16 company-role-city key, all parts canonical."""
+    """V16 company-role-city key, all parts canonical (a "(IE)" style tag, a legal suffix
+    and a trailing country or generic word of the company are left out)."""
     place = canon_city(city) if city else canon(country)
-    return f"{canon_company(company)}|{canon_title(title)}|{place}"
+    return f"{dedupe_company(company)}|{canon_title(title)}|{place}"
+
+
+def index_key(dedupe: str, company: str | None) -> str:
+    """The key an existing row is found by: its stored Dedupe key, with the company part
+    rebuilt from its Company the way dedupe_key builds it now (rows saved before 8 Nov have
+    the older company part)."""
+    if not company:
+        return dedupe
+    _, sep, rest = dedupe.partition("|")
+    return f"{dedupe_company(company)}{sep}{rest}" if sep else dedupe
+
+
+# 13 Nov (fetch idea 6): one job under two titles was two rows (Lepaya "DevSecOps" from
+# Adzuna and "DevSecOps Engineer" from LinkedIn). These words are left out of the title part
+# when two keys are compared; the Dedupe key itself is not changed.
+VARIANT_WORDS = frozenset({"engineer", "inzynier"})
+
+
+def variant_key(key: str) -> str:
+    """A Dedupe key with "engineer" left out of its title part: "lepaya|devsecops|amsterdam"
+    for both "DevSecOps" and "DevSecOps Engineer". A title of only such words is kept."""
+    company, sep, rest = key.partition("|")
+    title, sep2, place = rest.partition("|")
+    if not sep or not sep2:
+        return key
+    words = [w for w in title.split() if w not in VARIANT_WORDS]
+    return f"{company}|{' '.join(words) or title}|{place}"
 
 
 def _has_term(text: str, terms: Iterable[str]) -> str | None:
@@ -117,14 +169,133 @@ def seniority(title: str) -> str:
     return "Unknown"
 
 
-def years_required(description: str | None) -> int | None:
-    """Smallest explicit years-of-experience number, or None."""
+# 23 Oct: "3 to 5 years" (and Polish "od 3 do 5 lat") read as no years at all; only a dash
+# joined a range.
+_RANGE = re.compile(rf"(\d{{1,2}})\s*(?:{_DASH}|\s(?:to|do)\s)\s*(\d{{1,2}})\s*"
+                    r"(?:years?|yrs?|lat[a]?)\b")
+_PLUS = (
+    re.compile(r"(\d{1,2})\s*\+\s*(?:years?|yrs?|lat[a]?)\b"),
+    re.compile(r"at\s+least\s+(\d{1,2})\s*(?:years?|yrs?)\b"),
+    re.compile(r"minimum(?:\s+of)?\s+(\d{1,2})\s*(?:years?|yrs?)\b"),
+    re.compile(r"min\.?\s*(\d{1,2})\s*(?:lat[a]?|years?|yrs?)\b"),
+)
+MAX_STATED_YEARS = 15  # "since 18 years", "25+ years of history" are about the company
+# A requirement is one line or sentence of the description ("min. 4 lat" is not a sentence).
+_SEGMENT = re.compile(
+    r"\n|<br\s*/?>|;|\u2022|(?<=[a-z0-9)])(?<!\bmin)(?<!\bnp)(?<!\bca)(?<!\bapprox)\.\s"
+)
+
+
+def segments(text: str) -> list[str]:
+    """The lines and sentences of a description, lowercase."""
+    return _SEGMENT.split(text.lower())
+_OPTIONAL = re.compile(
+    r"nice[\s-]to[\s-]have|\ba plus\b|\bpreferred\b|\bpreferabl|\bideally\b|\badvantage"
+    r"|\bbonus\b|\bdesirable\b|mile widziane|\batut|pluspunt|\been pr[eé]\b"
+)
+_EXPERIENCE_WORD = re.compile(r"experience|\bexp\b|do[sś]wiadcz|ervaring")
+_YEARS_OF = re.compile(r"\b(\d{1,2})\s+years?\s+(?:of\s+)?(?:experience|exp)\b")
+_BARE_LAT = re.compile(r"\b(\d{1,2})\s+lat[a]?\b")  # "5 lat" alone is often "for 5 years"
+
+
+_NUMBER_WORDS = {w: str(i) for i, w in enumerate(
+    "zero one two three four five six seven eight nine ten eleven twelve thirteen fourteen "
+    "fifteen".split())}
+# "five (5) years", "five+ years", "five years": the word counts like the digit.
+_WORD_YEARS = re.compile(
+    rf"\b({'|'.join(_NUMBER_WORDS)})\b(\s*\(\d{{1,2}}\))?(?=\s*\+?\s*(?:years?|yrs?)\b)",
+    re.IGNORECASE)
+
+
+def _digits(text: str) -> str:
+    return _WORD_YEARS.sub(lambda m: _NUMBER_WORDS[m.group(1).lower()], text)
+
+
+def _year_options(description: str | None) -> list[tuple[int, str]]:
+    """(lowest years, as posted) for each experience requirement in the description.
+
+    Requirements in "nice to have" or "preferred" lines only count when nothing else is
+    stated. A bare "5 lat" only counts on a line about experience (doswiadczenie)."""
     if not description:
+        return []
+    required: list[tuple[int, str]] = []
+    optional: list[tuple[int, str]] = []
+    for segment in segments(_digits(description)):
+        found: list[tuple[int, str]] = []
+        for m in _RANGE.finditer(segment):
+            low, high = int(m.group(1)), int(m.group(2))
+            if 0 < low < high <= 20:
+                found.append((low, f"{low}-{high} years"))
+        for pattern in _PLUS:
+            found.extend((int(m.group(1)), f"{int(m.group(1))}+ years")
+                         for m in pattern.finditer(segment))
+        if not found:
+            patterns = [_YEARS_OF]
+            if _EXPERIENCE_WORD.search(segment):
+                patterns.append(_BARE_LAT)
+            found.extend((int(m.group(1)), f"{int(m.group(1))} years")
+                         for pattern in patterns for m in pattern.finditer(segment))
+        found = [(low, label) for low, label in found if 0 < low <= MAX_STATED_YEARS]
+        (optional if _OPTIONAL.search(segment) else required).extend(found)
+    return required or optional
+
+
+def experience(description: str | None) -> str | None:
+    """The experience asked for, as the posting says it: "2-3 years", "5+ years" or
+    "3 years". When several requirements are stated, the one asking for the most years
+    ("5 years in IT, 2 years in a similar role" is 5 years), so the cell shows the real bar.
+    """
+    options = _year_options(description)
+    if not options:
         return None
-    text = description.lower()
-    found = [int(m.group(1)) for pattern in _YEARS for m in pattern.finditer(text)]
-    found = [n for n in found if 0 < n <= 20]
-    return min(found) if found else None
+    top = max(low for low, _ in options)
+    labels = [label for low, label in options if low == top]
+    # "3-5 years" says more than "3+ years" for the same lowest number.
+    return next((label for label in labels if "-" in label), labels[0])
+
+
+NOT_STATED = "Not stated"
+
+# The posting itself calls the role senior ("a hands-on senior engineering role"), as opposed
+# to mentioning senior colleagues ("you will work with senior engineers").
+_SENIOR_ROLE = re.compile(
+    r"\bsenior[\s-]+level\b"
+    r"|\bsenior (?:engineering |technical )?(?:role|position)\b"
+    r"|\b(?:as|for|hiring|seeking|looking for|join us as) an? (?:\w+ ){0,2}senior\b"
+    r"|\bthis (?:is an? )?(?:\w+ ){0,2}senior\b"
+)
+
+
+def senior_in_text(description: str | None) -> bool:
+    """True when the description says the role itself is senior."""
+    return bool(description and _SENIOR_ROLE.search(description.lower()))
+
+
+def years_text(years: int | None, posted: str | None, full: bool = False) -> str | None:
+    """The Years required cell: as posted ("2-3 years"), else the number, else "Not
+    stated" when the full description was read and names no years, else empty."""
+    if posted:
+        return posted
+    if years is not None:
+        return f"{years} years"
+    return NOT_STATED if full else None
+
+
+def years_low(value: Any) -> int | None:
+    """The lowest years in a Years required cell: 3 for "3-5 years" or for the number 3."""
+    if value is None or isinstance(value, bool):
+        return None
+    if isinstance(value, int | float):
+        return int(value)
+    match = re.search(r"\d{1,2}", str(value))
+    return int(match.group(0)) if match else None
+
+
+def years_required(description: str | None) -> int | None:
+    """The years of experience the description requires: the highest of its requirements
+    (each counted by its lowest number, "3-5 years" is 3), or None."""
+    options = _year_options(description)
+    return max(low for low, _ in options) if options else None
 
 
 @dataclass(frozen=True)
@@ -133,6 +304,14 @@ class Rules:
     title_exclude: tuple[str, ...]
     # country -> (canonical country names, {display city: canonical aliases})
     locations: Mapping[str, tuple[tuple[str, ...], Mapping[str, tuple[str, ...]]]]
+    # A remote job open in one of these regions ("Remote, EU") is kept as Country Other,
+    # City Remote (your decision of 30 Sep). Empty: remote jobs need one of the countries.
+    remote_regions: tuple[str, ...] = ()
+    # False (your decision of 23 Oct: office or hybrid only): a job whose place or title is
+    # remote, with no hybrid or office word, is left out, even in one of your countries.
+    remote_jobs: bool = True
+    # Sites that copy other companies' jobs (4 Nov, your decision: Jobgether): never saved.
+    reposters: tuple[str, ...] = ()
 
     @classmethod
     def from_config(cls, sweep: Mapping[str, Any]) -> Rules:
@@ -148,7 +327,24 @@ class Rules:
             title_include=tuple(sweep.get("title_include") or ()),
             title_exclude=tuple(sweep.get("title_exclude") or ()),
             locations=locations,
+            remote_regions=tuple(canon(r) for r in sweep.get("remote_regions") or ()),
+            remote_jobs=bool(sweep.get("remote_jobs", True)),
+            reposters=tuple(canon_company(r) for r in sweep.get("reposters", REPOSTERS) or ()),
         )
+
+
+# Sites that post other companies' jobs as their own (4 Nov, your decision: "a fake or
+# reposted job: just delete it"). sweep.reposters in the config replaces this list.
+REPOSTERS = ("Jobgether", "JobLeads", "Lensa", "Talent.com", "Jobted", "Jobrapido",
+             "Careerjet", "WhatJobs", "Jobsora", "Jooble", "Remote Rocketship", "Hirify",
+             "Jobs via Dice", "Jobright.ai", "Jobster", "Jobbird")
+REPOSTER = "reposting site, not the employer"
+
+
+def reposter(company: str | None, rules: Rules) -> bool:
+    """The company is a site that reposts other companies' jobs."""
+    key = canon_company(company or "")
+    return bool(key) and key in rules.reposters
 
 
 def title_scope(title: str, rules: Rules) -> str | None:
@@ -191,6 +387,48 @@ def detect_location(
     return None, None
 
 
+REMOTE_COUNTRY = "Other"  # Country option for remote jobs open across the EU or Europe
+REMOTE_CITY = "Remote"
+
+
+def remote_region(text: str, rules: Rules) -> bool:
+    """True for "Remote, EU" style places: remote and one of rules.remote_regions."""
+    value = canon(text)
+    return bool(rules.remote_regions) and _has_term(value, ("remote",)) is not None and \
+        _has_term(value, rules.remote_regions) is not None
+
+
+REMOTE_WORDS = ("remote", "zdalnie", "zdalna", "praca zdalna", "thuiswerken")
+# Any of these keeps the job: "Warsaw (Hybrid)", "Remote or office", "praca hybrydowa".
+OFFICE_WORDS = ("hybrid", "hybrydowa", "hybrydowo", "hybrydowy", "hybride", "office",
+                "on site", "onsite", "biuro", "stacjonarnie", "stacjonarna", "kantoor")
+REMOTE_ONLY = "remote job (you want office or hybrid)"
+
+
+def remote_only(location_text: str, title: str = "", city: str | None = None) -> bool:
+    """True for a remote job: City Remote, or "remote" in the place or title, with no hybrid
+    or office word ("Warsaw (Remote)" yes; "Warsaw (Hybrid)", "Remote or hybrid" no)."""
+    text = canon(f"{location_text} {title}")
+    if _has_term(text, OFFICE_WORDS):
+        return False
+    return city == REMOTE_CITY or _has_term(text, REMOTE_WORDS) is not None
+
+
+def place(location_text: str, rules: Rules, area: Iterable[str] = ()
+          ) -> tuple[str | None, str | None]:
+    """detect_location, and a remote EU or Europe job as (Other, Remote)."""
+    country, city = detect_location(location_text, rules, area)
+    if country is None and remote_region(" , ".join([location_text, *area]), rules):
+        return REMOTE_COUNTRY, REMOTE_CITY
+    return country, city
+
+
+def place_allowed(country: str | None, city: str | None, active: Iterable[str],
+                  rules: Rules) -> bool:
+    return country in set(active) or (
+        country == REMOTE_COUNTRY and city == REMOTE_CITY and bool(rules.remote_regions))
+
+
 def normalize(
     raw: RawPosting, rules: Rules, active_countries: Iterable[str]
 ) -> Job | Skipped:
@@ -198,11 +436,15 @@ def normalize(
     reason = title_scope(raw.title, rules)
     if reason:
         return Skipped(raw, reason)
-    country, city = detect_location(raw.location_text, rules, raw.location_area)
+    if reposter(raw.company, rules):
+        return Skipped(raw, REPOSTER)
+    country, city = place(raw.location_text, rules, raw.location_area)
     if country is None:
         return Skipped(raw, f"location not recognised ({raw.location_text or 'empty'})")
-    if country not in set(active_countries):
+    if not place_allowed(country, city, active_countries, rules):
         return Skipped(raw, f"country not active ({country})")
+    if not rules.remote_jobs and remote_only(raw.location_text, raw.title, city):
+        return Skipped(raw, REMOTE_ONLY)
     return Job(
         source=raw.source,
         board=raw.board,
@@ -219,6 +461,7 @@ def normalize(
         posting_ref=f"{raw.source}:{raw.posting_id}",
         description=raw.description or None,
         description_is_snippet=raw.description_is_snippet,
+        experience=experience(raw.description),
     )
 
 

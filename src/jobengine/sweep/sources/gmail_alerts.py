@@ -11,6 +11,7 @@ import re
 from collections.abc import Callable, Mapping
 from email.utils import parseaddr
 from typing import Any
+from urllib.parse import urlsplit
 
 from bs4 import BeautifulSoup, Tag
 
@@ -21,7 +22,34 @@ from jobengine.sweep.normalize import canon
 
 SOURCE = "gmail"
 MAX_CARD_PARENTS = 4
+MAX_CARD_LINES = 10
 MAX_LINE_CHARS = 120
+MAX_DROPPED_SHOWN = 3  # per email in /alertcheck
+# "co.brick · Warsaw, Mazowieckie, Poland (Hybrid)": company and place on one line.
+_JOINED = re.compile(r"\s+[\u00b7\u2022|]\s+")
+# Button and badge lines inside a card link, never a place or a company.
+CARD_BUTTONS = {"apply", "easy apply", "be the first to apply", "be the first to apply!",
+                "actively recruiting", "new", "promoted"}
+# Badge lines in a card, never a title, company or place (compared after canon): Pracuj.pl
+# puts "!" before the title and "Najlepiej dopasowana", "Nowosc!" or "Hit!" after it.
+CARD_BADGES = {"", "new", "promoted", "najlepiej dopasowana", "nowosc", "hit", "pilne",
+               "nowa oferta", "polecana", "top", "wyprzedz innych kandydatow"}
+# A salary line in a card ("20400-28800 zl netto (+ VAT) / mies.", "130 zl / godz.").
+_SALARY = re.compile(r"\d.*(?:z\u0142|pln|eur|\u20ac|/\s*(?:mies|godz|month|hour|h)\b)",
+                     re.IGNORECASE)
+DEFAULT_LAYOUT = ["title", "company"]
+# An employer rating line ("3.9 ★", "4,3 ★"): Glassdoor puts it between the company and
+# the title (Phase 22 Q-14, 8 Nov: titles "BNP Paribas", companies "3.9 ★"). Never a field.
+_RATING = re.compile(r"^\d(?:[.,]\d)?\s*★?$|^★\s*\d(?:[.,]\d)?$")
+# LinkedIn titles can carry extras after " | " ("DevOps Engineer | Hybrid | Dublin | Up to
+# EUR 65K", "System Engineer / Site Reliability Engineer | 1."): the title is the first part,
+# never split into the company (30 Oct: rows with the company "Hybrid" and "1").
+_TITLE_EXTRAS = re.compile(r"\s+\|\s+")
+
+
+def title_only(text: str) -> str:
+    """A title line without what follows " | "."""
+    return _TITLE_EXTRAS.split(text.strip())[0].strip(" -|,") or text.strip()
 
 
 def board_for_sender(sender: str, sender_boards: Mapping[str, str]) -> str:
@@ -33,31 +61,78 @@ def board_for_sender(sender: str, sender_boards: Mapping[str, str]) -> str:
 
 
 def _lines(node: Tag) -> list[str]:
-    return [line.strip() for line in node.get_text("\n").split("\n") if line.strip()]
+    """The text lines of a node, without badge lines ("!", "Hit!") that are never a field."""
+    lines = [line.strip() for line in node.get_text("\n").split("\n") if line.strip()]
+    return [line for line in lines
+            if canon(line) not in CARD_BADGES and not _RATING.match(line)]
 
 
-def card_fields(anchor: Tag, title: str) -> tuple[str, str]:
-    """(company, location) from the card around an anchor, or ("(unknown)", "")."""
+def _split_salary(lines: list[str]) -> tuple[list[str], str | None]:
+    """The card lines after the title without salary lines and without lines ending in "!"
+    (Pracuj.pl badges: "Spiesz sie!", "Tu zarobisz najwiecej!"), and the first salary."""
+    salary = next((line for line in lines if _SALARY.search(line)), None)
+    return [line for line in lines
+            if not _SALARY.search(line) and not line.endswith("!")], salary
+
+
+def card_fields(anchor: Tag, title: str) -> tuple[str, str, tuple[str, ...], str | None]:
+    """(company, location, other card lines, salary) from the card around an anchor, or
+    ("(unknown)", "", (), None). The line after the title is the company, the next the place;
+    "Company · Place" on one line (LinkedIn) is split, and a salary line between them
+    (Pracuj.pl) is taken out. The other lines are kept so the place can still be found when
+    it is not where expected."""
     node = anchor
     for _ in range(MAX_CARD_PARENTS):
         node = node.parent
         if not isinstance(node, Tag):
             break
         lines = _lines(node)
-        if 2 <= len(lines) <= 6 and all(len(line) < MAX_LINE_CHARS for line in lines):
+        if 2 <= len(lines) <= MAX_CARD_LINES and all(len(line) < MAX_LINE_CHARS
+                                                    for line in lines):
             if title in lines:
-                rest = lines[lines.index(title) + 1:]
-                company = rest[0] if rest else "(unknown)"
-                location = rest[1] if len(rest) > 1 else ""
-                return company, location
+                rest, salary = _split_salary(lines[lines.index(title) + 1:])
+                if not rest:
+                    continue  # only the title and a badge here: the card is further up
+                parts = _JOINED.split(rest[0])
+                if len(parts) > 1:
+                    company, others = parts[0], [*parts[1:], *rest[1:]]
+                else:
+                    company, others = rest[0], rest[1:]
+                return company, (others[0] if others else ""), tuple(others[1:4]), salary
             break
-    return "(unknown)", ""
+    return "(unknown)", "", (), None
 
 
-def _looks_like_title(text: str, ignore: list[str]) -> bool:
+def anchor_fields(lines: list[str], layout: list[str]) -> tuple[str, str, str, tuple[str, ...]]:
+    """(title, company, location, other lines) when the link holds the whole card, as in
+    LinkedIn's newer alerts ("DevOps Engineer" / "eir Ireland · Dublin") or JustJoin IT
+    ("EPAM Systems" / "Katowice" / "Lead HPC Kubernetes Engineer" / salary ...). `layout`
+    names the first lines in order (title, company, place); "Company · Place" on one line is
+    split. Lines after the layout are kept as other card lines."""
+    parts: list[str] = []
+    for line in lines:
+        if len(parts) >= len(layout):
+            parts.append(line)
+        elif layout[len(parts)] == "title":  # the title line is never split into fields
+            parts.append(title_only(line))
+        else:
+            parts.extend(_JOINED.split(line))
+    fields = dict(zip(layout, parts, strict=False))
+    others = tuple(p for p in parts[len(layout):] if canon(p) not in CARD_BUTTONS)
+    title = fields.get("title", "")
+    company = fields.get("company") or "(unknown)"
+    place = fields.get("place") or (others[0] if others else "")
+    if "place" not in fields and others:
+        others = others[1:]
+    return title, company, place, others[:3]
+
+
+def _looks_like_title(text: str, ignore: list[str], exact: set[str] | None = None) -> bool:
     if not 3 <= len(text) <= MAX_LINE_CHARS or "@" in text or not re.search(r"[A-Za-z]", text):
         return False
     value = canon(text)
+    if exact and value in exact:
+        return False
     return not any(canon(term) in value for term in ignore)
 
 
@@ -71,6 +146,12 @@ def parse_alert(message: GmailMessage, gmail_cfg: Mapping[str, Any]) -> list[Raw
     patterns = gmail_cfg.get("job_url_patterns") or {}
     pattern = re.compile(patterns[board]) if board in patterns else None
     ignore = list(gmail_cfg.get("ignore_link_texts") or [])
+    # Whole link texts that are never jobs ("more" under each IrishJobs card).
+    exact = {canon(t) for t in gmail_cfg.get("ignore_link_exact") or []}
+    layout = list((gmail_cfg.get("card_layouts") or {}).get(board) or DEFAULT_LAYOUT)
+    # A board that only lists one country's jobs (JustJoin IT: Poland) gives that country
+    # when the card names only a city, or no place at all.
+    home = (gmail_cfg.get("board_country") or {}).get(board)
     soup = BeautifulSoup(message.html, "html.parser")
 
     # First pass: group anchors by the job they point to, keeping the one with text.
@@ -87,7 +168,7 @@ def parse_alert(message: GmailMessage, gmail_cfg: Mapping[str, Any]) -> list[Raw
         else:
             if not href.lower().startswith(("http://", "https://")):
                 continue
-            if not _looks_like_title(text, ignore):
+            if not _looks_like_title(text, ignore, exact):
                 continue
             posting_id = None
             key = f"url:{href}"
@@ -96,10 +177,17 @@ def parse_alert(message: GmailMessage, gmail_cfg: Mapping[str, Any]) -> list[Raw
 
     postings = []
     for anchor, href, posting_id in found.values():
-        title = anchor.get_text(" ", strip=True)
-        if not title:
+        lines = _lines(anchor)
+        if not lines:
             continue
-        company, location = card_fields(anchor, title)
+        salary = None
+        if len(lines) >= 2:  # the link holds the whole card
+            title, company, location, others = anchor_fields(lines, layout)
+            if not title:
+                continue
+        else:
+            company, location, others, salary = card_fields(anchor, lines[0])
+            title = title_only(lines[0])
         postings.append(
             RawPosting(
                 source=SOURCE,
@@ -109,7 +197,12 @@ def parse_alert(message: GmailMessage, gmail_cfg: Mapping[str, Any]) -> list[Raw
                 location_text=location,
                 url=href,
                 posting_id=posting_id or fallback_posting_id(board, title, company),
+                salary_text=f"{salary} ({board})" if salary else None,
+                # The alert does not say when the job was posted: the day the email came is
+                # the latest it can be (14 of 36 rows had no Posted date on 6 Oct).
+                posted_date=message.received,
                 description=None,
+                location_area=(*others, *([home] if home else [])),
             )
         )
     return postings
@@ -129,28 +222,189 @@ def collect(messages: list[GmailMessage], gmail_cfg: Mapping[str, Any]) -> list[
     return postings
 
 
+def label_term(label: str) -> str:
+    """Gmail's search term for a label: "Job Alerts" -> label:job-alerts."""
+    return "label:" + re.sub(r"[\s/&]+", "-", label.strip().lower())
+
+
+def alert_query(gmail_cfg: Mapping[str, Any]) -> str:
+    """The Gmail search: the alert label or a known sender, in the last `days` days. Spam is
+    searched too (23 Oct: Gmail put that day's LinkedIn alerts in Spam and /fetch never saw
+    them), but only for the label or a known sender; without either, Spam stays out."""
+    if gmail_cfg.get("query"):
+        return str(gmail_cfg["query"])
+    days = int(gmail_cfg.get("days") or 2)
+    parts = []
+    if gmail_cfg.get("label"):
+        parts.append(label_term(str(gmail_cfg["label"])))
+    senders = list(gmail_cfg.get("sender_boards") or {})
+    if senders:
+        parts.append("from:(" + " OR ".join(senders) + ")")
+    if not parts:
+        return f"newer_than:{days}d -in:spam -in:trash"
+    return f"newer_than:{days}d -in:trash ({' OR '.join(parts)})"
+
+
+TOKEN_NAMES = "GMAIL_ALERTS_TOKEN_JSON_m02 and GMAIL_ALERTS_TOKEN_JSON_mm"
+MISSING = f"{TOKEN_NAMES} missing"
+
+
+def mailboxes(s: Settings) -> list[tuple[str, str]]:
+    """The alert mailboxes that have a token, as (name, token JSON): m02 (or the old
+    GMAIL_ALERTS_TOKEN_JSON) and mm (two mailboxes since 6 Oct). The same token twice is
+    read once."""
+    found: list[tuple[str, str]] = []
+    for name, token in (("m02", s.gmail_alerts_token_json_m02 or s.gmail_alerts_token_json),
+                        ("mm", s.gmail_alerts_token_json_mm)):
+        if token and all(token != known for _, known in found):
+            found.append((name, token))
+    return found
+
+
+def _loader(token_json: str, gmail_cfg: Mapping[str, Any]) -> Callable[[], list[GmailMessage]]:
+    from jobengine import gmail_reader
+
+    def load_messages() -> list[GmailMessage]:
+        service = gmail_reader.build_service(token_json)
+        return gmail_reader.fetch_messages(
+            service, alert_query(gmail_cfg), int(gmail_cfg.get("max_messages", 100)),
+            include_spam=True)
+
+    return load_messages
+
+
+Loaders = list[tuple[str, Callable[[], list[GmailMessage]]]]
+
+
+def _loaders(s: Settings, gmail_cfg: Mapping[str, Any],
+             load_messages: Callable[[], list[GmailMessage]] | None) -> Loaders:
+    if load_messages is not None:
+        return [("", load_messages)]
+    return [(name, _loader(token, gmail_cfg)) for name, token in mailboxes(s)]
+
+
+def _failure(exc: Exception) -> str:
+    return f"{type(exc).__name__}: {str(exc)[:200]}"
+
+
+def _read(loaders: Loaders) -> tuple[list[tuple[str, GmailMessage]], dict[str, int],
+                                     list[str]]:
+    """Every mailbox's emails as (mailbox, message), the count per mailbox, and the
+    failures ("mm: HttpError: ..."). One mailbox failing does not stop the other."""
+    messages: list[tuple[str, GmailMessage]] = []
+    counts: dict[str, int] = {}
+    failures = []
+    for name, load in loaders:
+        try:
+            found = load()
+        except Exception as exc:  # the Google client raises many error types
+            failures.append(f"{name}: {_failure(exc)}" if name else _failure(exc))
+            continue
+        counts[name] = len(found)
+        messages.extend((name, message) for message in found)
+    return messages, counts, failures
+
+
 def fetch(
     s: Settings, load_messages: Callable[[], list[GmailMessage]] | None = None
 ) -> SourceResult:
-    """Gmail source. load_messages is the fake; without it the real Gmail API is used."""
+    """Gmail source. load_messages is the fake; without it the real Gmail API is used for
+    each alert mailbox."""
     gmail_cfg = s.sweep.get("gmail") or {}
     result = SourceResult(name=SOURCE)
-    if load_messages is None:
-        if not s.gmail_alerts_token_json:
-            result.skipped_reason = "gmail skipped: GMAIL_ALERTS_TOKEN_JSON missing"
-            return result
-        from jobengine import gmail_reader
-
-        def load_messages() -> list[GmailMessage]:
-            service = gmail_reader.build_service(s.gmail_alerts_token_json)
-            return gmail_reader.fetch_messages(
-                service, gmail_cfg.get("query", ""), int(gmail_cfg.get("max_messages", 100))
-            )
-
-    try:
-        messages = load_messages()
-    except Exception as exc:  # the Google client raises many error types
-        result.skipped_reason = f"gmail failed: {type(exc).__name__}"
+    loaders = _loaders(s, gmail_cfg, load_messages)
+    if not loaders:
+        result.skipped_reason = f"gmail skipped: {MISSING}"
         return result
-    result.postings = collect(messages, gmail_cfg)
+    messages, _, failures = _read(loaders)
+    if failures and len(failures) == len(loaders):
+        result.skipped_reason = f"gmail failed: {'; '.join(failures)}"
+        return result
+    result.notes.extend(f"gmail mailbox {failure}" for failure in failures)
+    result.emails = len(messages)
+    result.postings = collect([message for _, message in messages], gmail_cfg)
+    boards = gmail_cfg.get("sender_boards") or {}
+    for name, message in messages:  # for the inbox tidy: only mails a job was found in
+        if message.id and parse_alert(message, gmail_cfg):
+            result.alert_mails.setdefault(name, []).append(
+                (message.id, board_for_sender(message.sender, boards), message.in_spam))
     return result
+
+
+def _hosts(html: str) -> list[str]:
+    """Link hosts in an email, most frequent first (to see why no job link matched)."""
+    counts: dict[str, int] = {}
+    for anchor in BeautifulSoup(html, "html.parser").find_all("a", href=True):
+        host = (urlsplit(anchor["href"].strip()).hostname or "").lower()
+        if host:
+            counts[host] = counts.get(host, 0) + 1
+    return sorted(counts, key=lambda h: -counts[h])
+
+
+def check(s: Settings, load_messages: Callable[[], list[GmailMessage]] | None = None,
+          limit: int = 100) -> str:
+    """/alertcheck: each alert email the next /fetch would read, and the jobs found in it.
+    Every email is listed (a long answer goes as several Telegram messages); before 5 Oct
+    only 20 were, so 3 emails stayed hidden in test P2."""
+    gmail_cfg = s.sweep.get("gmail") or {}
+    loaders = _loaders(s, gmail_cfg, load_messages)
+    if not loaders:
+        return f"{MISSING}: email alerts are not read."
+    found, counts, failures = _read(loaders)
+    if failures and len(failures) == len(loaders):
+        return f"Reading Gmail failed: {'; '.join(failures)}"
+    failed = "".join(f"\nMailbox {failure} (failed)" for failure in failures)
+    query = alert_query(gmail_cfg)
+    if not found:
+        return (f"No alert email found. Gmail search used:\n{query}\nCheck that the alerts "
+                f"reach the mailbox and get the label (a Gmail filter).{failed}")
+    named = len(loaders) > 1
+    messages = [message for _, message in found]
+    from jobengine.sweep.normalize import Rules, Skipped, normalize
+
+    rules = Rules.from_config(s.sweep)
+    countries = list(rules.locations)
+    lines = [f"{len(messages)} alert email(s) found (search: {query})."]
+    if named or failures:
+        lines.append("Mailboxes: " + ", ".join(f"{name} {count}" for name, count in
+                                               counts.items()) + failed)
+    total = kept = 0
+    distinct: set[tuple[str, str]] = set()
+    distinct_kept: set[tuple[str, str]] = set()  # 7 Oct: "135 different" vs "113 in scope"
+    for box, message in found[:limit]:
+        board = board_for_sender(message.sender, gmail_cfg.get("sender_boards") or {})
+        jobs = parse_alert(message, gmail_cfg)
+        total += len(jobs)
+        distinct.update((job.board, job.posting_id) for job in jobs)
+        address = parseaddr(message.sender)[1] or message.sender
+        dropped = [(job, result.reason) for job in jobs
+                   if isinstance(result := normalize(job, rules, countries), Skipped)]
+        kept += len(jobs) - len(dropped)
+        out = {id(job) for job, _ in dropped}
+        distinct_kept.update((job.board, job.posting_id) for job in jobs if id(job) not in out)
+        fate = f", {len(jobs) - len(dropped)} in scope" if jobs else ""
+        where = f"[{box}] " if named else ""
+        lines.append(f"- {where}{board} | {address} | {message.subject[:70]}: {len(jobs)} job(s)"
+                     f"{fate}")
+        if not jobs:
+            hosts = ", ".join(_hosts(message.html)[:5]) or "no links"
+            lines.append(f"  no job link recognised; links go to: {hosts}")
+        for job, reason in dropped[:MAX_DROPPED_SHOWN]:
+            lines.append(f"  dropped: {job.title[:50]} | {job.company[:30]} | "
+                         f"{job.location_text[:40] or '(no place)'}: {reason}")
+        if len(dropped) > MAX_DROPPED_SHOWN:
+            lines.append(f"  ... and {len(dropped) - MAX_DROPPED_SHOWN} more dropped")
+    if len(messages) > limit:
+        lines.append(f"... and {len(messages) - limit} more email(s).")
+    spam = sorted({parseaddr(m.sender)[1] or m.sender for m in messages if m.in_spam})
+    if spam:
+        count = sum(1 for m in messages if m.in_spam)
+        lines.append(f"⚠️ {count} of these emails are in Spam (read anyway). Gmail deletes Spam "
+                     "after 30 days: mark them Not spam and add a Gmail filter with 'Never "
+                     f"send it to Spam' for: {', '.join(spam)}.")
+    lines.append(f"Jobs found in the emails shown: {total}, in scope (title and place): {kept}. "
+                 f"Different jobs: {len(distinct)}, of them in scope: {len(distinct_kept)} "
+                 "(the same job in several emails counts once in /fetch). /fetch then checks "
+                 "age, experience, language, contract, sponsorship, skills and the daily "
+                 "limit.")
+    return "\n".join(lines)

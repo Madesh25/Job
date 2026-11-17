@@ -1,0 +1,50 @@
+{
+  "years_required_min": {
+    "value": 3,
+    "quote": "3 years of experience"
+  },
+  "seniority_title_flag": {
+    "value": "none",
+    "quote": null
+  },
+  "languages": [],
+  "contract_types": [
+    {
+      "value": "UoP",
+      "quote": "Employment contract (UoP)"
+    }
+  ],
+  "mandatory_requirements": [
+    {
+      "text": "Kubernetes and Prometheus",
+      "terms": [
+        "Kubernetes",
+        "Prometheus"
+      ],
+      "kind": "tool",
+      "quote": "Kubernetes and Prometheus"
+    }
+  ],
+  "nice_to_have": [],
+  "sponsorship": {
+    "value": "not_mentioned",
+    "quote": null
+  },
+  "work_mode": {
+    "value": "unknown",
+    "quote": null
+  },
+  "salary_text": {
+    "value": null,
+    "quote": null
+  },
+  "expires": {
+    "value": null,
+    "quote": null
+  },
+  "agency_posting": {
+    "value": null,
+    "quote": null
+  },
+  "specific_details": []
+}

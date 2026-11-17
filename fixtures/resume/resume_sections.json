@@ -1,0 +1,83 @@
+[
+ {
+  "Section": "Header",
+  "Enabled": true,
+  "Order": 1,
+  "Countries": [
+   "All"
+  ],
+  "Content": "Alex Example header from Config profile values."
+ },
+ {
+  "Section": "Professional Summary",
+  "Enabled": true,
+  "Order": 2,
+  "Countries": [
+   "All"
+  ],
+  "Content": "Fixed master text for Alex Example."
+ },
+ {
+  "Section": "Technical Skills",
+  "Enabled": true,
+  "Order": 3,
+  "Countries": [
+   "All"
+  ],
+  "Content": "Two-column table."
+ },
+ {
+  "Section": "Professional Experience",
+  "Enabled": true,
+  "Order": 4,
+  "Countries": [
+   "All"
+  ],
+  "Content": "Example Corp, Sample Systems, Demo Works."
+ },
+ {
+  "Section": "Certifications",
+  "Enabled": false,
+  "Order": 5,
+  "Countries": [
+   "All"
+  ],
+  "Content": "Example Cloud Certificate (ECC), Example Foundation, <Month Year>"
+ },
+ {
+  "Section": "Education",
+  "Enabled": true,
+  "Order": 6,
+  "Countries": [
+   "All"
+  ],
+  "Content": "Example Institute of Technology for Alex Example."
+ },
+ {
+  "Section": "Projects",
+  "Enabled": false,
+  "Order": 7,
+  "Countries": [
+   "All"
+  ],
+  "Content": "One project for Alex Example."
+ },
+ {
+  "Section": "Languages",
+  "Enabled": false,
+  "Order": 8,
+  "Countries": [
+   "All"
+  ],
+  "Content": "English (Professional) | Examplish (Native)"
+ },
+ {
+  "Section": "GDPR consent line",
+  "Enabled": true,
+  "Order": 9,
+  "Countries": [
+   "Poland"
+  ],
+  "Content": "I, Alex Example, consent to the processing of my personal data for recruitment purposes."
+ }
+]

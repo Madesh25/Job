@@ -7,6 +7,7 @@ variables (plus .env when APP_ENV is local).
 
 from __future__ import annotations
 
+import json
 import os
 from collections.abc import Mapping
 from functools import lru_cache
@@ -17,7 +18,9 @@ import yaml
 from dotenv import dotenv_values
 from pydantic import BaseModel, ConfigDict, Field
 
-ROOT_DIR = Path(__file__).resolve().parents[2]
+# The repository root (config/, fixtures/, out/). In the container the package is installed
+# into site-packages, so the Dockerfile sets JOBENGINE_ROOT=/app.
+ROOT_DIR = Path(os.environ.get("JOBENGINE_ROOT") or Path(__file__).resolve().parents[2])
 CONFIG_DIR = ROOT_DIR / "config"
 ALLOWED_ENVS = ("local", "dev", "prod")
 DEFAULT_ENV = "local"
@@ -28,14 +31,42 @@ SECRET_VARS = {
     "TELEGRAM_BOT_TOKEN": "telegram_bot_token",
     "TELEGRAM_CHAT_ID": "telegram_chat_id",
     "ANTHROPIC_API_KEY": "anthropic_api_key",
-    "GMAIL_ALERTS_TOKEN_JSON": "gmail_alerts_token_json",
+    "GEMINI_API_KEY": "gemini_api_key",  # optional: only for Config models named gemini-...
+    # optional (28 Oct): Gemini on Google Cloud Vertex AI, paid by the Google Cloud credit
+    "VERTEX_API_KEY": "vertex_api_key",
+    "DEEPSEEK_API_KEY": "deepseek_api_key",  # optional: model.score = deepseek-... only
+    "GMAIL_ALERTS_TOKEN_JSON": "gmail_alerts_token_json",  # old name, read as the m02 mailbox
+    # The two job-alert mailboxes (6 Oct): madeshwaranm02 and madeshwaran.manikam.
+    "GMAIL_ALERTS_TOKEN_JSON_m02": "gmail_alerts_token_json_m02",
+    "GMAIL_ALERTS_TOKEN_JSON_mm": "gmail_alerts_token_json_mm",
     "GMAIL_SENDER_TOKEN_JSON": "gmail_sender_token_json",
     "ADZUNA_APP_ID": "adzuna_app_id",
     "ADZUNA_APP_KEY": "adzuna_app_key",
+    "JOOBLE_API_KEY": "jooble_api_key",
     "APOLLO_API_KEY": "apollo_api_key",
     "HUNTER_API_KEY": "hunter_api_key",
     "SNOV_CLIENT_ID": "snov_client_id",
     "SNOV_CLIENT_SECRET": "snov_client_secret",
+    "PROSPEO_API_KEY": "prospeo_api_key",
+    # Second accounts (6 Oct): used when the first account's credits run out.
+    "APOLLO_API_KEY_2": "apollo_api_key_2",
+    "HUNTER_API_KEY_2": "hunter_api_key_2",
+    "SNOV_CLIENT_ID_2": "snov_client_id_2",
+    "SNOV_CLIENT_SECRET_2": "snov_client_secret_2",
+    "PROSPEO_API_KEY_2": "prospeo_api_key_2",
+    "TOMBA_API_KEY": "tomba_api_key",
+    "TOMBA_API_SECRET": "tomba_api_secret",
+    "TOMBA_API_KEY_2": "tomba_api_key_2",  # 23 Oct: second Tomba account
+    "TOMBA_API_SECRET_2": "tomba_api_secret_2",
+    "LUSHA_API_KEY": "lusha_api_key",
+    "GITHUB_TOKEN": "github_token",  # optional: public GitHub reads, 5,000 calls an hour
+    # Cloud Run (Module 09).
+    "TELEGRAM_WEBHOOK_SECRET": "telegram_webhook_secret",
+    "SERVICE_URL": "service_url",
+    "SCHEDULER_SA_EMAIL": "scheduler_sa_email",
+    # Autopilot H4 (25 Oct): the healthchecks.io ping URL (heartbeat.py). It works like a
+    # password (anyone with it can ping), so it lives in .env or Secret Manager only.
+    "HEALTHCHECK_URL": "healthcheck_url",
 }
 
 
@@ -47,26 +78,70 @@ class Settings(BaseModel):
     env_label: str
     notion_read: dict[str, str]
     notion_write: dict[str, str]
+    notion_pages: dict[str, str] = Field(default_factory=dict)
     gmail_sender: str
     redirect_to: str
     prod_sender: str
     dev_sender: str
     force_model: str | None
+    # Gemini on Vertex AI (llm.py): the Google Cloud project and location of the calls.
+    vertex_project: str = ""
+    vertex_location: str = "global"
     sweep: dict[str, Any] = Field(default_factory=dict)
+    screening: dict[str, Any] = Field(default_factory=dict)
+    resume: dict[str, Any] = Field(default_factory=dict)
+    drive: dict[str, Any] = Field(default_factory=dict)
+    contacts: dict[str, Any] = Field(default_factory=dict)
+    mail: dict[str, Any] = Field(default_factory=dict)
+    apply_pack: dict[str, Any] = Field(default_factory=dict)
+    agencies: dict[str, Any] = Field(default_factory=dict)
+    learning: dict[str, Any] = Field(default_factory=dict)
+    interview: dict[str, Any] = Field(default_factory=dict)
+    reply_drafts: dict[str, Any] = Field(default_factory=dict)
+    tracking: dict[str, Any] = Field(default_factory=dict)
+    strategy: dict[str, Any] = Field(default_factory=dict)
     allowed_hosts: tuple[str, ...] = ()
+    # Any subdomain of these is allowed too (Workday boards: <tenant>.wd3.myworkdayjobs.com).
+    allowed_host_suffixes: tuple[str, ...] = ()
 
     notion_token: str | None = None
     telegram_bot_token: str | None = None
     telegram_chat_id: str | None = None
     anthropic_api_key: str | None = None
+    gemini_api_key: str | None = None
+    vertex_api_key: str | None = None
+    deepseek_api_key: str | None = None
     gmail_alerts_token_json: str | None = None
+    gmail_alerts_token_json_m02: str | None = None
+    gmail_alerts_token_json_mm: str | None = None
     gmail_sender_token_json: str | None = None
     adzuna_app_id: str | None = None
     adzuna_app_key: str | None = None
+    jooble_api_key: str | None = None
     apollo_api_key: str | None = None
     hunter_api_key: str | None = None
     snov_client_id: str | None = None
     snov_client_secret: str | None = None
+    prospeo_api_key: str | None = None
+    apollo_api_key_2: str | None = None
+    hunter_api_key_2: str | None = None
+    snov_client_id_2: str | None = None
+    snov_client_secret_2: str | None = None
+    prospeo_api_key_2: str | None = None
+    tomba_api_key: str | None = None
+    tomba_api_secret: str | None = None
+    tomba_api_key_2: str | None = None
+    tomba_api_secret_2: str | None = None
+    github_token: str | None = None
+    lusha_api_key: str | None = None
+    telegram_webhook_secret: str | None = None
+    service_url: str | None = None
+    scheduler_sa_email: str | None = None
+    healthcheck_url: str | None = None
+    bot_mode: str = "polling"  # "webhook" on Cloud Run (BOT_MODE)
+    # CONTACTS_LIVE=true (16 Oct): real contact lookups on your PC (APP_ENV local) while
+    # DRY_RUN stays on; nothing else becomes real. safety.paid_api_allowed.
+    contacts_live: bool = False
 
 
 def parse_dry_run(value: str | None) -> bool:
@@ -124,7 +199,14 @@ def load_settings(env: str | None = None, environ: Mapping[str, str] | None = No
 
     notion = cfg.get("notion", {})
     safety = cfg.get("safety", {})
-    secrets = {field: environ.get(var) or None for var, field in SECRET_VARS.items()}
+    # A key copied with spaces, quotes or a Windows line end made an illegal header (16 Oct:
+    # PROSPEO_API_KEY_2 failed with LocalProtocolError).
+    secrets = {field: (environ.get(var) or "").strip().strip('"').strip("'").strip() or None
+               for var, field in SECRET_VARS.items()}
+    # Phase 23 1-08 (8 Nov): the guide said HEARTBEAT_URL; that name works too.
+    if not secrets.get("healthcheck_url"):
+        alias = (environ.get("HEARTBEAT_URL") or "").strip().strip('"').strip("'").strip()
+        secrets["healthcheck_url"] = alias or None
 
     return Settings(
         app_env=env,
@@ -132,15 +214,56 @@ def load_settings(env: str | None = None, environ: Mapping[str, str] | None = No
         env_label=cfg.get("env_label") or "",
         notion_read=dict(notion.get("read") or {}),
         notion_write=dict(notion.get("write") or {}),
+        notion_pages=dict(notion.get("pages") or {}),
         gmail_sender=cfg.get("gmail", {}).get("sender", ""),
         redirect_to=safety["redirect_to"],
         prod_sender=safety["prod_sender"],
         dev_sender=safety["dev_sender"],
         force_model=cfg.get("llm", {}).get("force_model"),
+        vertex_project=str(cfg.get("llm", {}).get("vertex_project") or ""),
+        vertex_location=str(cfg.get("llm", {}).get("vertex_location") or "global"),
         sweep=dict(cfg.get("sweep") or {}),
+        screening=dict(cfg.get("screening") or {}),
+        resume=dict(cfg.get("resume") or {}),
+        drive=dict(cfg.get("drive") or {}),
+        contacts=dict(cfg.get("contacts") or {}),
+        mail=dict(cfg.get("mail") or {}),
+        apply_pack=dict(cfg.get("apply_pack") or {}),
+        agencies=dict(cfg.get("agencies") or {}),
+        learning=dict(cfg.get("learning") or {}),
+        interview=dict(cfg.get("interview") or {}),
+        reply_drafts=dict(cfg.get("reply_drafts") or {}),
+        tracking=dict(cfg.get("tracking") or {}),
+        strategy=dict(cfg.get("strategy") or {}),
         allowed_hosts=tuple(safety.get("allowed_hosts") or ()),
+        allowed_host_suffixes=tuple(safety.get("allowed_host_suffixes") or ()),
+        bot_mode=(environ.get("BOT_MODE") or "polling").strip().lower(),
+        contacts_live=(environ.get("CONTACTS_LIVE") or "").strip().lower() == "true",
         **secrets,
     )
+
+
+# Gmail tokens renewed in Telegram (/gmailtoken, gmail_renew.py) on the bot on your PC. The
+# out folder is the one Docker mounts from your PC and git ignores, so a renewed token
+# survives a restart and needs no .env edit. A saved token wins over the one in .env.
+GMAIL_TOKEN_DIR = ROOT_DIR / "out" / "tokens"
+GMAIL_TOKEN_VARS = {"m02": ("GMAIL_ALERTS_TOKEN_JSON_m02", "GMAIL_SENDER_TOKEN_JSON"),
+                    "mm": ("GMAIL_ALERTS_TOKEN_JSON_mm",)}
+
+
+def saved_gmail_env(folder: Path = GMAIL_TOKEN_DIR) -> dict[str, str]:
+    """The environment values of the Gmail tokens saved by /gmailtoken, {} when none."""
+    out: dict[str, str] = {}
+    for account, names in GMAIL_TOKEN_VARS.items():
+        path = folder / f"gmail-{account}.json"
+        try:
+            token = json.loads(path.read_text(encoding="utf-8")).get("token")
+        except (OSError, ValueError, AttributeError):
+            continue
+        if isinstance(token, dict) and token.get("refresh_token"):
+            for name in names:
+                out[name] = json.dumps(token, separators=(",", ":"))
+    return out
 
 
 @lru_cache(maxsize=1)
@@ -150,5 +273,30 @@ def get_settings() -> Settings:
     env = environ.get("APP_ENV", DEFAULT_ENV)
     if env == "local":
         dotenv = {k: v for k, v in dotenv_values(ROOT_DIR / ".env").items() if v is not None}
-        environ = {**dotenv, **environ}
+        environ = {**dotenv, **environ, **saved_gmail_env()}
     return load_settings(env, environ)
+
+
+def posix_zone(utc_offset: str) -> str:
+    """"+05:30" -> "UTC-05:30": the POSIX TZ form of a UTC offset (its sign is the other way
+    round), which needs no time zone files in the image."""
+    text = str(utc_offset or "+05:30").strip()
+    sign = "-" if text.startswith("-") else "+"
+    hours, _, minutes = text.lstrip("+-").partition(":")
+    flipped = "+" if sign == "-" else "-"
+    return f"UTC{flipped}{int(hours or 0):02d}:{int(minutes or 0):02d}"
+
+
+def use_local_time(s: Settings, environ: Any = None, tzset: Any = None) -> str | None:
+    """Phase 23 2-05 (9 Nov): in Docker and on Cloud Run the clock is UTC, so between 00:00
+    and 05:30 India time /fetch dated new jobs the day before (Swept date, "today" in /screen
+    and /pending). The process clock follows tracking.utc_offset (your clock, default
+    +05:30); a TZ already set in the environment wins. Returns the TZ set, or None."""
+    import time
+
+    environ = os.environ if environ is None else environ
+    if environ.get("TZ"):
+        return None
+    environ["TZ"] = posix_zone(str(s.tracking.get("utc_offset", "+05:30")))
+    (tzset or getattr(time, "tzset", lambda: None))()
+    return environ["TZ"]

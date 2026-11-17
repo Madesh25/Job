@@ -1,0 +1,19 @@
+{
+ "thread_id": "t-tomek",
+ "messages": [
+  {
+   "id": "m-tomek-1",
+   "when": "2026-10-05T08:00:00+00:00",
+   "from": "madeshwaranm02@gmail.com",
+   "subject": "DevOps Engineer role at Vistula Cloud Poland",
+   "text": "Hi Tomek, invented cold mail text.",
+   "labels": [
+    "SENT"
+   ],
+   "headers": {
+    "message-id": "<m-tomek-1@mail.example.com>",
+    "to": "tomek.example@vistula.example.com"
+   }
+  }
+ ]
+}

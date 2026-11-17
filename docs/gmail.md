@@ -1,0 +1,330 @@
+# Gmail drafts (Module 06)
+
+When contacts are ready for a job, the bot writes one cold mail per contact into Gmail
+**Drafts**: the approved Cold Mail Templates word for word, the Config signature, and the
+approved resume PDF attached. In mail mode **draft** (the default) it never sends anything:
+you open Gmail > Drafts, read, edit if needed, and send yourself. In mail mode **send** the
+bot checks every draft and sends the ones that pass (see "Mail mode" below).
+
+## Rules
+
+- **Drafts first.** `src/jobengine/gmail_client.py` is the only module that writes to Gmail. It
+  may call `users.drafts.create`, `drafts.get`, `drafts.list`, `messages.get`, `threads.get`,
+  `labels.list`, `messages.modify` (labels, Module 07) and `drafts.send` (mail mode send only,
+  one draft at a time, called only from `mail/sender.py` after the checks). Sending a
+  free-form message, removing, trashing, editing a draft and creating labels are not in the
+  code; `tests/test_repo_rules.py` checks the files.
+- **Templates word for word.** Templates are read from the Notion page Cold Mail Templates at
+  run time. A section without `APPROVED` in its heading is never used. Only the placeholders
+  change. No LLM writes mail text; one LLM call (stage `email`) only returns the index of the
+  best stored specific detail when there are several.
+- **Every recipient goes through `safety.route_recipients`.** In local and dev every draft is
+  addressed to madeshwaranm02@gmail.com, cc is dropped and the subject starts with
+  `[DEV] to <real address> | ` (`[LOCAL]` locally). Prod has the real recipient and the plain
+  template subject.
+- **DRY_RUN** (the default): no draft is created and nothing is written. The bot logs
+  `DRY RUN: would create draft to <addr>` and shows one full example mail per template in Telegram (cold mail, referral ask; 22 Oct, before only the first mail).
+- **Never mailed:** contacts with Status `Bounced` or `Do not contact`, Type `Other` (except a
+  generic mailbox when Config `mail.generic_greeting_name` exists), and anyone drafted in the
+  last Config `mail.same_person_cooldown_days` (30) days for another role.
+- **No em or en dash** in the subject, body or signature. The final MIME text is checked; a hit
+  aborts that draft.
+- **Attachment:** the approved revision's PDF from Drive (Resume Log `File`), or from `out/`
+  when it was approved in DRY_RUN. At most Config `mail.max_attachment_kb` (250) KB.
+
+## Templates and placeholders
+
+Engineers get the **referral ask**; HR, recruiters and hiring managers get the **cold mail**.
+The drafts and send summaries say which one each contact got, for example
+`Peer engineer: Anna Example (referral ask, peer template)`.
+
+| Contact Type | Template | Kind |
+|---|---|---|
+| Hiring | Hiring manager (the Recruiter one when the job has no specific detail) | cold mail |
+| Recruiter/TA (recruiters and HR) | Recruiter / Talent Acquisition | cold mail |
+| Peer engineer | Peer engineer (referral ask; the swap rule is not applied) | referral ask |
+| Generic mailbox (careers@, hr@) | Recruiter / Talent Acquisition | cold mail |
+
+| Placeholder | Source |
+|---|---|
+| `{first_name}` | first word of the contact's Name (or `mail.generic_greeting_name`) |
+| `{company}` | Job `Company` |
+| `{role}` | Job `Role` without gender markers such as `(m/f/d)` |
+| `{city}` | Job `City`; `Remote` becomes the country |
+| `{country}` | Job `Country` |
+| `{permit_word}` | Config `mail.permit_word.poland`, `.netherlands`, `.ireland` |
+| `{specific_detail}` | one of the screening `Specific details`, exactly as stored |
+| `{job_link}` | Job `URL`, http(s) only, tracking parameters such as `utm_source` removed |
+
+An unfilled placeholder aborts that draft. Polish-language mails are not generated.
+
+**The job link in the referral ask.** An engineer can only refer you to a job they can find.
+Add `{job_link}` to the Peer engineer template on the Cold Mail Templates page in your own
+words, for example a line `This is the role: {job_link}`, then keep the heading's APPROVED
+date. The bot never adds text to a template: without `{job_link}` in the template, nothing
+changes. A job without a usable link is not drafted for that template (the draft is aborted
+with "unfilled placeholder {job_link}"), so a referral ask never goes out without its link.
+
+## The draft
+
+- Body: the filled template, one `<p>` per paragraph, then the signature from Config
+  `mail.signature` with `{profile.*}` filled from Config. The phone is plain text. Only
+  `profile.linkedin_url` and `profile.website_url` may be linked; any other link aborts.
+- `multipart/mixed`: `text/plain` and `text/html` alternatives plus the PDF. `To` and
+  `Subject` only; Gmail sets `From`. No Bcc, no tracking.
+- After each draft, Contacts gets `Gmail draft ID`, `Gmail thread ID`, `Status` Drafted
+  (only from Unverified or Verified) and a Notes line `drafted for <Role> <date>`. The job gets
+  `Last activity date`; its Status stays `Resume built` until you tap I applied.
+- Running again is safe: contacts that already have a draft for the job are skipped.
+
+## Telegram
+
+After the contacts summary the bot sends:
+
+```
+Drafts for Vistula Cloud, DevOps Engineer
+Hiring: Piotr Example (cold mail, hiring template)
+Recruiter/TA: Ola Example (cold mail, recruiter template)
+Peer engineer: Anna Example, Jan Example (referral ask, peer template)
+4 drafts created in Gmail (madeshwaranm02 in DEV). Review and send them from Gmail > Drafts.
+Skipped: none
+Reminder: soft cap is 15 mails a day.
+```
+
+`/drafts <job URL or page id>` retries a job. When more than `mail.daily_send_cap` drafts are
+waiting (Contacts with Status Drafted) the summary says so.
+
+## Mail mode (/mailmode)
+
+- `/mailmode` shows the mode, `/mailmode draft` and `/mailmode send` change it (Bot State
+  `mail.mode`). It applies to the **Write Gmail drafts** button (called **Check and send
+  mails** in send mode), `/drafts <job>` and `/autopilot`.
+- **draft** (the default): as above, drafts only.
+- **send**: the drafts are written exactly as in draft mode, then each one is checked twice,
+  first the mail the bot built and then the draft read back from Gmail
+  (`src/jobengine/mail/preflight.py`):
+  - **To:** exactly one well-formed address, the expected one (the contact in prod, your
+    redirect address in local and dev). No Cc, no Bcc, no Reply-To.
+  - **Subject:** present, the expected text, no `{placeholder}` left, no long dash, at most
+    200 characters, and `[DEV]` or `[LOCAL]` first outside prod.
+  - **Body:** a plain text and an HTML part, no placeholder left, no long dash, the signature
+    there, not almost empty.
+  - **Attachment:** exactly one, the approved resume of this job (same file name and same
+    bytes as its Resume Log row), a real PDF, within `mail.max_attachment_kb`. None when
+    Config `mail.attach_resume` is `no`.
+- A draft that passes is sent with Gmail's `drafts.send`, within today's cap (Bot State
+  `mail.sent_day` counts them; see the warm-up below). The
+  contact becomes `Contacted` with `Last contacted` today at once. A draft with any problem,
+  over the day's cap, or refused by Gmail stays in Gmail Drafts; the summary says why.
+- The summary lists every mail sent (To, Subject, attachment name and size), the ones kept
+  as drafts with the reason, and the day's count:
+
+```
+Mails for Vistula Cloud, DevOps Engineer
+Sent 3 of 4 from madeshwaranm02 in DEV after the checks (To, no Cc or Bcc, subject, body, signature, resume attachment, Gmail's copy):
+- Piotr Example (cold mail): To madeshwaranm02@gmail.com | Subject: [DEV] to piotr@... | ... | Attachment: Alex_Devops_VistulaCloud.pdf (84 KB)
+...
+Kept as drafts, not sent:
+- Rita Example: the attachment is not the approved resume of this job
+3 of 10 sends used today.
+```
+
+- With DRY_RUN on, the checks run and nothing is sent (`DRY RUN: 4 of 4 would be sent`).
+  Outside prod every mail goes to your redirect address, so send mode can be tried safely in
+  dev: you receive the mails yourself.
+
+### Warm-up (the daily cap grows week by week)
+
+A new sender that jumps to 30 cold mails a day looks like spam to Gmail and to the receiving
+servers. The daily cap therefore grows week by week (`src/jobengine/mail/warmup.py`):
+
+| Week of sending | Mails a day |
+|---|---|
+| 1 | 10 |
+| 2 | 15 |
+| 3 | 20 |
+| 4 | 25 |
+| 5 on | 30 |
+
+- Week 1 starts the day the bot sends its first mail (Bot State `mail.warmup_start`). If you
+  already mailed from this address by hand, set Notion Config `mail.warmup_start` to that
+  date (`YYYY-MM-DD`) to start further along.
+- Notion Config `mail.daily_send_cap` stays the ceiling: the cap is the smaller of the two.
+  Raise it to 30 so the warm-up can reach 30 (not set: 30).
+- `/mailmode` shows the week and today's cap. Notion Config `mail.warmup` = `off` turns it off
+  (then only `mail.daily_send_cap`, 10 when not set). The steps are `mail.warmup.steps` in the
+  yaml. Mails over the cap stay drafts (or wait in the queue for the next morning).
+
+### The recipient's morning (send window)
+
+In send mode a mail that passed every check goes out at once only inside the recipient's
+morning: **Monday to Friday, 08:00 to 11:00 in the job's country** (your decision of
+27 Oct, was Tuesday to Thursday; 11:00 since 5 Nov, was 10:00; Poland
+Europe/Warsaw, Netherlands Europe/Amsterdam, Ireland Europe/Dublin). Mails read at the
+start of the working day get more replies than ones that arrive at night or on a Friday
+evening.
+
+- Outside the window the draft stays in Gmail and waits in the mail queue (Bot State
+  `mail.queue`); the summary says when each one goes (`Waiting for the recipient's
+  morning: - Piotr Example (cold mail): Tue 06 Oct 08:00 CEST`).
+- `/mailqueue` lists the waiting mails and when each goes.
+- The queue is checked every few minutes (long polling, together with /autopilot; Cloud
+  Run: Cloud Scheduler job `je-mail-prod`, [deploy.md](deploy.md) B4). Each check sends up
+  to **3** mails (Notion Config `mail.per_check`; 5 Nov: one a check reached only about 18
+  a day, below the warm-up cap of 30), **follow-ups first, then Apply high, Apply normal
+  and the rest**, the longest waiting first within each.
+- **No mail weeks late (5 Nov):** a mail that waited 3 window days in its country without
+  a free send (the daily cap was used up) leaves the queue and stays a draft in Gmail, with
+  a message, for you to send or delete (Notion Config `mail.stale_days`). A mail held until
+  you apply starts counting when you applied.
+- At send time the draft is read back from Gmail and checked again (To, subject, body,
+  signature, the approved resume); the daily cap still applies, and the rest wait for the
+  next morning. A draft you sent or deleted yourself leaves the queue; one that changed is
+  kept as a draft and you are told why.
+- **After you applied (5 Nov):** you apply the same night, so a job's mails wait in the
+  queue until its Status is Applied (the I applied button, the employer's thank-you mail,
+  or the auto-submit), then go out in the recipient's next morning, even when they were
+  written inside the window. The peer template says "I've applied through the portal"
+  (Cold Mail Templates, changed 5 Nov). A held mail leaves the queue and stays a draft,
+  with a message, when the job closes or moves on (Rejected, Declined, Expired, Withdrawn,
+  Ghosted, Replied, Screening, Interview, Offer) or when you did not apply within 7 days.
+  `/mailqueue` shows them as "after you apply". Notion Config `mail.after_applied` = `off`
+  sends without waiting.
+- **Public holidays (5 Nov):** a mail sent on a public holiday waits unread until the next
+  working day, under everything else. So the window stays closed on the recipient
+  country's public holidays and the mail goes out the next working morning
+  (`mail/holidays.py`: Poland, the Netherlands and Ireland, worked out for any year,
+  Easter dates included; an Irish holiday on a weekend moves to the next working day).
+  Example: Wednesday 11 November is Independence Day in Poland, so a Polish mail queued
+  on Tuesday after the window goes on Thursday 12 November; a Dutch one goes on the 11th.
+  `/mailqueue` names the holidays of the next 14 days. Notion Config `mail.holidays` =
+  `off` sends on holidays too.
+- Change the days and hours in `config/base.yaml` (`mail.send_window`). Notion Config
+  `mail.send_window` = `off` sends at once, as before.
+- DRY RUN: the summary says `Would wait for the recipient's morning` and nothing is queued.
+
+`/drafts <job>` only writes drafts, also in mail mode send (Phase 12, 28 Oct: it sent 4
+mails at once): mails go out by themselves only after Find contacts and Check and send
+mails, or from the autopilot.
+
+### Safe sending (Phase 12, 28 Oct)
+
+While a new sender warms up, a few bounces can hurt the Gmail account, so in send mode the
+bot mails by itself only safe addresses (`mail/send_guard.py`); the rest stay Gmail drafts
+with the reason, for you to check and send:
+
+- **Trusted address:** a provider verified it (Status Verified), or the company wrote it
+  itself (Source `Job posting` or `Careers page`). An address a provider found but could not
+  verify (Hunter "accept all", a GitHub commit address) stays a draft: "the address is not
+  verified (Hunter): check it and send it from Gmail". Notion Config
+  `mail.send_unverified` = `true` lets the bot send those too.
+- **The domain receives mail:** a free DNS look-up for the domain's mail servers (Google
+  public DNS over https, `dns.google`). No mail server: the draft stays. A look-up that
+  fails never stops a mail.
+- **Bounce guard:** 2 bounces in one day, or 2 or more and over 5% of the last 7 days' mails,
+  pause sending by itself; the daily check says `🛑 Sending paused: ...`. Drafts are still
+  written and the morning queue waits. Look at the bounced contacts' Source in Contacts,
+  then `/mailmode send` starts sending again. Bot State `mail.bounce_guard` keeps the
+  counts of the last 14 days.
+
+## Tokens (gmail.modify)
+
+Drafts need `gmail.modify`; the old OAuth Playground tokens only have `gmail.readonly`,
+`gmail.send` and `drive.file`. Before any Gmail write the client checks the token's scopes
+and stops with "Sender token lacks gmail.modify. Regenerate it with python -m
+jobengine.gmail_auth." when the scope is missing.
+
+1. In Google Cloud Console, publish the OAuth consent screen to **Production** first. Refresh
+   tokens made while it is in Testing expire after 7 days.
+2. Download the OAuth client JSON (Desktop app) to a folder outside the repo.
+3. On your machine, once per account:
+
+   ```bash
+   pip install -e ".[auth]"
+   APP_ENV=local python -m jobengine.gmail_auth --client-secret ~/oauth-client.json --account m02
+   APP_ENV=local python -m jobengine.gmail_auth --client-secret ~/oauth-client.json --account main
+   ```
+
+   It asks for exactly `gmail.modify` and `drive.file`, prints the account you authorised and
+   writes `.secrets/gmail-<account>-token.json` (ignored by git). It refuses to run when
+   `APP_ENV` is not `local`.
+4. Local: put the JSON (one line) into `.env` as `GMAIL_SENDER_TOKEN_JSON` (the m02 token). The
+   alerts token (`GMAIL_ALERTS_TOKEN_JSON`) only needs `gmail.readonly`; locally it may be the
+   same JSON. Dev and prod: store it in Secret Manager (Module 09); prod uses the main
+   account.
+
+## Renew a token from Telegram (/gmailtoken, 15 Oct)
+
+While the Google OAuth app is in Testing, Google cancels its tokens 7 days after they are
+made (`invalid_grant`). Publishing the app ends that (Phase 9, P9-37: Google now asks for a home
+page and a privacy policy link on an authorised domain first). Until then the bot on your PC
+renews a token in about 2 minutes, without a command window or an .env edit
+(`src/jobengine/gmail_renew.py`):
+
+1. `/gmailtoken` shows each token (m02 = madeshwaranm02, mm = madeshwaran.manikam): OK or not,
+   and for a token renewed here the day it stops working.
+2. `/gmailtoken m02` (or `mm`) sends a Google sign-in link (the OAuth client of your current
+   token, PKCE, `login_hint` for that address). Open it on your PC, choose the account, allow
+   every box ("Advanced, Go to Job (unsafe)" if Google says the app is not verified).
+3. Google sends the browser to `http://127.0.0.1:8765/?state=...&code=...`. The bot answers
+   that page itself: it says "Done" and the answer comes in Telegram too, nothing to copy. In
+   Docker this needs the port, so start the bot with `-p 127.0.0.1:8765:8765`:
+
+   ```powershell
+   docker run --rm -it -p 127.0.0.1:8765:8765 --env-file .env -v "${PWD}\out:/app/out" job-engine python -m jobengine.telegram_bot 2>&1 | Tee-Object -FilePath out\bot-log.txt
+   ```
+
+   Without the port the page shows "This site can't be reached" (15 Oct): copy that whole
+   address and paste it into the chat within 15 minutes instead (the bot deletes your
+   message). Either way the bot exchanges the one-time code (oauth2.googleapis.com), refuses a
+   wrong account or missing permission, and saves the token in
+   `out/tokens/gmail-<account>.json` (on your PC, ignored by git, never in Notion). The page
+   only listens while a sign-in waits (at most 15 minutes) and only on your PC (127.0.0.1).
+4. `/restart`. A saved token wins over the one in `.env` (`settings.saved_gmail_env`); delete
+   the file to go back to `.env`.
+
+A renewed token carries its date: from the day before it stops working the bot sends one
+reminder a day with `/gmailtoken <account>` (Config `gmail.token_days`, 7; set it to 0 once the
+app is published). The daily "A Gmail token has expired" alert points to `/gmailtoken` too.
+Only the bot on your PC renews tokens (APP_ENV local); on Cloud Run they are in Secret Manager.
+
+## Publish the app (12 Nov, Phase 23 item 12-04)
+
+Google asks for a home page and a privacy policy before Publish app works. Both are in `site/`
+and go to GitHub Pages through `.github/workflows/pages.yml` on every push to develop that
+changes them:
+
+- Home page: https://madesh25.github.io/Job/
+- Privacy policy: https://madesh25.github.io/Job/privacy.html
+
+1. Once, in GitHub: Settings > Pages > Source: **GitHub Actions**. Then Settings > Environments >
+   github-pages > Deployment branches and tags: add `develop` (by default only `main` may
+   deploy, and `main` must not be pushed for this: it deploys prod). Then Actions > Pages >
+   Run workflow on develop, and open both links.
+2. Google Cloud Console > Google Auth Platform (OAuth consent screen) > Branding: app name as it
+   is now, Application home page and Application privacy policy link = the two links above,
+   Authorised domain `madesh25.github.io`. If Google asks to verify the domain, add the
+   URL-prefix property `https://madesh25.github.io/Job/` in Search Console with the HTML tag
+   method; the tag goes into `site/index.html` (one PR).
+3. Audience > Publish app. For a personal app with fewer than 100 users Google does not need a
+   verification review: the sign-in shows "Google hasn't verified this app" (Advanced, Go to
+   Job), and tokens no longer stop after 7 days.
+4. `/gmailtoken m02` and `/gmailtoken mm` once more (a token made while the app was in Testing
+   still stops on its date), then Config `gmail.token_days` = `0`.
+
+## Notion prerequisites
+
+Config rows: `mail.permit_word.poland` = `a Polish work permit`,
+`mail.permit_word.netherlands` = `a Dutch work permit (highly skilled migrant)`,
+`mail.permit_word.ireland` = `an Irish employment permit`, `mail.max_attachment_kb` = 250,
+`mail.same_person_cooldown_days` = 30. `mail.generic_greeting_name` only if you want generic
+mailboxes mailed. `mail.signature`, `mail.attach_resume` and `mail.daily_send_cap` already
+exist.
+
+## Run it
+
+```bash
+python -m jobengine.mail --fake --job fixture-clean-pl              # fixtures, no network
+python -m jobengine.mail --fake --job fixture-clean-pl --no-write   # print every mail
+python -m jobengine.mail --job <page id> --no-write                 # real data, nothing created
+```

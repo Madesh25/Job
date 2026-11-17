@@ -1,0 +1,193 @@
+[
+ {
+  "page_id": "job-vistula",
+  "Company": "Vistula Cloud",
+  "Role": "DevOps Engineer",
+  "Country": "Poland",
+  "City": "Kraków",
+  "Board": "LinkedIn",
+  "URL": "https://jobs.example.com/job-vistula",
+  "Screen verdict": "Apply high",
+  "Sponsorship": "Not mentioned",
+  "Status": "Applied",
+  "Dedupe key": "vistula cloud|devops engineer|kraków",
+  "First seen": "2026-09-01",
+  "body": [
+   "Description source: ats",
+   "Vistula Cloud invented test job."
+  ],
+  "Applied date": "2026-10-02",
+  "Contacts": [
+   "c-anna",
+   "c-jan",
+   "c-kasia",
+   "c-piotr",
+   "c-ola",
+   "c-rita",
+   "c-marek",
+   "c-bob",
+   "c-zofia",
+   "c-tomek"
+  ]
+ },
+ {
+  "page_id": "job-northwind",
+  "Company": "Northwind Cloud",
+  "Role": "Platform Engineer",
+  "Country": "Ireland",
+  "City": "Dublin",
+  "Board": "Company site",
+  "URL": "https://jobs.example.com/job-northwind",
+  "Screen verdict": "Apply normal",
+  "Sponsorship": "Stated yes",
+  "Status": "Applied",
+  "Dedupe key": "northwind cloud|platform engineer|dublin",
+  "First seen": "2026-09-01",
+  "body": [
+   "Description source: ats",
+   "Northwind Cloud invented test job."
+  ],
+  "Applied date": "2026-10-05",
+  "Contacts": [
+   "c-olga"
+  ]
+ },
+ {
+  "page_id": "job-canal",
+  "Company": "Canal Payments",
+  "Role": "Site Reliability Engineer",
+  "Country": "Netherlands",
+  "City": "Amsterdam",
+  "Board": "IamExpat",
+  "URL": "https://jobs.example.com/job-canal",
+  "Screen verdict": "Apply high",
+  "Sponsorship": "Stated yes",
+  "Status": "Applied",
+  "Dedupe key": "canal payments|site reliability engineer|amsterdam",
+  "First seen": "2026-09-01",
+  "body": [
+   "Description source: ats",
+   "Canal Payments invented test job."
+  ],
+  "Applied date": "2026-10-03",
+  "Gmail thread ID": "t-canal-job"
+ },
+ {
+  "page_id": "job-fjord",
+  "Company": "Fjord Data",
+  "Role": "Cloud Engineer",
+  "Country": "Ireland",
+  "City": "Cork",
+  "Board": "IrishJobs.ie",
+  "URL": "https://jobs.example.com/job-fjord",
+  "Screen verdict": "Apply low",
+  "Sponsorship": "Not mentioned",
+  "Status": "Applied",
+  "Dedupe key": "fjord data|cloud engineer|cork",
+  "First seen": "2026-09-01",
+  "body": [
+   "Description source: ats",
+   "Fjord Data invented test job."
+  ],
+  "Applied date": "2026-10-06"
+ },
+ {
+  "page_id": "job-harbor",
+  "Company": "Harbor Example Systems",
+  "Role": "SRE",
+  "Country": "Netherlands",
+  "City": "Rotterdam",
+  "Board": "LinkedIn",
+  "URL": "https://jobs.example.com/job-harbor",
+  "Screen verdict": "Apply high",
+  "Sponsorship": "Not mentioned",
+  "Status": "Applied",
+  "Dedupe key": "harbor example systems|sre|rotterdam",
+  "First seen": "2026-09-01",
+  "body": [
+   "Description source: ats",
+   "Harbor Example Systems invented test job."
+  ],
+  "Applied date": "2026-10-08",
+  "Gmail thread ID": "t-harbor-job"
+ },
+ {
+  "page_id": "job-baltic",
+  "Company": "Baltic Example Bank",
+  "Role": "DevOps Engineer",
+  "Country": "Poland",
+  "City": "Gdańsk",
+  "Board": "Pracuj.pl",
+  "URL": "https://jobs.example.com/job-baltic",
+  "Screen verdict": "Apply normal",
+  "Sponsorship": "Not mentioned",
+  "Status": "Followed up",
+  "Dedupe key": "baltic example bank|devops engineer|gdańsk",
+  "First seen": "2026-09-01",
+  "body": [
+   "Description source: ats",
+   "Baltic Example Bank invented test job."
+  ],
+  "Applied date": "2026-09-01",
+  "Contacts": [
+   "c-olek",
+   "c-bartek"
+  ]
+ },
+ {
+  "page_id": "job-offer",
+  "Company": "Example Offer Co",
+  "Role": "Cloud Engineer",
+  "Country": "Ireland",
+  "City": "Galway",
+  "Board": "LinkedIn",
+  "URL": "https://jobs.example.com/job-offer",
+  "Screen verdict": "Apply high",
+  "Sponsorship": "Stated yes",
+  "Status": "Offer",
+  "Dedupe key": "example offer co|cloud engineer|galway",
+  "First seen": "2026-09-01",
+  "body": [
+   "Description source: ats",
+   "Example Offer Co invented test job."
+  ],
+  "Applied date": "2026-09-10"
+ },
+ {
+  "page_id": "job-rejected",
+  "Company": "Example Rejects Ltd",
+  "Role": "DevOps Engineer",
+  "Country": "Poland",
+  "City": "Wrocław",
+  "Board": "JustJoin IT",
+  "URL": "https://jobs.example.com/job-rejected",
+  "Screen verdict": "Apply normal",
+  "Sponsorship": "Not mentioned",
+  "Status": "Rejected",
+  "Dedupe key": "example rejects ltd|devops engineer|wrocław",
+  "First seen": "2026-09-01",
+  "body": [
+   "Description source: ats",
+   "Example Rejects Ltd invented test job."
+  ],
+  "Applied date": "2026-09-15"
+ },
+ {
+  "page_id": "job-resume",
+  "Company": "Example Waiting Sp. z o.o.",
+  "Role": "DevOps Engineer",
+  "Country": "Poland",
+  "City": "Poznań",
+  "Board": "NoFluffJobs",
+  "URL": "https://jobs.example.com/job-resume",
+  "Screen verdict": "Apply high",
+  "Sponsorship": "Not mentioned",
+  "Status": "Resume built",
+  "Dedupe key": "example waiting sp. z o.o.|devops engineer|poznań",
+  "First seen": "2026-09-01",
+  "body": [
+   "Description source: ats",
+   "Example Waiting Sp. z o.o. invented test job."
+  ]
+ }
+]
