@@ -341,6 +341,10 @@ def test_field_names_and_required_marks_in_the_text_are_read(tmp_path, monkeypat
     ("Allowed to work?* (required)", "authorized_without_sponsorship"),
     ("Available from* (required)", "earliest_start"),
     ("Where are you currently located?", "city"),
+    ("Location* (required)", "city"),  # 16 Nov, Personio (UbiOps)
+    ("Your Location", "city"),  # 16 Nov, Ashby (ClickHouse)
+    ("Full name* (required)", "full_name"),
+    ("Preferred location", None),
     ("Motivate why you are interested in this particular role", "why"),
     ("Data Protection Information Notice*", None),
     ("What is your current notice period?", "notice_period"),
