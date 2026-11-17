@@ -703,6 +703,11 @@ def test_dev_opens_a_browser_page_per_job_looked_up():
     assert load_settings("prod", {}).sweep["job_links"]["max_rendered"] == 40
 
 
+def test_one_job_can_open_six_browser_pages():
+    """16 Nov /fetch: Alliander and 1dea stopped at 4 pages with 56 to 60 left."""
+    assert job_links.MAX_RENDERS_PER_JOB == 6
+
+
 
 GREENHOUSE_JOBS = "https://boards-api.greenhouse.io/v1/boards/dunedata/jobs"
 

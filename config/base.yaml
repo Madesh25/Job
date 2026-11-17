@@ -436,7 +436,7 @@ sweep:
     # AI web searches per sweep: a company's careers page (remembered 60 days) or one job.
     max_searches: 40
     # Careers pages built by JavaScript are opened in a browser, at most this many per
-    # sweep (2 per job), when Playwright is installed (in every Docker build since 30 Oct).
+    # sweep (6 per job), when Playwright is installed (in every Docker build since 30 Oct).
     # Only short pages are opened: a long page is not one that JavaScript fills in.
     browser: true
     max_rendered: 40
