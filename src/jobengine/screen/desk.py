@@ -2834,7 +2834,10 @@ class Desk:
 
         last = (self.state.get(LAST_SUMMARY) or {}).get("at")
         fine.append(f"Last /fetch: {last or 'never'}")
-        starts = plan.times_text() if plan.on else ""
+        # 17 Nov, a simulated week: Saturday's check named the 19:30 run (Mon to Fri) and
+        # Sunday's both runs (none on Sunday). Only today's runs are named.
+        todays = [f"{at:%H:%M}" for at in plan.starts if today.weekday() in plan.days_for(at)]
+        starts = (" and ".join(todays) or health_report.NO_RUN) if plan.on else ""
         return health_report.text(today, blockers, soon, fine, starts)
 
     def health_report_tick(self) -> list[Reply]:
