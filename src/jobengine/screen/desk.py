@@ -2698,6 +2698,12 @@ class Desk:
         done = dict(((self.state.get(AUTO_PREP_KEY) or {}).get("jobs")) or {})
         if done.get(job_id) == today.isoformat():
             return []
+        if isinstance(self._interview_job(job_id, ""), Reply):
+            # 17 Nov, a simulated autopilot day: a reply whose job is gone from Notion sent
+            # "Prepare for it now:" and then "No Job Opportunities row found". The ping is
+            # enough; /prep <job> still works by hand.
+            log.info("auto /prep skipped: no job row for %s", job_id)
+            return []
         try:
             replies = self.prep_command(job_id)
         except Exception as exc:  # the ping still comes
