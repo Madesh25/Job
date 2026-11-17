@@ -18,7 +18,7 @@ import re
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlsplit, urlunsplit
 
 from jobengine import http, safety
 from jobengine.settings import Settings
@@ -55,6 +55,15 @@ def _frames(page: Any) -> str:
     return "".join(out)
 
 
+def page_key(url: str) -> str:
+    """One page, however its address is written: "https://werkenbij.alliander.com" and
+    "https://werkenbij.alliander.com/" are the same page (16 Nov /fetch: it was opened twice
+    and the job's 4 browser pages ran out before its job list)."""
+    parts = urlsplit(url)
+    path = parts.path.rstrip("/")
+    return urlunsplit((parts.scheme.lower(), parts.netloc.lower(), path, parts.query, ""))
+
+
 class Renderer:
     """url -> (final url, html after JavaScript ran). Opens one browser for the whole sweep,
     on first use; close() ends it. The browser lives on its own thread: Playwright works
@@ -73,14 +82,15 @@ class Renderer:
     def has(self, url: str) -> bool:
         """The page was opened in this sweep already (its answer is kept: no new page)."""
         with self._lock:
-            return url in self._seen
+            return page_key(url) in self._seen
 
     def __call__(self, url: str) -> tuple[str, str]:
         with self._lock:
             # One page once per sweep (4 Nov: CGI's, Apple's and Prism's careers pages were
             # opened again for each of their jobs and the 80 pages ran out halfway).
-            if url in self._seen:
-                answer = self._seen[url]
+            key = page_key(url)
+            if key in self._seen:
+                answer = self._seen[key]
                 if isinstance(answer, http.HttpError):
                     raise answer
                 return answer
@@ -96,10 +106,10 @@ class Renderer:
             answer = self._thread.submit(self._open, url).result()
         except http.HttpError as exc:
             with self._lock:
-                self._seen[url] = exc
+                self._seen[key] = exc
             raise
         with self._lock:
-            self._seen[url] = answer
+            self._seen[key] = answer
         return answer
 
     def _open(self, url: str) -> tuple[str, str]:

@@ -1392,6 +1392,37 @@ def test_a_page_is_opened_in_the_browser_once_per_fetch():
     assert browser.left == 3
 
 
+def test_one_page_with_or_without_the_last_slash_is_opened_once():
+    """16 Nov /fetch: Alliander's "https://werkenbij.alliander.com" and ".../" were two
+    browser pages, the job's 4 ran out before its job list was read."""
+    from jobengine.sweep import render
+
+    assert render.page_key("https://werkenbij.alliander.com") == render.page_key(
+        "https://Werkenbij.Alliander.com/#jobs")
+    assert render.page_key("https://x.nl/jobs/?p=2") == render.page_key("https://x.nl/jobs?p=2")
+    assert render.page_key("https://x.nl/jobs?p=2") != render.page_key("https://x.nl/jobs?p=3")
+
+    class Thread:
+        def __init__(self):
+            self.opened = []
+
+        def submit(self, fn, url):
+            self.opened.append(url)
+
+            class Done:
+                def result(self):
+                    return url, "<html/>"
+            return Done()
+
+    browser = render.Renderer(load_settings("local", {}), left=5)
+    browser._thread = Thread()
+    browser("https://werkenbij.alliander.com")
+    assert browser.has("https://werkenbij.alliander.com/")
+    browser("https://werkenbij.alliander.com/")
+    assert browser._thread.opened == ["https://werkenbij.alliander.com"]
+    assert browser.left == 4
+
+
 def test_googles_copy_can_use_a_stronger_gemini():
     search = GoogleCopy({"found": False}, [])
     seen = {}
