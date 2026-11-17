@@ -29,3 +29,15 @@ def no_skill_match(request, monkeypatch):
     unless they are marked `skill_match` (tests of the check itself)."""
     if request.node.get_closest_marker("skill_match") is None:
         monkeypatch.setattr("jobengine.sweep.runner.skill_share", lambda job, rules: None)
+
+
+@pytest.fixture(autouse=True)
+def workday_gate(monkeypatch):
+    """Workday's one-at-a-time gate (http.SLOW_HOSTS) starts fresh in every test and waits
+    no time between requests unless a test sets SLOW_GAP itself."""
+    from jobengine import http
+
+    http.reset_slow_hosts()
+    monkeypatch.setattr(http, "SLOW_GAP", 0.0)
+    yield
+    http.reset_slow_hosts()

@@ -214,3 +214,75 @@ def test_query_string_never_reaches_logs(transport, caplog):
     finally:
         logging.getLogger().setLevel(logging.WARNING)
     assert "super-secret-key" not in caplog.text
+
+
+WORKDAY = "https://lseg.wd3.myworkdayjobs.com/wday/cxs/lseg/Careers/jobs"
+WORKDAY_2 = "https://intel.wd1.myworkdayjobs.com/wday/cxs/intel/External/jobs"
+
+
+def test_workday_sites_are_asked_one_at_a_time_with_a_gap(transport, monkeypatch):
+    """17 Nov /fetch: about 30 Workday sites answered HTTP 429 within seconds: they count
+    as one visitor. Requests to any Workday site go one at a time, SLOW_GAP apart."""
+    import threading
+
+    calls, _ = transport
+    now = [100.0]
+    waits = []
+    monkeypatch.setattr(http, "_clock", lambda: now[0])
+    monkeypatch.setattr(http, "_sleep", lambda w: (waits.append(w), now.__setitem__(0, now[0] + w)))
+    monkeypatch.setattr(http, "SLOW_GAP", 0.5)
+    http.post_json(WORKDAY, json={}, s=S)
+    http.post_json(WORKDAY_2, json={}, s=S)  # another company, the same Workday
+    assert waits == [0.5]
+    http.get_json("https://boards-api.greenhouse.io/v1/boards/x/jobs", s=S)
+    assert waits == [0.5]  # other sites are not held back
+
+    busy, inside = [0], [0]
+    lock = threading.Lock()
+    real_attempts = http._attempts
+
+    def counting(*args, **kwargs):
+        with lock:
+            inside[0] += 1
+            busy[0] = max(busy[0], inside[0])
+        try:
+            return real_attempts(*args, **kwargs)
+        finally:
+            with lock:
+                inside[0] -= 1
+
+    monkeypatch.setattr(http, "_attempts", counting)
+    monkeypatch.setattr(http, "SLOW_GAP", 0.0)
+    workers = [threading.Thread(target=http.post_json, args=(WORKDAY,), kwargs={"json": {}, "s": S})
+               for _ in range(6)]
+    for w in workers:
+        w.start()
+    for w in workers:
+        w.join()
+    assert busy[0] == 1
+
+
+def test_a_workday_429_pauses_every_workday_site_once_then_leaves_workday(transport,
+                                                                       monkeypatch):
+    calls, responses = transport
+    now = [100.0]
+    waits = []
+    monkeypatch.setattr(http, "_clock", lambda: now[0])
+    monkeypatch.setattr(http, "_sleep", lambda w: (waits.append(w), now.__setitem__(0, now[0] + w)))
+    responses.extend([httpx.Response(429), httpx.Response(200, json={"total": 0})])
+    assert http.post_json(WORKDAY, json={}, s=S) == {"total": 0}  # one pause, then it answered
+    assert waits == [http.SLOW_COOL]
+
+    waits.clear()
+    responses.extend([httpx.Response(429)] * 4)
+    for url in (WORKDAY, WORKDAY_2):  # two sites still refused after their pause
+        with pytest.raises(http.HttpError) as info:
+            http.post_json(url, json={}, s=S)
+        assert info.value.status == 429
+    assert waits == [http.SLOW_COOL, http.SLOW_COOL]
+    asked = len(calls)
+    with pytest.raises(http.HttpError, match="not asked again"):
+        http.post_json(WORKDAY, json={}, s=S)  # Workday is left alone for a while
+    assert len(calls) == asked
+    now[0] += http.SLOW_CLOSE + 1
+    assert http.post_json(WORKDAY_2, json={}, s=S) == {"ok": True}  # and asked again later
