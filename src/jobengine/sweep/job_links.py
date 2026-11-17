@@ -60,7 +60,7 @@ from bs4 import BeautifulSoup
 from jobengine import textblocks
 from jobengine.notion_repo import JobsRepo, select_filter
 from jobengine.safety import SafetyError
-from jobengine.sweep import fulltext, normalize
+from jobengine.sweep import fulltext, normalize, render
 from jobengine.sweep.crossmatch import DESCRIPTION_HEADER, plain_title, title_key
 from jobengine.sweep.dedupe import DESCRIPTION_BLOCK_CHARS, DESCRIPTION_MAX_BLOCKS, link_rank
 from jobengine.sweep.normalize import canon, canon_city, canon_company, without_region
@@ -82,8 +82,9 @@ MAX_BODY_READS = 200  # pages read in one sweep to see whether a description is 
 NO_BOARD_DAYS = 14  # a company without a job board or careers page is asked again after
 # Browser pages for one job: one site never uses the whole budget. 13 Nov: 2 -> 4 (11 jobs
 # stopped at 2 while 63 of the /fetch's pages were unused); a page opened before in the same
-# /fetch costs nothing (render.Renderer keeps it).
-MAX_RENDERS_PER_JOB = 4
+# /fetch costs nothing (render.Renderer keeps it). 17 Nov: 4 -> 6 (16 Nov: Alliander and
+# 1dea stopped at 4 while 56 to 60 of the /fetch's pages were unused).
+MAX_RENDERS_PER_JOB = 6
 THIN_PAGE_CHARS = 3000  # a page with less text than this may fill itself with JavaScript
 THIN_PAGE_LINKS = 30
 MAX_LINE = 160  # longer link texts are whole cards or menus, not titles
@@ -1014,9 +1015,9 @@ def from_site(deps: Deps, careers: str, company: str, role: str, city: str | Non
     seen: set[str] = set()
     while queue and reads[0] > 0:
         url, how, depth = queue.pop(0)
-        if url in seen:
+        if render.page_key(url) in seen:
             continue
-        seen.add(url)
+        seen.add(render.page_key(url))
         reads[0] -= 1
         try:
             final, html = deps.page(url)

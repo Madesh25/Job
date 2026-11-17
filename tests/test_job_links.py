@@ -703,6 +703,11 @@ def test_dev_opens_a_browser_page_per_job_looked_up():
     assert load_settings("prod", {}).sweep["job_links"]["max_rendered"] == 40
 
 
+def test_one_job_can_open_six_browser_pages():
+    """16 Nov /fetch: Alliander and 1dea stopped at 4 pages with 56 to 60 left."""
+    assert job_links.MAX_RENDERS_PER_JOB == 6
+
+
 
 GREENHOUSE_JOBS = "https://boards-api.greenhouse.io/v1/boards/dunedata/jobs"
 
@@ -1390,6 +1395,37 @@ def test_a_page_is_opened_in_the_browser_once_per_fetch():
     assert browser._thread.opened == ["https://www.dunedata.com/careers",
                                       "https://www.dunedata.com/fails"]
     assert browser.left == 3
+
+
+def test_one_page_with_or_without_the_last_slash_is_opened_once():
+    """16 Nov /fetch: Alliander's "https://werkenbij.alliander.com" and ".../" were two
+    browser pages, the job's 4 ran out before its job list was read."""
+    from jobengine.sweep import render
+
+    assert render.page_key("https://werkenbij.alliander.com") == render.page_key(
+        "https://Werkenbij.Alliander.com/#jobs")
+    assert render.page_key("https://x.nl/jobs/?p=2") == render.page_key("https://x.nl/jobs?p=2")
+    assert render.page_key("https://x.nl/jobs?p=2") != render.page_key("https://x.nl/jobs?p=3")
+
+    class Thread:
+        def __init__(self):
+            self.opened = []
+
+        def submit(self, fn, url):
+            self.opened.append(url)
+
+            class Done:
+                def result(self):
+                    return url, "<html/>"
+            return Done()
+
+    browser = render.Renderer(load_settings("local", {}), left=5)
+    browser._thread = Thread()
+    browser("https://werkenbij.alliander.com")
+    assert browser.has("https://werkenbij.alliander.com/")
+    browser("https://werkenbij.alliander.com/")
+    assert browser._thread.opened == ["https://werkenbij.alliander.com"]
+    assert browser.left == 4
 
 
 def test_googles_copy_can_use_a_stronger_gemini():
