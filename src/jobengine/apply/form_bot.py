@@ -98,6 +98,12 @@ RULES: tuple[tuple[re.Pattern[str], str, re.Pattern[str] | None], ...] = tuple(
         (r"\brelocat", "relocation", None),
         (r"\benglish\b", "english", None),
         (r"\bgender\b", "gender", None),
+        # 17 Nov, real Greenhouse form (InterSystems): the US questions after Gender, and
+        # "Job Location" (able to work there, able to relocate, or neither).
+        (r"\b(hispanic|latin[oa]|veteran|disabilit\w*|race|ethnic\w*|sexual orientation)\b",
+         "other_diversity", None),
+        (r"\bjob location\b", "relocation", None),
+        (r"\bdiscipline\b|\bfield of study\b|^(your )?major$", "education", None),
         (r"\b(city|town)\b|\bcurrent location\b|^(your )?location$"
          r"|\bwhere are you (currently )?based\b",
          "city", r"\b(relocat|prefer|willing|office|desired)"),
@@ -241,6 +247,12 @@ def permit_choice(label: str, options: Sequence[str], value: str) -> int | None:
     return hits[0] if len(hits) == 1 else None
 
 
+DECLINE = re.compile(r"\b(prefer not|decline|don t wish|do not wish|rather not|do not want|"
+                     r"don t want|not to (say|answer|disclose)|wish not)\b")
+RELOCATE = re.compile(r"\brelocat")
+NOT_ABLE = re.compile(r"\b(unable|not able|cannot|can t)\b")
+
+
 def choice(options: Sequence[str], value: str) -> int | None:
     """The option that matches the answer: the same text, then one starting with it, then
     Yes or No by the answer's first word ("No, I need sponsorship" picks "No")."""
@@ -267,6 +279,14 @@ def choice(options: Sequence[str], value: str) -> int | None:
         for i, text in enumerate(texts):
             if words <= set(text.split(" ")):
                 return i
+    # 17 Nov, InterSystems: "Prefer not to say" is "Decline To Self Identify" or "I don't
+    # wish to answer" there; "Open to relocate" is "Able to relocate to job location".
+    for wanted, fits in ((DECLINE, DECLINE), (RELOCATE, RELOCATE)):
+        if wanted.search(want):
+            hits = [i for i, text in enumerate(texts)
+                    if fits.search(text) and not NOT_ABLE.search(text)]
+            if len(hits) == 1:
+                return hits[0]
     return None
 
 
@@ -579,21 +599,35 @@ async ({ref, value}) => {
     if (i < 0 && words.length > 1) {
       i = texts.findIndex(t => words.every(w => t.split(' ').includes(w)));
     }
+    for (const re of [DECLINE, /\brelocat/]) {
+      if (i < 0 && re.test(want)) {
+        const hits = texts.map((t, k) => re.test(t) && !NOT_ABLE.test(t) ? k : -1)
+          .filter(k => k >= 0);
+        if (hits.length === 1) { i = hits[0]; }
+      }
+    }
     return i;
   };
+  const DECLINE = new RegExp('\\b(prefer not|decline|don t wish|do not wish|rather not|' +
+    'do not want|don t want|not to (say|answer|disclose)|wish not)\\b');
+  const NOT_ABLE = /\b(unable|not able|cannot|can t)\b/;
   el.focus();
-  setText(value);
-  el.dispatchEvent(new KeyboardEvent('keyup', {key: 'Unidentified', bubbles: true}));
-  for (let n = 0; n < 12; n++) {
-    await sleep(150);
-    const opts = options();
-    if (!opts.length) { continue; }
-    const i = choice(opts.map(o => norm(o.innerText)), value);
-    if (i < 0) { break; }
-    const chosen = opts[i].innerText.trim();
-    opts[i].click();
-    await sleep(200);
-    return chosen;
+  /* 17 Nov, InterSystems: the list shows only options with the typed text, and "Prefer not
+     to say" is "Decline To Self Identify" there: then the whole list is looked at. */
+  for (const typed of [value, '']) {
+    setText(typed);
+    el.dispatchEvent(new KeyboardEvent('keyup', {key: 'Unidentified', bubbles: true}));
+    for (let n = 0; n < 12; n++) {
+      await sleep(150);
+      const opts = options();
+      if (!opts.length) { continue; }
+      const i = choice(opts.map(o => norm(o.innerText)), value);
+      if (i < 0) { break; }
+      const chosen = opts[i].innerText.trim();
+      opts[i].click();
+      await sleep(200);
+      return chosen;
+    }
   }
   setText('');
   return null;

@@ -36,7 +36,8 @@ PROFILE = {"email": "profile.email", "phone": "profile.phone",
            "website": "profile.website_url"}
 ANSWERS = ("city", "sponsorship_needed",
            "authorized_without_sponsorship", "expected_salary", "current_salary",
-           "notice_period", "earliest_start", "relocation", "english", "gender")
+           "notice_period", "earliest_start", "relocation", "english", "gender",
+           "other_diversity", "education")
 HOW = ("Autofill: on the form page click your \"Job Engine autofill\" bookmark and paste this "
        "whole message. It fills the empty fields it knows, marks them in orange and never "
        "presses Submit. No bookmark yet? Send /autofill.")
@@ -214,6 +215,9 @@ AUTOFILL_JS = r"""
     'contact person|reference|emergency|manager|recruiter)\\b');
   /* 16 Nov, real Greenhouse form (Qube): "Base Salary Currency" is not a salary amount. */
   const NOT_PAY = /\b(currency|bonus|deferred|claw ?back|equity|stock|commission)\b/;
+  const DECLINE = new RegExp('\\b(prefer not|decline|don t wish|do not wish|rather not|' +
+    'do not want|don t want|not to (say|answer|disclose)|wish not)\\b');
+  const NOT_ABLE = /\b(unable|not able|cannot|can t)\b/;
   const RULES = [
     [/\b(first|given) ?name\b|\bforename\b/, 'first_name', OTHER_PERSON],
     [/\b(last|family) ?name\b|\bsurname\b/, 'last_name', OTHER_PERSON],
@@ -242,6 +246,11 @@ AUTOFILL_JS = r"""
     [/\brelocat/, 'relocation', null],
     [/\benglish\b/, 'english', null],
     [/\bgender\b/, 'gender', null],
+    /* 17 Nov, real Greenhouse form (InterSystems): the US questions after Gender. */
+    [/\b(hispanic|latin[oa]|veteran|disabilit\w*|race|ethnic\w*|sexual orientation)\b/,
+      'other_diversity', null],
+    [/\bjob location\b/, 'relocation', null],
+    [/\bdiscipline\b|\bfield of study\b|^(your )?major$/, 'education', null],
     [/\b(city|town)\b|\bcurrent location\b|^(your )?location$|\bwhere are you (currently )?based\b/,
       'city',
       /\b(relocat|prefer|willing|office|desired)/],
@@ -366,20 +375,33 @@ AUTOFILL_JS = r"""
     if (i < 0 && words.length > 1) {
       i = texts.findIndex(t => words.every(w => t.split(' ').includes(w)));
     }
+    /* 17 Nov, InterSystems: "Prefer not to say" is "Decline To Self Identify" there, and
+       "Open to relocate" is "Able to relocate to job location". */
+    for (const re of [DECLINE, /\brelocat/]) {
+      if (i < 0 && re.test(want)) {
+        const hits = texts.map((t, k) => re.test(t) && !NOT_ABLE.test(t) ? k : -1)
+          .filter(k => k >= 0);
+        if (hits.length === 1) { i = hits[0]; }
+      }
+    }
     return i;
   };
   const pick = async (el, v) => {
-    setText(el, v);
-    el.dispatchEvent(new KeyboardEvent('keyup', {key: 'Unidentified', bubbles: true}));
-    for (let n = 0; n < 12; n++) {
-      await sleep(150);
-      const opts = optionsOf(el);
-      if (!opts.length) { continue; }
-      const i = choice(opts.map(o => norm(o.innerText)), v);
-      if (i < 0) { break; }
-      const text = norm(opts[i].innerText);
-      opts[i].click();
-      return text;
+    /* 17 Nov, InterSystems: the list shows only options with the typed text, and "Prefer not
+       to say" is "Decline To Self Identify" there: then the whole list is looked at. */
+    for (const typed of [v, '']) {
+      setText(el, typed);
+      el.dispatchEvent(new KeyboardEvent('keyup', {key: 'Unidentified', bubbles: true}));
+      for (let n = 0; n < 12; n++) {
+        await sleep(150);
+        const opts = optionsOf(el);
+        if (!opts.length) { continue; }
+        const i = choice(opts.map(o => norm(o.innerText)), v);
+        if (i < 0) { break; }
+        const text = norm(opts[i].innerText);
+        opts[i].click();
+        return text;
+      }
     }
     setText(el, '');
     return null;
