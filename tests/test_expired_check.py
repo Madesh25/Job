@@ -95,3 +95,18 @@ def test_the_bot_marks_closed_open_jobs_expired_once_a_week():
     assert d.repo.rows["pl-polish-required"]["Status"] == "New"  # not an open status
     assert "https://jobs.example.com/pl-polish-required" not in d.get_page.opened
     assert d.expired_check_tick() == []
+
+
+def test_the_check_says_please_wait_first():
+    """17 Nov, your choice: on the PC no command is answered while the weekly check runs
+    (it looked stuck on Mondays), so it says so before it starts."""
+    d = fake_desk(settings(), FAKE_TODAY, now=Clock())
+    d.repo.rows["pl-clean"]["Status"] = "Approved"
+    d.get_page = pages()
+    told = []
+    d.notify = told.append
+    d._track_now = lambda: datetime(2026, 10, 25, 4, tzinfo=UTC)  # Sunday 09:30 in India
+    d.expired_check_tick()
+    assert [r.text for r in told] == [
+        "🧹 Weekly link check started: 3 open job(s) to look at, this takes a few minutes. "
+        "Commands you send now are answered as soon as it ends."]
