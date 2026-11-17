@@ -172,7 +172,8 @@ AUTOFILL_JS = r"""
     .replace(/[^a-z0-9]+/g, ' ').trim();
   const shown = el => !!(el.offsetWidth || el.offsetHeight || el.getClientRects().length);
   const inputs = () => [...document.querySelectorAll('input, textarea, select')]
-    .filter(el => shown(el) && !el.disabled && !el.readOnly &&
+    .filter(el => (shown(el) || (el.type === 'radio' && el.labels &&
+      [...el.labels].some(shown))) && !el.disabled && !el.readOnly &&
       el.getAttribute('aria-hidden') !== 'true' && !el.closest('[aria-hidden=true]') &&
       !/^(hidden|file|submit|button|reset|image|password|checkbox|search)$/i.test(el.type || ''));
   const frame = [...document.querySelectorAll('iframe')].map(f => f.src || '')
@@ -285,6 +286,37 @@ AUTOFILL_JS = r"""
     }
     return best;
   };
+  /* 17 Nov, Keylane (Workable): the question of YES / NO buttons sits outside their group,
+     so the first label in the box was the YES option itself. The question of a radio group:
+     its aria-labelledby or legend, else the first line of the nearest box around the whole
+     group (and no other field) that is not one of its options. */
+  const txt = n => (n && (n.innerText || n.textContent) || '').replace(/\s+/g, ' ').trim();
+  const groupQuestion = el => {
+    const mates = el.name ? [...document.querySelectorAll('input[type=radio]')]
+      .filter(r => r.name === el.name) : [el];
+    const options = new Set(mates.map(r => norm(txt(r.labels && r.labels[0]) || r.value)));
+    const group = el.closest('fieldset, [role=radiogroup], [role=group]');
+    if (group) {
+      const by = (group.getAttribute('aria-labelledby') || '').split(/\s+/).filter(Boolean)
+        .map(id => txt(document.getElementById(id))).filter(Boolean).join(' ');
+      if (by) { return by; }
+      if (group.getAttribute('aria-label')) { return group.getAttribute('aria-label'); }
+      const legend = group.querySelector('legend');
+      if (legend && txt(legend)) { return txt(legend); }
+    }
+    for (let p = group || el.parentElement, d = 0; p && d < 6; p = p.parentElement, d++) {
+      if (mates.some(r => !p.contains(r))) { continue; }
+      if (p.querySelectorAll('input:not([type=hidden]), textarea, select').length >
+        mates.length) { break; }
+      const line = (p.innerText || '').split('\n').map(s => s.trim()).find(s => {
+        let rest = ' ' + norm(s) + ' ';
+        for (const o of options) { if (o) { rest = rest.split(' ' + o + ' ').join(' '); } }
+        return rest.trim();
+      });
+      if (line) { return line; }
+    }
+    return '';
+  };
   const partsOf = el => {
     const parts = [];
     if (el.labels) { for (const l of el.labels) { parts.push(l.innerText); } }
@@ -297,7 +329,10 @@ AUTOFILL_JS = r"""
     }
     parts.push(el.getAttribute('aria-label'), el.getAttribute('placeholder'),
       el.getAttribute('data-automation-id'), el.name, el.id);
-    if (!parts.slice(0, -2).join('').trim() || el.type === 'radio') {
+    const asked = el.type === 'radio' ? groupQuestion(el) : '';
+    if (asked) {
+      parts.push(asked);
+    } else if (!parts.slice(0, -2).join('').trim() || el.type === 'radio') {
       const box = el.closest('fieldset, [role=radiogroup], [role=group], .application-question, ' +
         '.field, [data-automation-id^=formField]');
       const legend = box && box.querySelector('legend, label, .application-label, .text');

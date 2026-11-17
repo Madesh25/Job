@@ -146,6 +146,17 @@ def test_a_company_you_never_worked_for(tmp_path):
 
 
 @needs_browser
+def test_yes_no_buttons_with_the_question_outside_their_group(tmp_path):
+    """17 Nov, Keylane (Workable): "Do you have a valid residence and work permit for The
+    Netherlands?" stayed unanswered: the question sits outside its YES / NO group, so the
+    first label in the group (YES) was taken for the question; the radios themselves are
+    invisible, drawn by their labels."""
+    s = run(tmp_path)["state"]
+    assert (s["QA_1:true"], s["QA_1:false"]) == (True, False)  # authorized: Yes (test answers)
+    assert (s["QA_2:true"], s["QA_2:false"]) == (False, True)  # sponsorship needed: No
+
+
+@needs_browser
 def test_a_phone_with_only_its_country_code_and_number_boxes_are_filled(tmp_path):
     """16 Nov, real forms: Recruitee's phone box starts with "+31", so it counted as yours and
     stayed unfilled (Xebia, Intelic); Teamtailor's salary box takes only numbers, refused
