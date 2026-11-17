@@ -123,7 +123,8 @@ STOP = {"the", "and", "you", "your", "are", "for", "with", "have", "what", "how"
 SOURCES = {"profile": "your profile and Apply pack", "saved": "your saved answer",
            "form": "shown on the form already",
            "resume": "the approved resume for this job",
-           "ai": "🤖 AI from your facts: check it"}
+           "ai": "🤖 AI from your facts: check it",
+           "company": "you have not worked for the company you apply to: check it"}
 
 
 def norm(text: Any) -> str:
@@ -228,6 +229,28 @@ def rule_for(label: str, values: Mapping[str, str], kind: str) -> str | None:
     return None
 
 
+WORKED = re.compile(r"\b(worked|employed|employee|intern)\b")
+NOT_WORKED_QUESTION = re.compile(r"\b(why|how|what|when|where|which|who)\b")
+LEGAL_FORM = re.compile(r"( (b ?v|n ?v|gmbh|inc|ltd|llc|plc|ag|sa|sp z o ?o|group|ab|as|oy|"
+                        r"srl|spa|limited|corporation|corp))+$")
+
+
+def worked_here(label: str, company: str, kind: str) -> str | None:
+    """17 Nov, real Greenhouse form (InterSystems): "Have you previously worked for
+    InterSystems?" and the box "I have never worked at InterSystems". You apply to a company
+    you have not worked for: No (the box with "never" is ticked). Only a question that names
+    the job's own company; never a why or how question."""
+    name = LEGAL_FORM.sub("", norm(company))
+    text = norm(label)
+    if len(name) < 3 or not re.search(rf"\b{re.escape(name)}\b", text):
+        return None
+    if not WORKED.search(text) or NOT_WORKED_QUESTION.search(text):
+        return None
+    if kind == "checkbox":
+        return "Yes" if re.search(r"\bnever\b", text) else "No"
+    return "No, never"
+
+
 NEEDS_PERMIT = re.compile(r"\b(need|require)\w*\b.*\b(permit|sponsor\w*|visa)\b|^not yet\b")
 
 
@@ -250,6 +273,7 @@ def permit_choice(label: str, options: Sequence[str], value: str) -> int | None:
 DECLINE = re.compile(r"\b(prefer not|decline|don t wish|do not wish|rather not|do not want|"
                      r"don t want|not to (say|answer|disclose)|wish not)\b")
 RELOCATE = re.compile(r"\brelocat")
+NEVER = re.compile(r"\bnever\b")
 NOT_ABLE = re.compile(r"\b(unable|not able|cannot|can t)\b")
 
 
@@ -281,7 +305,7 @@ def choice(options: Sequence[str], value: str) -> int | None:
                 return i
     # 17 Nov, InterSystems: "Prefer not to say" is "Decline To Self Identify" or "I don't
     # wish to answer" there; "Open to relocate" is "Able to relocate to job location".
-    for wanted, fits in ((DECLINE, DECLINE), (RELOCATE, RELOCATE)):
+    for wanted, fits in ((DECLINE, DECLINE), (RELOCATE, RELOCATE), (NEVER, NEVER)):
         if wanted.search(want):
             hits = [i for i, text in enumerate(texts)
                     if fits.search(text) and not NOT_ABLE.search(text)]
@@ -327,6 +351,8 @@ def plan(fields: Sequence[Field], values: Mapping[str, str],
         value, source = saved_for(f.label, saved), "saved"
         if value is None:
             value, source = rule_for(f.label, values, f.kind), "profile"
+        if value is None:
+            value, source = worked_here(f.label, values.get("company") or "", f.kind), "company"
         if value is None and f.hint and not _words(f.label)[1:]:
             # A one-word label ("First", "Last"): the field's own name says what it asks.
             value = rule_for(norm(f.hint), values, f.kind)
@@ -599,7 +625,7 @@ async ({ref, value}) => {
     if (i < 0 && words.length > 1) {
       i = texts.findIndex(t => words.every(w => t.split(' ').includes(w)));
     }
-    for (const re of [DECLINE, /\brelocat/]) {
+    for (const re of [DECLINE, /\brelocat/, /\bnever\b/]) {
       if (i < 0 && re.test(want)) {
         const hits = texts.map((t, k) => re.test(t) && !NOT_ABLE.test(t) ? k : -1)
           .filter(k => k >= 0);

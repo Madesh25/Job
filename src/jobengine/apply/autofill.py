@@ -68,6 +68,8 @@ def fields(s: Settings, config: ConfigStore, values: dict[str, Any], *,
     for name, key in PROFILE.items():
         if config.get(key):
             out[name] = " ".join(str(config.get(key)).split())
+    if values.get("Company"):  # 17 Nov: "Have you worked for <company> before?"
+        out["company"] = " ".join(str(values["Company"]).split())
     if why:
         out["why"] = why
     if letter:
@@ -315,7 +317,22 @@ AUTOFILL_JS = r"""
         return f[key];
       }
     }
-    return null;
+    return workedHere(parts, el.type);
+  };
+  /* 17 Nov, real Greenhouse form (InterSystems): "Have you previously worked for
+     InterSystems?" and the box "I have never worked at InterSystems": you apply to a company
+     you have not worked for. Only a question naming the job's own company, never why or how. */
+  const company = norm(f.company || String(data.job || '').split(',')[0]).replace(new RegExp(
+    '( (b ?v|n ?v|gmbh|inc|ltd|llc|plc|ag|sa|sp z o ?o|group|ab|as|oy|srl|spa|limited|' +
+    'corporation|corp))+$'), '');
+  const workedHere = (parts, type) => {
+    if (company.length < 3) { return null; }
+    const text = parts.find(p => (' ' + p + ' ').includes(' ' + company + ' ') &&
+      /\b(worked|employed|employee|intern)\b/.test(p) &&
+      !/\b(why|how|what|when|where|which|who)\b/.test(p));
+    if (!text) { return null; }
+    if (type === 'checkbox') { return /\bnever\b/.test(text) ? 'Yes' : null; }
+    return 'No, never';
   };
   const fire = el => {
     el.dispatchEvent(new Event('input', {bubbles: true}));
@@ -377,7 +394,7 @@ AUTOFILL_JS = r"""
     }
     /* 17 Nov, InterSystems: "Prefer not to say" is "Decline To Self Identify" there, and
        "Open to relocate" is "Able to relocate to job location". */
-    for (const re of [DECLINE, /\brelocat/]) {
+    for (const re of [DECLINE, /\brelocat/, /\bnever\b/]) {
       if (i < 0 && re.test(want)) {
         const hits = texts.map((t, k) => re.test(t) && !NOT_ABLE.test(t) ? k : -1)
           .filter(k => k >= 0);
@@ -462,6 +479,18 @@ AUTOFILL_JS = r"""
     } else if (!had) {
       refused.push(partsOf(el)[0] || el.name || 'a field');
     }
+  }
+  /* 17 Nov, InterSystems: the box "I have never worked at InterSystems", when no box of its
+     group is ticked yet. */
+  for (const box of document.querySelectorAll('input[type=checkbox]')) {
+    if (box.disabled || box.checked) { continue; }
+    if (!shown(box) && !(box.labels && box.labels[0] && shown(box.labels[0]))) { continue; }
+    const parts = partsOf(box);
+    if (workedHere(parts, 'checkbox') !== 'Yes') { continue; }
+    if ([...document.querySelectorAll('input[type=checkbox]')]
+      .some(b => b.checked && b.name && b.name === box.name)) { continue; }
+    box.click();
+    if (box.checked) { mark(box.parentElement || box, parts[0] || 'never worked here'); }
   }
   await sleep(300);
   const empty = inputs().filter(el =>
