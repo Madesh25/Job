@@ -21,7 +21,7 @@ DATA = {"job": "Demo Co, DevOps Engineer", "fields": {
     "earliest_start": "1 month after an offer", "gender": "Prefer not to say",
     "why": "Your platform team works on what I do best."},
     "answers": [["Years of experience with Kubernetes", "4"],
-                ["Where do you live", "Chennai, India"]]}
+                ["Where do you live", "Chennai, India"], ["Degree", "B.E."]]}
 
 
 def _browser() -> bool:
@@ -54,6 +54,7 @@ def test_the_bookmark_fills_a_form_and_never_submits(tmp_path):
         "Test", "Person", "test@example.com", "EUR 60000", "4")
     assert s["cur"] == ""  # 16 Nov (Qube): a currency question is not the salary amount
     assert s["yl"] == "Dublin"  # 16 Nov (Ashby, Personio): "Your Location* (required)"
+    assert (s["deg"], s["trv"]) == ("B.E.", "")  # 17 Nov: "Degree" only for a short label
     assert s["loc"] == "Typed by me"  # a field you filled stays yours
     assert s["spon"] == "No" and s["auth:Yes"] is True
     assert s["consent"] is False and not s["SUBMITTED"] and not s["CLICKED"]

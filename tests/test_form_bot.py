@@ -657,3 +657,17 @@ def test_a_work_permit_question_with_statements_gets_the_one_that_needs_a_permit
     assert form_bot.permit_choice("Allowed to work?", UBIOPS_PERMIT, "Yes") is None
     two = ("I need a visa", "I require a work permit")
     assert form_bot.permit_choice("Allowed to work?", two, "No") is None  # not sure: none
+
+
+@pytest.mark.parametrize("label,answer", [
+    ("Degree*", "B.E."), ("Highest degree", "B.E."), ("School*", "MEC"),
+    ("Country of citizenship", "Indian"), ("Nationality*", "Indian"),
+    ("What is your expected degree of travel?", None),
+    ("Preferred school for your children", None),
+])
+def test_a_one_word_answer_only_answers_a_short_label(label, answer):
+    """17 Nov, checking the item 11 answers against real labels: a saved "Degree" answered
+    "What is your expected degree of travel?" and "School" any label with "school"."""
+    saved = [{"q": "Degree", "a": "B.E."}, {"q": "School", "a": "MEC"},
+             {"q": "Citizenship", "a": "Indian"}, {"q": "Nationality", "a": "Indian"}]
+    assert form_bot.saved_for(label, saved) == answer
