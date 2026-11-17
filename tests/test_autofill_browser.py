@@ -19,7 +19,8 @@ DATA = {"job": "Demo Co, DevOps Engineer", "fields": {
     "expected_salary": "EUR 60000", "notice_period": "1 month", "sponsorship_needed": "No",
     "authorized_without_sponsorship": "Yes", "cover_letter": "Dear team, ...",
     "earliest_start": "1 month after an offer", "gender": "Prefer not to say",
-    "why": "Your platform team works on what I do best."},
+    "why": "Your platform team works on what I do best.", "other_diversity": "Prefer not to say",
+    "relocation": "Open to relocate at my own cost", "education": "Mechanical Engineering"},
     "answers": [["Years of experience with Kubernetes", "4"],
                 ["Where do you live", "Chennai, India"], ["Degree", "B.E."]]}
 
@@ -108,6 +109,18 @@ def test_a_greenhouse_dropdown_opens_on_key_up_and_its_hidden_twin_is_not_counte
     assert s["gh2-value"] == "Yes"  # chosen by you before: never changed (16 Nov, BearingPoint)
     alert = result["dialogs"][-1]["message"]
     assert "1 required field is still empty" in alert  # only "other", not the hidden twin
+
+
+@needs_browser
+def test_diversity_job_location_and_discipline_lists_get_their_choice(tmp_path):
+    """17 Nov, real Greenhouse form (InterSystems): Hispanic/Latino, Veteran Status, Job
+    Location and Discipline stayed empty; the list shows only options with the typed text, so
+    "Prefer not to say" found nothing."""
+    s = run(tmp_path)["state"]
+    assert s["gh3-value"] == "Decline To Self Identify"
+    assert s["gh4-value"] == "I don't wish to answer"
+    assert s["gh5-value"] == "Able to relocate to job location"
+    assert s["gh6-value"] == "Mechanical Engineering"
 
 
 @needs_browser

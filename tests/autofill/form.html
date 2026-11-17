@@ -110,6 +110,14 @@ function ghCombo(id, label, options, chosen) {
 }
 ghCombo('gh1', 'Will you require visa sponsorship to work in Ireland? *', ['Yes', 'No']);
 ghCombo('gh2', 'Do you need a visa sponsorship for this role? *', ['Yes', 'No'], 'Yes');
+/* 17 Nov, real Greenhouse form (InterSystems): the list shows only options with the typed
+   text, and none has the words of the answer. */
+ghCombo('gh3', 'Are you Hispanic/Latino?', ['Yes', 'No', 'Decline To Self Identify']);
+ghCombo('gh4', 'Veteran Status', ['I am not a protected veteran',
+  'I identify as one or more of the classifications of a protected veteran', "I don't wish to answer"]);
+ghCombo('gh5', 'Job Location *', ['Able to work at job location', 'Able to relocate to job location',
+  'Unable to work or relocate to job location (remote work required)']);
+ghCombo('gh6', 'Discipline *', ['Computer Science', 'Mechanical Engineering']);
 </script>
 <ul class="iti__country-list" role="listbox"><li class="iti__country" role="option" data-dial-code="47">Yes</li></ul>
 </body></html>

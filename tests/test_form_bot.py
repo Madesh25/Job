@@ -351,12 +351,17 @@ def test_field_names_and_required_marks_in_the_text_are_read(tmp_path, monkeypat
     ("What is your expected salary?", "expected_salary"),
     ("Base Salary Currency *", None),
     ("Are you subject to any deferred compensation or potential claw back?*", None),
+    ("Are you Hispanic/Latino?", "other_diversity"),  # 17 Nov, Greenhouse (InterSystems)
+    ("Veteran Status", "other_diversity"),
+    ("Job Location*", "relocation"),
+    ("Discipline*", "education"),
 ])
 def test_the_question_rules_found_on_real_forms(label, key):
     """16 Nov: the same corrections as the bookmark (apply/autofill.py, #330 and #333)."""
     values = {k: k for k in ("full_name", "authorized_without_sponsorship", "sponsorship_needed",
                              "earliest_start", "city", "why", "notice_period",
-                             "expected_salary", "current_salary")}
+                             "expected_salary", "current_salary", "other_diversity",
+                             "relocation", "education")}
     kind = "textarea" if key == "why" else "text"
     assert form_bot.rule_for(label, values, kind) == key
 
@@ -422,7 +427,9 @@ def test_custom_dropdowns_get_an_option_or_count_as_unanswered(tmp_path, monkeyp
           q2: document.getElementById('q2-v').textContent,
           q3: document.getElementById('q3-v').textContent})"""))
 
-    values = {**VALUES, "sponsorship_needed": "No", "gender": "Prefer not to say"}
+    # 17 Nov: "Prefer not to say" now picks "I don't wish to answer"; an answer with no
+    # option at all is still not typed in.
+    values = {**VALUES, "sponsorship_needed": "No", "gender": "Non-binary"}
     result = form_bot.dry_run(settings(), "https://jobs.example.com/apply", values, SAVED,
                               folder=tmp_path, prepare=_serve(DROPDOWN_FORM), check=check)
     assert not result.stopped, result.stopped
@@ -430,10 +437,10 @@ def test_custom_dropdowns_get_an_option_or_count_as_unanswered(tmp_path, monkeyp
     got = {a.field.label: a for a in result.answers}
     assert got["Will you require visa sponsorship?*"].value == "No"
     assert got["Country*"].source == "form"  # it showed an answer: left as it is
-    assert got["Gender*"].note == 'no option matches "Prefer not to say"'
+    assert got["Gender*"].note == 'no option matches "Non-binary"'
     assert (got["Dial code*"].value, got["Dial code*"].source) == ("+91", "form")
     gate = form_submit.blockers(result.answers, allowed_privacy=False)
-    assert gate == ['required: "Gender*" (no option matches "Prefer not to say")',
+    assert gate == ['required: "Gender*" (no option matches "Non-binary")',
                     "the resume is not attached"]  # this test page has no resume field
 
 
@@ -506,6 +513,17 @@ def test_a_choice_with_every_word_of_the_answer():
     assert form_bot.choice(options, "Chennai, India") == 1
     assert form_bot.choice(["Yes", "No"], "Chennai, India") is None
     assert form_bot.choice(["Male", "Female"], "Female") == 1  # one word: exact only
+
+
+def test_prefer_not_to_say_and_open_to_relocate_find_their_choice():
+    """17 Nov, real Greenhouse form (InterSystems): the choices use other words."""
+    assert form_bot.choice(["Yes", "No", "Decline To Self Identify"], "Prefer not to say") == 2
+    assert form_bot.choice(["I am not a protected veteran", "I identify as a protected veteran",
+                            "I don't wish to answer"], "Prefer not to say") == 2
+    where = ["Able to work at job location", "Able to relocate to job location",
+             "Unable to work or relocate to job location (remote work required)"]
+    assert form_bot.choice(where, "Open to relocate at my own cost") == 1
+    assert form_bot.choice(["Yes", "No"], "Prefer not to say") is None
 
 
 JOB_LIST = """<!doctype html><html><head><title>Jobs at Catawiki</title></head><body>
