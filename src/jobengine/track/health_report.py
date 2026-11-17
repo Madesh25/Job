@@ -25,6 +25,7 @@ from typing import Any
 from jobengine.screen import schedule
 from jobengine.track import daily_report
 
+NO_RUN = "-"  # desk.health_report_text: the autopilot has no run today (Sunday)
 SWITCH_KEY = "schedule.health"
 TIME_KEY = "schedule.health_time"
 SENT_KEY = "health.sent"  # bot_state: {"date": <local iso date of the last check>}
@@ -106,7 +107,8 @@ def gate_days(config: Any, today: date, state: Any = None, s: Any = None) -> int
 def text(day: date, blockers: Iterable[str], soon: Iterable[str], fine: Iterable[str],
          starts: str = "") -> str:
     blockers, soon, fine = list(blockers), list(soon), list(fine)
-    when = f" (before the {starts} run)" if starts else ""
+    when = (" (no autopilot run today)" if starts == NO_RUN
+            else f" (before the {starts} run)" if starts else "")
     lines = [f"🩺 Morning check, {day:%a %d %b}{when}"]
     if blockers:
         lines.append("⛔ Blocks the run, fix first:")

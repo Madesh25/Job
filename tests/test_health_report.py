@@ -96,3 +96,18 @@ def test_the_gate_uses_the_date_update_stamped_on_the_laptop():
     assert "The /fetch gate is closed" not in text
     assert "✅ /fetch gate open for 29 more days" in text
     assert health_report.gate_days(d.deps.config(), TODAY) == -4  # Config alone: closed
+
+
+def test_the_check_names_only_todays_runs():
+    """17 Nov, a simulated week through the scheduler: Saturday's check said "before the
+    07:00 and 19:30 run" (19:30 is Mon to Fri) and Sunday's too (no run on Sunday)."""
+    d = fake_desk(settings(), FAKE_TODAY, now=Clock())
+    base = ConfigStore.fake().all()
+    d.deps.config = lambda: ConfigStore.from_values({
+        **base, "last_strategy_update": "2026-10-25", "strategy_refresh_days": "30",
+        "schedule.autopilot": "true"})
+    for day, head in ((31, "Sat 31 Oct (before the 07:00 run)"),
+                      (1, "Sun 01 Nov (no autopilot run today)")):
+        month = 10 if day == 31 else 11
+        d._track_now = lambda m=month, n=day: datetime(2026, m, n, 1, 5, tzinfo=UTC)
+        assert d.health_report_text().splitlines()[0] == f"🩺 Morning check, {head}"
