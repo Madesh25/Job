@@ -18,7 +18,7 @@ const fs = require('fs');
   page.on('pageerror', e => errors.push(e.message));
   await page.goto('file://' + require('path').resolve(page_));
   await page.evaluate(js);
-  for (let n = 0; n < 300 && !dialogs.some(d => d.type === 'alert'); n++) {
+  for (let n = 0; n < 600 && !dialogs.some(d => d.type === 'alert'); n++) {
     await page.waitForTimeout(100);
   }
   await page.waitForTimeout(600);

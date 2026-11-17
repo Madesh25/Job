@@ -403,16 +403,23 @@ AUTOFILL_JS = r"""
     }
     return i;
   };
+  const loading = () => [...document.querySelectorAll('[class*=menu-notice--loading], ' +
+      '[class*=loading-indicator], [class*=loadingIndicator], [class*=loadingMessage]')]
+    .some(shown);
   const pick = async (el, v) => {
     /* 17 Nov, InterSystems: the list shows only options with the typed text, and "Prefer not
        to say" is "Decline To Self Identify" there: then the whole list is looked at. */
-    for (const typed of [v, '']) {
+    /* 17 Nov, InterSystems "Location (City)": its places come from a search site, slower than
+       1.8 s at times: waited for (up to 6 s) while the list says it is loading; "Chennai,
+       India" is also searched as "Chennai". */
+    const head = String(v).split(',')[0].trim();
+    for (const typed of [v, ...(head && head !== String(v).trim() ? [head] : []), '']) {
       setText(el, typed);
       el.dispatchEvent(new KeyboardEvent('keyup', {key: 'Unidentified', bubbles: true}));
-      for (let n = 0; n < 12; n++) {
+      for (let n = 0; n < 40; n++) {
         await sleep(150);
         const opts = optionsOf(el);
-        if (!opts.length) { continue; }
+        if (!opts.length) { if (n >= 11 && !loading()) { break; } continue; }
         const i = choice(opts.map(o => norm(o.innerText)), v);
         if (i < 0) { break; }
         const text = norm(opts[i].innerText);

@@ -444,6 +444,52 @@ def test_custom_dropdowns_get_an_option_or_count_as_unanswered(tmp_path, monkeyp
                     "the resume is not attached"]  # this test page has no resume field
 
 
+SLOW_PLACES = """<!doctype html><html><head><title>Apply</title></head><body><form>
+<label for="fn">First Name*</label><input id="fn" name="first_name" required>
+<div class="select__container"><label id="city-label" for="city">Location (City)*</label>
+<div class="select__control"><div class="select__single-value" id="city-v"></div>
+<input id="city" role="combobox" aria-autocomplete="list" aria-required="true"
+  aria-labelledby="city-label" class="select__input"></div>
+<div class="select__menu" id="menu"></div></div>
+<button type="submit">Submit application</button></form>
+<script>
+/* 17 Nov, InterSystems "Location (City)": places from a search site after 2.5 s, "Loading..."
+   meanwhile, found only by the text as typed. */
+const input = document.getElementById('city'), menu = document.getElementById('menu');
+const places = ['Chennai, Tamil Nadu, India', 'Chennai Central, Chennai'];
+let ask = 0;
+input.addEventListener('input', () => {
+  const typed = input.value.toLowerCase(), mine = ++ask;
+  menu.innerHTML = typed ? '<div class="select__menu-notice--loading">Loading...</div>' : '';
+  if (!typed) { return; }
+  setTimeout(() => {
+    if (mine !== ask) { return; }
+    const shown = places.filter(o => o.toLowerCase().includes(typed));
+    menu.innerHTML = '<div role="listbox" id="city-list">' + shown.map((o, i) =>
+      `<div role="option" id="city-o${i}">${o}</div>`).join('') + '</div>';
+    input.setAttribute('aria-controls', 'city-list');
+    for (const o of menu.querySelectorAll('[role=option]')) {
+      o.addEventListener('click', () => {
+        document.getElementById('city-v').textContent = o.textContent; input.value = '';
+        menu.innerHTML = ''; });
+    }
+  }, 2500);
+});
+</script></body></html>"""
+
+
+@browser
+def test_a_slow_place_search_is_waited_for(tmp_path, monkeypatch):
+    """17 Nov, real Greenhouse form (InterSystems): "Location (City)" got no choice."""
+    monkeypatch.setattr(form_bot, "SETTLE_MS", 100)
+    values = {**VALUES, "city": "Chennai, India"}
+    result = form_bot.dry_run(settings(), "https://jobs.example.com/apply", values, SAVED,
+                              folder=tmp_path, prepare=_serve(SLOW_PLACES))
+    got = {a.field.label: a for a in result.answers}
+    assert got["Location (City)*"].value == "Chennai, Tamil Nadu, India"
+    assert got["Location (City)*"].note == ""
+
+
 STYLED_RADIOS = """<!doctype html><html><head><title>Apply</title><style>
 .choice{position:relative;display:inline-block;width:80px;height:24px}
 .choice input{position:absolute;width:1px;height:1px;margin:0}
