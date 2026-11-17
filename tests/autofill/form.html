@@ -33,6 +33,12 @@
 <fieldset><legend>Have you worked at Demo Co?</legend>
 <label><input type="checkbox" id="w1" name="worked[]"> I have never worked at Demo Co</label>
 <label><input type="checkbox" id="w2" name="worked[]"> I am a current Demo Co employee or intern</label></fieldset>
+<div class="wk-q"><span id="wk1-label">Do you have a valid residence and work permit for The Netherlands?*</span>
+<div role="radiogroup" aria-labelledby="wk1-label"><label><input type="radio" name="QA_1" value="true" style="opacity:0;position:absolute">YES</label>
+<label><input type="radio" name="QA_1" value="false" style="opacity:0;position:absolute">NO</label></div></div>
+<div class="wk-q"><div>Do you need visa sponsorship to work here?*</div>
+<div><label><input type="radio" name="QA_2" value="true" style="display:none"><span>YES</span></label>
+<label><input type="radio" name="QA_2" value="false" style="display:none"><span>NO</span></label></div></div>
 <label><input type="checkbox" id="consent" name="consent" required> I agree to the privacy policy</label>
 <button type="submit" id="submit" onclick="window.CLICKED=1">Submit application</button>
 </form>

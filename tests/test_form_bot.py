@@ -552,6 +552,42 @@ def test_radios_hidden_off_screen_are_ticked_by_their_label(tmp_path, monkeypatc
     assert seen["auth"] == "false"
 
 
+WORKABLE_RADIOS = """<!doctype html><html><head><title>Apply</title></head><body><form>
+<label for="fn">Full name</label><input id="fn" name="name">
+<div class="q"><span id="q1-label">Do you have a valid residence and work permit for The
+Netherlands?*</span>
+<div role="radiogroup" aria-labelledby="q1-label">
+<label><input type="radio" name="QA_1" value="true" style="opacity:0;position:absolute">YES</label>
+<label><input type="radio" name="QA_1" value="false" style="opacity:0;position:absolute">NO</label>
+</div></div>
+<div class="q"><div>Do you need visa sponsorship to work here?*</div><div>
+<label><input type="radio" name="QA_2" value="true" style="display:none"><span>YES</span></label>
+<label><input type="radio" name="QA_2" value="false" style="display:none"><span>NO</span></label>
+</div></div></form></body></html>"""
+
+
+@browser
+def test_yes_no_buttons_with_the_question_outside_their_group(tmp_path, monkeypatch):
+    """17 Nov, Keylane (Workable): the work permit YES / NO question stayed unanswered."""
+    monkeypatch.setattr(form_bot, "SETTLE_MS", 100)
+    seen = {}
+
+    def check(page):
+        seen.update(page.evaluate("""() => ({
+          q1: (document.querySelector('input[name=QA_1]:checked') || {}).value || '',
+          q2: (document.querySelector('input[name=QA_2]:checked') || {}).value || ''})"""))
+
+    values = {**VALUES, "authorized_without_sponsorship": "No", "sponsorship_needed": "Yes"}
+    result = form_bot.dry_run(settings(), "https://jobs.example.com/apply", values, SAVED,
+                              folder=tmp_path, prepare=_serve(WORKABLE_RADIOS), check=check)
+    radios = {a.field.label: a for a in result.answers if a.field.kind == "radio"}
+    assert set(radios) == {
+        "Do you have a valid residence and work permit for The Netherlands?*",
+        "Do you need visa sponsorship to work here?*"}
+    assert [(a.value, a.note) for a in radios.values()] == [("NO", ""), ("YES", "")]
+    assert seen == {"q1": "false", "q2": "true"}
+
+
 def test_a_choice_with_every_word_of_the_answer():
     """16 Nov, /dryrun test on real forms: "Chennai, India" never matched a location choice
     like "Chennai, Tamil Nadu, India"."""

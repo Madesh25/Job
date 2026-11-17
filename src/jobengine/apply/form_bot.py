@@ -470,6 +470,37 @@ READ_JS = r"""
     /search (for )?jobs?|search job|keyword/i.test(el.getAttribute('aria-label') || '') ||
     /search (for )?jobs?|search job|keyword/i.test(el.getAttribute('placeholder') || '');
   const text = n => (n && (n.innerText || n.textContent) || '').replace(/\s+/g, ' ').trim();
+  const norm = s => String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+  // 17 Nov, Keylane (Workable): the question of YES / NO buttons sits outside their group,
+  // so "the first label in the box" was the YES option itself. The question of a radio group:
+  // its group's aria-labelledby or legend, else the first line of the nearest box around the
+  // whole group (and no other field) that is not one of its options.
+  const groupQuestion = el => {
+    const mates = el.name ? [...document.querySelectorAll('input[type=radio]')]
+      .filter(r => r.name === el.name) : [el];
+    const options = new Set(mates.map(r => norm(text(r.labels && r.labels[0]) || r.value)));
+    const group = el.closest('fieldset, [role=radiogroup], [role=group]');
+    if (group) {
+      const by = (group.getAttribute('aria-labelledby') || '').split(/\s+/).filter(Boolean)
+        .map(id => text(document.getElementById(id))).filter(Boolean).join(' ');
+      if (by) { return by; }
+      if (group.getAttribute('aria-label')) { return group.getAttribute('aria-label'); }
+      const legend = group.querySelector('legend');
+      if (legend && text(legend)) { return text(legend); }
+    }
+    for (let p = group || el.parentElement, d = 0; p && d < 6; p = p.parentElement, d++) {
+      if (mates.some(r => !p.contains(r))) { continue; }
+      if (p.querySelectorAll('input:not([type=hidden]), textarea, select').length >
+        mates.length) { break; }
+      const line = (p.innerText || '').split('\n').map(s => s.trim()).find(s => {
+        let rest = ' ' + norm(s) + ' ';
+        for (const o of options) { if (o) { rest = rest.split(' ' + o + ' ').join(' '); } }
+        return rest.trim();
+      });
+      if (line) { return line; }
+    }
+    return '';
+  };
   const labelOf = el => {
     const parts = [];
     if (el.labels) { for (const l of el.labels) { parts.push(text(l)); } }
@@ -477,7 +508,10 @@ READ_JS = r"""
     if (by) { for (const id of by.split(/\s+/)) { parts.push(text(document.getElementById(id))); } }
     parts.push(el.getAttribute('aria-label') || '');
     let label = parts.filter(Boolean)[0] || '';
-    if (!label || el.type === 'radio') {
+    const asked = el.type === 'radio' ? groupQuestion(el) : '';
+    if (asked) {
+      label = asked;
+    } else if (!label || el.type === 'radio') {
       // 16 Nov, real Ashby form: "Location" is the label of the field's box, the field itself
       // only has the hint "Start typing...".
       const box = el.closest('fieldset, [role=radiogroup], [role=group], .application-question, ' +
@@ -530,7 +564,9 @@ READ_JS = r"""
     if (el.disabled || /^(hidden|submit|button|reset|image|password|search)$/.test(type)) {
       continue;
     }
-    if (type !== 'file' && !shown(el)) { continue; }
+    // 17 Nov: a radio button drawn by its label (the input itself invisible) is a choice.
+    if (type !== 'file' && !shown(el) &&
+      !(type === 'radio' && el.labels && [...el.labels].some(shown))) { continue; }
     if (siteSearch(el)) { continue; }
     const label = labelOf(el);
     const hint = [el.name, el.id, el.getAttribute('autocomplete')].filter(Boolean).join(' ');
