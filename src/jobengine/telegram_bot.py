@@ -874,8 +874,11 @@ def send_replies(client: TelegramClient, s: Settings, chat_id: str, replies: lis
 
 def _bind_notify(client: TelegramClient, s: Settings, desk: Desk | None) -> None:
     if desk is not None:
+        from jobengine.track import error_log
+
         chat = str(s.telegram_chat_id)
         desk.notify = lambda reply: send_replies(client, s, chat, [reply])
+        error_log.set_notify(lambda text: send_replies(client, s, chat, [Reply(text)]))
 
 
 def _guarded(name: str, action: Callable[[], list[Reply]]) -> list[Reply]:

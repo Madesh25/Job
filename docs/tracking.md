@@ -388,8 +388,34 @@ sent, AI cost) and the bot's own WARNING and ERROR lines are counted for it in m
 A run that did nothing (most ticks: "not due yet") writes no row. Email addresses, keys,
 tokens and the query part of links are blanked. Writing the row never fails the run.
 
-Tables: Run Log (DEV) (`notion.write.run_log` in dev and local) and Run Log in prod. The Error
-Log ids (`notion.write.error_log`) are set for the next step.
+Sites blocked: the site problems of the run that were a refusal (403) or a "slow down" (429).
+
+Tables: Run Log (DEV) (`notion.write.run_log` in dev and local) and Run Log in prod.
+
+## Error Log (18 Nov, your request)
+
+One Notion row per kind of problem per day (`track/error_log.py`), so you can look back and
+ask Claude Code to "read the Error Log rows with Status New and fix them".
+
+- What counts: every ERROR and WARNING line of the bot's own loggers, and the site problems
+  the bot logs as INFO because the run goes on (403, 429, 404/410, timeouts, 5xx): Level
+  Error, Warning or Site problem.
+- One kind: an error by its message (links, ids and numbers blanked); a warning or a site
+  problem by the line in the code that logged it and its likely cause. "careers page not
+  read" for 30 sites is one row, Count 30, with the sites in Example.
+- Each row: Problem, Day, First seen, Last seen, Count, Stage (by the module that logged it),
+  Level, Likely cause (Rate limited (429), Refuses the bot (403), Key expired or wrong (401),
+  Page gone (404), Timeout, Network, Server error (5xx), Bot bug, Other), Where, Status (New),
+  Example (emails, keys, tokens and link queries blanked) and Key (do not edit).
+- Written at the end of every scheduled run (PC and Cloud Run), so short Cloud Run tasks lose
+  nothing: the rows of the last 8 days are read once, today's row of a problem gets the new
+  count, a new one is added. Your Status, Notes and Fix PR are never overwritten.
+- A new kind of error or warning (no row in the last 7 days) comes to Telegram once, the
+  others of the same run in the same message (at most 5 named). Site problems never ping.
+- Writing the rows or the message never fails the run; rows that could not be written are
+  kept for the next run.
+
+Tables: Error Log (DEV) (`notion.write.error_log` in dev and local) and Error Log in prod.
 
 ## Heartbeat (Autopilot H4)
 

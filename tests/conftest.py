@@ -41,3 +41,20 @@ def workday_gate(monkeypatch):
     monkeypatch.setattr(http, "SLOW_GAP", 0.0)
     yield
     http.reset_slow_hosts()
+
+
+@pytest.fixture(autouse=True)
+def error_log_fresh():
+    """The Error Log's memory, table and Telegram hook start empty in every test, and a
+    collector a test's real desk added is taken off again."""
+    import logging
+
+    from jobengine.track import error_log
+
+    error_log.reset()
+    yield
+    error_log.reset()
+    root = logging.getLogger()
+    for handler in list(root.handlers):
+        if isinstance(handler, error_log.Collector):
+            root.removeHandler(handler)

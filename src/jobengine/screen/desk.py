@@ -406,6 +406,7 @@ class Desk:
         self.autoapply_issues: Any = None
         self.audit_table: Any = None  # Weekly Audit (27 Oct); None: the audit is Telegram only
         self.run_log_table: Any = None  # Run Log (18 Nov): one row per scheduled run
+        self.error_log_table: Any = None  # Error Log (18 Nov): one row per problem per day
         self._audit_checked: date | None = None  # the day the weekly audit was last checked
         # The weekly job board check (sweep/board_watch.py): (today, folder) -> the checks;
         # None where Target Companies cannot be read.
@@ -4356,6 +4357,7 @@ def fake_desk(s: Settings, today: date, now: Callable[[], datetime] | None = Non
 
     desk.audit_table = FakeAuditTable()
     desk.run_log_table = FakeTable()
+    desk.error_log_table = FakeTable()
     desk.pings = []  # type: ignore[attr-defined]  # heartbeat pings: True ok, False fail
     desk.heartbeat = lambda ok: desk.pings.append(ok) or True  # type: ignore[attr-defined]
     desk.owner_mail = lambda subject, text: desk.mails.append(  # type: ignore[attr-defined]
@@ -4435,6 +4437,12 @@ def real_desk(s: Settings) -> Desk | None:
 
     desk.run_log_table = run_log_table(s, client)
     run_log.install()  # the warnings and errors of each scheduled run (18 Nov)
+    from jobengine.notion_repo import error_log_table
+    from jobengine.track import error_log
+
+    desk.error_log_table = error_log_table(s, client)
+    error_log.bind(desk.error_log_table, desk.tracking_now)
+    error_log.install()  # the problems of the day, written at the end of each run (18 Nov)
     from jobengine.sweep import boards
 
     desk.board_reader = lambda today, folder: boards.read_all(s, today, folder)
