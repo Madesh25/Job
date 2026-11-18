@@ -50,23 +50,30 @@ EXAMPLE_CHARS = 900
 
 LEVEL_ERROR, LEVEL_WARNING, LEVEL_SITE = "Error", "Warning", "Site problem"
 
+
+def _code(codes: str) -> str:
+    """An HTTP status in its context ("HTTP 403", "HTTP/1.1 401", "status 429", "(429)"),
+    never a bare number: "500 of 1079 postings processed" is no server error (18 Nov)."""
+    return rf"(?:\bHTTP(?:/[\d.]+)?\s*|\bstatus(?: code)?[ :=]*|\bcode[ :=]*|\()(?:{codes})\b"
+
+
 _SITE = re.compile(
-    r"HTTP [45]\d\d|\b(?:401|403|404|410|429|50[0-4])\b|rate limited: every|refused the bot"
+    _code(r"4\d\d|5\d\d") + r"|rate limited: every|refused the bot"
     r"|blocks the bot|\bbusy\b|timed? ?out|Timeout|ConnectError|ConnectionError", re.I)
 _NOT_SITE = re.compile(r"retrying|dry run", re.I)
 
 # Likely cause: the first that matches the message (and the exception's name).
 CAUSES: tuple[tuple[str, re.Pattern[str]], ...] = (
-    ("Rate limited (429)", re.compile(r"\b429\b|rate limit|too many requests", re.I)),
+    ("Rate limited (429)", re.compile(_code("429") + r"|rate limit|too many requests", re.I)),
     ("Key expired or wrong (401)", re.compile(
-        r"\b401\b|invalid_grant|unauthori[sz]ed|invalid (?:api )?key|api key|token has been "
-        r"expired|token expired|authentication", re.I)),
+        _code("401") + r"|invalid_grant|unauthori[sz]ed|invalid (?:api )?key|api key"
+        r"|token has been expired|token expired|authentication", re.I)),
     ("Refuses the bot (403)", re.compile(
-        r"\b403\b|forbidden|refused the bot|blocks the bot|access denied", re.I)),
-    ("Page gone (404)", re.compile(r"\b(?:404|410)\b|not found|page gone", re.I)),
+        _code("403") + r"|forbidden|refused the bot|blocks the bot|access denied", re.I)),
+    ("Page gone (404)", re.compile(_code("404|410") + r"|not found|page gone", re.I)),
     ("Timeout", re.compile(r"timed? ?out|timeout|deadline", re.I)),
     ("Server error (5xx)", re.compile(
-        r"\b50[0-4]\b|server error|bad gateway|service unavailable|overloaded", re.I)),
+        _code("50[0-4]") + r"|server error|bad gateway|service unavailable|overloaded", re.I)),
     ("Network", re.compile(
         r"connect(?:ion)?(?:error| refused| reset| aborted)|network|name resolution|"
         r"getaddrinfo|ssl|remotedisconnected|unreachable", re.I)),
@@ -89,6 +96,7 @@ STAGES: tuple[tuple[str, str], ...] = (
 _URL = re.compile(r"https?://[^\s'\")]+")
 _HEX = re.compile(r"\b[0-9a-f]{8}(?:-?[0-9a-f]{4}){3}-?[0-9a-f]{12}\b|\b[0-9a-f]{16,}\b", re.I)
 _NUM = re.compile(r"(?<!HTTP )\b\d+(?:\.\d+)?\b")
+_FORMAT = re.compile(r"%(?:\([^)]*\))?[-#0 +]*(?:\d+|\*)?(?:\.\d+)?[sdirfFgGeExXoc]")
 _HOST = re.compile(r"(?<![\w.@-])(?:[a-z0-9-]+\.)+[a-z]{2,10}(?![\w.-])")
 
 
@@ -154,6 +162,7 @@ class Problem:
     last: float
     count: int = 0
     sites: list[str] = field(default_factory=list)
+    names: list[str] = field(default_factory=list)  # companies and the like, without a site
 
     def digest(self) -> str:
         return hashlib.sha1(self.pattern.encode()).hexdigest()[:12]
@@ -161,10 +170,31 @@ class Problem:
     def example_text(self) -> str:
         text = self.example
         if self.sites:
-            text += "\nSites: " + ", ".join(self.sites[:MAX_SITES])
-            if len(self.sites) > MAX_SITES:
-                text += f" (+{len(self.sites) - MAX_SITES})"
+            text += "\nSites: " + _listed(self.sites)
+        elif self.names:
+            text += "\nSeen for: " + _listed(self.names)
         return text[:EXAMPLE_CHARS]
+
+
+def _listed(items: list[str]) -> str:
+    text = ", ".join(items[:MAX_SITES])
+    if len(items) > MAX_SITES:
+        text += f" (+{len(items) - MAX_SITES})"
+    return text
+
+
+def names_in(record: logging.LogRecord) -> list[str]:
+    """The short words a line was about ("workday site of Synechron is busy"), blanked like
+    the rest; an email, key or long text is left out."""
+    args = record.args if isinstance(record.args, tuple) else ()
+    names = []
+    for arg in args:
+        if not isinstance(arg, str) or not 0 < len(arg) <= 60 or "http" in arg.lower():
+            continue
+        safe = redact(arg)
+        if safe == arg and "\n" not in arg:
+            names.append(" ".join(arg.split()))
+    return list(dict.fromkeys(names))
 
 
 def problem_of(record: logging.LogRecord) -> Problem | None:
@@ -180,14 +210,14 @@ def problem_of(record: logging.LogRecord) -> Problem | None:
     if level == LEVEL_ERROR:  # rare: the message itself tells the problems apart
         shape = _blank(first_line)
     else:  # the line in the code that logged it, and why
-        shape = _blank(str(record.msg).replace("%s", "…").replace("%r", "…")
-                       .replace("%d", "N").splitlines()[0])
+        lines = str(record.msg).splitlines() or [""]
+        shape = _blank(_FORMAT.sub("…", lines[0]))
     pattern = f"{level}|{stage}|{cause}|{shape[:200]}"
     title = redact(_blank(first_line) if level == LEVEL_ERROR else shape)[:TITLE_CHARS]
     created = record.created
     return Problem(pattern, title or cause, stage, level, cause,
                    redact(first_line)[:EXAMPLE_CHARS], created, created, 0,
-                   sites_in(redact(text)))
+                   sites_in(redact(text)), names_in(record))
 
 
 _lock = threading.Lock()
@@ -226,6 +256,9 @@ class Collector(logging.Handler):
             for site in problem.sites:
                 if site not in have.sites:
                     have.sites.append(site)
+            for name in problem.names:
+                if name not in have.names:
+                    have.names.append(name)
 
 
 def install(root: logging.Logger | None = None) -> Collector:

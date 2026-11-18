@@ -206,3 +206,35 @@ def test_the_notion_table_reads_only_recent_rows_and_patches_by_id():
     assert (method, path) == ("PATCH", "/pages/p1")
     assert body["properties"]["Count"] == {"number": 5}
     assert body["properties"]["Last seen"]["date"]["start"] == NOW.isoformat()
+
+
+def test_a_count_with_500_in_it_is_no_server_error(table):
+    """18 Nov /fetch: "... 500 of 1079 postings processed" became a Server error row."""
+    emit(logging.INFO, "... %d of %d postings processed", 500, 1079,
+         path="/app/src/jobengine/sweep/runner.py")
+    emit(logging.INFO, "adzuna pl page %d: %d postings", 4, 404,
+         path="/app/src/jobengine/sweep/runner.py")
+    assert error_log.pending() == 0
+    assert error_log.cause_of("Synechron: 429 jobs read") == "Other"
+    assert error_log.cause_of("POST x failed: HTTP 503") == "Server error (5xx)"
+    assert error_log.cause_of("HTTP/1.1 401 Unauthorized") == "Key expired or wrong (401)"
+    assert error_log.cause_of("busy (429)") == "Rate limited (429)"
+
+
+def test_titles_have_no_format_codes_and_names_the_companies(table):
+    """18 Nov /fetch: "... every Workday site waits %.0fs" in the title; the 30 Workday rows
+    showed one company only."""
+    emit(logging.INFO, "%s rate limited: every Workday site waits %.0fs",
+         "POST https://acme.wd1.myworkdayjobs.com/wday/cxs/acme/jobs", 30.0,
+         path="/app/src/jobengine/http.py", name="jobengine.http")
+    for company in ("Synechron", "Red Hat", "Synechron"):
+        emit(logging.INFO, "workday site of %s is busy (HTTP 429): left for this /fetch",
+             company, path="/app/src/jobengine/sweep/sources/ats.py")
+    emit(logging.INFO, "workday site of %s is busy (HTTP 429): left for this /fetch",
+         "jane.doe@example.com", path="/app/src/jobengine/sweep/sources/ats.py")
+    error_log.flush()
+    gate, busy = table.created
+    assert gate["Problem"] == "… rate limited: every Workday site waits …s"
+    assert "Sites: acme.wd1.myworkdayjobs.com" in gate["Example"]
+    assert busy["Count"] == 4 and busy["Likely cause"] == "Rate limited (429)"
+    assert busy["Example"].endswith("Seen for: Synechron, Red Hat")
