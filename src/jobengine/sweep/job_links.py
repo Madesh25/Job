@@ -50,7 +50,7 @@ import logging
 import re
 import threading
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import date, timedelta
 from typing import Any
 from urllib.parse import unquote, urlencode, urljoin, urlsplit
@@ -1353,8 +1353,56 @@ def from_google(deps: Deps, company: str, role: str, city: str | None,
         return None
     url = answer if answer and any(urlsplit(answer).hostname == urlsplit(u).hostname
                                    for u in own) else own[0]
+    gone = _gone(deps, url)
+    if gone:
+        # 18 Nov /fetch: Google gave PwC Polska, Netflix, Rado Bank and Rabobank addresses
+        # that no longer exist (Netflix moved its job site); the closed-job check then found
+        # HTTP 404 there and marked four open jobs Expired. Such an address is never saved.
+        log.info("Google's copy for %s, %s not used: its address no longer opens (%s): %s",
+                 company, role, gone, url)
+        return None
     log.info("Google's copy for %s, %s: %s (%d characters)", company, role, url, len(text))
     return Found(url, text, GOOGLE_HOW)
+
+
+GONE_STATUS = (404, 410)
+
+
+def _gone(deps: Deps, url: str) -> str | None:
+    """"HTTP 404" when the page does not exist (any more), else None: a page that opens, or a
+    site that refuses the bot (403, 429, a timeout) is taken on Google's word."""
+    from jobengine import http
+
+    host = urlsplit(url).hostname or ""
+    if host in getattr(_CHECK, "refused", set()):
+        return None  # 4 Nov, your decision: a site that refused the bot is never opened again
+    try:
+        deps.page(url)
+    except http.HttpError as exc:
+        if exc.status in GONE_STATUS:
+            return f"HTTP {exc.status}"
+    except Exception as exc:  # a refused or unsafe address: not a sign the job is gone
+        log.info("Google's address not checked %s: %s", host, exc)
+    return None
+
+
+REFUSED_STATUS = (401, 403, 429)
+
+
+def _noting_refusals(page: Callable[[str], Any]) -> Callable[[str], Any]:
+    """deps.page that remembers, for the job being looked up, the hosts that refused it."""
+    from jobengine import http
+
+    def read(url: str) -> Any:
+        try:
+            return page(url)
+        except http.HttpError as exc:
+            if exc.status in REFUSED_STATUS:
+                refused = getattr(_CHECK, "refused", None)
+                if refused is not None:
+                    refused.add(urlsplit(url).hostname or "")
+            raise
+    return read
 
 
 def blocks(found: Found, board: str, old_url: str | None) -> list[str]:
@@ -1380,6 +1428,7 @@ def run(deps: Deps, boards: tuple[str, ...], with_body: set[str] | None = None,
     cfg = settings(deps.s)
     max_rows = int(cfg.get("max_rows", DEFAULT_MAX_ROWS))
     workers = max(1, int(cfg.get("workers", DEFAULT_WORKERS)))
+    deps = replace(deps, page=_noting_refusals(deps.page))
     result = Result()
     if max_rows <= 0 or not boards:
         return result
@@ -1645,6 +1694,7 @@ def run(deps: Deps, boards: tuple[str, ...], with_body: set[str] | None = None,
             _CHECK.read = False
             _CHECK.seen = False
             _CHECK.partial = False
+            _CHECK.refused = set()
             _SEEN.titles = {}
             try:
                 label = lookup(page_id, values)
