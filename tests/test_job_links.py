@@ -1160,6 +1160,21 @@ def test_an_address_names_the_job_only_with_every_title_word():
     assert not job_links._url_names_role("https://x.com/jobs/1", "DevOps Engineer")
 
 
+def test_googles_copy_with_an_address_that_no_longer_opens_is_not_used():
+    """18 Nov /fetch: Google gave PwC Polska, Netflix, Rado Bank and Rabobank addresses that
+    no longer exist; the closed-job check then marked four open jobs Expired. Google's
+    address is opened once: a page that is gone (HTTP 404) is never saved; a site that
+    refused the bot is not opened again (4 Nov rule)."""
+    gone = "https://jobs.dunedata.nl/jobs/42050-devops-engineer"
+    search = GoogleCopy({"found": True, "url": gone, "description": ADVERT}, [gone])
+    d = deps([row()], llm=search, careers={"dune data": CAREERS})
+    d.page = Refuses({})  # dunedata.com refuses the bot; jobs.dunedata.nl answers 404
+    job_links.run(d, BOARDS)
+    assert d.repo.rows["p0"]["URL"] != gone  # the alert's own link is kept
+    assert gone in d.page.opened  # opened once to check
+    assert job_links._gone(d, OWN) is None  # outside a lookup: a refusal is not "gone"
+
+
 @pytest.mark.parametrize("answer", [
     "https://www.dunedata.com/eu/careers/find-jobs/job-details?jobId=313360",  # Serco
     "https://boards.greenhouse.io/dunedata/jobs/7478061002",  # Sony
@@ -1168,7 +1183,7 @@ def test_googles_answer_with_a_job_number_on_the_company_site_counts(answer):
     """4 Nov: Serco's and Sony's answers named the job by its number, not its title."""
     search = GoogleCopy({"found": True, "url": answer, "description": ADVERT}, [])
     d = deps([row()], llm=search, careers={"dune data": CAREERS})
-    d.page = Refuses({})
+    d.page = Refuses({answer: f"<html><body>{ADVERT}</body></html>"})  # the page exists
     job_links.run(d, BOARDS)
     assert d.repo.rows["p0"]["URL"] == answer
 
@@ -1195,7 +1210,8 @@ def test_googles_copy_when_the_job_list_needed_the_browser_and_none_was_left(mon
             + "".join(f"<a href='/p{i}'>Senior Engineer {i}</a>" for i in range(5))
             + "</body></html>")
     search = GoogleCopy({"found": True, "url": OWN, "description": ADVERT}, [OWN])
-    d = deps([row()], pages={CAREERS: thin}, llm=search, careers={"dune data": CAREERS})
+    d = deps([row()], pages={CAREERS: thin, OWN: f"<html><body>{ADVERT}</body></html>"},
+             llm=search, careers={"dune data": CAREERS})
     browser = Pages({})
     browser.left = 40
     d.render = browser
