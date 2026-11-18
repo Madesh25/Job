@@ -69,6 +69,7 @@ class Run:
     screened: int = 0
     applied: int = 0
     mails_sent: int = 0
+    sites_blocked: int = 0
     cost: float = 0.0
     errors: int = 0
     warnings: int = 0
@@ -87,7 +88,7 @@ class Run:
 
     def did_something(self) -> bool:
         return bool(self.failure or self.errors or self.texts or self.new_jobs or self.screened
-                    or self.applied or self.mails_sent or self.cost)
+                    or self.applied or self.mails_sent or self.sites_blocked or self.cost)
 
     def result(self) -> str:
         if self.failure:
@@ -107,6 +108,7 @@ class Run:
             "Step": self.step, "Where": where(), "Result": self.result(),
             "Seconds": seconds, "New jobs": self.new_jobs, "Screened": self.screened,
             "Applied": self.applied, "Mails sent": self.mails_sent,
+            "Sites blocked": self.sites_blocked,
             "AI cost": round(self.cost, 4), "Errors": self.errors, "Warnings": self.warnings,
             "Summary": self.summary(), "Failure": self.failure,
         }
@@ -134,6 +136,8 @@ def bump(name: str, n: float = 1) -> None:
             run.mails_sent += int(n)
         elif name == "new_jobs":
             run.new_jobs += int(n)
+        elif name == "sites_blocked":
+            run.sites_blocked += int(n)
         elif name == "cost":
             run.cost += float(n)
 
@@ -206,6 +210,17 @@ def recorded(step: str, table: Any, now: Callable[[], datetime]) -> Iterator[Run
             _active[:] = [other for other in _active if other is not run]
         _local.run = outer
         write(table, run)
+        _flush_errors()
+
+
+def _flush_errors() -> None:
+    """The Error Log's rows of what was logged up to now (track/error_log.py)."""
+    from jobengine.track import error_log
+
+    try:
+        error_log.flush()
+    except Exception as exc:  # never fails the run
+        log.info("error log not written: %s", exc)
 
 
 def wrap(step: str, body: Callable[[], Any], table: Any,

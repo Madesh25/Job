@@ -14,7 +14,7 @@ import re
 import threading
 import time
 from collections.abc import Callable, Iterator
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 from typing import Any, Protocol
 
@@ -1291,6 +1291,22 @@ class FakeTable:
     def rows(self) -> list[dict[str, Any]]:
         return [dict(r) for r in self.created]
 
+    def recent(self, since: date) -> list[tuple[str, dict[str, Any]]]:
+        """The rows whose Day is `since` or later (Error Log)."""
+        out = []
+        for n, row in enumerate(self.created):
+            day = row.get("Day")
+            if isinstance(day, datetime):
+                day = day.date()
+            if isinstance(day, str):
+                day = date.fromisoformat(day[:10])
+            if day is not None and day >= since:
+                out.append((f"fake-{n + 1}", dict(row)))
+        return out
+
+    def update(self, page_id: str, props: dict[str, Any]) -> None:
+        self.created[int(page_id.rsplit("-", 1)[1]) - 1].update(props)
+
     def upsert(self, match: dict[str, Any], props: dict[str, Any],
                new: dict[str, Any] | None = None) -> str:
         for n, row in enumerate(self.created):
@@ -1352,6 +1368,37 @@ RUN_LOG_TYPES = {
     "Mails sent": "number", "Sites blocked": "number", "AI cost": "number", "Errors": "number",
     "Warnings": "number", "Summary": "rich_text", "Failure": "rich_text",
 }
+
+
+ERROR_LOG_TYPES = {
+    "Problem": "title", "Day": "date", "First seen": "date", "Last seen": "date",
+    "Count": "number", "Stage": "select", "Level": "select", "Likely cause": "select",
+    "Where": "select", "Status": "select", "Example": "rich_text", "Notes": "rich_text",
+    "Fix PR": "rich_text", "Key": "rich_text",
+}
+
+
+class ErrorLogTable(NotionTable):
+    """Error Log (18 Nov): reads only the rows of the last days, updates a row by its id."""
+
+    def recent(self, since: date) -> list[tuple[str, dict[str, Any]]]:
+        body = {"filter": {"property": "Day", "date": {"on_or_after": since.isoformat()}}}
+        return [(str(page["id"]), page_values(page))
+                for page in self.client.query(self.data_source_id, body)]
+
+    def update(self, page_id: str, props: dict[str, Any]) -> None:
+        body = {"properties": {name: notion_value(self.types[name], value)
+                               for name, value in props.items() if value not in (None, "")}}
+        self.client.request("PATCH", f"/pages/{page_id}", body)
+
+
+def error_log_table(s: Settings, client: NotionClient) -> ErrorLogTable | None:
+    """Error Log (18 Nov): one row per kind of problem per day, or None when not writable."""
+    target = notion_write_target("error_log", s)
+    if target is None:
+        log.warning("DRY RUN: would write to error_log")
+        return None
+    return ErrorLogTable(client, target, ERROR_LOG_TYPES)
 
 
 def run_log_table(s: Settings, client: NotionClient) -> NotionTable | None:

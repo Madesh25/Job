@@ -93,6 +93,10 @@ def desk_tasks(s: Settings, desk: Desk, client: tb.TelegramClient,
     from jobengine.track.runner import run_daily
 
     chat = str(s.telegram_chat_id)
+    from jobengine.track import error_log
+
+    # A new kind of error found at the end of a task comes to Telegram (18 Nov).
+    error_log.set_notify(lambda text: tb.send_replies(client, s, chat, [Reply(text)]))
 
     def send(replies: list[Reply]) -> None:
         from jobengine.track import run_log
