@@ -370,6 +370,27 @@ Tables: Weekly Audit (DEV) in DEV Sandbox (`notion.write.weekly_audit` in dev an
 There is no prod table yet: in prod the audit comes in Telegram only, with a DRY RUN line,
 until you OK the prod table.
 
+## Run Log (18 Nov, your request)
+
+One Notion row per scheduled run, so the days after go-live show what ran, when, for how long,
+how it went and what it did. A run is one scheduled step on your PC (`telegram_bot._scheduled`:
+Autopilot, Mail queue, Reply check ...) or one Cloud Run task (`web/app.py` `desk_tasks`).
+
+While a run goes on, the numbers the day ledger records (new jobs, screened, applied, mails
+sent, AI cost) and the bot's own WARNING and ERROR lines are counted for it in memory
+(`track/run_log.py`), so the Run Log costs no Notion read. When it ends one row is written:
+
+- Result: **OK**, **Problems** (an error was logged) or **Failed** (the step stopped with an
+  error, or a Cloud Run task answered `ok: false`);
+- Step, Where (PC or Cloud Run), Started, Seconds, the numbers, Errors, Warnings;
+- Summary: the first 4 lines of what the run reported; Failure: why it failed.
+
+A run that did nothing (most ticks: "not due yet") writes no row. Email addresses, keys,
+tokens and the query part of links are blanked. Writing the row never fails the run.
+
+Tables: Run Log (DEV) (`notion.write.run_log` in dev and local) and Run Log in prod. The Error
+Log ids (`notion.write.error_log`) are set for the next step.
+
 ## Heartbeat (Autopilot H4)
 
 The daily report and the failure mails come from the bot itself, so when the PC, the

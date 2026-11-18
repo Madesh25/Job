@@ -1346,6 +1346,23 @@ def audit_table(s: Settings, client: NotionClient) -> AuditTable | None:
     return AuditTable(client, target, AUDIT_TYPES)
 
 
+RUN_LOG_TYPES = {
+    "Run": "title", "Started": "date", "Step": "select", "Where": "select", "Result": "select",
+    "Seconds": "number", "New jobs": "number", "Screened": "number", "Applied": "number",
+    "Mails sent": "number", "Sites blocked": "number", "AI cost": "number", "Errors": "number",
+    "Warnings": "number", "Summary": "rich_text", "Failure": "rich_text",
+}
+
+
+def run_log_table(s: Settings, client: NotionClient) -> NotionTable | None:
+    """Run Log (18 Nov): one row per scheduled run, or None when not writable here."""
+    target = notion_write_target("run_log", s)
+    if target is None:
+        log.warning("DRY RUN: would write to run_log")
+        return None
+    return NotionTable(client, target, RUN_LOG_TYPES)
+
+
 def autoapply_tables(s: Settings, client: NotionClient) -> tuple[Any, Any]:
     """(Answer bank, Auto-apply issues), each None when not writable in this env."""
     out = []

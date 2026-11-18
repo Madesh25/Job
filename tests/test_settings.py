@@ -13,6 +13,8 @@ PROD_WRITE = {
     "answer_bank": "c6472f12-102b-41ec-9ff3-f97095f8cde0",
     "autoapply_issues": "3e7b684b-45c4-4c64-9074-aabfe728831d",
     "weekly_audit": "3d9a954f-4af3-4b28-83d7-d44544f148a9",
+    "run_log": "41c6edc2-b0d4-8159-b044-000beb4ce92d",
+    "error_log": "41c6edc2-b0d4-8194-be28-000bfb230d78",
 }
 
 
