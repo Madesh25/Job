@@ -95,6 +95,9 @@ def desk_tasks(s: Settings, desk: Desk, client: tb.TelegramClient,
     chat = str(s.telegram_chat_id)
 
     def send(replies: list[Reply]) -> None:
+        from jobengine.track import run_log
+
+        run_log.note(replies)  # the Run Log's summary of this task (18 Nov)
         tb.send_replies(client, s, chat, replies)
 
     def daily() -> dict[str, Any]:
@@ -214,9 +217,19 @@ def desk_tasks(s: Settings, desk: Desk, client: tb.TelegramClient,
             send(sent)
         return {"ok": True, "sent": len(sent)}
 
-    return Tasks(daily=daily, digest=digest, sweep=sweep, autopilot=autopilot, mail=mail,
-                 replies=replies, check=check, report=report, nudge=nudge, apply=apply,
-                 health=health)
+    from jobengine.track import run_log
+
+    def logged(name: str, body: Callable[[], dict[str, Any]]) -> Callable[[], dict[str, Any]]:
+        """Each task run gets its Run Log row (18 Nov, track/run_log.py)."""
+        return run_log.wrap(run_log.TASK_STEPS.get(name, name), body,
+                            getattr(desk, "run_log_table", None), desk.tracking_now)
+
+    return Tasks(daily=logged("daily", daily), digest=logged("digest", digest),
+                 sweep=logged("sweep", sweep), autopilot=logged("autopilot", autopilot),
+                 mail=logged("mail", mail), replies=logged("replies", replies),
+                 check=logged("check", check), report=logged("report", report),
+                 nudge=logged("nudge", nudge), apply=logged("apply", apply),
+                 health=logged("health", health))
 
 
 def create_app(

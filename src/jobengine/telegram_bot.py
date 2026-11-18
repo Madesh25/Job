@@ -895,22 +895,29 @@ _passing: dict[str, int] = {}
 
 
 def _scheduled(name: str, action: Callable[[], list[Reply]], desk: Desk) -> list[Reply]:
-    """A scheduled step: a failure is told in Telegram and mailed to you (H3, 25 Oct)."""
-    try:
-        replies = action()
-    except Exception as exc:  # report the failure instead of stopping the bot
-        if PASSING_ERROR.search(str(exc)):
-            _passing[name] = _passing.get(name, 0) + 1
-            if _passing[name] < PASSING_TRIES:
-                log.warning("%s failed (try %d, again at the next tick): %s", name,
-                            _passing[name], exc)
-                return []
-            _passing[name] = 0  # told now; the next one waits for PASSING_TRIES again
-        log.exception("%s failed", name)
-        desk.alert_failure(name, exc)
-        return [Reply(f"{name} failed: {exc}")]
-    _passing.pop(name, None)
-    return replies
+    """A scheduled step: a failure is told in Telegram and mailed to you (H3, 25 Oct). A step
+    that did something gets its Run Log row (18 Nov, track/run_log.py)."""
+    from jobengine.track import run_log
+
+    with run_log.recorded(name, getattr(desk, "run_log_table", None),
+                          desk.tracking_now) as run:
+        try:
+            replies = action()
+        except Exception as exc:  # report the failure instead of stopping the bot
+            run.fail(exc)
+            if PASSING_ERROR.search(str(exc)):
+                _passing[name] = _passing.get(name, 0) + 1
+                if _passing[name] < PASSING_TRIES:
+                    log.warning("%s failed (try %d, again at the next tick): %s", name,
+                                _passing[name], exc)
+                    return []
+                _passing[name] = 0  # told now; the next one waits for PASSING_TRIES again
+            log.exception("%s failed", name)
+            desk.alert_failure(name, exc)
+            return [Reply(f"{name} failed: {exc}")]
+        _passing.pop(name, None)
+        run.note(replies)
+        return replies
 
 
 def desk_replies(update: dict[str, Any], s: Settings, desk: Desk | None) -> list[Reply] | None:

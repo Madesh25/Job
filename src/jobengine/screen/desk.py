@@ -405,6 +405,7 @@ class Desk:
         self.answer_bank: Any = None
         self.autoapply_issues: Any = None
         self.audit_table: Any = None  # Weekly Audit (27 Oct); None: the audit is Telegram only
+        self.run_log_table: Any = None  # Run Log (18 Nov): one row per scheduled run
         self._audit_checked: date | None = None  # the day the weekly audit was last checked
         # The weekly job board check (sweep/board_watch.py): (today, folder) -> the checks;
         # None where Target Companies cannot be read.
@@ -1319,8 +1320,10 @@ class Desk:
     def _submitted(self, job_id: str, job: str, result: Any, now: datetime) -> list[Reply]:
         """A form the bot submitted and the company confirmed: the job is Applied today."""
         from jobengine.apply import form_submit, queue
+        from jobengine.track import day_ledger
 
         queue.count_submitted(self.state, now.date().isoformat())
+        day_ledger.count("applied")  # the day's and the run's applications (Run Log)
         if self.repo is not None:
             self.repo.update(job_id, {"Status": "Applied", "Applied date": now.date()})
         replies = [Reply(form_submit.report(result, job))]
@@ -4352,6 +4355,7 @@ def fake_desk(s: Settings, today: date, now: Callable[[], datetime] | None = Non
     from jobengine.notion_repo import FakeAuditTable
 
     desk.audit_table = FakeAuditTable()
+    desk.run_log_table = FakeTable()
     desk.pings = []  # type: ignore[attr-defined]  # heartbeat pings: True ok, False fail
     desk.heartbeat = lambda ok: desk.pings.append(ok) or True  # type: ignore[attr-defined]
     desk.owner_mail = lambda subject, text: desk.mails.append(  # type: ignore[attr-defined]
@@ -4426,6 +4430,11 @@ def real_desk(s: Settings) -> Desk | None:
     from jobengine.track import issue_log
 
     desk.audit_table = audit_table(s, client)
+    from jobengine.notion_repo import run_log_table
+    from jobengine.track import run_log
+
+    desk.run_log_table = run_log_table(s, client)
+    run_log.install()  # the warnings and errors of each scheduled run (18 Nov)
     from jobengine.sweep import boards
 
     desk.board_reader = lambda today, folder: boards.read_all(s, today, folder)
