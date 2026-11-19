@@ -61,6 +61,7 @@ _SITE = re.compile(
     _code(r"4\d\d|5\d\d") + r"|rate limited: every|refused the bot"
     r"|blocks the bot|\bbusy\b|timed? ?out|Timeout|ConnectError|ConnectionError", re.I)
 _NOT_SITE = re.compile(r"retrying|dry run", re.I)
+_DRY = re.compile(r"\s*DRY RUN\b")
 
 # Likely cause: the first that matches the message (and the exception's name).
 CAUSES: tuple[tuple[str, re.Pattern[str]], ...] = (
@@ -134,11 +135,14 @@ def _blank(text: str) -> str:
 
 def sites_in(text: str) -> list[str]:
     hosts = [urlsplit(url).hostname or "" for url in _URL.findall(text)]
-    hosts += _HOST.findall(_URL.sub(" ", text).lower())
+    # Host names are written in small letters; "Page.goto" in a browser error is no site.
+    hosts += _HOST.findall(_URL.sub(" ", text))
     return [h for h in dict.fromkeys(hosts) if h and not h.endswith((".py", ".json", ".yaml"))]
 
 
 def level_of(record: logging.LogRecord, text: str) -> str | None:
+    if _DRY.match(text):  # the dry run doing what it should (18 Nov: a Warning row)
+        return None
     if record.levelno >= logging.ERROR:
         return LEVEL_ERROR
     if record.levelno >= logging.WARNING:

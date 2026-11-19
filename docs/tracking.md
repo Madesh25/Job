@@ -414,6 +414,12 @@ ask Claude Code to "read the Error Log rows with Status New and fix them".
   others of the same run in the same message (at most 5 named). Site problems never ping.
 - Writing the rows or the message never fails the run; rows that could not be written are
   kept for the next run.
+- Not a problem (19 Nov): a retry still going on (a Telegram message sent on the second try,
+  a page asked again), and the DRY RUN lines saying what the dry run did not do (they do not
+  count as warnings in the Run Log either). Lost Telegram polls are a Warning only after
+  12 in a row ("Telegram not reached 12 times in a row"); a single lost poll is not.
+- Sites in Example are host names from the line (small letters); "Page.goto" in a browser
+  error is no site.
 
 Tables: Error Log (DEV) (`notion.write.error_log` in dev and local) and Error Log in prod.
 
