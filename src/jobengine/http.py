@@ -112,11 +112,15 @@ def _retry_after(resp: httpx.Response, attempt: int = 0) -> float:
 # kept the block going. Workday is now asked one request at a time, SLOW_GAP apart; a "too
 # many requests" pauses every Workday request SLOW_COOL seconds once; when that does not help
 # twice in a row, Workday is left for SLOW_CLOSE seconds (the rest of the /fetch).
+# 19 Nov /fetch: the 10 min pause ended before the /fetch did (it takes about 20 min now),
+# and job pages (get_page: the job-link lookup, the closed-job check) did not look at the
+# pause at all: 32 more Workday pages were asked and refused. The pause is now an hour and
+# covers every Workday request; a job page refused with HTTP 429 starts it too.
 SLOW_HOSTS = ("myworkdayjobs.com", "myworkdaysite.com")
 SLOW_GAP = 0.5
 SLOW_COOL = 30.0
 SLOW_STRIKES = 2
-SLOW_CLOSE = 600.0
+SLOW_CLOSE = 3600.0
 _clock: Callable[[], float] = time.monotonic
 
 
@@ -132,6 +136,31 @@ class _SlowGate:
 
 
 _slow = _SlowGate()
+
+
+def _closed_message(where: str) -> str:
+    return (f"{where} failed: HTTP 429 (Workday refused this machine a moment ago: not asked "
+            "again for now)")
+
+
+def _workday_page_turn(where: str) -> None:
+    """A Workday job page waits for its turn like the job board requests, and is not asked
+    at all while Workday is left alone."""
+    with _slow.lock:
+        if _clock() < _slow.closed_until:
+            raise HttpError(_closed_message(where), 429)
+        wait = _slow.next_ok - _clock()
+        if wait > 0:
+            _sleep(wait)
+        _slow.next_ok = _clock() + SLOW_GAP
+
+
+def _workday_refused_page() -> None:
+    with _slow.lock:
+        if _clock() >= _slow.closed_until:
+            _slow.closed_until = _clock() + SLOW_CLOSE
+            log.info("Workday refused a job page (HTTP 429): no Workday site is asked for "
+                     "%.0f min", SLOW_CLOSE / 60)
 
 
 def reset_slow_hosts() -> None:
@@ -184,8 +213,7 @@ def _send(
     with _slow.lock:
         where = f"{method} {safe_url(url)}"
         if _clock() < _slow.closed_until:
-            raise HttpError(f"{where} failed: HTTP 429 (Workday refused this machine a moment "
-                            "ago: not asked again for now)", 429)
+            raise HttpError(_closed_message(where), 429)
         wait = _slow.next_ok - _clock()
         if wait > 0:
             _sleep(wait)
@@ -403,6 +431,9 @@ def get_page(
             if blocked and host_in(host, blocked):
                 raise HttpError(f"page not read: {host} blocks the bot (alerts only)", 403, host)
             where = f"{method} {safe_url(url)}"
+            workday = host_in(host, SLOW_HOSTS)
+            if workday:
+                _workday_page_turn(where)
             client.cookies.clear()
             body_kw = {"json": json_body} if method == "POST" else {}
             try:
@@ -415,6 +446,8 @@ def get_page(
                         method = "GET"
                         continue
                     if resp.status_code >= 400:
+                        if workday and resp.status_code == 429:
+                            _workday_refused_page()
                         raise HttpError(f"{where} failed: HTTP {resp.status_code}",
                                         resp.status_code, host)
                     kind = resp.headers.get("content-type", "").split(";")[0].strip().lower()

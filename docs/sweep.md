@@ -158,6 +158,10 @@ A source whose secret is missing is skipped with a line in the summary; the run 
   A posting listed as "3 Locations" is kept only when its detail places it in an active
   country. Posting ID `workday-<tenant>-<last path part>`. Any `myworkdayjobs.com` subdomain is
   allowed through `safety.allowed_host_suffixes`.
+  Workday counts every company's site as one visitor (17 Nov): Workday is asked one request
+  at a time, a "too many requests" pauses it 30 s, and when that does not help twice it is
+  left alone for an hour. Since 19 Nov that hour covers job pages too (the job-link lookup
+  and the closed-job check), and a job page refused with HTTP 429 starts it.
 - Workable (23 Oct): `apply.workable.com/api/v1/widget/accounts/{account}?details=true`, the
   public career widget (`apply.workable.com/<account>` or `<account>.workable.com` links).
 - Recruitee: `<company>.recruitee.com/api/offers/`, published offers only; a job both remote
