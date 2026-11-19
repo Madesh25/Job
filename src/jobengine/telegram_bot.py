@@ -411,7 +411,9 @@ class TelegramClient:
         except TelegramNetworkError as exc:
             if method == "getUpdates":  # the polling loop already waits and asks again
                 raise
-            log.warning("%s, retrying in %ss", exc, SEND_RETRY_SECONDS)
+            # 19 Nov: a retry that then works is no problem (the Error Log pinged for it); a
+            # second failure is raised to the caller.
+            log.info("%s, retrying in %ss", exc, SEND_RETRY_SECONDS)
             self._sleep(SEND_RETRY_SECONDS)
             data = self._transport(method, payload, timeout)
         if not data.get("ok"):
@@ -1368,12 +1370,14 @@ def run(
         bg = Background(lambda update: handle_one(client, s, update, fetch, desk),
                         lambda update, name: client.send_message(chat, telegram_text(
                             f"Waiting: this runs after {name} (/end stops {name}).", s)))
+    lost = 0
     while max_polls is None or polls < max_polls:
         polls += 1
         try:
             offset = poll_once(client, s, offset, fetch, desk, started=started,
                                dispatch=bg.submit if bg else None,
                                timeout=WAITING_POLL if bg and bg.waiting else POLL_TIMEOUT)
+            lost = 0
             if bg is not None:
                 bg.pump()
             if desk is not None and clock() >= next_check and (bg is None or bg.idle()):
@@ -1383,6 +1387,14 @@ def run(
             offset = request.offset
             if _restart(client, s, bg, request.offset, restart):
                 return
+        except TelegramNetworkError as exc:
+            # 18 Nov: one lost connection was an Error row; the next poll usually works.
+            lost += 1
+            if lost == POLL_LOST_WARN:
+                log.warning("Telegram not reached %d times in a row: %s", lost, exc)
+            else:
+                log.info("%s, retrying in 5s", exc)
+            sleep(5)
         except TelegramError as exc:
             log.error("%s, retrying in 5s", exc)
             sleep(5)
@@ -1391,6 +1403,7 @@ def run(
         bg.pump()
 
 
+POLL_LOST_WARN = 12  # lost polls in a row (5 s apart at least) before it is a problem
 RESTART_WAIT = 60.0  # seconds a running job gets to reach its next step before the restart
 WAITING_POLL = 2  # a short poll while updates wait for the background thread
 

@@ -238,3 +238,67 @@ def test_titles_have_no_format_codes_and_names_the_companies(table):
     assert "Sites: acme.wd1.myworkdayjobs.com" in gate["Example"]
     assert busy["Count"] == 4 and busy["Likely cause"] == "Rate limited (429)"
     assert busy["Example"].endswith("Seen for: Synechron, Red Hat")
+
+
+def test_a_telegram_retry_that_works_is_no_problem(table, pings):
+    """19 Nov /fetch: three typing signals got through on the second try, and the Error Log
+    pinged "New kind of problem" for them."""
+    calls = []
+
+    def transport(method, payload, timeout):
+        calls.append(method)
+        if len(calls) == 1:
+            raise tb.TelegramNetworkError("sendChatAction failed: URLError timed out")
+        return {"ok": True, "result": True}
+
+    tb.TelegramClient(transport, sleep=lambda seconds: None)._call("sendChatAction", {})
+    assert calls == ["sendChatAction", "sendChatAction"]
+    assert error_log.pending() == 0 and pings == []
+
+
+def test_lost_polls_are_a_warning_only_when_they_go_on(table, pings, monkeypatch):
+    """18 Nov: one lost getUpdates (SSL EOF) was an Error row and a ping."""
+
+    class Lost:
+        sent = []
+
+        def __init__(self, failures):
+            self.failures = failures
+
+        def __call__(self, method, payload, timeout):
+            if method == "getUpdates" and self.failures:
+                self.failures -= 1
+                raise tb.TelegramNetworkError("getUpdates failed: URLError EOF")
+            if method == "getUpdates":
+                return {"ok": True, "result": []}
+            return {"ok": True, "result": {"message_id": 1} if method == "sendMessage" else True}
+
+    monkeypatch.setattr(tb, "register_menu", lambda client, s: None)
+    tb.run(settings(), tb.TelegramClient(Lost(2)), max_polls=3, sleep=lambda seconds: None)
+    assert error_log.pending() == 0
+    tb.run(settings(), tb.TelegramClient(Lost(tb.POLL_LOST_WARN)),
+           max_polls=tb.POLL_LOST_WARN, sleep=lambda seconds: None)
+    error_log.flush()
+    [row] = table.created
+    assert row["Level"] == "Warning" and row["Stage"] == "Telegram"
+    assert row["Problem"] == "Telegram not reached … times in a row: …"
+
+
+def test_dry_run_lines_are_no_problem(table):
+    """18 Nov: "DRY RUN: would draft a follow-up for ..." was a Warning row, Count 10."""
+    emit(logging.WARNING, "DRY RUN: would draft a follow-up for %s", "jane.doe@example.com",
+         path="/app/src/jobengine/track/runner.py", name="jobengine.track")
+    assert error_log.pending() == 0
+    run_rows = FakeTable()
+    with run_log.recorded("Reply check", run_rows, lambda: NOW) as run:
+        emit(logging.WARNING, "DRY RUN: would write to %s", "contacts")
+        run.note(["checked"])
+    assert run_rows.created[0]["Warnings"] == 0
+
+
+def test_a_browser_error_is_no_site(table):
+    """19 Nov: "Page.goto: Timeout 20000ms exceeded." gave the site "page.goto"."""
+    emit(logging.INFO, "careers page not opened in the browser %s: %s", "www.jumbo.com",
+         "page not rendered: Page.goto: Timeout 20000ms exceeded.")
+    error_log.flush()
+    assert table.created[0]["Example"].endswith("Sites: www.jumbo.com")

@@ -160,6 +160,8 @@ class Counter(logging.Handler):
     def emit(self, record: logging.LogRecord) -> None:
         if not record.name.startswith("jobengine"):
             return
+        if str(record.msg).startswith("DRY RUN"):  # the dry run doing what it should
+            return
         if record.levelno >= logging.ERROR:
             _each(lambda run: setattr(run, "errors", run.errors + 1))
         else:
