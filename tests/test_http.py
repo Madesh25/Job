@@ -286,3 +286,33 @@ def test_a_workday_429_pauses_every_workday_site_once_then_leaves_workday(transp
     assert len(calls) == asked
     now[0] += http.SLOW_CLOSE + 1
     assert http.post_json(WORKDAY_2, json={}, s=S) == {"ok": True}  # and asked again later
+
+
+def test_workday_job_pages_follow_the_workday_pause(transport, monkeypatch):
+    """19 Nov /fetch: the job-link lookup asked McKesson's Workday site during the pause, and
+    the closed-job check asked 31 Workday job pages after it, all refused."""
+    calls, responses = transport
+    now = [100.0]
+    monkeypatch.setattr(http, "_clock", lambda: now[0])
+    monkeypatch.setattr(http, "_sleep", lambda w: now.__setitem__(0, now[0] + w))
+    page = "https://mastercard.wd1.myworkdayjobs.com/CorporateCareers/job/Dublin/SRE_R-1"
+    responses.append(httpx.Response(429, headers={"content-type": "text/html"}))
+    with pytest.raises(http.HttpError) as info:
+        http.get_page(page, s=S)
+    assert info.value.status == 429
+    asked = len(calls)
+    for url in (page, "https://ing.wd3.myworkdayjobs.com/ICSGBLCOR/job/Warszawa/X_REQ-1"):
+        with pytest.raises(http.HttpError, match="not asked again"):
+            http.get_page(url, s=S)
+    with pytest.raises(http.HttpError, match="not asked again"):
+        http.post_json(WORKDAY, json={}, s=S)  # the job boards wait too
+    assert len(calls) == asked
+    responses.append(httpx.Response(200, html="<p>job</p>"))
+    assert http.get_page("https://jobs.lever.co/acme/1", s=S)[1] == "<p>job</p>"  # others go on
+    now[0] += http.SLOW_CLOSE + 1
+    responses.append(httpx.Response(200, html="<p>open</p>"))
+    assert http.get_page(page, s=S)[1] == "<p>open</p>"
+
+
+def test_the_workday_pause_outlasts_a_fetch():
+    assert http.SLOW_CLOSE >= 3600  # a /fetch takes about 20 min, the closed-job check is last
