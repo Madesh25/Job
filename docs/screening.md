@@ -204,6 +204,10 @@ requirements and nice-to-haves.
   bottom of `/pending`. A `Needs review` row is never promoted by this rule.
 - A snippet that survives the gates is `Needs review` ("snippet only, paste the full JD
   with /jd").
+- A full description that names fewer than 2 skills or requirements is `Needs review` too
+  ("no requirements found in the description, read it yourself"; 20 Nov audit: Rabobank's
+  Google copy was `Apply high` and four Netflix team introductions `Apply low` with nothing
+  found, because no requirements meant no gaps). "Docker, Kubernetes and Azure" counts 3.
 
 `/pending` order: tier, then rows that cannot sponsor last, then points: years 2 to 4 +3,
 unknown +1, exactly 5 -2; sponsorship stated +3; Target Companies tier 1 to 4 or 6 +2; ghost
