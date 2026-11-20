@@ -180,6 +180,14 @@ GOOGLE_HOW = "Google's copy of the company page"  # its site does not let the bo
 MIN_TITLE_SHARE = 0.5  # of the role's words the text must name
 
 
+def google_copy(s: Any) -> bool:
+    """sweep.job_links.google_copy: ask Google's copy of the job when the site could not be
+    checked (4 Nov). Off since 20 Nov, to save money: it is taken only when Google names its
+    sources, and Gemini has given "0 result links" for these searches, so 0 of 26 asked on
+    19 and 20 Nov were found, at about half of each /fetch's Google searches."""
+    return bool((s.sweep.get("job_links") or {}).get("google_copy", False))
+
+
 def copy_model(s: Any) -> str:
     """sweep.job_links.copy_model: another Gemini for Google's copy. Empty (the default):
     the fetch model. 4 Nov: gemini-3.8-flash made 20 to 78 Google searches a call (Gemini
@@ -1588,7 +1596,8 @@ def run(deps: Deps, boards: tuple[str, ...], with_body: set[str] | None = None,
         # (never when its job list was read without this job: that is a ghost job).
         # 4 Nov: also when its job list needed the browser and no browser page was left for
         # this job (TNO, CGI, SURF: the list was never really read).
-        if (found is None and deps.llm is not None and not getattr(_SHORT, "hit", False)
+        if (found is None and deps.llm is not None and google_copy(deps.s)
+                and not getattr(_SHORT, "hit", False)
                 and (getattr(_CHECK, "seen", False) or not getattr(_CHECK, "read", False)
                      or getattr(_CHECK, "partial", False))
                 and search()):

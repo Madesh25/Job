@@ -430,11 +430,21 @@ sweep:
     recheck_days: 3
     linkedin_days: 30
     workers: 5
+  # Empty Target Companies columns of the companies the bot added (Tier, Careers URL, ATS
+  # platform), one AI search each. 20 Nov (AI cost): 5 a /fetch instead of 20; most found
+  # nothing or only a homepage.
+  company_details:
+    max_per_run: 5
   job_links:
     enabled: true
     max_rows: 40
     # AI web searches per sweep: a company's careers page (remembered 60 days) or one job.
     max_searches: 40
+    # Google's copy of a job whose site could not be checked (4 Nov). Off since 20 Nov (AI
+    # cost): Gemini gives "0 result links" for these searches, so 0 of 26 were found on 19
+    # and 20 Nov while they were about half of each /fetch's Google searches (5,000 free a
+    # month, then $14 per 1,000). Turn on again when /fetch logs show result links.
+    google_copy: false
     # Careers pages built by JavaScript are opened in a browser, at most this many per
     # sweep (6 per job), when Playwright is installed (in every Docker build since 30 Oct).
     # Only short pages are opened: a long page is not one that JavaScript fills in.

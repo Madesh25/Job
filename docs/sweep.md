@@ -477,7 +477,10 @@ site (`src/jobengine/sweep/job_links.py`), newest first:
    it carries a job number of 5 digits or more), the text is at least as
    long as a full description and names the role; the description says "found by Google's copy of
    the company page". Never for a job whose job list was read without it (a ghost job).
-   One search from `max_searches`.
+   One search from `max_searches`. **Off since 20 Nov** (`sweep.job_links.google_copy:
+   false`, AI cost): Gemini gives "0 result links" for these searches, so Google's copy
+   found 0 of 26 jobs on 19 and 20 Nov while it was about half of each /fetch's Google
+   searches. Turn it on again when the /fetch log shows result links.
 3. Only when no careers page was found: one AI web search for the job itself (on 30 Oct it
    found nothing the careers page had missed, so the searches go to more companies).
 
@@ -940,8 +943,8 @@ words, even when they show only part of it (on 4 Nov the copy-only rule gave "no
 - `sweep.job_links.copy_model`: another Gemini for Google's copy; empty (the default) uses
   the fetch model. Tried on 4 Nov with `gemini-3.8-flash`: it made 20 to 78 Google searches
   a call (Gemini cannot be told a maximum), timed out or answered no JSON, and found no
-  more, so it is off again. Google's copy never falls back to Claude. `max_searches` in DEV is 150: a company can take three
-  searches now (careers page, job system, Google's copy).
+  more, so it is off again. Google's copy never falls back to Claude. `max_searches` in DEV was 150 (a company could
+  take three searches: careers page, job system, Google's copy); 60 since 20 Nov.
 - LOOKUP_VERSION 3: the next /fetch looks up again, once, the jobs not found before.
 
 ### Round 4 (4 Nov evening)
