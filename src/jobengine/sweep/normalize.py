@@ -449,6 +449,42 @@ def place(location_text: str, rules: Rules, area: Iterable[str] = ()
     return country, city
 
 
+# 20 Nov: a JustJoin IT alert for "Hybrid Role - Platform Engineer Microsoft 365 in Pune, IN"
+# was saved as Poland with no city: JustJoin IT lists Polish jobs, so its home country is
+# used when the card's place is unknown. A place in the title or on the card that names
+# another country is that country. Checked only when no city of yours was found, so
+# "London or Dublin" stays a Dublin job.
+FOREIGN_PLACES: Mapping[str, tuple[str, ...]] = {
+    "India": ("india", "pune", "bangalore", "bengaluru", "hyderabad", "chennai", "mumbai",
+              "noida", "gurgaon", "gurugram", "new delhi", "delhi", "kolkata", "ahmedabad"),
+    "United States": ("usa", "united states"),
+    "United Kingdom": ("united kingdom", "england", "scotland"),
+    "Ukraine": ("ukraine", "kyiv", "kiev", "lviv", "kharkiv"),
+    "Philippines": ("philippines", "manila"),
+    "Mexico": ("mexico",),
+    "Brazil": ("brazil", "brasil"),
+    "Canada": ("canada",),
+}
+# A country code after a comma at the end ("in Pune, IN", "Austin, TX, US"): upper case only.
+FOREIGN_CODES = {"IN": "India", "US": "United States", "USA": "United States",
+                 "UK": "United Kingdom", "GB": "United Kingdom", "UA": "Ukraine",
+                 "PH": "Philippines", "MX": "Mexico", "BR": "Brazil"}
+_CODE_AT_END = re.compile(r",\s*([A-Z]{2,3})\s*\)?\s*$")
+
+
+def foreign_place(*texts: str) -> str | None:
+    """The other country a title or place names ("in Pune, IN" -> India), or None."""
+    for text in texts:
+        match = _CODE_AT_END.search(text or "")
+        if match and match.group(1) in FOREIGN_CODES:
+            return FOREIGN_CODES[match.group(1)]
+        value = canon(text or "")
+        for country, names in FOREIGN_PLACES.items():
+            if value and _has_term(value, names):
+                return country
+    return None
+
+
 def place_allowed(country: str | None, city: str | None, active: Iterable[str],
                   rules: Rules) -> bool:
     return country in set(active) or (
@@ -469,6 +505,10 @@ def normalize(
         return Skipped(raw, f"location not recognised ({raw.location_text or 'empty'})")
     if not place_allowed(country, city, active_countries, rules):
         return Skipped(raw, f"country not active ({country})")
+    if city is None:
+        foreign = foreign_place(raw.title, raw.location_text)
+        if foreign and foreign not in set(active_countries):
+            return Skipped(raw, f"country not active ({foreign})")
     if not rules.remote_jobs and remote_only(raw.location_text, raw.title, city):
         return Skipped(raw, REMOTE_ONLY)
     return Job(
