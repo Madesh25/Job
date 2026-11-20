@@ -57,7 +57,9 @@ Rules:
   belong in nice_to_have, never in mandatory_requirements.
 - At most 10 mandatory_requirements and 6 nice_to_have, the most important first.
 - "terms" are the concrete technology or skill names, for example ["Kubernetes"] or
-  ["AWS", "Terraform"]. Kind "tool" is a named technology or product, never a general
+  ["AWS", "Terraform"]. When a requirement names a kind of skill and gives examples
+  ("scripting languages (e.g. Bash, Python)", "CI/CD tools such as Jenkins"), the terms are
+  the examples: ["Bash", "Python"]. Kind "tool" is a named technology or product, never a general
   phrase like "build tooling" or "CI/CD pipelines".
 - years_required_min is the minimum years of experience the candidate must have: when
   several requirements are stated ("5 years in IT, 2 years in a similar role"), the largest
