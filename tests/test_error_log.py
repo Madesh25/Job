@@ -302,3 +302,44 @@ def test_a_browser_error_is_no_site(table):
          "page not rendered: Page.goto: Timeout 20000ms exceeded.")
     error_log.flush()
     assert table.created[0]["Example"].endswith("Sites: www.jumbo.com")
+
+
+def test_a_command_writes_its_problems_when_it_ends(table, pings, monkeypatch):
+    """20 Nov: the Error Log was written only after scheduled steps, so the problems of a
+    /fetch stayed in memory and were lost when the bot was stopped."""
+    from test_telegram_bot import FakeTelegram, update
+
+    def fetch(progress):
+        emit(logging.INFO, "careers page not read %s: %s", "jobs.alpha.com", "HTTP 403")
+        return "Sweep done"
+
+    fake = FakeTelegram()
+    tb.handle_one(tb.TelegramClient(fake), settings(), update(1, "/fetch"), fetch)
+    [row] = [r for r in table.created if r["Level"] == "Site problem"]
+    assert row["Likely cause"] == "Refuses the bot (403)" and error_log.pending() == 0
+
+
+def test_a_long_command_writes_on_the_way_and_a_stop_writes_the_rest(table, pings,
+                                                                     monkeypatch):
+    """A /fetch that hangs or is stopped still leaves its rows: the poll loop writes every
+    ERROR_FLUSH_SECONDS, and once more when the bot stops (Ctrl+C, docker stop)."""
+    from test_telegram_bot import FakeTelegram
+
+    now = [0.0]
+    polls = []
+
+    def poll(client, s, offset, fetch, desk, **kwargs):
+        polls.append(now[0])
+        emit(logging.INFO, "job page not read %s: %s", f"site{len(polls)}.com", "HTTP 403")
+        now[0] += 200  # each poll is 200 s here
+        if len(polls) == 3:
+            raise KeyboardInterrupt  # you stop the bot
+        return offset
+
+    monkeypatch.setattr(tb, "register_menu", lambda client, s: None)
+    monkeypatch.setattr(tb, "poll_once", poll)
+    with pytest.raises(KeyboardInterrupt):
+        tb.run(settings(), tb.TelegramClient(FakeTelegram()), clock=lambda: now[0])
+    [row] = table.created
+    assert row["Count"] == 3  # 2 written at 400 s (one row), the third at the stop
+    assert row["Example"].endswith("site3.com") or "site3.com" in row["Example"]

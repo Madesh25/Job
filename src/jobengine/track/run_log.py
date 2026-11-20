@@ -212,10 +212,10 @@ def recorded(step: str, table: Any, now: Callable[[], datetime]) -> Iterator[Run
             _active[:] = [other for other in _active if other is not run]
         _local.run = outer
         write(table, run)
-        _flush_errors()
+        flush_errors()
 
 
-def _flush_errors() -> None:
+def flush_errors() -> None:
     """The Error Log's rows of what was logged up to now (track/error_log.py)."""
     from jobengine.track import error_log
 

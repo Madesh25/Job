@@ -740,7 +740,19 @@ def handle_one(
     desk: Desk | None = None,
 ) -> None:
     """Answer one update. Long polling and the webhook (jobengine.web) both call this, so the
-    chat ID lock and every command behave the same in both modes."""
+    chat ID lock and every command behave the same in both modes. The Error Log gets what the
+    command logged when it ends (20 Nov: only scheduled steps wrote it, and the problems of
+    a /fetch were lost when the bot was stopped)."""
+    from jobengine.track import run_log
+
+    try:
+        _handle_one(client, s, update, fetch, desk)
+    finally:
+        run_log.flush_errors()
+
+
+def _handle_one(client: TelegramClient, s: Settings, update: dict[str, Any],
+                fetch: Fetcher | None, desk: Desk | None) -> None:
     _bind_notify(client, s, desk)
     if "callback_query" in update:
         handle_callback(client, s, update["callback_query"], desk)
@@ -1358,11 +1370,12 @@ def run(
     scheduled /autopilot starts when it is due. With `background` (the real bot) updates are
     answered on a background thread so /end can stop a long run; /restart stops the running
     job, then calls `restart`."""
+    from jobengine.track import run_log
+
     register_menu(client, s)
     client.send_message(str(s.telegram_chat_id), telegram_text("Job Engine bot started.", s))
     offset: int | None = None
     started = time.time()
-    polls = 0
     next_check = clock()
     chat = str(s.telegram_chat_id)
     bg = None
@@ -1370,9 +1383,28 @@ def run(
         bg = Background(lambda update: handle_one(client, s, update, fetch, desk),
                         lambda update, name: client.send_message(chat, telegram_text(
                             f"Waiting: this runs after {name} (/end stops {name}).", s)))
+    next_flush = clock() + ERROR_FLUSH_SECONDS
+    try:
+        _poll_loop(client, s, offset, started, fetch, desk, clock, sleep, restart, bg,
+                   max_polls, next_check, next_flush)
+    finally:  # stopped (Ctrl+C, docker stop): what was logged still reaches the Error Log
+        run_log.flush_errors()
+
+
+def _poll_loop(client: TelegramClient, s: Settings, offset: int | None, started: float,
+               fetch: Fetcher | None, desk: Desk | None, clock: Callable[[], float],
+               sleep: Callable[[float], None], restart: Callable[[], None] | None,
+               bg: Background | None, max_polls: int | None, next_check: float,
+               next_flush: float) -> None:
+    from jobengine.track import run_log
+
+    polls = 0
     lost = 0
     while max_polls is None or polls < max_polls:
         polls += 1
+        if clock() >= next_flush:  # a long command (a /fetch) writes its problems on the way
+            next_flush = clock() + ERROR_FLUSH_SECONDS
+            run_log.flush_errors()
         try:
             offset = poll_once(client, s, offset, fetch, desk, started=started,
                                dispatch=bg.submit if bg else None,
@@ -1403,6 +1435,7 @@ def run(
         bg.pump()
 
 
+ERROR_FLUSH_SECONDS = 300.0  # the Error Log is written at least this often while a command runs
 POLL_LOST_WARN = 12  # lost polls in a row (5 s apart at least) before it is a problem
 RESTART_WAIT = 60.0  # seconds a running job gets to reach its next step before the restart
 WAITING_POLL = 2  # a short poll while updates wait for the background thread
