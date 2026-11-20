@@ -34,7 +34,9 @@ UOP = [Quoted(value="UoP", quote="q")]
 
 def ext(gaps=0, **kw):
     nice = [req(f"Gap {i}", "Cobol", kind="other") for i in range(gaps)]
-    base = dict(mandatory_requirements=[req("Kubernetes", "Kubernetes")], nice_to_have=nice,
+    base = dict(mandatory_requirements=[req("Kubernetes", "Kubernetes"),
+                                        req("Kubernetes operators", "Kubernetes")],
+                nice_to_have=nice,
                 contract_types=UOP)
     base.update(kw)
     return Extraction(**base)
@@ -73,6 +75,7 @@ def test_apply_high_needs_zero_gaps_large_employer_and_permanent():
 def must_gaps(n, **kw):
     """A job with n mandatory requirements you lack (not tools)."""
     return ext(mandatory_requirements=[req("Kubernetes", "Kubernetes"),
+                                       req("Kubernetes operators", "Kubernetes"),
                                        *(req(f"Gap {i}", "Cobol", kind="other")
                                          for i in range(n))], **kw)
 
@@ -182,3 +185,17 @@ def test_freshest_first_within_a_tier():
     assert fresh(row(posted_date=TODAY), TODAY)
     assert not fresh(row(posted_date=date(2026, 9, 28)), TODAY)
     assert days_old(row(posted_date=date(2026, 10, 3)), TODAY) is None  # a future date
+
+
+def test_a_description_with_no_requirements_is_needs_review():
+    """20 Nov audit: Rabobank (Google's copy) was Apply high and four Netflix rows (a team
+    introduction only) Apply low with no requirement found: no gaps is no evidence."""
+    empty = ext(mandatory_requirements=[], nice_to_have=[])
+    got = run(e=empty)
+    assert got.verdict == "Needs review"
+    assert "no requirements found in the description, read it yourself" in got.notes
+    one = ext(mandatory_requirements=[req("Kubernetes", "Kubernetes")])
+    assert run(e=one).verdict == "Needs review"
+    many = ext(mandatory_requirements=[req("Docker, Kubernetes and Azure", "Docker",
+                                           "Kubernetes", "Azure")])
+    assert run(e=many).verdict != "Needs review"  # one line naming three tools is enough
