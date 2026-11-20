@@ -270,3 +270,22 @@ def test_an_adzuna_at_company_ending_is_the_same_job():
         "Poland")
     # A title that is only the company's name stays as it is.
     assert dedupe_key("Netflix", "Netflix", None, "Poland") == "netflix|netflix|poland"
+
+
+def test_a_title_naming_another_country_is_not_your_country():
+    """20 Nov: a JustJoin IT alert for a job in Pune, India was saved as Poland with no city
+    (JustJoin IT's home country is used when the card's place is unknown)."""
+    pune = raw("Hybrid Role - Platform Engineer Microsoft 365 in Pune, IN", "emagine Polska",
+               "", board="JustJoin IT", location_area=("Poland",))
+    got = normalize(pune, RULES, ACTIVE)
+    assert isinstance(got, Skipped) and got.reason == "country not active (India)"
+    bangalore = raw("DevOps Engineer", location="Bangalore", location_area=("Poland",))
+    assert normalize(bangalore, RULES, ACTIVE).reason == "country not active (India)"
+    # A city of yours wins: the job is in Dublin even if the title names London too.
+    both = raw("DevOps Engineer (Dublin or London, UK)", location="Dublin")
+    assert isinstance(normalize(both, RULES, ACTIVE), Job)
+    # An unknown Polish town keeps the board's home country.
+    town = raw("DevOps Engineer", location="Gliwice-Sośnica", location_area=("Poland",))
+    assert normalize(town, RULES, ACTIVE).country == "Poland"
+    assert isinstance(normalize(raw("DevOps Engineer, Indiana team", location="",
+                                    location_area=("Poland",)), RULES, ACTIVE), Job)

@@ -743,6 +743,10 @@ Poland"); other card lines are searched too. Boards that only list one country
 (`sweep.gmail.board_country`: JustJoin IT, NoFluffJobs, Pracuj.pl, theprotocol.it, Bulldogjob
 for Poland; IrishJobs.ie, Jobs.ie, JobsIreland for Ireland; IamExpat and Nationale
 Vacaturebank for the Netherlands) give that country when a card names only a city or none.
+When no city of yours is found and the title or place names another country ("in Pune,
+IN", "Bangalore", ", US"), the job is left out as "country not active" (20 Nov: a JustJoin
+IT job in Pune, India was saved as Poland). A city of yours wins: "Dublin or London, UK" stays
+a Dublin job.
 23 Oct, more alert boards: Glassdoor (glassdoor.com, .nl, .ie, .co.uk), Solid.Jobs and
 RocketJobs (Poland), Welcome to the Jungle, Monsterboard (the Netherlands) and Recruit Ireland
 (Ireland). Their sites are on `sweep.fulltext.blocked_hosts` until their terms are checked
