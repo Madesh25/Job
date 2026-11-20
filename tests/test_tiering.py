@@ -34,7 +34,9 @@ UOP = [Quoted(value="UoP", quote="q")]
 
 def ext(gaps=0, **kw):
     nice = [req(f"Gap {i}", "Cobol", kind="other") for i in range(gaps)]
-    base = dict(mandatory_requirements=[req("Kubernetes", "Kubernetes")], nice_to_have=nice,
+    base = dict(mandatory_requirements=[req("Kubernetes", "Kubernetes"),
+                                        req("Kubernetes operators", "Kubernetes")],
+                nice_to_have=nice,
                 contract_types=UOP)
     base.update(kw)
     return Extraction(**base)
@@ -194,3 +196,17 @@ def test_postings_misspellings_are_the_same_word():
 
     assert canon_term("Continous integration") == "continuous integration"
     assert canon_term("Virtualisation") == "virtualization"
+
+
+def test_a_description_with_no_requirements_is_needs_review():
+    """20 Nov audit: Rabobank (Google's copy) was Apply high and four Netflix rows (a team
+    introduction only) Apply low with no requirement found: no gaps is no evidence."""
+    empty = ext(mandatory_requirements=[], nice_to_have=[])
+    got = run(e=empty)
+    assert got.verdict == "Needs review"
+    assert "no requirements found in the description, read it yourself" in got.notes
+    one = ext(mandatory_requirements=[req("Kubernetes", "Kubernetes")])
+    assert run(e=one).verdict == "Needs review"
+    many = ext(mandatory_requirements=[req("Docker, Kubernetes and Azure", "Docker",
+                                           "Kubernetes", "Azure")])
+    assert run(e=many).verdict != "Needs review"  # one line naming three tools is enough

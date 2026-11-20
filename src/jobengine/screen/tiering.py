@@ -13,6 +13,13 @@ from jobengine.screen.models import Extraction, JobRow, MatrixItem, Requirement
 TIERS = ("Needs review", "Apply low", "Apply normal", "Apply high")  # lowest first
 LARGE_TIERS = frozenset({1, 2, 3, 4, 6})
 SNIPPET_NOTE = "snippet only, paste the full JD with /jd"
+# 20 Nov audit: Rabobank's "DevOps Engineer SaaS Security & Integration" was Apply high and
+# four Netflix rows Apply low with no requirement found in their text (Google's copy, a team
+# introduction only): no requirements meant no gaps, so the best tier. Fewer than
+# MIN_REQUIREMENTS named (skills and requirements, requirement_count) is no evidence of a
+# fit: you read it yourself.
+MIN_REQUIREMENTS = 2
+FEW_REQUIREMENTS_NOTE = "no requirements found in the description, read it yourself"
 # Freshest first (28 Oct, your OK): the first applicants get the most replies, so a job
 # posted today or in the FRESH_DAYS before ranks above an older one of the same tier.
 FRESH_DAYS = 2
@@ -45,6 +52,11 @@ def build_matrix(ext: Extraction, ref: Reference) -> list[MatrixItem]:
     return [matrix_item(r, ref, True) for r in ext.mandatory_requirements] + [
         matrix_item(r, ref, False) for r in ext.nice_to_have
     ]
+
+
+def requirement_count(ext: Extraction) -> int:
+    """Skills and requirements the description names: "Docker, Kubernetes and Azure" is 3."""
+    return sum(max(1, len(r.terms)) for r in [*ext.mandatory_requirements, *ext.nice_to_have])
 
 
 def gap_count(matrix: list[MatrixItem]) -> int:
@@ -140,6 +152,9 @@ def tier(
     if description_kind == "snippet":
         verdict = "Needs review"
         notes.append(SNIPPET_NOTE)
+    elif requirement_count(ext) < MIN_REQUIREMENTS:
+        verdict = "Needs review"
+        notes.append(FEW_REQUIREMENTS_NOTE)
     return Tiering(verdict, bottom, employer, gaps, tuple(added), tuple(notes))
 
 
