@@ -375,6 +375,8 @@ until you OK the prod table.
 One Notion row per scheduled run, so the days after go-live show what ran, when, for how long,
 how it went and what it did. A run is one scheduled step on your PC (`telegram_bot._scheduled`:
 Autopilot, Mail queue, Reply check ...) or one Cloud Run task (`web/app.py` `desk_tasks`).
+Since 20 Nov also /fetch, /screen and /autopilot sent by hand: Step is the command ("/fetch
+10:11"), and one stopped by /end is Failed with "stopped by /end".
 
 While a run goes on, the numbers the day ledger records (new jobs, screened, applied, mails
 sent, AI cost) and the bot's own WARNING and ERROR lines are counted for it in memory

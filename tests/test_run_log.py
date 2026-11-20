@@ -155,3 +155,46 @@ def test_a_cloud_run_task_writes_a_failed_row(tmp_path, monkeypatch):
     [row] = d.run_log_table.created
     assert row["Step"] == "Autopilot" and row["Where"] == "Cloud Run"
     assert row["Result"] == "Failed" and row["Failure"] == "Adzuna is down"
+
+
+def test_a_fetch_by_hand_gets_its_row_and_a_stopped_one_too(monkeypatch):
+    """20 Nov: your /fetch hung, was stopped and left no Run Log row (only scheduled steps
+    had rows)."""
+    from test_telegram_bot import FakeTelegram
+
+    from jobengine.jobctl import Stopped
+
+    d = fake_desk(settings(), FAKE_TODAY, now=Clock())
+    d._track_now = lambda: datetime(2026, 11, 20, 10, 11)
+    client = tb.TelegramClient(FakeTelegram())
+
+    def fetch(progress):
+        day_ledger.add_sweep({"gmail": 51}, new=4, updated=2)
+        return "Job search finished\nNew jobs added to Notion: 4\n\n\U0001F449 Next: /screen"
+
+    tb.run_fetch(client, settings(), "1", fetch, desk=d)
+
+    def hung(progress):
+        raise Stopped()
+
+    tb.run_fetch(client, settings(), "1", hung, desk=d)
+    done, stopped = d.run_log_table.created
+    assert done["Step"] == "/fetch" and done["Run"] == "/fetch 10:11"
+    assert done["Result"] == "OK" and done["New jobs"] == 4
+    assert done["Summary"] == "Job search finished\nNew jobs added to Notion: 4"
+    assert stopped["Result"] == "Failed" and stopped["Failure"] == "stopped by /end"
+
+
+def test_a_screen_by_hand_gets_its_row():
+    d = fake_desk(settings(), FAKE_TODAY, now=Clock())
+    d._track_now = lambda: datetime(2026, 11, 20, 11, 0)
+    client = tb.TelegramClient(__import__("test_telegram_bot").FakeTelegram())
+
+    def screen(scope, progress, limit):
+        day_ledger.count("screened.Apply high", 2)
+        return [Reply("Screened 2 jobs")]
+
+    d.screen_replies = screen
+    tb.run_screen(client, settings(), "1", d)
+    [row] = d.run_log_table.created
+    assert row["Step"] == "/screen" and row["Screened"] == 2 and row["Result"] == "OK"
