@@ -25,7 +25,8 @@ import urllib.error
 import urllib.request
 import uuid
 from collections import deque
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from datetime import date, datetime
 from pathlib import Path
 from typing import Any, TextIO
@@ -759,7 +760,7 @@ def _handle_one(client: TelegramClient, s: Settings, update: dict[str, Any],
         return
     if fetch is not None and _is_fetch(update, s):
         with Typing(client, str(s.telegram_chat_id)):  # "typing..." until the summary
-            run_fetch(client, s, str(s.telegram_chat_id), fetch)
+            run_fetch(client, s, str(s.telegram_chat_id), fetch, desk=desk)
         return
     chat = str(s.telegram_chat_id)
     message = update.get("message") or {}
@@ -1111,22 +1112,44 @@ def run_fetch(
     chat_id: str,
     fetch: Fetcher,
     clock: Callable[[], float] = time.monotonic,
+    desk: Desk | None = None,
 ) -> None:
     """/fetch: reply at once, keep one progress message updated, then send the summary."""
     progress = ProgressMessage(client, chat_id, s, clock=clock)
-    try:
-        with CONTROL.job("/fetch"):
-            summary = fetch(progress.update)
-    except Stopped:
-        _stopped(client, s, chat_id, "/fetch", progress)
-        return
-    except Exception as exc:  # report any sweep failure instead of stopping the bot
-        log.exception("/fetch failed")
-        progress.finish(ok=False)
-        client.send_message(chat_id, telegram_text(f"/fetch failed: {exc}", s))
-        return
+    with _command_run("/fetch", desk) as run:
+        try:
+            with CONTROL.job("/fetch"):
+                summary = fetch(progress.update)
+        except Stopped:
+            run.fail("stopped by /end")
+            _stopped(client, s, chat_id, "/fetch", progress)
+            return
+        except Exception as exc:  # report any sweep failure instead of stopping the bot
+            run.fail(exc)
+            log.exception("/fetch failed")
+            progress.finish(ok=False)
+            client.send_message(chat_id, telegram_text(f"/fetch failed: {exc}", s))
+            return
+        run.note([summary.split(NEXT_STEP)[0]])
     progress.finish(ok=True)
     client.send_message(chat_id, telegram_text(summary, s))
+
+
+@contextmanager
+def _command_run(name: str, desk: Desk | None) -> Iterator[Any]:
+    """A long command sent by hand (/fetch, /screen, /autopilot) gets its Run Log row like a
+    scheduled step (20 Nov: your /fetch runs left no row, so a hung or stopped one could not
+    be looked up). Step is the command, so it is told apart from the scheduled runs."""
+    from jobengine.track import run_log
+
+    def now() -> datetime:
+        try:
+            return desk.tracking_now() if desk is not None else datetime.now().astimezone()
+        except Exception:  # a clock that needs Notion must not stop the command
+            return datetime.now().astimezone()
+
+    with run_log.recorded(name, getattr(desk, "run_log_table", None), now) as run:
+        yield run
 
 
 def _stopped(client: TelegramClient, s: Settings, chat_id: str, name: str,
@@ -1164,17 +1187,21 @@ def run_screen(
     `scope`: today (the default), week or all (6 Nov)."""
     progress = ProgressMessage(client, chat_id, s, clock=clock, name="Screening",
                                first="Screening new jobs")
-    try:
-        with CONTROL.job("/screen"):
-            replies = desk.screen_replies(scope, progress.update, limit)
-    except Stopped:
-        _stopped(client, s, chat_id, "/screen", progress)
-        return
-    except Exception as exc:  # report the failure instead of stopping the bot
-        log.exception("/screen failed")
-        progress.finish(ok=False)
-        client.send_message(chat_id, telegram_text(f"/screen failed: {exc}", s))
-        return
+    with _command_run("/screen", desk) as run:
+        try:
+            with CONTROL.job("/screen"):
+                replies = desk.screen_replies(scope, progress.update, limit)
+        except Stopped:
+            run.fail("stopped by /end")
+            _stopped(client, s, chat_id, "/screen", progress)
+            return
+        except Exception as exc:  # report the failure instead of stopping the bot
+            run.fail(exc)
+            log.exception("/screen failed")
+            progress.finish(ok=False)
+            client.send_message(chat_id, telegram_text(f"/screen failed: {exc}", s))
+            return
+        run.note(replies)
     progress.finish(ok=True)
     send_replies(client, s, chat_id, with_next_step("/screen", replies))
 
@@ -1215,17 +1242,21 @@ def run_autopilot(
     """/autopilot: one progress message, then the summary and the resumes."""
     progress = ProgressMessage(client, chat_id, s, clock=clock, name="Autopilot",
                                first="Autopilot started")
-    try:
-        with CONTROL.job("/autopilot"):
-            replies = desk.autopilot(autopilot_fetch(fetch), progress.update)
-    except Stopped:
-        _stopped(client, s, chat_id, "/autopilot", progress)
-        return
-    except Exception as exc:  # report the failure instead of stopping the bot
-        log.exception("/autopilot failed")
-        progress.finish(ok=False)
-        client.send_message(chat_id, telegram_text(f"/autopilot failed: {exc}", s))
-        return
+    with _command_run("/autopilot", desk) as run:
+        try:
+            with CONTROL.job("/autopilot"):
+                replies = desk.autopilot(autopilot_fetch(fetch), progress.update)
+        except Stopped:
+            run.fail("stopped by /end")
+            _stopped(client, s, chat_id, "/autopilot", progress)
+            return
+        except Exception as exc:  # report the failure instead of stopping the bot
+            run.fail(exc)
+            log.exception("/autopilot failed")
+            progress.finish(ok=False)
+            client.send_message(chat_id, telegram_text(f"/autopilot failed: {exc}", s))
+            return
+        run.note([r for r in replies if not getattr(r, "document", None)])
     progress.finish(ok=True)
     send_replies(client, s, chat_id, with_next_step("/autopilot", replies))
 
