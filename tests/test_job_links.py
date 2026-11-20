@@ -79,6 +79,13 @@ def board_api(postings):
     return get
 
 
+@pytest.fixture
+def google_copy_on(monkeypatch):
+    """Google's copy is off since 20 Nov (sweep.job_links.google_copy): these tests turn it
+    on to keep it working for the day Gemini gives its result links again."""
+    monkeypatch.setattr(job_links, "google_copy", lambda s: True)
+
+
 def deps(rows, pages=None, get=None, llm=None, state=None, careers=None):
     repo = FakeJobsRepo([{"page_id": f"p{i}", **r} for i, r in enumerate(rows)])
     return job_links.Deps(s=load_settings("local", {}), repo=repo, page=Pages(pages or {}),
@@ -253,6 +260,7 @@ def test_the_careers_page_of_target_companies_is_read_first_and_costs_no_search(
     assert "https://www.dunedata.com/careers/senior-devops-engineer" not in d.page.opened
 
 
+@pytest.mark.usefixtures("google_copy_on")
 def test_the_careers_page_is_found_once_by_a_search_and_remembered():
     state = FakeBotState()
     search = Search(careers=CAREERS)
@@ -1107,6 +1115,7 @@ ADVERT = ("DevOps Engineer in Amsterdam. You build and run our Kubernetes platfo
 OWN = "https://www.dunedata.com/careers/devops-engineer-amsterdam"
 
 
+@pytest.mark.usefixtures("google_copy_on")
 def test_a_site_that_could_not_be_checked_is_read_from_googles_copy():
     """4 Nov, your decision: Serco's site refuses the bot; Google has its page."""
     search = GoogleCopy({"found": True, "url": OWN, "description": ADVERT},
@@ -1139,6 +1148,7 @@ def test_googles_copy_is_used_only_when_it_is_this_job_on_the_company_site(reply
     assert d.repo.rows["p0"]["URL"] == LINKEDIN
 
 
+@pytest.mark.usefixtures("google_copy_on")
 def test_googles_copy_takes_its_answer_on_the_company_site_when_it_names_the_job():
     """4 Nov: Serco, Medtronic and HSBC came back with the job's own address as the answer
     but only LinkedIn and Indeed as sources."""
@@ -1160,6 +1170,7 @@ def test_an_address_names_the_job_only_with_every_title_word():
     assert not job_links._url_names_role("https://x.com/jobs/1", "DevOps Engineer")
 
 
+@pytest.mark.usefixtures("google_copy_on")
 def test_googles_copy_with_an_address_that_no_longer_opens_is_not_used():
     """18 Nov /fetch: Google gave PwC Polska, Netflix, Rado Bank and Rabobank addresses that
     no longer exist; the closed-job check then marked four open jobs Expired. Google's
@@ -1179,6 +1190,7 @@ def test_googles_copy_with_an_address_that_no_longer_opens_is_not_used():
     "https://www.dunedata.com/eu/careers/find-jobs/job-details?jobId=313360",  # Serco
     "https://boards.greenhouse.io/dunedata/jobs/7478061002",  # Sony
 ])
+@pytest.mark.usefixtures("google_copy_on")
 def test_googles_answer_with_a_job_number_on_the_company_site_counts(answer):
     """4 Nov: Serco's and Sony's answers named the job by its number, not its title."""
     search = GoogleCopy({"found": True, "url": answer, "description": ADVERT}, [])
@@ -1188,6 +1200,7 @@ def test_googles_answer_with_a_job_number_on_the_company_site_counts(answer):
     assert d.repo.rows["p0"]["URL"] == answer
 
 
+@pytest.mark.usefixtures("google_copy_on")
 def test_googles_redirect_link_as_its_answer_is_followed(monkeypatch):
     """4 Nov: ChipSoft's answer was Google's own redirect link."""
     from jobengine import http
@@ -1202,6 +1215,7 @@ def test_googles_redirect_link_as_its_answer_is_followed(monkeypatch):
     assert d.repo.rows["p0"]["URL"] == OWN
 
 
+@pytest.mark.usefixtures("google_copy_on")
 def test_googles_copy_when_the_job_list_needed_the_browser_and_none_was_left(monkeypatch):
     """4 Nov: TNO, CGI and SURF: their job lists need the browser, this job's browser pages
     were used up, so the list was never really read: no ghost, and Google's copy is asked."""
@@ -1486,6 +1500,7 @@ def test_three_browsers_open_pages_at_the_same_time_and_one_page_once():
     assert browser.left == 14
 
 
+@pytest.mark.usefixtures("google_copy_on")
 def test_googles_copy_can_use_a_stronger_gemini():
     search = GoogleCopy({"found": False}, [])
     seen = {}
@@ -1522,6 +1537,7 @@ def test_a_close_title_with_its_place_after_it():
                                      "DevOps Engineer", None, "Poland")
 
 
+@pytest.mark.usefixtures("google_copy_on")
 def test_googles_copy_never_falls_back_to_claude():
     search = GoogleCopy({"found": False}, [])
     seen = {}
@@ -1691,3 +1707,22 @@ def test_a_browser_page_that_never_answers_stops_neither_the_search_nor_end(monk
         browser("https://www.logius.nl/vacatures")  # at once, no waiting
     stuck.set()
     assert isinstance(browser._threads[0], ThreadPoolExecutor)
+
+
+def test_googles_copy_is_off_by_default_and_the_searches_stay_lower():
+    """20 Nov, your decision: Google's copy took about half of each /fetch's Google searches
+    and found 0 of 26 jobs on 19 and 20 Nov (Gemini gave "0 result links"), so it is off.
+    The other searches stay; DEV and PC allow 60 AI searches a /fetch, company details 5."""
+    from jobengine.sweep import company_details
+
+    search = GoogleCopy({"found": True, "url": OWN, "description": ADVERT},
+                        ["https://www.linkedin.com/jobs/view/1", OWN])
+    d = deps([row()], llm=search, careers={"dune data": CAREERS})
+    d.page = Refuses({})
+    job_links.run(d, BOARDS)
+    assert search.google == [] and d.repo.rows["p0"]["URL"] == LINKEDIN
+    for env in ("local", "dev", "prod"):
+        s = load_settings(env, {})
+        assert not job_links.google_copy(s)
+        assert s.sweep["job_links"]["max_searches"] <= 60
+        assert company_details.max_per_run(s) == 5
