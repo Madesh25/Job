@@ -72,7 +72,9 @@ CAUSES: tuple[tuple[str, re.Pattern[str]], ...] = (
     ("Refuses the bot (403)", re.compile(
         _code("403") + r"|forbidden|refused the bot|blocks the bot|access denied", re.I)),
     ("Page gone (404)", re.compile(_code("404|410") + r"|not found|page gone", re.I)),
-    ("Timeout", re.compile(r"timed? ?out|timeout|deadline", re.I)),
+    # 20 Nov: "browser page did not answer in 60 s" was Other.
+    ("Timeout", re.compile(r"timed? ?out|timeout|deadline|did not answer in|no answer in",
+                           re.I)),
     ("Server error (5xx)", re.compile(
         _code("50[0-4]") + r"|server error|bad gateway|service unavailable|overloaded", re.I)),
     ("Network", re.compile(

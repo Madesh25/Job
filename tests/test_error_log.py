@@ -148,6 +148,8 @@ def test_the_ping_names_at_most_5_and_counts_the_rest(table, pings):
 def test_likely_causes():
     assert error_log.cause_of("HTTP 429 (still rate limited)") == "Rate limited (429)"
     assert error_log.cause_of("ReadTimeout") == "Timeout"
+    assert error_log.cause_of("browser page did not answer in 60 s: https://x.com/") == "Timeout"
+    assert error_log.cause_of("page not rendered: no answer in 60 s") == "Timeout"
     assert error_log.cause_of("ConnectionError: reset") == "Network"
     assert error_log.cause_of("something odd") == "Other"
 
