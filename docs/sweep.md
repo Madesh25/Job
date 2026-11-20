@@ -455,7 +455,10 @@ site (`src/jobengine/sweep/job_links.py`), newest first:
    that already lists jobs is not. At most 6 per job and `max_rendered` (120, DEV and PC 150) per
    sweep: on 30 Oct CGI's long pages used 5 of 15 and the rest of the sweep had none.
    `browsers` (3) pages are open at the same time, each in its own browser (17 Nov,
-   measured: 26 pages in 15 s instead of 46 s, about 170 MB more memory per browser). A jobs
+   measured: 26 pages in 15 s instead of 46 s, about 170 MB more memory per browser). A page
+   gets 60 s in all; a browser still busy then (20 Nov: Fortray's page never answered and
+   /fetch, and /end, waited for it) is left for the rest of the sweep, the others go on, and
+   closing waits at most 10 s per browser. A jobs
    box from another site inside the page (an iframe: Recruitee, Homerun, Personio ...) is
    read too, with its links made whole with the box's own site. A Workday link without its
    server part (`armacell.myworkdayjobs.com`, an address that does not exist) or with a

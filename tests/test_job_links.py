@@ -1398,7 +1398,7 @@ def test_a_page_is_opened_in_the_browser_once_per_fetch():
             self.opened.append(url)
 
             class Done:
-                def result(self):
+                def result(self, timeout=None):
                     if "fails" in url:
                         raise http.HttpError("page not rendered: timeout")
                     return url, "<html/>"
@@ -1434,7 +1434,7 @@ def test_one_page_with_or_without_the_last_slash_is_opened_once():
             self.opened.append(url)
 
             class Done:
-                def result(self):
+                def result(self, timeout=None):
                     return url, "<html/>"
             return Done()
 
@@ -1461,7 +1461,7 @@ def test_three_browsers_open_pages_at_the_same_time_and_one_page_once():
     class Thread:
         def submit(self, fn, n, url):
             class Done:
-                def result(self):
+                def result(self, timeout=None):
                     with lock:
                         now[0] += 1
                         most[0] = max(most[0], now[0])
@@ -1647,3 +1647,47 @@ def test_a_link_that_is_another_rows_link_skips_the_alert_row():
     summary = SweepSummary(direct_links_tried=1, same_link_jobs=result.same)
     assert "1 the same job as a row already in Notion" in summary.friendly_text()
 
+
+
+def test_a_browser_page_that_never_answers_stops_neither_the_search_nor_end(monkeypatch):
+    """20 Nov /fetch: one browser page never answered (Fortray, from 10:20): the job-link
+    search waited for it without end, and after /end closing the browser waited behind it,
+    so /fetch never finished."""
+    import threading
+    from concurrent.futures import ThreadPoolExecutor
+
+    from jobengine.sweep import render
+
+    monkeypatch.setattr(render, "PAGE_SECONDS", 0.3)
+    monkeypatch.setattr(render, "CLOSE_SECONDS", 0.3)
+    stuck = threading.Event()
+    closed = []
+
+    def open_page(n, url):
+        if "fortray" in url:
+            stuck.wait(5)  # a page that does not answer
+        return url, "<html/>"
+
+    browser = render.Renderer(load_settings("local", {}), left=10, browsers=2)
+    monkeypatch.setattr(browser, "_open", open_page)
+    monkeypatch.setattr(browser, "_close", lambda n: closed.append(n))
+    with pytest.raises(http.HttpError, match="no answer in"):
+        browser("https://www.fortray.com/")
+    assert browser("https://www.logius.nl/vacatures") == (
+        "https://www.logius.nl/vacatures", "<html/>")  # the other browser goes on
+    assert browser("https://www.tno.nl/vacatures")[1] == "<html/>"
+    with pytest.raises(http.HttpError):
+        browser("https://www.fortray.com/")  # its answer is kept: not opened again
+    browser.close()  # does not wait for the stuck page
+    assert closed == [1]
+    stuck.set()
+
+    browser = render.Renderer(load_settings("local", {}), left=10, browsers=1)
+    monkeypatch.setattr(browser, "_open", open_page)
+    stuck.clear()
+    with pytest.raises(http.HttpError):
+        browser("https://www.fortray.com/careers")
+    with pytest.raises(http.HttpError, match="no browser left"):
+        browser("https://www.logius.nl/vacatures")  # at once, no waiting
+    stuck.set()
+    assert isinstance(browser._threads[0], ThreadPoolExecutor)
