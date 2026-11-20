@@ -343,3 +343,32 @@ def test_a_long_command_writes_on_the_way_and_a_stop_writes_the_rest(table, ping
     [row] = table.created
     assert row["Count"] == 3  # 2 written at 400 s (one row), the third at the stop
     assert row["Example"].endswith("site3.com") or "site3.com" in row["Example"]
+
+
+def test_a_row_written_again_keeps_the_names_it_had(table):
+    """20 Nov: the /fetch wrote every 5 minutes; the Workday row (Count 31) ended as "Seen
+    for: Ministry Brands" and the 404 row named only the last 2 of its 7 sites."""
+    busy = "workday site of %s is busy (HTTP 429): left for this /fetch"
+    ats = "/app/src/jobengine/sweep/sources/ats.py"
+    for company in ("LSEG", "Synechron", "Red Hat"):
+        emit(logging.INFO, busy, company, path=ats)
+    emit(logging.INFO, "careers page not read %s: %s", "a.com", "HTTP 404")
+    error_log.flush()
+    emit(logging.INFO, busy, "Ministry Brands", path=ats)
+    emit(logging.INFO, busy, "Synechron", path=ats)
+    emit(logging.INFO, "careers page not read %s: %s", "b.com", "HTTP 404")
+    error_log.flush()
+    workday, gone = table.created
+    assert workday["Count"] == 5
+    assert workday["Example"].endswith("Seen for: LSEG, Synechron, Red Hat, Ministry Brands")
+    assert workday["Example"].startswith("workday site of LSEG is busy")
+    assert gone["Example"].endswith("Sites: a.com, b.com") and gone["Count"] == 2
+
+
+def test_a_long_list_keeps_counting_what_it_does_not_show():
+    problem = error_log.Problem.__new__(error_log.Problem)
+    problem.sites, problem.names = ["new1.com", "s1.com"], []
+    problem.example = "x"
+    old = "x\nSites: " + ", ".join(f"s{i}.com" for i in range(1, 9)) + " (+3)"
+    text = error_log.merged_example(old, problem)
+    assert text.endswith("s8.com (+4)")  # new1.com is counted, s1.com was there already

@@ -413,7 +413,9 @@ ask Claude Code to "read the Error Log rows with Status New and fix them".
   nothing; since 20 Nov also at the end of every command (/fetch, /screen ...), every 5
   minutes while one runs (a /fetch that hangs still leaves its rows) and when the bot is
   stopped (Ctrl+C, docker stop): the rows of the last 8 days are read once, today's row of a problem gets the new
-  count, a new one is added. Your Status, Notes and Fix PR are never overwritten.
+  count, a new one is added. Your Status, Notes and Fix PR are never overwritten. A row
+  written again the same day keeps the sites or companies it named and adds the new ones
+  (20 Nov).
 - A new kind of error or warning (no row in the last 7 days) comes to Telegram once, the
   others of the same run in the same message (at most 5 named). Site problems never ping.
 - Writing the rows or the message never fails the run; rows that could not be written are

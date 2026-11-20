@@ -180,11 +180,29 @@ class Problem:
         return text[:EXAMPLE_CHARS]
 
 
-def _listed(items: list[str]) -> str:
+def _listed(items: list[str], hidden: int = 0) -> str:
     text = ", ".join(items[:MAX_SITES])
-    if len(items) > MAX_SITES:
-        text += f" (+{len(items) - MAX_SITES})"
+    more = hidden + max(0, len(items) - MAX_SITES)
+    if more:
+        text += f" (+{more})"
     return text
+
+
+_LIST = re.compile(r"\n(Sites|Seen for): (.*?)(?: \(\+(\d+)\))?\s*$")
+
+
+def merged_example(old: str | None, problem: Problem) -> str:
+    """The Example of a row written again the same day (20 Nov: a /fetch writes every 5
+    minutes, and the Workday row of 31 companies ended as "Seen for: Ministry Brands"): the
+    first line stays, the sites or names already listed stay, the new ones are added."""
+    match = _LIST.search(old or "")
+    if match is None:
+        return problem.example_text()
+    kind, shown = match.group(1), [x for x in match.group(2).split(", ") if x]
+    new = problem.sites if kind == "Sites" else problem.names
+    items = shown + [item for item in new if item not in shown]
+    hidden = int(match.group(3) or 0)
+    return (old[:match.start()] + f"\n{kind}: " + _listed(items, hidden))[:EXAMPLE_CHARS]
 
 
 def names_in(record: logging.LogRecord) -> list[str]:
@@ -353,7 +371,8 @@ def _write(table: Any, now: Callable[[], datetime], batch: list[Problem]) -> int
             page_id, values = by_key[key]
             table.update(page_id, {
                 "Count": int(values.get("Count") or 0) + problem.count,
-                "Last seen": last, "Example": problem.example_text(), "Where": where(),
+                "Last seen": last, "Example": merged_example(values.get("Example"), problem),
+                "Where": where(),
             })
             continue
         table.create({
