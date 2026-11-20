@@ -170,6 +170,34 @@ def test_freshest_first_within_a_tier():
     assert days_old(row(posted_date=date(2026, 10, 3)), TODAY) is None  # a future date
 
 
+def test_a_kind_of_skill_is_backed_by_your_skill_of_that_kind():
+    """20 Nov audit: Motorola's NoFluffJobs tags "Scripting language" and the misspelled
+    "Continous integration/Continous delivery" were gaps although you have Bash, Python and
+    GitLab CI, so a strong DevOps fit was Needs review."""
+    e = Extraction(mandatory_requirements=[
+        req("Scripting language", "Scripting language", kind="practice"),
+        req("Continous integration/Continous delivery",
+            "Continous integration/Continous delivery", kind="practice"),
+        req("Infrastructure as Code", "Infrastructure as Code", kind="practice"),
+        req("Virtualization", "Virtualization", kind="practice"),
+    ])
+    matrix = build_matrix(e, REF)
+    assert [(m.strength, m.backing) for m in matrix] == [
+        ("Strong", "Bash"),  # Bash is Production, Python Hands-on: the best one backs it
+        ("Strong", "GitLab CI"),
+        ("Strong", "Terraform"),
+        ("Gap", None),  # no clear skill of that kind: still a gap
+    ]
+    assert gap_count(matrix) == 1
+
+
+def test_postings_misspellings_are_the_same_word():
+    from jobengine.reference import canon_term
+
+    assert canon_term("Continous integration") == "continuous integration"
+    assert canon_term("Virtualisation") == "virtualization"
+
+
 def test_a_description_with_no_requirements_is_needs_review():
     """20 Nov audit: Rabobank (Google's copy) was Apply high and four Netflix rows (a team
     introduction only) Apply low with no requirement found: no gaps is no evidence."""

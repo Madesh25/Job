@@ -40,6 +40,9 @@ def _strength(backings: list[Backing]) -> tuple[str, Backing | None]:
 def matrix_item(req: Requirement, ref: Reference, mandatory: bool) -> MatrixItem:
     terms = req.terms or [req.text]
     backings = [b for b in (ref.lookup(t) for t in terms) if b is not None]
+    if not backings:  # "Scripting language": your best skill of that kind (20 Nov audit)
+        backings = [b for b in (ref.category_backing(t) for t in [*terms, req.text])
+                    if b is not None][:1]
     strength, backing = _strength(backings)
     return MatrixItem(strength=strength, text=req.text, backing=backing.name if backing else None,
                       mandatory=mandatory, kind=req.kind)
