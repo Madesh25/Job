@@ -120,21 +120,47 @@ def dedupe_company(company: str | None) -> str:
     return DEDUPE_ALIASES.get(value, value)
 
 
+# 20 Nov audit: Adzuna ends a title with "@ Company" ("DevOps Engineer (GitLab CI/CD) @
+# Sopra Steria Poland"), so the same job from LinkedIn ("Sopra Steria", "DevOps Engineer
+# (GitLab CI/CD)") had another key and was saved twice (Netflix's Data Platform job too).
+_AT_COMPANY = re.compile(r"\s+@\s+.*$")
+
+
+def _without_company(title: str, company: str | None) -> str:
+    """A canonical title without the company's name at its end ("... sopra steria poland"),
+    as an "@ Company" ending leaves it; the title alone stays when nothing else is left."""
+    words = title.split()
+    for name in dict.fromkeys(filter(None, (canon_company(without_region(company)),
+                                             canon(company), dedupe_company(company)))):
+        tail = name.split()
+        if len(words) > len(tail) and words[-len(tail):] == tail:
+            return " ".join(words[:-len(tail)])
+    return title
+
+
 def dedupe_key(company: str, title: str, city: str | None, country: str) -> str:
     """V16 company-role-city key, all parts canonical (a "(IE)" style tag, a legal suffix
-    and a trailing country or generic word of the company are left out)."""
+    and a trailing country or generic word of the company are left out, and so is an
+    "@ Company" ending of the title)."""
     place = canon_city(city) if city else canon(country)
-    return f"{dedupe_company(company)}|{canon_title(title)}|{place}"
+    role = _without_company(canon_title(_AT_COMPANY.sub("", title or "")), company)
+    return f"{dedupe_company(company)}|{role}|{place}"
 
 
 def index_key(dedupe: str, company: str | None) -> str:
     """The key an existing row is found by: its stored Dedupe key, with the company part
     rebuilt from its Company the way dedupe_key builds it now (rows saved before 8 Nov have
-    the older company part)."""
+    the older company part), and the company's name left out of the end of the title part
+    (rows saved before 20 Nov kept an Adzuna "@ Company" ending)."""
     if not company:
         return dedupe
     _, sep, rest = dedupe.partition("|")
-    return f"{dedupe_company(company)}{sep}{rest}" if sep else dedupe
+    if not sep:
+        return dedupe
+    role, sep2, place = rest.partition("|")
+    if sep2:
+        rest = f"{_without_company(role, company)}{sep2}{place}"
+    return f"{dedupe_company(company)}{sep}{rest}"
 
 
 # 13 Nov (fetch idea 6): one job under two titles was two rows (Lepaya "DevSecOps" from

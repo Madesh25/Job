@@ -807,6 +807,10 @@ in the /fetch summary.
 ## Dedupe and writing
 
 - Dedupe key: `company|title|city` (or country when there is no city), all canonical.
+  Adzuna's "@ Company" ending of a title, and the company's name at the end of the title
+  part, are left out (20 Nov audit: Sopra Steria's and Netflix's jobs from Adzuna were saved
+  a second time next to the LinkedIn and NoFluffJobs rows); rows saved before keep it in
+  their stored key and are found by the index all the same.
 - `Posting IDs` holds `source:id` values, comma separated, last 50 kept.
 - New key: a row with Company, Role, City, Country, Board, URL, Posted date, Salary, Seniority,
   Years required, Dedupe key, Posting IDs, First seen, Swept date, Times seen 1, Status New,
