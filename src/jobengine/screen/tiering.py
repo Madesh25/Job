@@ -54,16 +54,22 @@ def build_matrix(ext: Extraction, ref: Reference) -> list[MatrixItem]:
     ]
 
 
+# 20 Nov audit: Motorola's three "could have" items (RabbitMQ, Spring Boot/Angular,
+# Wireshark) alone made a strong DevOps fit Needs review. A nice-to-have you lack weighs half
+# a mandatory gap.
+NICE_GAP_WEIGHT = 0.5
+
+
 def requirement_count(ext: Extraction) -> int:
     """Skills and requirements the description names: "Docker, Kubernetes and Azure" is 3."""
     return sum(max(1, len(r.terms)) for r in [*ext.mandatory_requirements, *ext.nice_to_have])
 
 
-def gap_count(matrix: list[MatrixItem]) -> int:
-    """Gaps across mandatory non-tool requirements and nice-to-haves (mandatory tools are
-    counted by tier() from unbacked_tools, one gap per tool you do not have)."""
+def gap_count(matrix: list[MatrixItem]) -> float:
+    """Gaps across mandatory non-tool requirements (1 each) and nice-to-haves (half each);
+    mandatory tools are counted by tier() from unbacked_tools, one gap per tool you lack."""
     return sum(
-        1 for item in matrix
+        1 if item.mandatory else NICE_GAP_WEIGHT for item in matrix
         if item.strength == "Gap" and not (item.mandatory and item.kind == "tool")
     )
 
@@ -111,7 +117,7 @@ class Tiering:
     verdict: str
     bottom: bool
     employer: str
-    gap_count: int
+    gap_count: float
     flags: tuple[str, ...]  # flags added by tiering (Sponsorship stated)
     notes: tuple[str, ...]
 
@@ -132,7 +138,7 @@ def tier(
         verdict = "Apply high"
     elif gaps <= 1:
         verdict = "Apply normal"
-    elif gaps == 2:
+    elif gaps <= 2:
         verdict = "Apply low"
     else:
         verdict = "Needs review"

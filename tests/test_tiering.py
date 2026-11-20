@@ -62,7 +62,7 @@ def test_matrix_strengths():
         ("Gap", None),
         ("Gap", None),
     ]
-    assert gap_count(matrix) == 3
+    assert gap_count(matrix) == 2  # the degree 1, the two nice-to-haves half each
 
 
 def test_apply_high_needs_zero_gaps_large_employer_and_permanent():
@@ -72,15 +72,32 @@ def test_apply_high_needs_zero_gaps_large_employer_and_permanent():
     assert run(row(company="Odra Systems S.A.")).verdict == "Apply normal"
 
 
+def must_gaps(n, **kw):
+    """A job with n mandatory requirements you lack (not tools)."""
+    return ext(mandatory_requirements=[req("Kubernetes", "Kubernetes"),
+                                       req("Kubernetes operators", "Kubernetes"),
+                                       *(req(f"Gap {i}", "Cobol", kind="other")
+                                         for i in range(n))], **kw)
+
+
 def test_base_tier_by_gap_count():
     r = row(company="Odra Systems S.A.")
-    assert [run(r, ext(gaps=n)).verdict for n in range(5)] == [
+    assert [run(r, must_gaps(n)).verdict for n in range(5)] == [
         "Apply normal", "Apply normal", "Apply low", "Needs review", "Needs review"]
+
+
+def test_a_nice_to_have_gap_weighs_half():
+    """20 Nov audit: Motorola's three "could have" items alone made a strong fit Needs
+    review."""
+    r = row(company="Odra Systems S.A.")
+    assert [run(r, ext(gaps=n)).verdict for n in range(6)] == [
+        "Apply normal", "Apply normal", "Apply normal", "Apply low", "Apply low",
+        "Needs review"]
 
 
 def test_sponsorship_stated_moves_up_and_flags():
     yes = Quoted(value="stated_yes", quote="q")
-    result = run(row(company="Odra Systems S.A."), ext(gaps=2, sponsorship=yes))
+    result = run(row(company="Odra Systems S.A."), must_gaps(2, sponsorship=yes))
     assert result.verdict == "Apply normal"
     assert result.flags == (visa.SPONSORSHIP_STATED,)
     assert run(row(company="Odra Systems S.A."), ext(sponsorship=yes)).verdict == "Apply high"
@@ -109,7 +126,7 @@ def test_cannot_sponsor_goes_to_bottom():
     result = run(row(company="Unknown BV", country="Netherlands"), ext(contract_types=[]),
                  flags=[visa.NOT_ON_IND])
     assert (result.employer, result.verdict, result.bottom) == ("weak", "Apply low", True)
-    result = run(row(company="Odra Systems S.A."), ext(gaps=3, sponsorship=no))
+    result = run(row(company="Odra Systems S.A."), must_gaps(3, sponsorship=no))
     assert (result.verdict, result.bottom) == ("Needs review", True)
 
 

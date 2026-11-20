@@ -189,7 +189,8 @@ Exactly 5 years passes and only ranks lower.
 
 Every requirement gets a strength: `Strong` (Production skill or Active Term Map row),
 `Transferable` (Hands-on skill) or `Gap`. `gap_count` counts the gaps in mandatory non-tool
-requirements and nice-to-haves.
+requirements (1 each) and nice-to-haves (half each since 20 Nov: Motorola's three "could
+have" items alone made a strong fit Needs review).
 
 A requirement that names only a kind of skill ("Scripting language", "Continuous
 integration/Continuous delivery", "Infrastructure as Code", "Monitoring", "Containers",
@@ -206,7 +207,7 @@ posting gives ("scripting languages (e.g. Bash, Python)") as the requirement's t
 - Permanent contract: Poland `UoP` or both; Netherlands and Ireland `permanent` stated, or not
   stated as `contract`.
 - Base: 0 gaps, large employer and permanent contract: `Apply high`. At most 1 gap:
-  `Apply normal`. 2 gaps: `Apply low`. 3 or more: `Needs review`.
+  `Apply normal`. Up to 2: `Apply low`. More: `Needs review`.
 - Then: stated sponsorship moves up one tier and adds the Visa flag `Sponsorship stated`; a
   weak employer is capped at `Apply low`; a job that cannot sponsor (sponsorship stated no,
   `Not on IND register`, `Agency posting (IE)`) becomes at most `Apply low` and goes to the
