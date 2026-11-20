@@ -192,6 +192,15 @@ Every requirement gets a strength: `Strong` (Production skill or Active Term Map
 requirements (1 each) and nice-to-haves (half each since 20 Nov: Motorola's three "could
 have" items alone made a strong fit Needs review).
 
+A requirement that names only a kind of skill ("Scripting language", "Continuous
+integration/Continuous delivery", "Infrastructure as Code", "Monitoring", "Containers",
+"Version control") is backed by your best Production or Hands-on skill of that Skills
+Inventory Category (Scripting, CI/CD, IaC, Monitoring, Containers, Version control) when no
+skill matches by name (20 Nov audit: Motorola's NoFluffJobs tags were gaps although you have
+Bash, Python and GitLab CI). Postings' misspellings ("Continous") count as the word. A kind
+with no clear skill (virtualization) stays a gap. The extraction also lists the examples a
+posting gives ("scripting languages (e.g. Bash, Python)") as the requirement's terms.
+
 - Employer size (Config `employer.size_rules`): `large` for Target Companies Tier 1, 2, 3, 4
   or 6, or `On IND register`; `weak` for a company outside Target Companies without stated
   sponsorship, `Agency posting (IE)` or `Not on IND register`; otherwise `normal`.

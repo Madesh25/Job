@@ -24,10 +24,38 @@ OWNED_LEVELS = ("Production", "Hands-on")
 NONE_EQUIVALENT = "(none)"
 
 
+# Spellings postings use for the same word (20 Nov: NoFluffJobs' Motorola tag "Continous
+# integration/Continous delivery").
+SPELLINGS = {"continous": "continuous", "continious": "continuous", "virtualisation":
+             "virtualization", "containerisation": "containerization"}
+
+
 def canon_term(term: str | None) -> str:
     """Canonical requirement term: "Terraform 1.5" -> "terraform", "CI/CD" -> "ci cd"."""
-    tokens = canon(term).split()
+    tokens = [SPELLINGS.get(t, t) for t in canon(term).split()]
     return " ".join(t for t in tokens if not re.fullmatch(r"v?\d+", t))
+
+
+# A requirement that names only a kind of skill (20 Nov audit: Motorola's "Scripting
+# language" and "Continous integration/Continous delivery" were gaps although the Skills
+# Inventory has Bash, Python and GitLab CI) is backed by your best owned skill of that
+# Skills Inventory Category. Kinds with no clear skill (virtualization) are not here.
+CATEGORY_TERMS = {
+    "Scripting": ("scripting", "scripting language", "scripting languages", "shell scripting",
+                  "scripting skills"),
+    "CI/CD": ("ci cd", "ci cd tools", "ci cd pipeline", "ci cd pipelines",
+              "continuous integration", "continuous delivery", "continuous deployment",
+              "continuous integration continuous delivery",
+              "continuous integration continuous deployment",
+              "continuous integration and continuous delivery",
+              "continuous integration and delivery"),
+    "IaC": ("iac", "infrastructure as code"),
+    "Monitoring": ("monitoring", "observability", "monitoring tools",
+                   "monitoring and alerting"),
+    "Containers": ("containers", "containerization", "container orchestration"),
+    "Version control": ("version control", "version control systems"),
+}
+CATEGORY_OF = {term: category for category, terms in CATEGORY_TERMS.items() for term in terms}
 
 
 # Words a posting puts around a tool name that do not change the tool: "MS Azure", "Linux
@@ -306,6 +334,21 @@ class Reference:
             if row and row.backs:
                 return Backing(kind="term_map", level=None, row_id=row.row_id,
                                name=row.truthful_equivalent)
+        return None
+
+    def category_backing(self, term: str) -> Backing | None:
+        """Your best owned skill of the kind a general requirement names ("Scripting
+        language": Bash), or None."""
+        for key in term_keys(term):
+            category = CATEGORY_OF.get(key)
+            if category is None:
+                continue
+            owned = [s for s in self.skills if s.category == category
+                     and s.level in OWNED_LEVELS]
+            if owned:
+                best = min(owned, key=lambda s: OWNED_LEVELS.index(s.level or "Hands-on"))
+                return Backing(kind="skill", level=best.level, row_id=best.row_id,
+                               name=best.name)
         return None
 
     def is_known_gap(self, term: str) -> bool:
