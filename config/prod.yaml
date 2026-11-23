@@ -16,6 +16,8 @@ notion:
     # 18 Nov: Run Log and Error Log, created by Claude Code on the Job Engine page.
     run_log: "41c6edc2-b0d4-8159-b044-000beb4ce92d"
     error_log: "41c6edc2-b0d4-8194-be28-000bfb230d78"
+    # 23 Nov (S1): Daily Scorecard, one row a day, created by Claude Code next to Run Log.
+    daily_scorecard: "4216edc2-b0d4-8147-ac96-000ba3144da7"
 gmail:
   sender: "madeshwaran.manikam@gmail.com"
 llm:
