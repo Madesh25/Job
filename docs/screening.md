@@ -71,6 +71,11 @@ Screening done: 14 screened (5 high, 1 normal, 2 low, 1 needs review, 5 skipped)
 - Skip (Tech mismatch): Odra Systems S.A., Platform Engineer (Poznań) | ...
 ```
 
+In Telegram (23 Nov, your ask: short and easy to read) /screen answers with the verdict
+counts that are not zero, the jobs waiting for /jd, the AI cost, how many wait in /pending
+and how many older jobs were not taken ("/screen week"). The full text above, with tokens
+and the model, is the page of the /screen row in Run Log.
+
 ## Free checks before the AI
 
 Before a job goes to the LLM it is checked for free, with the same rules the sweep uses
