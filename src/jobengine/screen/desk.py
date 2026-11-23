@@ -3031,6 +3031,39 @@ class Desk:
                           f"The digest reminds you after {ag.FOLLOW_UP_DAYS} days.")]
         return [Reply(ag.intro(self.s, config, agency)[:MAX_TEXT])]
 
+    # ------------------------------------------------------------ apply today (S4)
+
+    def apply_today(self) -> list[Reply]:
+        """The 3 to 5 best fresh jobs to apply to now (/applytoday, and 08:30 by itself)."""
+        from jobengine.track import apply_today, nudge
+
+        if self.repo is None:
+            return [Reply("Apply today needs Notion; it is not available here.")]
+        today = self._nudge_here().date()
+        rows = self.repo.query_rows(select_filter("Status", apply_today.READY))
+        picks = apply_today.pick(rows, today)
+        if not picks:
+            return [Reply("☀️ Apply today: no fresh job (posted in the last 2 days, Apply high "
+                          "or normal, resume built) is waiting. /pending shows the rest.")]
+        jobs = [(pid, values, short_id(pid)) for pid, values in picks]
+        minutes = nudge.minutes_per_job(self.deps.config())
+        return [Reply(apply_today.text(jobs, today, minutes)[:MAX_TEXT],
+                      apply_today.buttons(jobs), column=True)]
+
+    def apply_today_tick(self) -> list[Reply]:
+        """08:30 India time (Config schedule.apply_today_time): the card, once a day, only
+        when a fresh ready job waits (S4)."""
+        from jobengine.track import apply_today
+
+        here = self._nudge_here()
+        if self.repo is None or not apply_today.due(self.deps.config(), self.state, here):
+            return []
+        if self.on_holiday():
+            return []
+        apply_today.mark_sent(self.state, here.date())
+        rows = self.repo.query_rows(select_filter("Status", apply_today.READY))
+        return self.apply_today() if apply_today.pick(rows, here.date()) else []
+
     # ------------------------------------------------------------ apply nudge (H7)
 
     def _nudge_here(self) -> datetime:

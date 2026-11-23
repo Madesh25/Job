@@ -68,6 +68,7 @@ HELP_TEXT = (
     "/alertcheck - the job alert mails the next /fetch reads, and their jobs\n"
     "\n🟢 Review and apply\n"
     "/pending - pick a country, then today's jobs (/pending week, all, /pending poland)\n"
+    "/applytoday - the 3 to 5 best fresh jobs to apply to now\n"
     "/applypack <url or id> - ready answers for a job's form (visa, notice, salary)\n"
     "/autofill - the bookmark that fills forms from the Apply pack code\n"
     "/answer <question> = <answer> - save a form answer for every form\n"
@@ -77,31 +78,30 @@ HELP_TEXT = (
     "/gaps - skills jobs ask for that you lack, and which certificate covers most\n"
     "/keywords - the tools your best jobs name most, to add to LinkedIn\n"
     "\n🟠 Contacts and mails\n"
-    "/fetchcontacts - contacts and Gmail drafts (resume attached) for today's applied jobs\n"
+    "/fetchcontacts - contacts and Gmail drafts for today's applied jobs\n"
     "/contacts <url or id> - contacts for a job, and your LinkedIn connections there\n"
     "/drafts <url or id> - write Gmail drafts for a job's contacts again\n"
     "/connections - your LinkedIn connections; send the export zip to update\n"
     "/credits - contact credits left, asked from each provider\n"
     "/outreach - this week's budget: which approved jobs get contacts and cold mails\n"
-    "/mailmode - draft (only write Gmail drafts) or send (check every mail, then send it)\n"
+    "/mailmode - draft (write Gmail drafts only) or send (check each mail, then send)\n"
     "/mailqueue - mails waiting for the recipient's morning (Mon to Fri, 8 to 11)\n"
     "/agencies - recruitment agencies by country; /agencies <name> gives the intro mail\n"
     "\n🔴 Replies and interviews\n"
     "/today - run the daily check now (sent mails, replies, bounces, follow-ups)\n"
     "/followups - follow-up drafts waiting to be sent, and follow-ups due soon\n"
-    "/prep <url or id> - interview prep: likely questions, your gaps, questions to ask them\n"
+    "/prep <url or id> - interview prep: likely questions, gaps, what to ask\n"
     "/thanks <url or id> <name> - the thank-you mail after an interview\n"
     "/stats - applied, replies, interviews and reply rates (30 days and all time)\n"
     "/digest - the weekly digest now\n"
     "/spotcheck - 2 of the week's resumes to look at (/spotcheck notes)\n"
     "/screencheck - 10 of the week's verdicts to tick in Notion\n"
-    "/report - today's daily report now (it also comes every evening, and by email)\n"
+    "/report - today's daily report now (also every evening, by email)\n"
     "\n🟡 Strategy, health and control\n"
     "/update - monthly strategy research (opens /fetch); /update new again\n"
     "/rules - V16 rules, thresholds, adopted tips and the /fetch gate\n"
     "/audit - the weekly self-audit now (it also comes every Sunday)\n"
-    "/autopilot - fetch, screen, approve the best (10 a day), resumes, contacts, Gmail "
-    "drafts\n"
+    "/autopilot - fetch, screen, approve the best 10, resumes, contacts, drafts\n"
     "/autopilot when - its schedule (07:00 and 19:30) and the next run\n"
     "/timetable - when everything runs, your time and theirs\n"
     "/next - your day in order: what is done and what to do now\n"
@@ -241,7 +241,8 @@ DESK_COMMANDS = ("next", "pending", "add", "newcompanies", "report", "jd", "done
                  "outreach", "drafts", "answer", "answers", "autofill", "dryrun", "autoapply",
                  "fetchcontacts",
                  "alertcheck", "fetchreport", "linkedin", "today", "followups", "stats",
-                 "sources", "health", "digest", "spotcheck", "screencheck", "update", "rules",
+                 "sources", "health", "digest", "spotcheck", "screencheck", "applytoday",
+                 "update", "rules",
                  "pause", "resume", "audit", "bug")
 
 # (method, payload, http_timeout) -> decoded JSON response
@@ -1065,6 +1066,8 @@ def desk_replies(update: dict[str, Any], s: Settings, desk: Desk | None) -> list
         return _guarded("/autofill", desk.autofill_command)
     if command == "spotcheck":
         return _guarded("/spotcheck", lambda: desk.spot_check_command(args))
+    if command == "applytoday":  # S4: the morning card now
+        return _guarded("/applytoday", desk.apply_today)
     if command == "screencheck":  # S3: the weekly screening check now
         return _guarded("/screencheck", desk.screen_check)
     if command == "autoapply":
@@ -1348,6 +1351,7 @@ def autopilot_check(client: TelegramClient, s: Settings, desk: Desk | None,
     replies += _scheduled("Monthly update", desk.auto_update_tick, desk)
     replies += _scheduled("Autopilot",
                          lambda: desk.autopilot_scheduled(autopilot_fetch(fetch)) or [], desk)
+    replies += _scheduled("Apply today", desk.apply_today_tick, desk)
     replies += _scheduled("Afternoon check",
                           lambda: desk.check_scheduled(autopilot_fetch(fetch)) or [], desk)
     replies += _scheduled("Mail queue", desk.mail_queue_tick, desk)

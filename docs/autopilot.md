@@ -128,6 +128,24 @@ it (a bot that was off then does not run it in the evening), and never while ano
 `/fetch`, `/screen` or `/autopilot` runs. `/autopilot when` shows it. On Cloud Run the
 scheduler job `je-check-prod` calls `POST /tasks/check` ([deploy.md](deploy.md) B4).
 
+## Apply today, each morning (S4, 23 Nov, your request)
+
+Applying in the first 1 to 2 days after a job is posted gets far more replies, so each morning
+at 08:30 India time (after the 07:00 run built the resumes) the bot sends one card with the
+3 to 5 best fresh jobs (`src/jobengine/track/apply_today.py`), best first: Apply high before
+Apply normal, then the newest. A job is on it when it is all three of:
+
+- fresh: posted in the last 2 days (Posted date; the day /fetch first found it when the board
+  gave no date);
+- good: Screen verdict Apply high or Apply normal;
+- ready: Status Resume built (resume done, not applied yet).
+
+Each line has the place, the verdict, how old it is and its `/applypack`; one "I applied"
+button per job. No card comes when no job is all three (the 22:00 nudge still lists every
+ready job), and none in holiday mode. `/applytoday` shows the card at any time. Notion Config:
+`schedule.apply_today` (`false` turns it off), `schedule.apply_today_time` (default 08:30). On
+Cloud Run it rides on the 15-minute auto-apply calls (07:00 to 23:45).
+
 ## Apply nudge from 22:00 (Autopilot H7)
 
 Your decision of 25 Oct: you start applying at 22:00 India time, and a gentle push helps.
