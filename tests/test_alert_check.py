@@ -20,7 +20,7 @@ def test_label_term():
 def test_query_reads_the_label_or_a_known_sender():
     query = gmail_alerts.alert_query(CFG)
     # 23 Oct: Spam is searched too, but only for the label or a known sender.
-    assert query.startswith("newer_than:2d -in:trash (label:job-alerts OR from:(")
+    assert query.startswith("newer_than:3d -in:trash (label:job-alerts OR from:(")
     assert "linkedin.com OR justjoin.it OR" in query and "pracuj.pl" in query
     assert gmail_alerts.alert_query({"query": "from:x.example"}) == "from:x.example"
     assert gmail_alerts.alert_query({"days": 1}) == "newer_than:1d -in:spam -in:trash"
@@ -47,7 +47,7 @@ def test_alertcheck_lists_each_email_and_why_one_gave_nothing():
              '<a href="https://links.grupapracuj.pl/c/2">DevOps Engineer</a>')
     text = gmail_alerts.check(S, lambda: [*fakes.gmail_messages(), odd])
     lines = text.splitlines()
-    assert lines[0].startswith("4 alert email(s) found (search: newer_than:2d")
+    assert lines[0].startswith("4 alert email(s) found (search: newer_than:3d")
     assert lines[1] == ("- LinkedIn | jobalerts-noreply@linkedin.com | DevOps Engineer: 3 new "
                         "jobs in Europe: 3 job(s), 2 in scope")
     # Each dropped job says why.
@@ -62,7 +62,7 @@ def test_alertcheck_lists_each_email_and_why_one_gave_nothing():
 
 def test_alertcheck_explains_an_empty_result_and_a_missing_token():
     assert gmail_alerts.check(S, lambda: []).startswith(
-        "No alert email found. Gmail search used:\nnewer_than:2d")
+        "No alert email found. Gmail search used:\nnewer_than:3d")
     assert gmail_alerts.check(load_settings("dev", {"GMAIL_ALERTS_TOKEN_JSON": ""})).startswith(
         "GMAIL_ALERTS_TOKEN_JSON_m02 and GMAIL_ALERTS_TOKEN_JSON_mm missing")
 
