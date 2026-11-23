@@ -140,6 +140,31 @@ class ScreenSummary:
         extra = [self.usage_line] if self.usage_line else []
         return "\n".join([line, *extra, *self.errors])
 
+    def short_text(self) -> str:
+        """The /screen message for Telegram (23 Nov, your ask: short and easy to read; the
+        full text with tokens and model goes to the Run Log row's page)."""
+        lines = [f"Screening done: {self.screened} screened"]
+        shown = [f"{self.by_verdict[v]} {v}" for v in VERDICT_ORDER if self.by_verdict.get(v)]
+        if shown:
+            lines.append("\u2705 " + " \u00b7 ".join(shown))
+        if self.waiting_for_jd:
+            lines.append(f"\u23F3 {self.waiting_for_jd} waiting for JD: /jd")
+        cost = re.search(r"about \$([\d.]+)", self.usage_line or "")
+        if cost:
+            lines.append(f"\U0001F4B0 AI about ${cost.group(1)}")
+        for error in self.errors:
+            older = _OLDER.match(error)
+            lines.append(f"\u2139\uFE0F {older.group(1)} older jobs not screened: "
+                         f"/screen {older.group(2)}" if older else f"\u26A0\uFE0F {error}")
+        return "\n".join(lines)
+
+
+VERDICT_ORDER = ("Apply high", "Apply normal", "Apply low", "Needs review", "Skip")
+# runner._outside_note: "Only the jobs found today: 290 older Unscreened jobs not taken
+# (/screen week or /screen all for those)."
+_OLDER = re.compile(r"Only the jobs .*?: (\d+) older Unscreened jobs? not taken "
+                    r"\(/screen (\w+)")
+
 
 # ---------------------------------------------------------------- Job Opportunities row
 

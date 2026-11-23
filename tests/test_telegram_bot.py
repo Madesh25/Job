@@ -232,7 +232,7 @@ def test_fetch_in_fake_mode_returns_prefixed_summary(monkeypatch, capsys):
     assert tb.main(["--fake"]) == 0
     out = capsys.readouterr().out
     assert "bot> [LOCAL] \u2705 Job search finished" in out
-    assert "New jobs added to Notion: 8" in out
+    assert "\U0001F195 New jobs: 8 (" in out
 
 
 def test_fetch_reply_goes_through_telegram_text():
@@ -350,11 +350,10 @@ def test_fake_bot_fetch_shows_start_progress_and_summary(monkeypatch, capsys):
     out = capsys.readouterr().out
     assert "bot> [LOCAL] \U0001F50E Searching for jobs (started " in out
     assert "bot (updated)> [LOCAL] \u2705 Job search done in under a minute." in out
-    assert "\U0001F1F5\U0001F1F1 Poland: 3" in out
-    assert "\U0001F1F3\U0001F1F1 Netherlands: 2" in out
-    assert "\U0001F1EE\U0001F1EA Ireland: 3" in out
-    assert "Already in Notion, seen again: 5" in out
-    assert "Not a match (skipped): 3" in out
+    assert "\U0001F195 New jobs: 8 (\U0001F1F5\U0001F1F1 3 \u00b7 \U0001F1F3\U0001F1F1 2 \u00b7 " \
+        "\U0001F1EE\U0001F1EA 3)" in out
+    assert "\U0001F501 Seen before: 5 \u00b7 \U0001F6AB Not for you: 6" in out
+    assert "Already in Notion, seen again" not in out  # the long report is in Notion now
 
 
 def test_poll_once_routes_fetch_to_run_fetch():
@@ -547,7 +546,7 @@ def test_screen_command(desk):
     fake = talk(desk, "/screen", "/screen pl-clean")
     assert fake.sent[0][1].startswith("[LOCAL] \U0001F50E Screening new jobs (started ")
     assert fake.sent[1][1].startswith("[LOCAL] Screening done: 0 screened")
-    assert fake.sent[2][1].startswith("[LOCAL] Screening done: 1 screened (1 high")
+    assert fake.sent[2][1].startswith("[LOCAL] Screening done: 1 screened\n\u2705 1 Apply high")
     assert "ready to review: /pending" in fake.sent[2][1]
 
 
@@ -563,7 +562,7 @@ def test_fetch_never_screens_by_itself():
     calls = []
     d.screen = lambda *a, **k: calls.append(1) or "screened"
     text = tb.make_fetcher(s, True, d)(lambda line: None)
-    assert "New jobs added to Notion: 8" in text
+    assert "\U0001F195 New jobs: 8 (" in text
     assert calls == [] and "Screening done" not in text
     assert text.endswith("Next: /screen checks the new jobs against your profile (uses the AI, "
                          "at most 50 jobs a day).")

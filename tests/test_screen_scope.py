@@ -54,8 +54,7 @@ def test_screen_takes_only_todays_jobs_and_names_the_rest():
     left = set(unscreened(d))
     assert not left & set(TODAY)  # today's jobs were screened
     assert set(ids) - set(TODAY) <= left  # the older ones still wait
-    assert f"Only the jobs found today: {len(ids) - 2} older Unscreened jobs not taken " \
-           "(/screen week or /screen all for those)." in done
+    assert f"\u2139\uFE0F {len(ids) - 2} older jobs not screened: /screen week" in done
 
 
 def test_screen_week_and_all():
@@ -77,7 +76,7 @@ def test_nothing_found_today_says_how_to_take_the_older_ones():
     tb.poll_once(tb.TelegramClient(fake), s, None, desk=d)
     done = next(t for _, t in fake.sent if "Screening done" in t)
     assert "Screening done: 0 screened" in done
-    assert "older Unscreened jobs not taken (/screen week or /screen all for those)." in done
+    assert "older jobs not screened: /screen week" in done
     assert daily.used_today(d.deps.state, FAKE_TODAY) == 0
 
 

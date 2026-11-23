@@ -324,8 +324,49 @@ class SweepSummary:
             lines.extend(f"- {job}" for job in self.high_ghost_jobs)
         return "\n".join(lines)
 
+    def not_for_you(self) -> int:
+        """Postings left out: wrong title, place, years, age, language, contract, skills."""
+        return (self.skipped + self.not_kept + self.too_senior + self.too_old
+                + self.needs_language + self.b2b_only + self.no_sponsorship + self.fully_remote
+                + self.low_match + self.other_cities)
+
+    def wait_for_jd(self) -> int:
+        """New alert jobs whose page the bot could not read: they wait for /jd."""
+        return self.not_on_site_yet + self.site_unchecked
+
+    def short_text(self) -> str:
+        """The /fetch message for Telegram (23 Nov, your ask: the long one tired you to read;
+        it now goes to the Run Log row in Notion). Only what happened and what needs you."""
+        if self.blocked:
+            return self.blocked
+        flags = " · ".join(
+            f"{COUNTRY_FLAGS.get(c, '')} {self.new_by_country.get(c, 0)}".strip()
+            for c in (self.countries or sorted(self.new_by_country)))
+        lines = ["✅ Job search finished", "",
+                 f"\U0001F195 New jobs: {self.new}" + (f" ({flags})" if flags else "")]
+        if self.direct_links_tried:
+            lines.append(f"\U0001F3AF Own job link found: {len(self.direct_links)} of "
+                         f"{self.direct_links_tried} jobs looked up")
+        if self.closed_jobs:
+            lines.append(f"\U0001F9F9 Closed jobs taken off your list: {len(self.closed_jobs)}")
+        lines.append(f"\U0001F501 Seen before: {self.updated + self.reposts} · "
+                     f"\U0001F6AB Not for you: {self.not_for_you()}")
+        todo = []
+        if self.wait_for_jd():
+            todo.append(f"{self.wait_for_jd()} new job(s) wait for /jd (the bot could not "
+                        "read their page)")
+        if self.not_written:
+            todo.append(f"{len(self.not_written)} job(s) could not be saved to Notion")
+        if self.alert_emails == 0:
+            todo.append("no alert email was read: check the Gmail labels and /health")
+        todo.extend(self.not_checked)
+        if todo:
+            lines += ["", "⚠️ For you:"] + [f"- {item}" for item in todo]
+        return "\n".join(lines)
+
     def friendly_text(self) -> str:
-        """Short plain-language summary for Telegram."""
+        """The full plain-language report (since 23 Nov in the Run Log row's page; Telegram
+        gets short_text)."""
         if self.blocked:
             return self.blocked
         lines = [
