@@ -91,7 +91,14 @@ def test_the_scorecard_never_stops_a_run(bound):
 
 
 def test_a_filled_form_is_counted_a_stopped_one_is_not(bound, monkeypatch, tmp_path):
+    import sys
+    import types
+
     state, _table = bound
+    fake = types.ModuleType("playwright.sync_api")  # CI has no Playwright: dry_run stops early
+    fake.sync_playwright = None
+    monkeypatch.setitem(sys.modules, "playwright", types.ModuleType("playwright"))
+    monkeypatch.setitem(sys.modules, "playwright.sync_api", fake)
     for stopped in ("", "the page asks for a captcha", ""):
         monkeypatch.setattr(form_bot, "_run",
                             lambda *a, stopped=stopped, **k: Result(url="x", stopped=stopped))
