@@ -37,6 +37,7 @@ from jobengine.safety import contact_lookups, paid_api_allowed
 from jobengine.screen import (
     add_link,
     autopilot,
+    backlog,
     batch,
     jd_capture,
     keywords_report,
@@ -3755,13 +3756,28 @@ class Desk:
                 if r.status in (None, "", "New")]
         if recent:
             rows = [r for r in rows if jd_recent(r, today)]
-        if board:
+        top = board == backlog.TOP_BOARD  # S5: today's top 5 of every board
+        if board and not top:
             rows = [r for r in rows if (r.board or "Other") == board]
         scores = best.scores(self.state, today)
         rows.sort(key=lambda r: r.posted_date or r.swept_date or date.min, reverse=True)
         rows.sort(key=lambda r: scores.get(r.page_id.replace("-", ""), float("-inf")),
                   reverse=True)
-        return rows
+        return rows[:backlog.TOP] if top else rows
+
+    def jd_backlog_tick(self) -> list[Reply]:
+        """Once a day (S5): never screened jobs more than 7 days old are set Expired, at
+        most 100 a run; a message only when some were."""
+        if self.repo is None or not backlog.due(self.state, self.today()):
+            return []
+        today = self.today()
+        rows = [job_row(pid, values) for pid, values in self.repo.query_rows(
+            select_filter("Screen verdict", "Unscreened"))]
+        old = backlog.to_expire(rows, today)
+        done, left = backlog.expire(old, self.repo.update, today, self.state)
+        if not done:
+            return []
+        return [Reply(backlog.text(done, left, len(self.jd_rows())))]
 
     def jd_board(self) -> str | None:
         return (self.state.get(JD_BOARD_KEY) or {}).get("board")
@@ -3781,11 +3797,14 @@ class Desk:
         for row in rows:
             counts[row.board or "Other"] = counts.get(row.board or "Other", 0) + 1
         order = sorted(counts, key=lambda b: (b != "LinkedIn", -counts[b], b))
-        buttons = [(f"{b} ({counts[b]})", f"jb:{b[:40]}") for b in order]
+        top = min(len(rows), backlog.TOP)
+        buttons = [(f"⭐ Top {top}", f"jb:{backlog.TOP_BOARD}")]  # S5 (23 Nov): start here
+        buttons += [(f"{b} ({counts[b]})", f"jb:{b[:40]}") for b in order]
         buttons.append((f"All ({len(rows)})", "jb:"))
+        lines = "\n".join(backlog.top_lines(rows))
         return [Reply(f"{len(rows)} job(s) of the last {JD_DAYS} days wait for a description"
-                      f"{old}. Tap a board: its jobs come one at a time, best match first.",
-                      buttons)]
+                      f"{old}.\n\nToday's top {top}, best match first (⭐ Top {top} takes "
+                      f"them one at a time):\n{lines}\n\nOr tap a board.", buttons)]
 
     def jd_board_tap(self, board: str) -> list[Reply]:
         self.state.set(JD_BOARD_KEY, {"board": board or None})
@@ -3801,6 +3820,9 @@ class Desk:
         rows = self.jd_rows(board)
         if not rows:
             self.captures.clear()
+            if board == backlog.TOP_BOARD:
+                return [Reply("Today's top jobs all have their description now. /jd shows "
+                              "the boards.")]
             where = f" on {board}" if board else ""
             return [Reply(f"No jobs from the last {JD_DAYS} days wait for a description"
                           f"{where}. /jd shows the other boards.")]
