@@ -2408,23 +2408,32 @@ class Desk:
             return [Reply("No /fetch has run yet (or it ran before this report existed). "
                           "Send /fetch first.")]
         report = LossReport.from_state(value)
-        text = report.report_text(dict(SOURCE_LABELS), str(value.get("at") or "?"), args)
-        # Telegram's / menu cannot suggest the words after a command: one button per big
-        # reason opens it instead (1 Oct test R3).
-        top = [] if args.strip() else report.reasons()[:REPORT_BUTTONS]
-        buttons = [(f"{reason} ({n})", f"fr:{reason}"[:60]) for reason, n in top]
-        replies = [Reply(text[:MAX_TEXT], buttons)]
-        if not args.strip() and self.repo is not None:  # 13 Nov (fetch idea 4)
-            from jobengine.track.stats import board_text
+        word = args.strip()
+        when = str(value.get("at") or "?")
+        if word.lower() == "sources":  # 13 Nov (fetch idea 4); its own answer since 23 Nov
+            return [Reply(self._sources_text()[:MAX_TEXT])]
+        if word:
+            return [Reply(report.report_text(dict(SOURCE_LABELS), when, word)[:MAX_TEXT])]
+        # 23 Nov, your ask: a short overview; the jobs come with a word or a button. Telegram's
+        # / menu cannot suggest the words after a command: one button per big reason opens it
+        # instead (1 Oct test R3).
+        buttons = [(f"{reason} ({n})", f"fr:{reason}"[:60])
+                   for reason, n in report.reasons()[:REPORT_BUTTONS]]
+        buttons.append(("Each source, all time", "fr:sources"))
+        return [Reply(report.overview_text(dict(SOURCE_LABELS), when)[:MAX_TEXT], buttons)]
 
-            try:
-                sources = board_text(v for _pid, v in self.repo.query_rows())
-            except Exception:  # the last /fetch's report still comes
-                log.warning("each source's results not read", exc_info=True)
-                sources = ""
-            if sources:
-                replies.append(Reply(sources[:MAX_TEXT]))
-        return replies
+    def _sources_text(self) -> str:
+        """Each source's jobs in Notion: found, approved, applied, answered (FETCH 11)."""
+        from jobengine.track.stats import board_text
+
+        if self.repo is None:
+            return NO_TARGET
+        try:
+            text = board_text(v for _pid, v in self.repo.query_rows())
+        except Exception:
+            log.warning("each source's results not read", exc_info=True)
+            return "Each source's results could not be read from Notion now: try again later."
+        return text or "No jobs in Notion yet."
 
     def alertcheck_command(self) -> list[Reply]:
         """/alertcheck: the alert emails the next /fetch reads and the jobs in each."""
