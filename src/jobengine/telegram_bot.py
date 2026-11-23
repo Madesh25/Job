@@ -92,7 +92,7 @@ HELP_TEXT = (
     "/followups - follow-up drafts waiting to be sent, and follow-ups due soon\n"
     "/prep <url or id> - interview prep: likely questions, gaps, what to ask\n"
     "/thanks <url or id> <name> - the thank-you mail after an interview\n"
-    "/stats - applied, replies, interviews and reply rates (30 days and all time)\n"
+    "/stats - applied, replies, reply rates; /stats works: what works by source\n"
     "/digest - the weekly digest now\n"
     "/spotcheck - 2 of the week's resumes to look at (/spotcheck notes)\n"
     "/screencheck - 10 of the week's verdicts to tick in Notion\n"
@@ -165,6 +165,7 @@ SHORTCUTS: dict[str, tuple[str, str]] = {
     "answers_start": ("answers start", "the common form questions to answer"),
     "autoapply_status": ("autoapply status", "the form queue and each site's dry runs"),
     "autopilot_when": ("autopilot when", "its schedule and the next run"),
+    "stats_works": ("stats works", "what works: found to answered by source, country, verdict"),
     "spotcheck_notes": ("spotcheck notes", "your notes on the spot-checked resumes"),
     "update_new": ("update new", "monthly strategy research again"),
     "gmailtoken_m02": ("gmailtoken m02", "renew the madeshwaranm02 Gmail token"),
@@ -1088,6 +1089,8 @@ def desk_replies(update: dict[str, Any], s: Settings, desk: Desk | None) -> list
         return _guarded("/mailmode", lambda: desk.mailmode_command(args))
     if command == "status" and desk.track is not None:
         return _guarded("/status", lambda: [Reply(f"{status_text(s)}\n{desk.status_lines()}")])
+    if command == "stats" and args.strip().lower() == "works":  # S6: what works
+        return _guarded("/stats works", desk.what_works_command)
     tracking = {"today": desk.today_command, "followups": desk.followups_command,
                 "stats": desk.stats_command, "sources": desk.sources_command,
                 "health": desk.health_command, "digest": desk.digest_command}

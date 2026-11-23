@@ -7,7 +7,7 @@ from datetime import datetime, timedelta
 
 from jobengine.contacts import agencies
 from jobengine.screen.runner import pending_rows, waiting_for_jd
-from jobengine.track import commands, costs
+from jobengine.track import commands, costs, what_works
 from jobengine.track.runner import TrackDeps
 from jobengine.track.stats import Funnel, compute, pct, replies_report
 
@@ -50,4 +50,5 @@ def run_weekly_digest(deps: TrackDeps, now: datetime) -> str:
         lines.append("Monthly: /keywords for your LinkedIn profile keywords, /gaps for the "
                      "learning plan.")
     lines += ["", replies_report(jobs, contacts, today)]
+    lines += ["", what_works.text(jobs)]  # S6 (23 Nov): where to spend your time
     return "\n".join(lines)

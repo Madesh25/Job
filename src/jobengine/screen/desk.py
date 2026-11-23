@@ -2984,6 +2984,16 @@ class Desk:
         contacts = [v for _, v in self.track.contacts.all_rows()] if self.track.contacts else []
         return [Reply(stats_text(jobs, contacts, self.tracking_now().date())[:MAX_TEXT])]
 
+    def what_works_command(self) -> list[Reply]:
+        """/stats works (S6): found > approved > applied > answered by source, country and
+        verdict, and the days from posting to applying."""
+        from jobengine.track import what_works
+
+        if self.track is None or self.track.jobs is None:
+            return self._no_track() or [Reply(NO_TARGET)]
+        jobs = [v for _, v in self.track.jobs.query_rows()]
+        return [Reply(what_works.text(jobs)[:MAX_TEXT])]
+
     def sources_command(self) -> list[Reply]:
         if self.track is None:
             return self._no_track() or []
