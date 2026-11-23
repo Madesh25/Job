@@ -436,3 +436,24 @@ def test_a_plain_job_without_a_description_still_waits_for_jd(s, deps):
     [result] = screen_one(s, deps, TODAY, "li-no-jd").results
     assert result.verdict == "Unscreened"
     assert deps.repo.rows["li-no-jd"]["Screen verdict"] == "Unscreened"
+
+
+def test_the_short_screen_message():
+    """23 Nov, your ask: 4 long lines with tokens and the model were hard to read; the full
+    text goes to the Run Log page."""
+    from jobengine.screen.models import ScreenSummary
+
+    s = ScreenSummary(screened=11, by_verdict={"Apply low": 2, "Needs review": 5, "Skip": 4},
+                      waiting_for_jd=12,
+                      usage_line="AI used: 7 calls, 7,825 tokens in, 901 out, about $0.0046 "
+                                 "with gemini-3.5-flash-lite",
+                      errors=["Only the jobs found today: 290 older Unscreened jobs not taken "
+                              "(/screen week or /screen all for those).", "AI failed for X"])
+    assert s.short_text().splitlines() == [
+        "Screening done: 11 screened",
+        "✅ 2 Apply low · 5 Needs review · 4 Skip",
+        "⏳ 12 waiting for JD: /jd",
+        "\U0001F4B0 AI about $0.0046",
+        "ℹ️ 290 older jobs not screened: /screen week",
+        "⚠️ AI failed for X"]
+    assert "7,825 tokens" in s.text()  # the full text keeps it (Run Log page)

@@ -3458,12 +3458,16 @@ class Desk:
         assert self.repo is not None
         if summary.waiting_for_jd is None:  # /screen collect: the real count (8 Oct)
             summary.errors.append(self.waiting_line() or "No jobs wait for a description.")
+        from jobengine.track import run_log
+
+        # 23 Nov, your ask: Telegram gets the short text, the Run Log page the full one.
+        run_log.details([summary.text()])
         ready = len(pending_rows(self.repo))
         if not ready:
-            return summary.text()
+            return summary.short_text()
         if not summary.results:  # nothing screened now (stopped, or nothing to do)
-            return f"{summary.text()}\n{ready} screened earlier still wait in /pending."
-        return f"{summary.text()}\n{ready} ready to review: /pending"
+            return f"{summary.short_text()}\n{ready} screened earlier still wait in /pending."
+        return f"{summary.short_text()}\n\U0001F4CB {ready} ready to review: /pending"
 
     def screen(self, args: str = "", progress: Callable[[str], None] | None = None) -> str:
         return self._screen(args, progress)[0]

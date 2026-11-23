@@ -546,7 +546,7 @@ def test_screen_command(desk):
     fake = talk(desk, "/screen", "/screen pl-clean")
     assert fake.sent[0][1].startswith("[LOCAL] \U0001F50E Screening new jobs (started ")
     assert fake.sent[1][1].startswith("[LOCAL] Screening done: 0 screened")
-    assert fake.sent[2][1].startswith("[LOCAL] Screening done: 1 screened (1 high")
+    assert fake.sent[2][1].startswith("[LOCAL] Screening done: 1 screened\n\u2705 1 Apply high")
     assert "ready to review: /pending" in fake.sent[2][1]
 
 
