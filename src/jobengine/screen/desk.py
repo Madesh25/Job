@@ -79,6 +79,7 @@ from jobengine.track.runner import DailyReport, TrackDeps
 log = logging.getLogger("jobengine.screen.desk")
 
 APPROVED_TEXT = "Approved: {job}."
+REFERRAL_FIRST_KEY = "apply.referral_first"  # S7: "false" turns the referral hint off
 NO_RESUME = "Resume building is not available in this bot."
 REBUILD_KEY = "resume.rebuild_ask"  # bot_state: {"log": <Resume Log id>, "at": <iso time>}
 REBUILD_ASK_MINUTES = 30
@@ -857,6 +858,9 @@ class Desk:
         if action in ("ap", "ab"):
             self.repo.update(page_id, {"Status": "Approved"})
             self.say(Reply(APPROVED_TEXT.format(job=job)))
+            hint = self.referral_hint(page_id, values)
+            if hint:  # S7: ask a connection for a referral before you apply
+                self.say(Reply(hint[0], [hint[1]]))
             return self.after_build(self.on_job_approved(page_id, values), position, rest)
         self.repo.update(page_id, {"Status": "Declined"})
         return [Reply(f"Skipped: {job}"), *self.pending(position, rest)]
@@ -1757,6 +1761,29 @@ class Desk:
                                              for m in matches):
             reply.buttons = [*reply.buttons, ("Location and email",
                                               f"rl:{short_id(job_id)}")]
+
+    def referral_hint(self, job_id: str,
+                      values: dict[str, Any]) -> tuple[str, tuple[str, str]] | None:
+        """S7 (23 Nov): an Apply high job at a company where you have LinkedIn connections
+        not asked in the last 30 days: ask one of them for a referral before you apply, with
+        the Referral asks button. None otherwise, or when Config apply.referral_first is
+        false."""
+        config = self.deps.config()
+        if (config.get(REFERRAL_FIRST_KEY) or "true").strip().lower() == "false":
+            return None
+        if values.get("Screen verdict") != "Apply high":
+            return None
+        today = self.today()
+        matches = [m for m in self._connections_at(values) if not m.asked_on(today)]
+        if not matches:
+            return None
+        company = without_region(values.get("Company") or "") or "the company"
+        names = ", ".join(m.row.person.name for m in matches[:3])
+        more = f" and {len(matches) - 3} more" if len(matches) > 3 else ""
+        text = (f"🤝 Referral first: {len(matches)} LinkedIn connection(s) at {company} "
+                f"({names}{more}). Ask one of them for a referral before you apply: a "
+                "referral gets an interview far more often than a cold application.")
+        return text, (f"🤝 Referral asks: {company[:24]}", f"rf:{short_id(job_id)}")
 
     def referral_tap(self, job_id: str) -> list[Reply]:
         """A LinkedIn message per connection at the company (the peer note: they are already
@@ -3057,8 +3084,14 @@ class Desk:
                           "or normal, resume built) is waiting. /pending shows the rest.")]
         jobs = [(pid, values, short_id(pid)) for pid, values in picks]
         minutes = nudge.minutes_per_job(self.deps.config())
-        return [Reply(apply_today.text(jobs, today, minutes)[:MAX_TEXT],
-                      apply_today.buttons(jobs), column=True)]
+        text = apply_today.text(jobs, today, minutes)
+        buttons = apply_today.buttons(jobs)
+        hints = [h for h in (self.referral_hint(pid, dict(values)) for pid, values, _r in jobs)
+                 if h]
+        if hints:  # S7: referral first for the Apply high jobs with connections
+            text += "\n\n" + "\n".join(h[0] for h in hints)
+            buttons += [h[1] for h in hints]
+        return [Reply(text[:MAX_TEXT], buttons, column=True)]
 
     def apply_today_tick(self) -> list[Reply]:
         """08:30 India time (Config schedule.apply_today_time): the card, once a day, only
@@ -3135,8 +3168,13 @@ class Desk:
         values = (self.repo.get_values(job_id) if self.repo else None) or {}
         ref = short_id(job_id)
         text = nudge.card_text(values, applied + 1, target, ref)
-        return [Reply(text, [("✅ I applied", f"ia:{ref}"), ("Not applying", f"na:{ref}"),
-                             ("Done for today", "dd:1")])]
+        buttons = [("✅ I applied", f"ia:{ref}"), ("Not applying", f"na:{ref}"),
+                   ("Done for today", "dd:1")]
+        hint = self.referral_hint(job_id, values)
+        if hint:  # S7: referral first
+            text += f"\n\n{hint[0]}"
+            buttons.insert(0, hint[1])
+        return [Reply(text, buttons, column=hint is not None)]
 
     def nudge_applied(self) -> list[Reply]:
         """After I applied tonight: count it, then the next job or the well done."""

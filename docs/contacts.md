@@ -518,6 +518,18 @@ follow `safety.paid_api_allowed` (prod with DRY_RUN off, or CONTACTS_LIVE on you
    with a Domain). Once per renewal (Bot State `connections.leftover`); the answer says how
    many were looked up and filled.
 
+## Referral first (S7, 23 Nov, your request)
+
+A referral gets an interview far more often than a cold application, so for an **Apply high**
+job at a company where you have LinkedIn connections (not asked in the last 30 days) the bot
+suggests the referral before you apply: "🤝 Referral first: N LinkedIn connection(s) at
+<company> (names). Ask one of them for a referral before you apply ..." with the
+"🤝 Referral asks" button (the same LinkedIn messages as under /contacts). It comes in three
+places: right after you tap Approve (before the resume is built), on the 08:30 Apply today
+card and on the 22:00 nudge card (the button first). Apply normal and lower jobs, companies
+without connections and connections asked recently get nothing. Notion Config
+`apply.referral_first` = `false` turns it off.
+
 ## Recruitment agencies (flow feature 7, /agencies)
 
 `src/jobengine/contacts/agencies.py`. Established recruiters with IT teams in Poland, the
