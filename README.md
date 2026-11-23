@@ -191,8 +191,11 @@ happens only after `develop` was proven on dev. The order at go-live:
 
 1. Merge the fixes into `develop`; CI deploys them to `job-engine-dev`.
 2. Go-live steps 1 and 2 on dev (DRY_RUN true, then false for a moment); fix on `develop`.
-3. When dev is stable, merge the release pull request `develop` into `main` (the draft go-live
-   pull request) and tag it (`v1.0.0`); CI deploys `job-engine-prod`.
+3. When dev is stable, merge a release pull request `develop` into `main` and tag it
+   (`v1.0.0`); CI deploys `job-engine-prod`. (The 17 Nov pull request #356 already put that
+   day's `develop` into `main`; its deploys were skipped because Google Cloud is not set up
+   yet, so nothing runs in prod. The go-live release is a new `develop` into `main` pull
+   request.)
 4. Go-live steps 3 and 4 on prod: DRY_RUN true first, then false.
 5. Later: features keep landing on `develop` and dev; each release is a new `develop` into
    `main` pull request with a new tag. An urgent prod fix is a `hotfix/` branch from `main`,
