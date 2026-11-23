@@ -459,6 +459,18 @@ ask Claude Code to "read the Error Log rows with Status New and fix them".
 
 Tables: Error Log (DEV) (`notion.write.error_log` in dev and local) and Error Log in prod.
 
+## Report a problem from Telegram (S2, 23 Nov, your request)
+
+When a bot message is wrong, reply to it with `wrong: what is wrong` (or `bug: ...`), or send
+`/bug what is wrong`. The bot saves one Error Log row (`src/jobengine/track/reports.py`):
+Problem "You: <your words>", Level **Reported by you**, Stage Reported, Likely cause Your
+report, Status New, and in Example your words, then the message you replied to with its time
+(emails, keys, tokens and link queries blanked). No logs or screenshots need pasting: Claude
+Code reads the rows with Status New and fixes them like the bot's own problems. A report never
+pings (you sent it). Without a reply the row says no message was attached; `/bug` alone answers
+how to write one. When the Error Log cannot be written (DRY RUN for Notion, or Notion down) the
+answer says "Not saved" and why.
+
 ## Heartbeat (Autopilot H4)
 
 The daily report and the failure mails come from the bot itself, so when the PC, the
