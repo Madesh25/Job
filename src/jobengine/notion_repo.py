@@ -1243,6 +1243,9 @@ ISSUE_TYPES = {
 }
 
 
+BLOCKS_PER_REQUEST = 100  # Notion's limit of blocks in one request
+
+
 class NotionTable:
     """A small table the bot adds rows to and reads (Answer bank, Auto-apply issues).
     Written only through the target from safety.notion_write_target."""
@@ -1250,11 +1253,20 @@ class NotionTable:
     def __init__(self, client: NotionClient, data_source_id: str, types: dict[str, str]):
         self.client, self.data_source_id, self.types = client, data_source_id, types
 
-    def create(self, props: dict[str, Any]) -> str:
+    def create(self, props: dict[str, Any], lines: list[str] | None = None) -> str:
+        """A new row; `lines` become its page text, one paragraph each (23 Nov: the full
+        /fetch report goes into its Run Log row, Telegram gets the short one)."""
         body = {"parent": {"type": "data_source_id", "data_source_id": self.data_source_id},
                 "properties": {name: notion_value(self.types[name], value)
                                for name, value in props.items() if value not in (None, "")}}
-        return self.client.request("POST", "/pages", body)["id"]
+        lines = list(lines or [])
+        if lines:
+            body["children"] = paragraph_blocks(lines[:BLOCKS_PER_REQUEST])
+        page_id = self.client.request("POST", "/pages", body)["id"]
+        for start in range(BLOCKS_PER_REQUEST, len(lines), BLOCKS_PER_REQUEST):
+            self.client.request("PATCH", f"/blocks/{page_id}/children", {
+                "children": paragraph_blocks(lines[start:start + BLOCKS_PER_REQUEST])})
+        return page_id
 
     def rows(self) -> list[dict[str, Any]]:
         return [page_values(page) for page in self.client.query(self.data_source_id)]
@@ -1283,9 +1295,11 @@ def _same_value(have: Any, want: Any) -> bool:
 class FakeTable:
     def __init__(self) -> None:
         self.created: list[dict[str, Any]] = []
+        self.bodies: list[list[str]] = []  # the page text of each created row
 
-    def create(self, props: dict[str, Any]) -> str:
+    def create(self, props: dict[str, Any], lines: list[str] | None = None) -> str:
         self.created.append(dict(props))
+        self.bodies.append(list(lines or []))
         return f"fake-{len(self.created)}"
 
     def rows(self) -> list[dict[str, Any]]:

@@ -74,6 +74,9 @@ class Run:
     errors: int = 0
     warnings: int = 0
     texts: list[str] = field(default_factory=list)
+    # The full report for the row's page (23 Nov: Telegram gets the short /fetch summary,
+    # the long one is kept here); empty: the page holds what was sent (texts).
+    details: list[str] = field(default_factory=list)
     failure: str = ""
 
     def note(self, replies: Sequence[Any] | None) -> None:
@@ -100,10 +103,16 @@ class Run:
                  if line.strip()]
         return redact("\n".join(lines[:SUMMARY_LINES]))[:SUMMARY_CHARS]
 
+    def body(self) -> list[str]:
+        """The row's page text: the full report, one line per paragraph, keys and emails
+        blanked."""
+        return [redact(line.rstrip()) for text in (self.details or self.texts)
+                for line in text.splitlines() if line.strip()]
+
     def row(self, ended: float | None = None) -> dict[str, Any]:
         seconds = round((ended if ended is not None else time.monotonic()) - self.clock)
         return {
-            "Run": f"{self.step} {self.started.strftime('%H:%M')}",
+            "Run": name(self),
             "Started": self.started.isoformat(timespec="seconds"),
             "Step": self.step, "Where": where(), "Result": self.result(),
             "Seconds": seconds, "New jobs": self.new_jobs, "Screened": self.screened,
@@ -151,6 +160,18 @@ def note(replies: Sequence[Any] | None) -> None:
         run.note(replies)
 
 
+def details(texts: Sequence[str]) -> None:
+    """The full report of the run on this thread, for its Run Log page (not sent)."""
+    run = getattr(_local, "run", None)
+    if run is not None:
+        run.details.extend(t for t in texts if t and t.strip())
+
+
+def name(run: Run) -> str:
+    """The row's name in Run Log, as written ("/fetch 10:18")."""
+    return f"{run.step} {run.started.strftime('%H:%M')}"
+
+
 class Counter(logging.Handler):
     """Counts the bot's warning and error lines for the runs going on now."""
 
@@ -184,7 +205,11 @@ def write(table: Any, run: Run) -> None:
     if table is None or not run.did_something():
         return
     try:
-        table.create(run.row())
+        lines = run.body()
+        if lines:
+            table.create(run.row(), lines)
+        else:
+            table.create(run.row())
     except Exception as exc:  # the Run Log never fails the run it records
         log.info("run log row not written for %s: %s", run.step, exc)
 
