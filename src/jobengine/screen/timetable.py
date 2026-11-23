@@ -75,6 +75,7 @@ def text(desk: Desk) -> str:
     lines += ["", "Every week:",
               "Sat 11:00 New companies from the visa sponsor lists (/newcompanies)",
               "Sun 09:00 Link check (closed jobs Expired), 10:00 job board check",
+              "Sun 19:30 Screening check (10 verdicts to tick in Notion)",
               "Sun 20:00 Weekly digest, spot check (2 resumes) and the Weekly Audit page",
               "", "Every month:",
               "Friday evening before /fetch closes: /update research, for your Saturday review",

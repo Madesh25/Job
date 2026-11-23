@@ -407,6 +407,7 @@ class Desk:
         self.audit_table: Any = None  # Weekly Audit (27 Oct); None: the audit is Telegram only
         self.run_log_table: Any = None  # Run Log (18 Nov): one row per scheduled run
         self.error_log_table: Any = None  # Error Log (18 Nov): one row per problem per day
+        self.screen_check_table: Any = None  # Screening Check (S3, 23 Nov): 10 a week
         self._audit_checked: date | None = None  # the day the weekly audit was last checked
         # The weekly job board check (sweep/board_watch.py): (today, folder) -> the checks;
         # None where Target Companies cannot be read.
@@ -3359,6 +3360,30 @@ class Desk:
         link = f"https://www.notion.so/{str(page_id).replace('-', '')}"
         return [Reply(f"{report.summary}\n{link}")]
 
+    def screen_check(self) -> list[Reply]:
+        """S3 (23 Nov): 10 of the week's verdicts into Notion Screening Check, last week's
+        result in the message (/screencheck, and Sunday 19:30 by itself)."""
+        from jobengine.notion_repo import select_filter
+        from jobengine.track import screen_check
+
+        if self.repo is None or self.screen_check_table is None:
+            return [Reply("The screening check needs Notion (the Screening Check table); it "
+                          "is not available here.")]
+        jobs = self.repo.query_rows(select_filter("Screen verdict", *screen_check.VERDICTS))
+        text = screen_check.run(self.screen_check_table, self.error_log_table, self.state,
+                                jobs, self.tracking_now())
+        return [Reply(text[:MAX_TEXT])]
+
+    def screen_check_tick(self) -> list[Reply]:
+        """Sunday 19:30 India time: the screening check, once a week (S3)."""
+        from jobengine.track import screen_check
+
+        now = self.tracking_now()
+        if not screen_check.due(self.state, now):
+            return []
+        screen_check.mark_sent(self.state, now.date())
+        return self.screen_check()
+
     def spot_check_tick(self) -> list[Reply]:
         """Sunday 20:00 India time (with the digest): the spot check, once a week."""
         from jobengine.track import spot_check
@@ -4385,6 +4410,7 @@ def fake_desk(s: Settings, today: date, now: Callable[[], datetime] | None = Non
     desk.audit_table = FakeAuditTable()
     desk.run_log_table = FakeTable()
     desk.error_log_table = FakeTable()
+    desk.screen_check_table = FakeTable()
     desk.pings = []  # type: ignore[attr-defined]  # heartbeat pings: True ok, False fail
     desk.heartbeat = lambda ok: desk.pings.append(ok) or True  # type: ignore[attr-defined]
     desk.owner_mail = lambda subject, text: desk.mails.append(  # type: ignore[attr-defined]
@@ -4474,6 +4500,9 @@ def real_desk(s: Settings) -> Desk | None:
     desk.error_log_table = error_log_table(s, client)
     error_log.bind(desk.error_log_table, desk.tracking_now)
     error_log.install()  # the problems of the day, written at the end of each run (18 Nov)
+    from jobengine.notion_repo import screen_check_table
+
+    desk.screen_check_table = screen_check_table(s, client)  # S3, 23 Nov
     from jobengine.sweep import boards
 
     desk.board_reader = lambda today, folder: boards.read_all(s, today, folder)
