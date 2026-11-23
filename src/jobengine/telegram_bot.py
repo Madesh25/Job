@@ -1131,8 +1131,20 @@ def run_fetch(
             client.send_message(chat_id, telegram_text(f"/fetch failed: {exc}", s))
             return
         run.note([summary.split(NEXT_STEP)[0]])
+        summary = with_report_line(summary, run, desk)
     progress.finish(ok=True)
     client.send_message(chat_id, telegram_text(summary, s))
+
+
+def with_report_line(summary: str, run: Any, desk: Desk | None) -> str:
+    """The short /fetch message names the Run Log row that holds the full report."""
+    from jobengine.track import run_log
+
+    if getattr(desk, "run_log_table", None) is None or not run.details:
+        return summary
+    line = f"\U0001F4DD Full report in Notion: Run Log, row \"{run_log.name(run)}\""
+    head, sep, tail = summary.partition(NEXT_STEP)
+    return f"{head}\n{line}{sep}{tail}"
 
 
 @contextmanager
@@ -1529,7 +1541,12 @@ def make_fetcher(s: Settings, fake: bool, desk: Desk | None = None) -> Fetcher:
         else:
             state = desk.state if desk is not None else None
             summary = run_sweep(s, real_deps(s), date.today(), progress=progress, state=state)
-        text = summary.friendly_text()
+        from jobengine.track import run_log
+
+        # 23 Nov, your ask: Telegram gets the short summary; the full report goes to the
+        # page of this /fetch's Run Log row (and /fetchreport still lists the dropped jobs).
+        run_log.details([summary.friendly_text()])
+        text = summary.short_text()
         if summary.blocked or not summary.new:
             return text
         from jobengine.screen import daily
