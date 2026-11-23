@@ -92,6 +92,17 @@ of the Cloud Run task come with the 07:30 call only. `/autopilot when` names the
    are kept so they are never mailed again.
 10. The marker is written and the report sent.
 
+## What works, in the weekly digest (S6, 23 Nov, your request)
+
+The Sunday weekly digest ends with **📈 What works** (`src/jobengine/track/what_works.py`),
+also sent at any time with `/stats works` (menu `/stats_works`). From every job in Notion it
+counts found > approved > applied > answered (and interviews), split by source (Board),
+country and screening verdict, at most 6 lines each (the rest folded into "others"), with the
+share approved. "Speed" is the median number of days from posting (else the day /fetch found
+the job) to applying, and how many were applied within 2 days. Two tips: the source with the
+most approvals for what it finds (at least 10 found), and the sources with at least 30 found
+and none approved: candidates to drop (FETCH 11).
+
 ## Claude API cost in the digest
 
 The weekly digest has a line with the month's Claude API cost so far, what it went on, the
