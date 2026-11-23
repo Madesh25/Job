@@ -435,3 +435,18 @@ next Sunday's message says last week's result ("8 right, 1 wrong, 1 not ticked")
 wrong ones; each wrong one is also written once to the Error Log (Level Reported by you, Stage
 Screen, Status New) so Claude Code fixes it with the other reported rows. The picks of a week
 are the same if the check runs twice, and your ticks are never overwritten.
+
+## The /jd backlog (S5, 23 Nov, your request)
+
+About 290 older Unscreened jobs and the LinkedIn jobs waited for a description, and good new
+jobs were lost in the pile (`src/jobengine/screen/backlog.py`):
+
+- `/jd` starts with **today's top 5**: the jobs of the last 3 days that wait for a description,
+  best /fetch match first, listed in the message; "⭐ Top 5" takes them one at a time (send
+  the saved page or paste the text, as before). The board buttons and "All" stay below it.
+- Once a day a job never screened (Unscreened, Status New) whose posting (else the day /fetch
+  found it) is more than 7 days old is set **Expired** (Skip reason Expired): too old to apply
+  to. It no longer waits for /jd and `/screen` (week, all, the autopilot) no longer takes it.
+  At most 100 a run, so the first clean-up of the old pile takes a few runs; a message says
+  how many ("🧹 Old jobs cleared: ..."). On the PC it runs in the scheduled loop, on Cloud Run
+  with the daily task.

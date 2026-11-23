@@ -462,7 +462,7 @@ def unscreened_rows(deps: ScreenDeps, today: date | None = None,
     waiting = _batch_rows(deps)
     rows = [job_row(pid, v) for pid, v in
             deps.repo.query_rows(select_filter("Screen verdict", "Unscreened"))
-            if pid not in waiting]
+            if pid not in waiting and v.get("Status") != "Expired"]  # S5: too old
     rows = [r for r in rows if in_scope(r, scope, today)]
     ranked = best.scores(deps.state, today) if today else {}
     rows.sort(key=lambda r: r.posted_date or date.min, reverse=True)

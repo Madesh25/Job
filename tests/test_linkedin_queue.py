@@ -11,7 +11,8 @@ def test_jd_shows_a_button_per_board_with_the_jobs_of_the_last_3_days():
     [menu] = d.jd("")
     assert menu.text.startswith(f"1 job(s) of the last {JD_DAYS} days wait for a description "
                                 "(1 older one(s) not shown: /jd list lists them all)")
-    assert menu.buttons == [("LinkedIn (1)", "jb:LinkedIn"), ("All (1)", "jb:")]
+    assert menu.buttons == [("⭐ Top 1", "jb:__top__"), ("LinkedIn (1)", "jb:LinkedIn"),
+                            ("All (1)", "jb:")]
 
 
 def test_a_board_shows_its_jobs_one_at_a_time_and_opens_the_paste():
