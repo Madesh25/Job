@@ -289,6 +289,10 @@ opening the link. Closed jobs get Status Expired, so /pending only shows live jo
   Expired:` with the reason for each. Wrong? Set the Status back in Notion.
 - Notion Config `schedule.expired_check` = `false` switches it off (default on). Bot State
   `expired.check` keeps the date of the last check. On Cloud Run the Sunday digest task runs it.
+- The date is written when the check ends (23 Nov: the bot was stopped 35 s into Monday's
+  check, and the date written at the start made it wait a week). A check that fails with an
+  error is marked too (no retry every few minutes); a check cut by stopping the bot runs again
+  after the restart.
 
 ## Weekly job board check (28 Oct, your request)
 

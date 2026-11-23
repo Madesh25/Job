@@ -3172,17 +3172,25 @@ class Desk:
         now = daily_report.local(self.tracking_now(), config)
         if not expired_check.due(config, self.state, now):
             return []
+        # The week counts as done only when the check ended (23 Nov: the bot was stopped 35 s
+        # into Monday's check and, marked done at the start, it waited a whole week). A check
+        # that fails is marked too, so it is not tried again every few minutes; stopping the
+        # bot (Ctrl+C) is not an Exception, so the check runs again after the restart.
+        try:
+            rows = [job_row(pid, values) for pid, values in self.repo.query_rows(
+                select_filter("Status", *expired_check.OPEN_STATUSES))]
+            if rows and self.notify is not None:
+                # 17 Nov, your choice: on the PC the bot answers no command while this runs
+                # (Mondays when Sunday was missed), so it says so first.
+                self.notify(Reply(f"\U0001F9F9 Weekly link check started: {len(rows)} open "
+                                  "job(s) to look at, this takes a few minutes. Commands you "
+                                  "send now are answered as soon as it ends."))
+            result = expired_check.check(rows, self.get_page, now.date())
+            expired_check.expire(result, self.repo.update, now.date())
+        except Exception:
+            expired_check.mark_done(self.state, now.date())
+            raise
         expired_check.mark_done(self.state, now.date())
-        rows = [job_row(pid, values) for pid, values in self.repo.query_rows(
-            select_filter("Status", *expired_check.OPEN_STATUSES))]
-        if rows and self.notify is not None:
-            # 17 Nov, your choice: on the PC the bot answers no command while this runs
-            # (Mondays when Sunday was missed), so it says so first.
-            self.notify(Reply(f"\U0001F9F9 Weekly link check started: {len(rows)} open job(s) "
-                              "to look at, this takes a few minutes. Commands you send now "
-                              "are answered as soon as it ends."))
-        result = expired_check.check(rows, self.get_page, now.date())
-        expired_check.expire(result, self.repo.update, now.date())
         return [Reply(result.text()[:MAX_TEXT])]
 
     def board_check_tick(self) -> list[Reply]:
