@@ -418,3 +418,20 @@ odpowiedzialnością sp.k." becomes "PwC Advisory"); a second tap on Approve res
    `python -m jobengine.screen --no-write` shows what real screening would decide.
 3. Then `python -m jobengine.screen` writes the results to Job Opportunities (DEV).
 4. In Telegram: `/pending`, tap the buttons, and try `/jd` with a LinkedIn job.
+
+## Weekly screening check (S3, 23 Nov, your request)
+
+The 20 Nov audit of a week of /screen (58 jobs checked one by one, 4 faults found), done by
+itself every week in about 5 minutes (`src/jobengine/track/screen_check.py`). Every Sunday from
+19:30 India time (and with `/screencheck` at any time) the bot picks 10 jobs screened in the
+last 7 days at random, the verdicts in turn (Apply high, Apply normal, Apply low, Needs review,
+Skip, then again), so a rare verdict is not missed. Each one is a row of Notion **Screening
+Check** (`notion.write.screen_check`; Screening Check (DEV) under DEV Sandbox in dev and local):
+the job, its verdict, why (skip reason, gaps, years, sponsorship, language, visa flags,
+contract, ghost risk) and links to its Notion page and its posting.
+
+You tick **Your check** Right or Wrong; for a wrong one pick **Should be** and add a Note. The
+next Sunday's message says last week's result ("8 right, 1 wrong, 1 not ticked") and names the
+wrong ones; each wrong one is also written once to the Error Log (Level Reported by you, Stage
+Screen, Status New) so Claude Code fixes it with the other reported rows. The picks of a week
+are the same if the check runs twice, and your ticks are never overwritten.

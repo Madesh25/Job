@@ -1423,6 +1423,22 @@ SCORECARD_TYPES = {
 }
 
 
+SCREEN_CHECK_TYPES = {
+    "Job": "title", "Week": "rich_text", "Picked": "date", "Verdict": "select",
+    "Country": "rich_text", "Why": "rich_text", "Job page": "url", "Job link": "url",
+    "Your check": "select", "Should be": "select", "Note": "rich_text", "Key": "rich_text",
+}
+
+
+def screen_check_table(s: Settings, client: NotionClient) -> NotionTable | None:
+    """Screening Check (S3, 23 Nov): 10 verdicts a week to tick, or None when not writable."""
+    target = notion_write_target("screen_check", s)
+    if target is None:
+        log.warning("DRY RUN: would write to screen_check")
+        return None
+    return NotionTable(client, target, SCREEN_CHECK_TYPES)
+
+
 def scorecard_table(s: Settings, client: NotionClient) -> NotionTable | None:
     """Daily Scorecard (S1, 23 Nov): one row a day, or None when not writable here."""
     target = notion_write_target("daily_scorecard", s)

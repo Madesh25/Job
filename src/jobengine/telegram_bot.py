@@ -67,8 +67,7 @@ HELP_TEXT = (
     "/fetchreport - where the last /fetch's postings went and why jobs were dropped\n"
     "/alertcheck - the job alert mails the next /fetch reads, and their jobs\n"
     "\n🟢 Review and apply\n"
-    "/pending - pick a country, then its jobs found today (week: 3 days, all); /pending poland, "
-    "netherlands or ireland\n"
+    "/pending - pick a country, then today's jobs (/pending week, all, /pending poland)\n"
     "/applypack <url or id> - ready answers for a job's form (visa, notice, salary)\n"
     "/autofill - the bookmark that fills forms from the Apply pack code\n"
     "/answer <question> = <answer> - save a form answer for every form\n"
@@ -76,7 +75,7 @@ HELP_TEXT = (
     "/dryrun <url or id> - fill the job's form in a browser, never submit\n"
     "/autoapply - fill forms of jobs with a resume; submit when it is on (50 a day)\n"
     "/gaps - skills jobs ask for that you lack, and which certificate covers most\n"
-    "/keywords - the tools your best jobs name most, and which to add to your LinkedIn profile\n"
+    "/keywords - the tools your best jobs name most, to add to LinkedIn\n"
     "\n🟠 Contacts and mails\n"
     "/fetchcontacts - contacts and Gmail drafts (resume attached) for today's applied jobs\n"
     "/contacts <url or id> - contacts for a job, and your LinkedIn connections there\n"
@@ -95,6 +94,7 @@ HELP_TEXT = (
     "/stats - applied, replies, interviews and reply rates (30 days and all time)\n"
     "/digest - the weekly digest now\n"
     "/spotcheck - 2 of the week's resumes to look at (/spotcheck notes)\n"
+    "/screencheck - 10 of the week's verdicts to tick in Notion\n"
     "/report - today's daily report now (it also comes every evening, and by email)\n"
     "\n🟡 Strategy, health and control\n"
     "/update - monthly strategy research (opens /fetch); /update new again\n"
@@ -241,8 +241,8 @@ DESK_COMMANDS = ("next", "pending", "add", "newcompanies", "report", "jd", "done
                  "outreach", "drafts", "answer", "answers", "autofill", "dryrun", "autoapply",
                  "fetchcontacts",
                  "alertcheck", "fetchreport", "linkedin", "today", "followups", "stats",
-                 "sources", "health", "digest", "spotcheck", "update", "rules", "pause",
-                 "resume", "audit", "bug")
+                 "sources", "health", "digest", "spotcheck", "screencheck", "update", "rules",
+                 "pause", "resume", "audit", "bug")
 
 # (method, payload, http_timeout) -> decoded JSON response
 Transport = Callable[[str, dict[str, Any], float], dict[str, Any]]
@@ -1065,6 +1065,8 @@ def desk_replies(update: dict[str, Any], s: Settings, desk: Desk | None) -> list
         return _guarded("/autofill", desk.autofill_command)
     if command == "spotcheck":
         return _guarded("/spotcheck", lambda: desk.spot_check_command(args))
+    if command == "screencheck":  # S3: the weekly screening check now
+        return _guarded("/screencheck", desk.screen_check)
     if command == "autoapply":
         return _guarded("/autoapply", lambda: desk.autoapply_command(args))
     if command == "dryrun":
@@ -1352,6 +1354,7 @@ def autopilot_check(client: TelegramClient, s: Settings, desk: Desk | None,
     replies += _scheduled("Reply check", desk.reply_ping_tick, desk)
     replies += _scheduled("Daily check", desk.tracking_tick, desk)
     replies += _scheduled("Daily report", desk.daily_report_tick, desk)
+    replies += _scheduled("Screening check", desk.screen_check_tick, desk)
     replies += _scheduled("Spot check", desk.spot_check_tick, desk)
     replies += _scheduled("Link check", desk.expired_check_tick, desk)
     replies += _scheduled("Board check", desk.board_check_tick, desk)
