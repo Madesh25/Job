@@ -159,6 +159,33 @@ class LossReport:
         return cls(by_source={k: dict(v) for k, v in (value.get("by_source") or {}).items()},
                    dropped=[tuple(item) for item in value.get("dropped") or []])
 
+    def overview_text(self, labels: dict[str, str], when: str, reasons: int = 8) -> str:
+        """/fetchreport without a word (23 Nov, your ask: the report was too long to read):
+        the totals, the new jobs per source and the reasons with their counts only. A word
+        or a reason button lists the jobs (report_text)."""
+        total = sum(self.read(source) for source in self.by_source)
+        new = sum(c.get(SAVED, 0) for c in self.by_source.values())
+        seen = sum(c.get(ALREADY, 0) + c.get(MERGED, 0) for c in self.by_source.values())
+        lines = [f"\U0001F4CA Last /fetch ({when}): {total} postings read",
+                 f"\U0001F195 {new} new \u00b7 \U0001F501 {seen} seen before \u00b7 "
+                 f"\U0001F6AB {total - new - seen} left out"]
+        order = sorted(self.by_source, key=lambda src: (-self.by_source[src].get(SAVED, 0),
+                                                         -self.read(src)))
+        if order:
+            lines += ["", "New jobs per source:"]
+            lines += [f"- {labels.get(src, src)}: {self.by_source[src].get(SAVED, 0)} of "
+                      f"{self.read(src)}" for src in order]
+        top = self.reasons()
+        if top:
+            lines += ["", "Left out, biggest first:"]
+            lines += [f"- {reason}: {n}" for reason, n in top[:reasons]]
+            if len(top) > reasons:
+                lines.append(f"- and {len(top) - reasons} more reasons")
+        lines += ["", "Tap a reason, or send /fetchreport <word> (for example /fetchreport "
+                      "adzuna), to see its jobs. /fetchreport sources: each source over all "
+                      "time."]
+        return "\n".join(lines)
+
     def report_text(self, labels: dict[str, str], when: str, word: str = "",
                     per_reason: int = 5, max_filtered: int = 40) -> str:
         """/fetchreport: the per-source lines and the dropped jobs by reason. `word` keeps

@@ -113,8 +113,9 @@ def test_fetchreport_has_a_button_per_big_reason():
     d = fake_desk(settings(), FAKE_TODAY, now=Clock())
     summary, _ = sweep()
     d.state.set(LAST_REPORT, summary.loss.to_state("2026-10-01"))
-    reply, _sources = d.fetchreport_command()  # 13 Nov: then each source's results
+    [reply] = d.fetchreport_command()  # 23 Nov: one short answer, sources by button
     assert reply.buttons and all(data.startswith("fr:") for _, data in reply.buttons)
+    assert reply.buttons[-1] == ("Each source, all time", "fr:sources")
     reason = reply.buttons[0][1][3:]
     [detail] = d.tap(reply.buttons[0][1])
     assert f"(matching {reason!r})" in detail.text and not detail.buttons
@@ -157,6 +158,31 @@ def test_the_same_job_is_listed_once_but_counted_per_posting():
         loss.add("ats", "Dutch required", "Rabobank, Cloud Engineer (Netherlands)")
     assert loss.by_source["ats"]["Dutch required"] == 2
     assert loss.dropped == [("ats", "Dutch required", "Rabobank, Cloud Engineer (Netherlands)")]
+
+
+def test_fetchreport_without_a_word_is_a_short_overview():
+    """23 Nov, your ask: the report (3 messages, 5 jobs per reason) was too long to read."""
+    from jobengine.sweep.models import ALREADY, SAVED, LossReport
+
+    report = LossReport()
+    for _ in range(4):
+        report.add("adzuna", SAVED)
+    for _ in range(17):
+        report.add("adzuna", ALREADY)
+    for i in range(30):
+        report.add("adzuna", "title not DevOps-type", f"QA Engineer {i}")
+    for _ in range(15):
+        report.add("gmail", SAVED)
+    report.add("gmail", "too senior", "Senior SRE | Acme")
+    text = report.overview_text({"adzuna": "Adzuna", "gmail": "Email alerts"}, "2026-11-23")
+    assert text.splitlines() == [
+        "\U0001F4CA Last /fetch (2026-11-23): 67 postings read",
+        "\U0001F195 19 new \u00b7 \U0001F501 17 seen before \u00b7 \U0001F6AB 31 left out", "",
+        "New jobs per source:", "- Email alerts: 15 of 16", "- Adzuna: 4 of 51", "",
+        "Left out, biggest first:", "- title not DevOps-type: 30", "- too senior: 1", "",
+        "Tap a reason, or send /fetchreport <word> (for example /fetchreport adzuna), to see "
+        "its jobs. /fetchreport sources: each source over all time."]
+    assert "QA Engineer" not in text  # the jobs come with a word or a button
 
 
 def test_the_short_fetch_message_has_only_what_happened_and_what_needs_you():

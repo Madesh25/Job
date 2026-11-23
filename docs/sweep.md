@@ -660,7 +660,8 @@ send weekly digests unless set to daily).
 
 ### Each source's results (13 Nov, fetch idea 4)
 
-/fetchreport ends with one line per source (the Board of every job in Notion): found >
+`/fetchreport sources` (or the button "Each source, all time"; until 23 Nov the end of
+/fetchreport) gives one line per source (the Board of every job in Notion): found >
 approved > applied > answered (a reply or a rejection), and interviews. Sources with fewer
 than 3 jobs are added up as "others". A source with many found and none approved is a
 candidate to drop, decided in FETCH 11 with live numbers.
@@ -698,8 +699,9 @@ to what each source read and nothing is dropped without a trace:
 
 The `/fetch` summary ends with one line per source ("Where the postings went"). Bot State
 `sweep.last_report` keeps the counts and up to 25 dropped jobs per source and reason (so every
-reason has examples); `/fetchreport` shows them by reason with the complete counts (5 jobs per
-reason), and `/fetchreport <word>` shows up to 40 jobs of the reasons or
+reason has examples). `/fetchreport` (23 Nov, your ask: short) gives the totals (read, new,
+seen before, left out), the new jobs per source and up to 8 reasons with their counts, no
+jobs; `/fetchreport <word>` shows up to 40 jobs of the reasons or
 sources containing that word, for example `/fetchreport skill` or `/fetchreport adzuna`; the four biggest reasons also come as buttons under `/fetchreport`. The `/fetch` summary and the report count postings the same way (a job seen on two sites counts twice). Long answers arrive as several Telegram messages instead of being cut off. A job already in Notion whose company is an agency gets the agency flag on its next `/fetch` (its other flags stay).
 
 **Pracuj.pl cards (5 Oct).** A Pracuj.pl alert card reads "!" (badge), title, a badge
