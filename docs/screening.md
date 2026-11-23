@@ -293,6 +293,14 @@ sets `Status` to `Screened` only if it is `New` or `Screened`, so a row never mo
 - Typing `/` shows the command menu. The bot registers it with Telegram (`setMyCommands`)
   each time it starts, and `python -m jobengine.deploy.set_webhook` does the same for
   Cloud Run.
+- Sub-options in the menu (23 Nov, FEAT-02): Telegram suggests only command names, never the
+  words after a space, so each fixed sub-option is its own entry right after its command:
+  `/screen_week`, `/screen_all`, `/screen_batch`, `/screen_collect`, `/pending_poland`,
+  `/pending_netherlands`, `/pending_ireland`, `/fetchreport_sources`, `/answers_start`,
+  `/autoapply_status`, `/autopilot_when`, `/spotcheck_notes`, `/update_new`,
+  `/gmailtoken_m02`, `/gmailtoken_mm` (`telegram_bot.SHORTCUTS`). Type `/screen` and pick one;
+  the bot reads `/screen_week` exactly as `/screen week`. Sub-options with your own text (a job
+  link, a word, `/pause 5d`) are typed as before; `/mailmode send` is left out on purpose.
 - Every command and button shows "typing..." until the reply is ready (sent again every 4
   seconds, since Telegram clears it after about 5).
 - `/screen` without a job keeps one progress message updated ("Screening: 10 of 24 jobs

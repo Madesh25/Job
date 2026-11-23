@@ -1177,3 +1177,33 @@ def test_a_few_words_are_not_saved_as_a_description(desk):
                 "/done")
     assert "Only 12 characters collected: that is not a job description" in fake.sent[-1][1]
     assert not desk.repo.rows["li-no-jd"].get("body")
+
+
+def test_sub_options_are_menu_entries_and_work_like_the_typed_words():
+    """23 Nov, FEAT-02: typing "/screen we" showed no suggestion; the / menu matches only
+    command names, so each fixed sub-option is its own entry (/screen_week)."""
+    import re
+
+    names = [c["command"] for c in tb.bot_commands()]
+    assert names[names.index("screen"):names.index("screen") + 5] == [
+        "screen", "screen_week", "screen_all", "screen_batch", "screen_collect"]
+    assert {"pending_poland", "fetchreport_sources", "autoapply_status", "answers_start",
+            "autopilot_when", "gmailtoken_m02"} <= set(names)
+    assert "mailmode_send" not in names  # real sending is never one tap from the menu
+    assert len(names) <= 100 and len(set(names)) == len(names)  # Telegram's limits
+    assert all(re.fullmatch(r"[a-z0-9_]{1,32}", n) for n in names)
+    for short, (full, _what) in tb.SHORTCUTS.items():  # every shortcut is a real command
+        assert full.split()[0] in names, short
+    assert tb.expand_shortcut("/screen_week") == "/screen week"
+    assert tb.expand_shortcut("/pending_poland@MadeshDevBot") == "/pending poland"
+    assert tb.expand_shortcut("/screen week") == "/screen week"
+    assert tb.expand_shortcut("hello") == "hello"
+    for short, (full, _what) in tb.SHORTCUTS.items():  # the same answer as the typed words
+        assert tb.handle_update(update(1, f"/{short}"), settings()) == \
+            tb.handle_update(update(1, f"/{full}"), settings()), short
+
+
+def test_a_shortcut_sent_before_the_start_is_not_run_again():
+    old = update(5, "/screen_week")
+    old["message"]["date"] = 100
+    assert tb._stale_command(old, started=200) == "screen"

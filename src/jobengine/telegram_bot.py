@@ -144,8 +144,52 @@ def split_text(text: str, limit: int = MESSAGE_LIMIT) -> list[str]:
 MENU_FIRST = ("start", "next", "status", "fetch", "autopilot")  # the / menu starts with these
 
 
+# 23 Nov, your ask (FEAT-02): the / menu suggests only command names, never the words after
+# a space ("/screen we" showed nothing). Each fixed sub-option is its own menu entry, listed
+# right after its command: typing "/screen" shows /screen_week, /screen_all and the rest, and
+# the bot reads "/screen_week" as "/screen week". Sub-options that need your own text (a job
+# link, a company name, /pause 5d) cannot be menu entries. /mailmode send is left out on
+# purpose: switching to real sending is never one tap from the menu.
+SHORTCUTS: dict[str, tuple[str, str]] = {
+    "screen_week": ("screen week", "screen the jobs of the last 7 days"),
+    "screen_all": ("screen all", "screen every Unscreened job"),
+    "screen_batch": ("screen batch", "send the jobs at half price, answers later"),
+    "screen_collect": ("screen collect", "save the answers of the half-price batch"),
+    "pending_poland": ("pending poland", "Poland's jobs to review"),
+    "pending_netherlands": ("pending netherlands", "the Netherlands' jobs to review"),
+    "pending_ireland": ("pending ireland", "Ireland's jobs to review"),
+    "fetchreport_sources": ("fetchreport sources", "each source over all time: found, "
+                            "approved, applied, answered"),
+    "answers_start": ("answers start", "the common form questions to answer"),
+    "autoapply_status": ("autoapply status", "the form queue and each site's dry runs"),
+    "autopilot_when": ("autopilot when", "its schedule and the next run"),
+    "spotcheck_notes": ("spotcheck notes", "your notes on the spot-checked resumes"),
+    "update_new": ("update new", "monthly strategy research again"),
+    "gmailtoken_m02": ("gmailtoken m02", "renew the madeshwaranm02 Gmail token"),
+    "gmailtoken_mm": ("gmailtoken mm", "renew the madeshwaran.manikam Gmail token"),
+}
+
+
+def expand_shortcut(text: str) -> str:
+    """"/screen_week" (a menu entry) as "/screen week"; any other text as it is."""
+    name = parse_command(text)
+    if name not in SHORTCUTS:
+        return text
+    rest = text.split(maxsplit=1)[1:]
+    return "/" + SHORTCUTS[name][0] + (" " + rest[0] if rest else "")
+
+
+def _expanded(update: dict[str, Any]) -> dict[str, Any]:
+    message = update.get("message")
+    text = (message or {}).get("text")
+    if not isinstance(text, str) or expand_shortcut(text) == text:
+        return update
+    return {**update, "message": {**message, "text": expand_shortcut(text)}}
+
+
 def bot_commands() -> list[dict[str, str]]:
-    """The / menu Telegram shows while typing: one entry per command in HELP_TEXT."""
+    """The / menu Telegram shows while typing: one entry per command in HELP_TEXT, each
+    followed by its fixed sub-options (SHORTCUTS)."""
     out: dict[str, str] = {name: "" for name in MENU_FIRST}
     for line in HELP_TEXT.splitlines():
         if not line.startswith("/"):  # the first line, group headings, blank lines
@@ -154,7 +198,13 @@ def bot_commands() -> list[dict[str, str]]:
         name = head.split()[0].lstrip("/")
         if not out.get(name):
             out[name] = description[:256]
-    return [{"command": name, "description": text} for name, text in out.items()]
+    menu: dict[str, str] = {}
+    for name, text in out.items():
+        menu[name] = text
+        for short, (full, what) in SHORTCUTS.items():
+            if full.split()[0] == name:
+                menu[short] = f"/{full}: {what}"[:256]
+    return [{"command": name, "description": text} for name, text in menu.items()]
 
 
 # Shown at once on a button tap (Telegram's small popup) while the work runs.
@@ -605,7 +655,7 @@ def handle_update(
 
     Messages from any chat other than TELEGRAM_CHAT_ID are ignored.
     """
-    message = update.get("message") or {}
+    message = _expanded(update).get("message") or {}
     chat_id = str((message.get("chat") or {}).get("id", ""))
     text = message.get("text")
     if not chat_id or text is None:
@@ -624,7 +674,7 @@ STALE_COMMANDS = ("fetch", "screen", "update", "autopilot", "restart")
 
 def _stale_command(update: dict[str, Any], started: float | None) -> str | None:
     message = update.get("message") or {}
-    command = parse_command(message.get("text") or "")
+    command = parse_command(expand_shortcut(message.get("text") or ""))
     if started is None or command not in STALE_COMMANDS:
         return None
     sent = message.get("date")  # Telegram always sets it; the terminal harness does not
@@ -747,7 +797,7 @@ def handle_one(
     from jobengine.track import run_log
 
     try:
-        _handle_one(client, s, update, fetch, desk)
+        _handle_one(client, s, _expanded(update), fetch, desk)
     finally:
         run_log.flush_errors()
 
