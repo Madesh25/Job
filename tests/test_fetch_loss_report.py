@@ -157,3 +157,29 @@ def test_the_same_job_is_listed_once_but_counted_per_posting():
         loss.add("ats", "Dutch required", "Rabobank, Cloud Engineer (Netherlands)")
     assert loss.by_source["ats"]["Dutch required"] == 2
     assert loss.dropped == [("ats", "Dutch required", "Rabobank, Cloud Engineer (Netherlands)")]
+
+
+def test_the_short_fetch_message_has_only_what_happened_and_what_needs_you():
+    """23 Nov: 50 lines a /fetch were too many; the full report is in the Run Log page."""
+    from jobengine.sweep.models import SweepSummary
+
+    s = SweepSummary(new=19, updated=60, reposts=7, skipped=733, too_senior=35, too_old=97,
+                     needs_language=18, low_match=1, other_cities=19,
+                     countries=["Poland", "Netherlands", "Ireland"],
+                     new_by_country={"Poland": 8, "Netherlands": 7, "Ireland": 4},
+                     direct_links=["a"] * 6, direct_links_tried=17, closed_jobs=["x"] * 32,
+                     not_on_site_yet=1, site_unchecked=10, alert_emails=33,
+                     blocked_sites=["LSEG (HTTP 429)"], new_companies=71)
+    text = s.short_text()
+    assert text.splitlines() == [
+        "✅ Job search finished", "",
+        "\U0001F195 New jobs: 19 (\U0001F1F5\U0001F1F1 8 · \U0001F1F3\U0001F1F1 7 · "
+        "\U0001F1EE\U0001F1EA 4)",
+        "\U0001F3AF Own job link found: 6 of 17 jobs looked up",
+        "\U0001F9F9 Closed jobs taken off your list: 32",
+        "\U0001F501 Seen before: 67 · \U0001F6AB Not for you: 903", "",
+        "⚠️ For you:",
+        "- 11 new job(s) wait for /jd (the bot could not read their page)"]
+    assert "LSEG" in s.friendly_text()  # the full report keeps every detail
+    quiet = SweepSummary(new=0, countries=["Poland"], alert_emails=0).short_text()
+    assert "- no alert email was read: check the Gmail labels and /health" in quiet

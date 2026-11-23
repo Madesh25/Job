@@ -3,6 +3,7 @@ Made-up pages."""
 
 from datetime import UTC, date, datetime
 
+import pytest
 from test_telegram_bot import Clock, settings
 
 from jobengine import http
@@ -110,3 +111,33 @@ def test_the_check_says_please_wait_first():
     assert [r.text for r in told] == [
         "🧹 Weekly link check started: 3 open job(s) to look at, this takes a few minutes. "
         "Commands you send now are answered as soon as it ends."]
+
+
+def test_a_check_stopped_midway_runs_again_after_the_restart():
+    """23 Nov: the bot was stopped (Ctrl+C) 35 s into Monday's check; marked done at the
+    start, the check waited a whole week. A failure is still marked (no retry every tick)."""
+    d = fake_desk(settings(), FAKE_TODAY, now=Clock())
+    d.repo.rows["pl-clean"]["Status"] = "Approved"
+    d._track_now = lambda: datetime(2026, 10, 25, 4, tzinfo=UTC)  # Sunday 09:30 in India
+
+    def stopped(url, *a, **k):
+        raise KeyboardInterrupt
+
+    d.get_page = stopped
+    with pytest.raises(KeyboardInterrupt):
+        d.expired_check_tick()
+    d.get_page = pages()
+    assert d.expired_check_tick()[0].text.startswith("🧹 Weekly link check: ")  # runs again
+    assert d.expired_check_tick() == []  # and then once a week
+
+    broken = fake_desk(settings(), FAKE_TODAY, now=Clock())
+    broken.repo.rows["pl-clean"]["Status"] = "Approved"
+    broken._track_now = d._track_now
+
+    def fails(url, *a, **k):
+        raise RuntimeError("site down")
+
+    broken.get_page = fails
+    with pytest.raises(RuntimeError):
+        broken.expired_check_tick()
+    assert broken.expired_check_tick() == []  # not tried again until next week

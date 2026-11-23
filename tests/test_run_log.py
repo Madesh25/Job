@@ -198,3 +198,45 @@ def test_a_screen_by_hand_gets_its_row():
     tb.run_screen(client, settings(), "1", d)
     [row] = d.run_log_table.created
     assert row["Step"] == "/screen" and row["Screened"] == 2 and row["Result"] == "OK"
+
+
+def test_the_full_fetch_report_goes_to_its_run_log_page():
+    """23 Nov, your ask: the /fetch message was too long to read. Telegram gets the short one
+    with the row's name; the full report is the page of that Run Log row."""
+    from test_telegram_bot import FakeTelegram
+
+    d = fake_desk(settings(), FAKE_TODAY, now=Clock())
+    d._track_now = lambda: datetime(2026, 11, 23, 10, 18)
+    fake = FakeTelegram()
+    client = tb.TelegramClient(fake)
+    full = "Job search finished\nBlocked us: LSEG (HTTP 429)\nmail jane.doe@example.com"
+
+    def fetch(progress):
+        run_log.details([full])
+        return "✅ Job search finished\n\U0001F195 New jobs: 19\n\n\U0001F449 Next: /screen"
+
+    tb.run_fetch(client, settings(), "1", fetch, desk=d)
+    [row] = d.run_log_table.created
+    [page] = d.run_log_table.bodies
+    assert page == ["Job search finished", "Blocked us: LSEG (HTTP 429)", "mail <email>"]
+    assert row["Summary"] == "✅ Job search finished\n\U0001F195 New jobs: 19"
+    sent = fake.sent[-1][1]
+    assert "Blocked us" not in sent
+    assert ("\U0001F4DD Full report in Notion: Run Log, row \"/fetch 10:18\"\n\n"
+            "\U0001F449 Next: /screen") in sent
+
+
+def test_a_page_with_more_than_100_lines_is_written_in_parts():
+    from jobengine.notion_repo import NotionTable
+
+    calls = []
+
+    class Client:
+        def request(self, method, path, body=None):
+            calls.append((method, path, len((body or {}).get("children", []))))
+            return {"id": "page1"}
+
+    NotionTable(Client(), "ds", {"Run": "title"}).create(
+        {"Run": "/fetch 10:18"}, [f"line {n}" for n in range(230)])
+    assert calls == [("POST", "/pages", 100), ("PATCH", "/blocks/page1/children", 100),
+                     ("PATCH", "/blocks/page1/children", 30)]

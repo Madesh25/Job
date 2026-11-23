@@ -289,6 +289,10 @@ opening the link. Closed jobs get Status Expired, so /pending only shows live jo
   Expired:` with the reason for each. Wrong? Set the Status back in Notion.
 - Notion Config `schedule.expired_check` = `false` switches it off (default on). Bot State
   `expired.check` keeps the date of the last check. On Cloud Run the Sunday digest task runs it.
+- The date is written when the check ends (23 Nov: the bot was stopped 35 s into Monday's
+  check, and the date written at the start made it wait a week). A check that fails with an
+  error is marked too (no retry every few minutes); a check cut by stopping the bot runs again
+  after the restart.
 
 ## Weekly job board check (28 Oct, your request)
 
@@ -386,6 +390,11 @@ sent, AI cost) and the bot's own WARNING and ERROR lines are counted for it in m
   error, or a Cloud Run task answered `ok: false`);
 - Step, Where (PC or Cloud Run), Started, Seconds, the numbers, Errors, Warnings;
 - Summary: the first 4 lines of what the run reported; Failure: why it failed.
+- The row's page holds the full report, one line per paragraph (keys and emails
+  blanked). 23 Nov: /fetch sends Telegram a short message (new jobs per country, own job
+  links found, closed jobs, seen before, not for you, and "For you": jobs waiting for /jd,
+  jobs Notion refused, no alert email read, sources not checked) ending with
+  "Full report in Notion: Run Log, row /fetch HH:MM"; the long report is that page.
 
 A run that did nothing (most ticks: "not due yet") writes no row. Email addresses, keys,
 tokens and the query part of links are blanked. Writing the row never fails the run.
