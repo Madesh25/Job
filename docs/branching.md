@@ -2,8 +2,8 @@
 
 | Branch | What it is for | Deploys to |
 |---|---|---|
-| `main` | Production code. Changes arrive only as reviewed merges from `develop`. | prod (set up in a later module) |
-| `develop` | Integration and testing. Every feature lands here first. | dev (set up in a later module) |
+| `main` | Production code. Changes arrive only as reviewed merges from `develop` (a release, tagged `vX.Y.Z`). | Cloud Run `job-engine-prod` (after green CI) |
+| `develop` | Integration and testing. Every feature lands here first. | Cloud Run `job-engine-dev` (after green CI) |
 | `feature/NN-name` | One branch per module, always cut from `develop`. | nothing |
 | `hotfix/name` | Urgent production fix, cut from `main`, merged back into both `main` and `develop`. | prod |
 
@@ -40,3 +40,10 @@ Nothing is ever pushed straight to `main` or `develop`.
 - [ ] `git checkout -b hotfix/name origin/main`
 - [ ] Fix, test, open a pull request into `main`
 - [ ] After it merges, open a second pull request (or merge) bringing the fix into `develop`
+
+## Releases (23 Nov)
+
+`main` is what runs in production, so a merge into `main` is a release and happens only after
+`develop` was proven on `job-engine-dev`. First release: go-live steps 1 and 2 on dev, then
+the go-live pull request (`develop` into `main`, tag `v1.0.0`), then steps 3 and 4 on prod.
+Rolling back is redeploying the previous tag. See the README, "Branches, releases and go-live".
