@@ -216,7 +216,9 @@ def desk_tasks(s: Settings, desk: Desk, client: tb.TelegramClient,
         return {"ok": True, "sent": bool(sent)}
 
     def apply() -> dict[str, Any]:
-        """The auto-apply queue (apply/queue.py): ask about the laptop, or fill 3 forms."""
+        """The auto-apply queue (apply/queue.py): ask about the laptop, or fill 3 forms. The
+        morning Apply today card (S4, 08:30 India time) rides on these 15-minute calls."""
+        send(desk.apply_today_tick())
         sent = desk.autoapply_tick()
         if sent:
             send(sent)

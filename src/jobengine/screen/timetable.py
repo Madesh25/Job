@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING
 
 from jobengine.mail import timing
 from jobengine.screen import check, schedule
-from jobengine.track import daily_report, health_report, nudge, timed
+from jobengine.track import apply_today, daily_report, health_report, nudge, timed
 
 if TYPE_CHECKING:
     from jobengine.screen.desk import Desk
@@ -67,6 +67,9 @@ def text(desk: Desk) -> str:
                          "next 14 days.")
     else:
         lines.append("Mails: sent at once (Config mail.send_window = off).")
+    if apply_today.is_on(config):
+        at = schedule._time(config.get(apply_today.TIME_KEY), apply_today.DEFAULT_TIME)
+        lines.append(f"{at:%H:%M} Apply today: the 3 to 5 best fresh jobs")
     lines.append("07:00 to 23:45 Reply pings every 15 minutes (with Send in their morning)")
     lines.append(f"{daily_report.report_time(config):%H:%M} Daily report (Telegram and email)")
     if (config.get(nudge.SWITCH_KEY) or "true").strip().lower() != "false":
