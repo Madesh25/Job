@@ -4458,6 +4458,10 @@ def real_desk(s: Settings) -> Desk | None:
 
     desk.run_log_table = run_log_table(s, client)
     run_log.install()  # the warnings and errors of each scheduled run (18 Nov)
+    from jobengine.notion_repo import scorecard_table
+    from jobengine.track import scorecard
+
+    scorecard.bind(scorecard_table(s, client), state, desk.tracking_now)  # S1, 23 Nov
     from jobengine.notion_repo import error_log_table
     from jobengine.track import error_log
 

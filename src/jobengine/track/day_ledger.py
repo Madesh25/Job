@@ -100,6 +100,19 @@ def add_match(shown: int, total: int) -> None:
     _update(state, today(), change)
 
 
+def note_problem(name: str) -> None:
+    """A run that failed or logged an error ("Link check 10:15"), for the daily scorecard."""
+    if _bound is None:
+        return
+    state, today, _now = _bound
+
+    def change(entry: dict[str, Any]) -> None:
+        _bump(entry, "problems", 1)
+        entry["failed"] = [*(entry.get("failed") or []), name]
+
+    _update(state, today(), change)
+
+
 def day(state: BotState | None, when: date) -> dict[str, Any]:
     """The ledger entry of one day ({} when nothing was recorded)."""
     value = (state.get(KEY) if state is not None else None) or {}

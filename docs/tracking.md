@@ -211,6 +211,7 @@ text by email. It comes even when nothing ran, so a stopped bot shows the same d
 
 ```
 📊 Daily report, Thu 01 Oct
+📊 Today: Found 16 · Screened 16 · Resumes 3 · Forms 0 · Mails 1 · Replies 1 · Problems 0
 🔎 Fetch: 2 run(s) (07:02, 19:31), 16 new job(s) saved. Found: Email alerts 38, Adzuna 9, Company sites 2.
 🧪 Screening: 16 screened (2 apply high, 5 apply normal, 9 skip).
 📄 Resumes: 3 built, keyword match on average 8 of 12 (lowest 6 of 12).
@@ -402,6 +403,26 @@ tokens and the query part of links are blanked. Writing the row never fails the 
 Sites blocked: the site problems of the run that were a refusal (403) or a "slow down" (429).
 
 Tables: Run Log (DEV) (`notion.write.run_log` in dev and local) and Run Log in prod.
+
+## Daily scorecard (S1, 23 Nov, your request)
+
+One line a day that says what the bot did, so a testing day after go-live is reading one
+line (`src/jobengine/track/scorecard.py`). It opens the daily report (line 2 above):
+
+```
+📊 Today: Found 19 · Screened 11 · Resumes 2 · Forms 1 · Mails 0 · Replies 0 · Problems 1
+❌ Failed or with errors: Link check 10:15 (Run Log has why)
+```
+
+- Found: new jobs saved by /fetch. Screened: every verdict. Resumes, Mails, Replies: as in the
+  report. Forms: forms the form bot filled (dry run or auto-apply; a captcha or login stop is
+  not counted).
+- Problems: runs whose Run Log Result is Failed or Problems; the ❌ line names them with
+  their time, the same name as their Run Log row, where the reason is.
+- The same numbers are one row a day in Notion **Daily Scorecard** (`notion.write.
+  daily_scorecard`; Daily Scorecard (DEV) under DEV Sandbox in dev and local), updated after
+  every run that did something or had a problem. An idle tick writes nothing.
+- A scorecard problem is only logged: it never stops the run it counts.
 
 ## Error Log (18 Nov, your request)
 

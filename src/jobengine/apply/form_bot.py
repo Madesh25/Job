@@ -938,9 +938,14 @@ def dry_run(s: Settings, url: str, values: Mapping[str, str],
         resume_path = upload / (Path(resume[0]).name or "resume.pdf")
         resume_path.write_bytes(resume[1])
     try:
-        return _run(s, url, values, saved, result, folder=folder, prepare=prepare, check=check,
+        done = _run(s, url, values, saved, result, folder=folder, prepare=prepare, check=check,
                     ai=ai, resume_path=resume_path, name=name, now=now,
                     sync_playwright=sync_playwright, finish=finish)
+        if not done.stopped:  # a form filled (dry run or auto-apply): the daily scorecard
+            from jobengine.track import day_ledger
+
+            day_ledger.count("forms")
+        return done
     finally:
         if resume_path is not None:
             resume_path.unlink(missing_ok=True)

@@ -237,7 +237,20 @@ def recorded(step: str, table: Any, now: Callable[[], datetime]) -> Iterator[Run
             _active[:] = [other for other in _active if other is not run]
         _local.run = outer
         write(table, run)
+        _score(run)
         flush_errors()
+
+
+def _score(run: Run) -> None:
+    """The daily scorecard (S1): a run that failed or logged an error is named there, and
+    today's row is brought up to date."""
+    from jobengine.track import day_ledger, scorecard
+
+    problem = run.result() != "OK"
+    if problem:
+        day_ledger.note_problem(name(run))
+    if problem or run.did_something():  # an idle tick does not write to Notion
+        scorecard.refresh()
 
 
 def flush_errors() -> None:

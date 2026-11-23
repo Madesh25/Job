@@ -57,6 +57,7 @@ def test_the_report_text_and_an_empty_day():
                              waiting=["4 job(s) in /pending", "2 need a description (/jd)"])
     assert text.splitlines() == [
         "📊 Daily report, Thu 01 Oct",
+        "📊 Today: Found 16 · Screened 16 · Resumes 3 · Forms 0 · Mails 1 · Replies 1 · Problems 0",
         "🔎 Fetch: 2 run(s) (07:02, 19:31), 16 new job(s) saved. Found: Email alerts 38, "
         "Adzuna 9, Company sites 2.",
         "🧪 Screening: 16 screened (2 apply high, 5 apply normal, 9 skip).",
@@ -201,7 +202,7 @@ def test_warnings_compare_today_with_the_week():
     assert daily_report.warnings(usual, _week(**usual)) == []  # a normal day
     assert daily_report.warnings(today, []) == []  # no week to compare with yet
     text = daily_report.text(today, DAY, month_cost="", credits="Credits: -", warned=lines[:1])
-    assert text.splitlines()[1].startswith("⚠️ The 19:30 autopilot")
+    assert text.splitlines()[2].startswith("⚠️ The 19:30 autopilot")
 
 
 def test_used_up_credits_count_the_second_account():

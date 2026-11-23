@@ -188,7 +188,10 @@ def text(entry: Mapping[str, Any], day: date, *, month_cost: str, credits: str,
          warned: Sequence[str] = ()) -> str:
     """The report. `month_cost` is costs.month_line, `credits` the CreditBook line,
     `warned` the warnings() lines (shown first)."""
-    lines = [f"📊 Daily report, {day:%a %d %b}", *warned]
+    from jobengine.track import scorecard
+
+    # S1 (23 Nov): the day in one line first; the details follow.
+    lines = [f"📊 Daily report, {day:%a %d %b}", scorecard.line(entry), *warned]
     if not entry.get("sweeps") and not any(_n(entry, f"screened.{v}") for v in VERDICTS):
         lines.append("Nothing ran today: 0 new jobs, 0 screened. If the schedule is on, "
                      "something stopped it: check /health and send Claude Code the bot log.")

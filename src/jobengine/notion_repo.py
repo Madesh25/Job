@@ -1415,6 +1415,23 @@ def error_log_table(s: Settings, client: NotionClient) -> ErrorLogTable | None:
     return ErrorLogTable(client, target, ERROR_LOG_TYPES)
 
 
+SCORECARD_TYPES = {
+    "Day": "title", "Date": "date", "Result": "select", "Found": "number",
+    "Screened": "number", "Resumes": "number", "Forms": "number", "Mails": "number",
+    "Replies": "number", "Problems": "number", "Failed steps": "rich_text",
+    "AI cost": "number", "Updated": "date",
+}
+
+
+def scorecard_table(s: Settings, client: NotionClient) -> NotionTable | None:
+    """Daily Scorecard (S1, 23 Nov): one row a day, or None when not writable here."""
+    target = notion_write_target("daily_scorecard", s)
+    if target is None:
+        log.warning("DRY RUN: would write to daily_scorecard")
+        return None
+    return NotionTable(client, target, SCORECARD_TYPES)
+
+
 def run_log_table(s: Settings, client: NotionClient) -> NotionTable | None:
     """Run Log (18 Nov): one row per scheduled run, or None when not writable here."""
     target = notion_write_target("run_log", s)

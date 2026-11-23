@@ -14,6 +14,8 @@ notion:
     # 18 Nov: Run Log (DEV) and Error Log (DEV) in DEV Sandbox, created by Claude Code.
     run_log: "41c6edc2-b0d4-81e3-b155-000bbf95a38c"
     error_log: "41c6edc2-b0d4-81ee-bf4e-000b62c4cf63"
+    # 23 Nov (S1): Daily Scorecard, one row a day, created by Claude Code next to Run Log.
+    daily_scorecard: "4216edc2-b0d4-8177-b0c3-000bdc693a97"
 gmail:
   sender: "madeshwaranm02@gmail.com"
 llm:
