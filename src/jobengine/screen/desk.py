@@ -2574,6 +2574,12 @@ class Desk:
 
     # ------------------------------------------------------------ tracking (Module 07)
 
+    def report_problem(self, said: str, replied: dict[str, Any] | None) -> str:
+        """S2 (23 Nov): your "wrong: ..." reply or /bug, one Error Log row with the message."""
+        from jobengine.track import reports
+
+        return reports.save(self.error_log_table, self.tracking_now, said, replied)
+
     def tracking_now(self) -> datetime:
         """Now, with the configured UTC offset (default +05:30) when the clock is naive."""
         now = (self._track_now or self.now)()

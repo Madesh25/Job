@@ -41,6 +41,7 @@ from jobengine.screen.desk import Desk, Reply, fake_desk, real_desk
 from jobengine.settings import ROOT_DIR, Settings, get_settings, use_local_time
 from jobengine.sweep import fakes
 from jobengine.sweep.runner import fake_deps, real_deps, run_sweep
+from jobengine.track import reports
 
 log = logging.getLogger("jobengine.telegram_bot")
 
@@ -108,6 +109,7 @@ HELP_TEXT = (
     "/resume - end holiday mode now\n"
     "/gmailtoken - your Gmail tokens; /gmailtoken m02 or mm renews one\n"
     "/health - Notion, Gmail tokens, Anthropic key, last runs\n"
+    "/bug <what> - report a problem\n"
     "/status - environment, safety settings, job and contact counts\n"
     "/sources - sweep sources, their secrets and the last counts\n"
     "/start - check that the bot is alive\n"
@@ -240,7 +242,7 @@ DESK_COMMANDS = ("next", "pending", "add", "newcompanies", "report", "jd", "done
                  "fetchcontacts",
                  "alertcheck", "fetchreport", "linkedin", "today", "followups", "stats",
                  "sources", "health", "digest", "spotcheck", "update", "rules", "pause",
-                 "resume", "audit")
+                 "resume", "audit", "bug")
 
 # (method, payload, http_timeout) -> decoded JSON response
 Transport = Callable[[str, dict[str, Any], float], dict[str, Any]]
@@ -643,6 +645,8 @@ def reply_for(text: str, s: Settings, fetch: Fetcher | None = None) -> str:
     if command == "restart":
         return ("/restart restarts the bot running on your PC. On Cloud Run each deploy starts "
                 "the bot again; the --fake bot has nothing to restart.")
+    if command == "bug":  # S2: needs the Error Log (Notion), which this bot does not have
+        return "Not saved: a report needs Notion (the Error Log), and this bot has none."
     if command is None:
         return "I only understand commands for now. Send /help to see them."
     return f"Unknown command /{command}. Send /help to see the commands."
@@ -1003,6 +1007,9 @@ def desk_replies(update: dict[str, Any], s: Settings, desk: Desk | None) -> list
     if command in next_steps.PERIODIC:  # /next lists them again a week or a month later
         _guarded("Used", lambda: desk.note_command(command) or [])
     replied = message.get("reply_to_message") or {}
+    said = reports.words(text)
+    if said is not None:  # S2: "wrong: ..." or /bug, saved in the Error Log with the message
+        return _guarded("Report", lambda: [Reply(desk.report_problem(said, replied or None))])
     if command is None and replied:
         ref_text = replied.get("caption") or replied.get("text") or ""
         replies = _guarded("Correction", lambda: desk.correction(ref_text, text) or [])
