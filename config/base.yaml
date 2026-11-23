@@ -649,8 +649,11 @@ sweep:
     # it with Gmail filters), plus those from a sender domain in sender_boards below, from the
     # last `days` days. The label works whatever address a board sends from. A `query` key,
     # when set, replaces the whole search.
+    # 3 days, the same as max_posted_age_days 2 (today and the 2 days before): 23 Nov, the
+    # /fetch after a weekend searched only 2 days, so the alerts of 21 Nov before 10:18 (still
+    # young enough to keep) were never read.
     label: "Job Alerts"
-    days: 2
+    days: 3
     max_messages: 100
     # Sender domain (or parent domain) -> Board option in Job Opportunities.
     sender_boards:
