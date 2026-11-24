@@ -3739,7 +3739,7 @@ class Desk:
                           "is not available here.")]
         jobs = self.repo.query_rows(select_filter("Screen verdict", *screen_check.VERDICTS))
         text = screen_check.run(self.screen_check_table, self.error_log_table, self.state,
-                                jobs, self.tracking_now())
+                                jobs, self.tracking_now(), body=self.repo.read_body)
         return [Reply(text[:MAX_TEXT])]
 
     def screen_check_tick(self) -> list[Reply]:
