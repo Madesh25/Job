@@ -44,7 +44,7 @@ def test_the_short_card_and_more():
     more = card.buttons[2][1]
     assert more == f"mo:{i}:pl-clean" and len(more.encode()) <= 64
     [full] = d.tap(more)
-    assert "Skill match: 100% (6 of 6 tools it names)" in full.text
+    assert "Skill match: you have 6 of the 6 tools it names (100%)" in full.text
     assert "Contract UoP" in full.text and full.buttons[0] == ("Approve", "ap:pl-clean")
 
 
