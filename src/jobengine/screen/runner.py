@@ -484,7 +484,7 @@ def screen_pending(
     `limit` (the CLI --limit) caps this run instead of what is left of today's limit.
     `scope` (SCOPES): only the jobs found today or in the last 7 days; /screen's default
     is today."""
-    summary = ScreenSummary()
+    summary = ScreenSummary(waiting_scope=WAITING_SCOPE.get(scope, ""))
     if deps.repo is None:
         summary.errors.append("DRY RUN: no Job Opportunities target here, nothing screened")
         return summary
@@ -612,7 +612,7 @@ def _limit_note(s: Settings, used: int, left: int, limit: int | None) -> str:
 def screen_one(s: Settings, deps: ScreenDeps, today: date, ref: str) -> ScreenSummary:
     """Re-screen one row whatever its verdict. Status becomes Screened only from New or
     Screened, so a row past Screened never moves backwards."""
-    summary = ScreenSummary()
+    summary = ScreenSummary(waiting_scope="")
     if deps.repo is None:
         summary.errors.append("DRY RUN: no Job Opportunities target here, nothing screened")
         return summary
@@ -651,6 +651,10 @@ def pending_rows(repo: JobsRepo) -> list[JobRow]:
     return [job_row(pid, v) for pid, v in rows]
 
 
+WAITING_SCOPE = {"today": "found today", "week": "found this week", "all": "all days"}
+WAITING_STATUSES = (None, "", "New")  # Expired, Declined ... no longer wait for /jd
+
+
 def waiting_for_jd(repo: JobsRepo, state: Any = None) -> list[JobRow]:
     """Unscreened rows that wait for /jd: LinkedIn rows (LinkedIn is never fetched) and,
     with `state`, rows whose page gave no description (screen/waiting.py: Pracuj.pl and
@@ -661,9 +665,11 @@ def waiting_for_jd(repo: JobsRepo, state: Any = None) -> list[JobRow]:
         return [job_row(pid, v) for pid, v in rows]
     known = set(waiting.noted(state))
     # 5 Nov: a LinkedIn row whose own link on the company's site was found (sweep/job_links)
-    # has its description: it no longer waits for /jd.
+    # has its description: it no longer waits for /jd. LOG-03 (24 Nov): only a New row waits;
+    # the 202 jobs set Expired that morning (S5) were still counted (266 against /jd's 50).
     rows = [job_row(pid, v)
             for pid, v in repo.query_rows(select_filter("Screen verdict", "Unscreened"))
-            if (v.get("Board") == "LinkedIn" and "linkedin." in str(v.get("URL") or ""))
-            or pid in known]
+            if v.get("Status") in WAITING_STATUSES
+            and ((v.get("Board") == "LinkedIn" and "linkedin." in str(v.get("URL") or ""))
+                 or pid in known)]
     return sorted(rows, key=lambda r: (r.board != "LinkedIn", r.board or ""))

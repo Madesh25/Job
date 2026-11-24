@@ -111,6 +111,9 @@ class ScreenSummary:
     by_verdict: dict[str, int] = field(default_factory=dict)
     # None: this run did not look at rows without a description (/screen collect).
     waiting_for_jd: int | None = 0
+    # LOG-03 (24 Nov): which jobs the waiting count covers ("found today"): /screen,
+    # /screen week, /jd and /pending each counted their own set without saying so.
+    waiting_scope: str = ""
     errors: list[str] = field(default_factory=list)
     results: list[ScreenResult] = field(default_factory=list)
     usage_line: str | None = None  # "AI used: ... about $0.01" (llm.Usage.line)
@@ -129,7 +132,8 @@ class ScreenSummary:
             f"{v.get('Apply normal', 0)} normal, {v.get('Apply low', 0)} low, "
             f"{v.get('Needs review', 0)} needs review, {v.get('Skip', 0)} skipped)"
         )
-        line += "." if self.waiting_for_jd is None else f", {self.waiting_for_jd} waiting for JD."
+        line += ("." if self.waiting_for_jd is None
+                 else f", {self.waiting_for_jd} waiting for JD{self._scope()}.")
         free = sum(1 for r in self.results if not r.llm_used and r.verdict == "Skip")
         if free:
             # Phase 19 (3 Nov): "72 screened" read as over the limit of 50; the limit counts
@@ -140,6 +144,9 @@ class ScreenSummary:
         extra = [self.usage_line] if self.usage_line else []
         return "\n".join([line, *extra, *self.errors])
 
+    def _scope(self) -> str:
+        return f" ({self.waiting_scope})" if self.waiting_scope else ""
+
     def short_text(self) -> str:
         """The /screen message for Telegram (23 Nov, your ask: short and easy to read; the
         full text with tokens and model goes to the Run Log row's page)."""
@@ -148,7 +155,7 @@ class ScreenSummary:
         if shown:
             lines.append("\u2705 " + " \u00b7 ".join(shown))
         if self.waiting_for_jd:
-            lines.append(f"\u23F3 {self.waiting_for_jd} waiting for JD: /jd")
+            lines.append(f"\u23F3 {self.waiting_for_jd} waiting for JD{self._scope()}: /jd")
         cost = re.search(r"about \$([\d.]+)", self.usage_line or "")
         if cost:
             lines.append(f"\U0001F4B0 AI about ${cost.group(1)}")

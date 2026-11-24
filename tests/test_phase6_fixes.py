@@ -99,6 +99,7 @@ def test_jd_lists_every_board():
     waiting.note(d.state, ["pl-clean"], TODAY)
     d.repo.rows["pl-clean"]["Screen verdict"] = "Unscreened"
     d.repo.rows["pl-clean"]["Board"] = "Pracuj.pl"
+    d.repo.rows["pl-clean"]["Status"] = "New"  # LOG-03: only a New row waits for /jd
     text = d.waiting_list().text
     assert "(1 LinkedIn, " in text and "1 Pracuj.pl" in text
     assert "\nPracuj.pl:\n- " in text

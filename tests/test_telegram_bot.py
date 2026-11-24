@@ -452,7 +452,8 @@ def test_pending_shows_one_card_in_rank_order(desk):
             "Gaps: Java services\nWhy: strong on AWS, Terraform and Kubernetes; "
             "sponsorship stated\nhttps://jobs.example.com/nl-sponsor-yes") in text
     assert "Match: " not in text
-    assert "2 jobs need the JD (1 LinkedIn, 1 Company site): /jd" in text
+    assert ("2 jobs need the JD, all days (1 LinkedIn, 1 Company site); 1 of the last 3 days: "
+            "/jd") in text  # LOG-03: the scope is named
     assert fake.buttons[0] == ["ap:nl-sponsor-yes", "sk:nl-sponsor-yes", "mo:0:nl-sponsor-yes",
                                "nx:1"]
     more = talk(desk, tap(1, "mo:0:nl-sponsor-yes")).sent[0][1]
