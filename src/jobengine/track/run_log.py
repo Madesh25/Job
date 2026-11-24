@@ -72,6 +72,11 @@ class Run:
     applied: int = 0
     mails_sent: int = 0
     sites_blocked: int = 0
+    # LOG-09 (24 Nov): the Run Log said "Sites blocked 64" while the /fetch page listed 30:
+    # every refused request was counted (retries, job pages). Now each site once, and a
+    # /fetch writes the number its page lists under "Blocked us" (sweep/runner.py).
+    blocked: set[str] = field(default_factory=set)
+    blocked_fixed: bool = False
     cost: float = 0.0
     errors: int = 0
     warnings: int = 0
@@ -151,12 +156,28 @@ def bump(name: str, n: float = 1) -> None:
             run.mails_sent += int(n)
         elif name == "new_jobs":
             run.new_jobs += int(n)
-        elif name == "sites_blocked":
-            run.sites_blocked += int(n)
         elif name == "cost":
             run.cost += float(n)
 
     _each(change)
+
+
+def blocked_site(site: str) -> None:
+    """A site refused the bot (HTTP 403 or 429) in the runs going on now: counted once."""
+    def change(run: Run) -> None:
+        if not run.blocked_fixed:
+            run.blocked.add(site.lower())
+            run.sites_blocked = len(run.blocked)
+
+    _each(change)
+
+
+def set_sites_blocked(n: int) -> None:
+    """The run on this thread blocked by `n` sites, as its report lists them (/fetch)."""
+    run = getattr(_local, "run", None)
+    if run is not None:
+        run.sites_blocked = n
+        run.blocked_fixed = True
 
 
 def note(replies: Sequence[Any] | None) -> None:

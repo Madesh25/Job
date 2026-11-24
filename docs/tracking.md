@@ -453,7 +453,9 @@ sent, AI cost) and the bot's own WARNING and ERROR lines are counted for it in m
 A run that did nothing (most ticks: "not due yet") writes no row. Email addresses, keys,
 tokens and the query part of links are blanked. Writing the row never fails the run.
 
-Sites blocked: the site problems of the run that were a refusal (403) or a "slow down" (429).
+Sites blocked: the sites that refused the bot (403) or asked it to slow down (429) in the run,
+each site once (LOG-09, 24 Nov: every refused request was counted, 64 against the 30 the page
+listed). A `/fetch` writes the number its page lists under "Blocked us (N)".
 
 Tables: Run Log (DEV) (`notion.write.run_log` in dev and local) and Run Log in prod.
 

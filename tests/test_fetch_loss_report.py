@@ -103,7 +103,8 @@ def test_every_reason_keeps_examples_and_complete_counts():
     assert "title not DevOps-type (500):" in text
     assert f"- ... and {500 - 5} more" in text
     assert "Low skill match (1):\n- Cloud Engineer | Acme [Adzuna]" in text
-    assert f"(The report keeps up to {MAX_DROPPED_PER_REASON} jobs per source and reason" in text
+    assert (f"(Shown: up to 5 jobs per reason. The report keeps up to "
+            f"{MAX_DROPPED_PER_REASON} jobs per source and reason") in text
     assert "Cloud Engineer | Acme" in report.report_text({"adzuna": "Adzuna"}, "x", "skill")
     assert len(report.dropped) == MAX_DROPPED_PER_REASON + 1
 

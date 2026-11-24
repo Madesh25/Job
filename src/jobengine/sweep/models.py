@@ -190,41 +190,68 @@ class LossReport:
     def report_text(self, labels: dict[str, str], when: str, word: str = "",
                     per_reason: int = 5, max_filtered: int = 40) -> str:
         """/fetchreport: the per-source lines and the dropped jobs by reason. `word` keeps
-        only reasons or sources that contain it, and then lists more of their jobs."""
-        lines = [f"Last /fetch ({when}), where the postings went:", *self.lines(labels)]
-        word = word.strip().lower()
+        only reasons or sources that contain it, and then lists more of their jobs; two
+        words both have to match ("title adzuna": the title reason of Adzuna).
+
+        LOG-09 (24 Nov): "/fetchreport adzuna" still listed all 6 sources at the top, and the
+        last line said 25 jobs are kept per source and reason while about 8 per source were
+        shown. The top lists only the matching sources now, and the last line says what is
+        shown and how to see more."""
+        words = word.strip().lower().split()
+
+        def matches(name: str, reason: str) -> bool:
+            return all(w in reason.lower() or w in name.lower() for w in words)
+
+        shown_sources = {source for source, counts in self.by_source.items()
+                         if not words or any(matches(labels.get(source, source), reason)
+                                             for reason in counts)}
+        lines = [f"Last /fetch ({when}), where the postings went:",
+                 *self._lines_of(labels, shown_sources)]
         groups: dict[str, list[tuple[str, str]]] = {}
         for source, reason, job in self.dropped:
             name = labels.get(source, source)
-            if word and word not in reason.lower() and word not in name.lower():
+            if words and not matches(name, reason):
                 continue
             groups.setdefault(reason, []).append((name, job))
         if not groups:
-            lines += ["", f"No dropped jobs match {word!r}." if word else "No jobs were dropped."]
+            lines += ["", f"No dropped jobs match {word.strip()!r}." if words
+                      else "No jobs were dropped."]
             return "\n".join(lines)
-        limit = max_filtered if word else per_reason
-        lines += ["", "Dropped jobs by reason" + (f" (matching {word!r})" if word else "")
+        limit = max_filtered if words else per_reason
+        lines += ["", "Dropped jobs by reason"
+                  + (f" (matching {word.strip()!r})" if words else "")
                   + ". /fetchreport <word> shows more of one reason, for example "
                     "/fetchreport skill or /fetchreport adzuna:"]
         totals: dict[str, int] = {}  # the complete counts (only some jobs are kept)
         for source, counts in self.by_source.items():
-            name = labels.get(source, source).lower()
+            name = labels.get(source, source)
             for reason, n in counts.items():
-                if reason in groups and (word in reason.lower() or word in name):
+                if reason in groups and (not words or matches(name, reason)):
                     totals[reason] = totals.get(reason, 0) + n
         for reason, jobs in groups.items():
             totals[reason] = max(totals.get(reason, 0), len(jobs))
+        cut = False
         for reason, jobs in sorted(groups.items(), key=lambda item: -totals[item[0]]):
             shown = _fair_pick(jobs, limit)
             lines.append(f"{reason} ({totals[reason]}):")
             lines.extend(f"- {job} [{name}]" for name, job in shown)
             if totals[reason] > len(shown):
                 lines.append(f"- ... and {totals[reason] - len(shown)} more")
-        if any(n > MAX_DROPPED_PER_REASON for counts in self.by_source.values()
-               for reason, n in counts.items() if reason not in KEPT_BUCKETS):
-            lines.append(f"(The report keeps up to {MAX_DROPPED_PER_REASON} jobs per source and "
-                         "reason; the counts are complete.)")
+                cut = True
+        if cut:
+            sources = len({name for jobs in groups.values() for name, _ in jobs})
+            how = (f"Shown: up to {limit} jobs per reason"
+                   + (", taken in turn from each source" if sources > 1 else ""))
+            more = (" Add a source for more of one, for example /fetchreport title adzuna."
+                    if sources > 1 else "")
+            lines.append(f"({how}. The report keeps up to {MAX_DROPPED_PER_REASON} jobs per "
+                         f"source and reason; the counts are complete.{more})")
         return "\n".join(lines)
+
+    def _lines_of(self, labels: dict[str, str], sources: set[str]) -> list[str]:
+        """lines() for some sources only."""
+        keep = LossReport(by_source={s: c for s, c in self.by_source.items() if s in sources})
+        return keep.lines(labels)
 
     def to_state(self, today: str) -> dict[str, Any]:
         return {"at": today, "by_source": self.by_source,
@@ -497,10 +524,13 @@ class SweepSummary:
             lines += ["", f"\U0001F3E2 {self.workday_line}"]
         if self.blocked_sites or self.no_board_sites:
             lines += ["", "\U0001F3E2 Company sites we could not read:"]
+            # LOG-09: the counts, so they can be held against the Run Log's Sites blocked.
             if self.blocked_sites:
-                lines.append(f"- Blocked us: {_names(self.blocked_sites)}")
+                lines.append(f"- Blocked us ({len(self.blocked_sites)}): "
+                             f"{_names(self.blocked_sites)}")
             if self.no_board_sites:
-                lines.append(f"- No job board found: {_names(self.no_board_sites)}")
+                lines.append(f"- No job board found ({len(self.no_board_sites)}): "
+                             f"{_names(self.no_board_sites)}")
             lines.append("Put their job board link (for example the myworkdayjobs.com or "
                          "greenhouse.io page) in Careers URL in Target Companies. /sources "
                          "lists them all.")

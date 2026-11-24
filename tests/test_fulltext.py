@@ -389,8 +389,9 @@ def test_friendly_summary_lists_sites_to_fix():
     summary = SweepSummary(blocked_sites=["Intel (IE) (HTTP 403)"],
                            no_board_sites=[f"Co {i}" for i in range(10)])
     text = summary.friendly_text()
-    assert "- Blocked us: Intel (IE) (HTTP 403)" in text
-    assert "- No job board found: Co 0, Co 1, Co 2, Co 3, Co 4, Co 5, Co 6, Co 7 and 2 more" in text
+    assert "- Blocked us (1): Intel (IE) (HTTP 403)" in text
+    assert ("- No job board found (10): Co 0, Co 1, Co 2, Co 3, Co 4, Co 5, Co 6, Co 7 "
+            "and 2 more") in text
 
 
 ADZ = replace(JOB, url="https://www.adzuna.pl/details/5901137322?utm_medium=api")
