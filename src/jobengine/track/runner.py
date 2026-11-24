@@ -158,6 +158,30 @@ class DailyReport:
             for name, reason in self.tokens.items()))
         return "\n".join(lines)
 
+    def short_text(self) -> str:
+        """S10 (23 Nov, your ask): the Telegram message; text() goes to the Run Log page.
+        The counts, then only what needs you (token failures, your calls, notes, errors)."""
+        lines = self.token_lines()
+        shown = self.last_check or self.since
+        lines.append(f"\U0001F4EC Daily check {self.day:%a %d %b} (since "
+                     f"{shown:%d %b %H:%M})")
+        interviews = sum("-> Interview" in r for r in self.replies)
+        counts = [(len(self.sent), "sent"),
+                  (len(self.replies), "replies" + (f" ({interviews} interview)"
+                                                   if interviews else "")),
+                  (len(self.applications), "applications updated"),
+                  (len(self.bounced), "bounced"),
+                  (len(self.followups) + len(self.followups_queued), "follow-ups"),
+                  (len(self.ghosted_contacts) + len(self.ghosted_jobs), "ghosted")]
+        found = [f"{n} {what}" for n, what in counts if n]
+        lines.append(" · ".join(found) if found else "Nothing new since the last check.")
+        if self.cards:
+            lines.append(f"\U0001F449 Needs your call: {len(self.cards)} (below)")
+        lines.extend(self.notes)
+        if self.errors:
+            lines.append(f"\u26a0\ufe0f {len(self.errors)} error(s): {self.errors[0]}")
+        return "\n".join(lines)
+
     def token_lines(self) -> list[str]:
         return [TOKEN_FAILED.format(account=name, reason=reason)
                 for name, reason in self.tokens.items() if reason is not None]

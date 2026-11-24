@@ -389,8 +389,10 @@ def filled(answers: Sequence[Answer]) -> list[Answer]:
     return [a for a in answers if a.value is not None and not a.note]
 
 
-def report(result: Result, job: str = "") -> str:
-    """The Telegram text: what was filled and from where, what is left for you."""
+def report(result: Result, job: str = "", short: bool = False) -> str:
+    """The Telegram text: what was filled and from where, what is left for you. `short`
+    (S10, 23 Nov): without the list of filled fields (the screenshot shows them, the full
+    report is in the Run Log page)."""
     head = f"🧪 Dry run{f' ({job})' if job else ''}: nothing was sent.\n{result.url}"
     if result.opened:
         head += f"\nOpened its Apply link: {result.opened}"
@@ -400,7 +402,7 @@ def report(result: Result, job: str = "") -> str:
     left = [a for a in result.answers if a not in done]
     lines = [head, f"Filled {len(done)} of {len(result.answers)} field(s). The screenshot "
              "shows the form as it would go."]
-    if done:
+    if done and not short:
         lines.append("")
         lines += [f"✅ {_short(a.field.label)}: {_short(a.value or '', 120)} "
                   f"({SOURCES.get(a.source, a.source)})" for a in done]

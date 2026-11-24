@@ -89,7 +89,6 @@ def desk_tasks(s: Settings, desk: Desk, client: tb.TelegramClient,
     """The real task bodies: they run the same desk code as the Telegram commands and send
     their reports to the chat."""
     from jobengine.strategy.runner import run_strategy_reminder
-    from jobengine.track.digest import run_weekly_digest
     from jobengine.track.runner import run_daily
 
     chat = str(s.telegram_chat_id)
@@ -136,7 +135,7 @@ def desk_tasks(s: Settings, desk: Desk, client: tb.TelegramClient,
     def digest() -> dict[str, Any]:
         if desk.track is None:
             raise RuntimeError("tracking is not available (see the startup log)")
-        send([Reply(run_weekly_digest(desk.track, desk.tracking_now()))])
+        send(desk.digest_command())  # short; the full digest in its Run Log page (S10)
         send(desk.screen_check_tick())  # Sunday 19:30 India time: 10 verdicts to tick (S3)
         send(desk.spot_check_tick())  # Sunday 20:00 India time: 2 resumes to look at (H5)
         send(desk.expired_check_tick())  # the weekly link check: closed jobs Expired (I1)

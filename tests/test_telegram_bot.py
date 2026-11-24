@@ -845,9 +845,16 @@ def test_today_sends_the_report_then_the_cards(desk):
     fake = talk(desk, "/today")
     sent = texts(fake)
     assert sent[0] == "[LOCAL] Running the daily check..."
-    assert sent[1].startswith("[LOCAL] Daily check 2026-10-15 (since 2026-10-01 08:00)")
-    assert "Replies: Piotr Example (Vistula Cloud) -> Interview" in sent[1]
-    assert "Tokens: alerts OK, sender OK" in sent[1]
+    # S10: the counts and what needs you here, the full check in its Run Log page.
+    assert sent[1].startswith("[LOCAL] 📬 Daily check Thu 15 Oct (since 01 Oct 08:00)\n"
+                              "2 sent · 2 replies (1 interview) · 3 applications updated · "
+                              "2 bounced · 2 ghosted\n👉 Needs your call: 3 (below)")
+    assert sent[1].endswith('📝 Full report in Notion: Run Log, row "/today 08:00"')
+    page = desk.run_log_table.bodies[-1]
+    assert "Daily check 2026-10-15 (since 2026-10-01 08:00)" in page
+    assert any(line.startswith("Replies: Piotr Example (Vistula Cloud) -> Interview")
+               for line in page)
+    assert "Tokens: alerts OK, sender OK" in page
     assert any("Reply from marek.example@vistula.example.com" in t for t in sent)
     assert ["lk:jobfjord:t-fjord-a", "lk:jobfjord:-"] in fake.buttons
     assert "rd:20261015" in [b for row in fake.buttons for b in row]
@@ -879,17 +886,23 @@ def test_stats_followups_health_sources_digest(desk):
     follow = talk(desk, "/followups").sent[0][1]
     assert "- Ola Example (Vistula Cloud): due 2026-10-17" in follow
     health = talk(desk, "/health").sent[0][1]
-    assert "Notion: OK" in health and "Gmail sender token: OK" in health
-    assert "Environment: local, DRY_RUN on" in health
+    # S10: the problems and a count here; every line in the Run Log page.
+    assert health.startswith("[LOCAL] 🩺 Health: 2 problem(s), 4 check(s) OK\n"
+                             "❌ Anthropic key: missing\n❌ Irish permits list: NOT read")
+    assert "Environment: local, DRY_RUN on" in health and "Notion: OK" not in health
+    page = desk.run_log_table.bodies[-1]
+    assert "Notion: OK" in page and "Gmail sender token: OK" in page
     # Phase 19 A-00 (3 Nov): the AI money lines, as in the morning check.
-    assert "AI in October" in health and "Credit balancer: off" in health
+    assert "AI in October: nothing used yet." in page
+    assert any(line.startswith("Credit balancer: off") for line in page)
     tb.make_fetcher(settings(), True, desk)(lambda line: None)  # a fake sweep stores counts
     sources = talk(desk, "/sources").sent[0][1]
     assert "Sweep sources (last sweep: 2026-10-01)" in sources
     assert "ats: enabled, no secret needed, last sweep" in sources
     digest = talk(desk, "/digest").sent[0][1]
     assert digest.startswith("[LOCAL] Weekly digest 2026-10-15")
-    assert "Strategy gate:" in digest
+    assert "Strategy gate:" in digest and "📈 What gets replies, what works" in digest
+    assert "By source:" not in digest and "By source:" in desk.run_log_table.bodies[-1]
 
 
 def test_help_lists_tracking_commands():

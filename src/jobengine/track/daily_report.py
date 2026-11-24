@@ -185,9 +185,10 @@ def warnings(entry: Mapping[str, Any], history: Sequence[Mapping[str, Any]], *,
 
 def text(entry: Mapping[str, Any], day: date, *, month_cost: str, credits: str,
          tokens: Sequence[str] = (), waiting: Sequence[str] = (),
-         warned: Sequence[str] = ()) -> str:
+         warned: Sequence[str] = (), short: bool = False) -> str:
     """The report. `month_cost` is costs.month_line, `credits` the CreditBook line,
-    `warned` the warnings() lines (shown first)."""
+    `warned` the warnings() lines (shown first). `short` (S10, 23 Nov): the Telegram message,
+    the day's line, the warnings and what waits for you; the rest is in the Run Log page."""
     from jobengine.track import scorecard
 
     # S1 (23 Nov): the day in one line first; the details follow.
@@ -195,10 +196,12 @@ def text(entry: Mapping[str, Any], day: date, *, month_cost: str, credits: str,
     if not entry.get("sweeps") and not any(_n(entry, f"screened.{v}") for v in VERDICTS):
         lines.append("Nothing ran today: 0 new jobs, 0 screened. If the schedule is on, "
                      "something stopped it: check /health and send Claude Code the bot log.")
-    lines += [fetch_line(entry), screen_line(entry), resume_line(entry), outreach_line(entry),
-              f"💰 AI today: about ${float(entry.get('cost') or 0):.2f}. {month_cost}",
-              f"💳 {credits}"]
-    lines += [f"🔑 {line}" for line in tokens]
+    if not short:
+        lines += [fetch_line(entry), screen_line(entry), resume_line(entry),
+                  outreach_line(entry),
+                  f"💰 AI today: about ${float(entry.get('cost') or 0):.2f}. {month_cost}",
+                  f"💳 {credits}"]
+        lines += [f"🔑 {line}" for line in tokens]
     if waiting:
         lines.append("📌 Waiting for you: " + ", ".join(waiting) + ".")
     return "\n".join(lines)

@@ -960,6 +960,21 @@ def _guarded(name: str, action: Callable[[], list[Reply]]) -> list[Reply]:
         return [Reply(f"{name} failed: {exc}")]
 
 
+def _reported(name: str, action: Callable[[], list[Reply]], desk: Desk) -> list[Reply]:
+    """A command with a long report (/health, /today, /report, /digest, /dryrun): it gets its
+    Run Log row, whose page holds the full report while Telegram gets the short one (S10,
+    23 Nov). A failure is answered as by _guarded and recorded as Failed."""
+    with _command_run(name, desk) as run:
+        try:
+            replies = action()
+        except Exception as exc:  # report the failure instead of stopping the bot
+            run.fail(exc)
+            log.exception("%s failed", name)
+            return [Reply(f"{name} failed: {exc}")]
+        run.note([r for r in replies if not getattr(r, "document", None)])
+        return replies
+
+
 # A short outage of Notion or the network (26 Oct: "HTTP 500 Unexpected error occurred" on
 # a Bot State read) is tried again at the next tick; it is told only when it repeats.
 PASSING_ERROR = re.compile(r"HTTP (?:429|5\d\d)\b|Timeout|Connection(?:Error| reset)|"
@@ -1074,7 +1089,7 @@ def desk_replies(update: dict[str, Any], s: Settings, desk: Desk | None) -> list
     if command == "autoapply":
         return _guarded("/autoapply", lambda: desk.autoapply_command(args))
     if command == "dryrun":
-        return _guarded("/dryrun", lambda: desk.dryrun_command(args))
+        return _reported("/dryrun", lambda: desk.dryrun_command(args), desk)
     if command == "applypack":
         return _guarded("/applypack", lambda: desk.applypack_command(args))
     if command == "prep":
@@ -1094,6 +1109,8 @@ def desk_replies(update: dict[str, Any], s: Settings, desk: Desk | None) -> list
     tracking = {"today": desk.today_command, "followups": desk.followups_command,
                 "stats": desk.stats_command, "sources": desk.sources_command,
                 "health": desk.health_command, "digest": desk.digest_command}
+    if command in ("today", "health", "digest"):  # S10: short here, full in the Run Log
+        return _reported(f"/{command}", tracking[command], desk)
     if command in tracking:
         return _guarded(f"/{command}", tracking[command])
     if command == "update":
@@ -1111,7 +1128,7 @@ def desk_replies(update: dict[str, Any], s: Settings, desk: Desk | None) -> list
     if command == "newcompanies":
         return _guarded("/newcompanies", lambda: desk.newcompanies_command(args))
     if command == "report":
-        return _guarded("/report", desk.report_command)
+        return _reported("/report", desk.report_command, desk)
     if command == "jd":
         return _guarded("/jd", lambda: desk.jd(args))
     if command == "done":
@@ -1195,8 +1212,8 @@ def run_fetch(
             progress.finish(ok=False)
             client.send_message(chat_id, telegram_text(f"/fetch failed: {exc}", s))
             return
-        run.note([summary.split(NEXT_STEP)[0]])
         summary = with_report_line(summary, run, desk)
+        run.note([summary.split(NEXT_STEP)[0]])
     progress.finish(ok=True)
     client.send_message(chat_id, telegram_text(summary, s))
 
@@ -1207,7 +1224,7 @@ def with_report_line(summary: str, run: Any, desk: Desk | None) -> str:
 
     if getattr(desk, "run_log_table", None) is None or not run.details:
         return summary
-    line = f"\U0001F4DD Full report in Notion: Run Log, row \"{run_log.name(run)}\""
+    line = run_log.report_line(run)
     head, sep, tail = summary.partition(NEXT_STEP)
     return f"{head}\n{line}{sep}{tail}"
 

@@ -422,6 +422,33 @@ sent, AI cost) and the bot's own WARNING and ERROR lines are counted for it in m
   links found, closed jobs, seen before, not for you, and "For you": jobs waiting for /jd,
   jobs Notion refused, no alert email read, sources not checked) ending with
   "Full report in Notion: Run Log, row /fetch HH:MM"; the long report is that page.
+- S10 (23 Nov, your ask): the same for the other long messages. Telegram gets the short one
+  ending with "📝 Full report in Notion: Run Log, row <name>"; the row's page holds the full
+  one (and what else the run sent that has no full report of its own):
+  - the daily check (07:30, 21:30 and /today): the counts in one line (sent, replies and
+    interviews, applications updated, bounced, follow-ups, ghosted), then only what needs
+    you: failed tokens, "Needs your call", the notes, the first error. The cards follow as
+    before;
+  - the daily report (21:45 and /report): the day's line, the warnings and what waits for
+    you. The email copy is still the full report;
+  - the morning check: what blocks the run and what needs you soon in full, the checks that
+    passed as one count ("✅ 5 other check(s) passed.");
+  - /health: "🩺 Health: N problem(s), M check(s) OK", each problem, and the Environment line;
+  - the weekly digest (Sunday and /digest): the week in numbers (its first block) and the
+    one-line tip of each analysis ("Put more effort where it works", "Most approvals for
+    what it finds", "Many found, none approved", "Most answers");
+  - the autopilot summary (scheduled and /autopilot): the counts and only the jobs that need
+    you (no resume built, or not approved); the resumes, apply packs and questions follow
+    as before;
+  - each dry run report (/dryrun and the auto-apply queue, 3 forms at once): what is left
+    for you (❗ and ❓ fields, the /answer line, blocked requests); the list of filled
+    fields is in the page and the screenshot shows them;
+  - the weekly audit was already short (its report is the Weekly Audit page).
+
+  /today, /report, /health, /digest and /dryrun now get a Run Log row too (Step is the
+  command). Where no Run Log row is written (no Run Log table), the full message comes as
+  before. In the page, a status word after "token:" or "key:" (OK, FAILED, missing) is
+  kept; a real key or token is still blanked.
 
 A run that did nothing (most ticks: "not due yet") writes no row. Email addresses, keys,
 tokens and the query part of links are blanked. Writing the row never fails the run.
