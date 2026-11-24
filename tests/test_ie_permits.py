@@ -69,8 +69,9 @@ def test_irish_card_says_it_and_ranks_higher():
     d.repo.rows["pl-clean"].update({"Country": "Ireland", "Company": "Tulip Data"})
     row = next(r for r in d.all_ranked() if r.page_id == "pl-clean")
     assert d.irish_permits(row) == ("Tulip Data Ireland Ltd", 7)
-    card = d.card(row, 0, 1)
+    card = d.card(row, 0, 1, full=True)  # the full card (More)
     assert "Irish permits: 7 issued to Tulip Data Ireland Ltd (DETE list)" in card.text
+    assert "; 7 Irish permits issued to it" in d.card(row, 0, 1).text  # S11: in the Why line
     d._permits = (date.min, None)
     calls = []
     d.get_file = lambda url: calls.append(url) or (url, "application/vnd.ms-excel", xlsx)

@@ -57,7 +57,7 @@ def test_screening_sends_an_alert_card_per_apply_high_job():
     first = alerts[0]
     assert first.text.startswith(HIGH_ALERT + "\n[1/")
     assert "Apply high\n" in first.text
-    assert [b[1].split(":")[0] for b in first.buttons] == ["ap", "sk"]
+    assert [b[1].split(":")[0] for b in first.buttons] == ["ap", "sk", "mo"]  # S11: More
     assert sorted(b[1].split(":", 1)[1] for a in alerts for b in a.buttons[:1]) == highs
 
 

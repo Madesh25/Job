@@ -447,10 +447,16 @@ def test_pending_shows_one_card_in_rank_order(desk):
     assert len(fake.sent) == 1
     text = fake.sent[0][1]
     assert text.startswith("[LOCAL] [1/")
-    assert "Apply high\nTulip Data B.V., Cloud Engineer" in text
-    assert "Match: 1 strong, 0 transferable, 1 gaps" in text
+    # S11: the short card; More shows the full one.
+    assert ("Apply high\nTulip Data B.V., Cloud Engineer\n📍 Utrecht, Netherlands\n"
+            "Gaps: Java services\nWhy: strong on AWS, Terraform and Kubernetes; "
+            "sponsorship stated\nhttps://jobs.example.com/nl-sponsor-yes") in text
+    assert "Match: " not in text
     assert "2 jobs need the JD (1 LinkedIn, 1 Company site): /jd" in text
-    assert fake.buttons[0] == ["ap:nl-sponsor-yes", "sk:nl-sponsor-yes", "nx:1"]
+    assert fake.buttons[0] == ["ap:nl-sponsor-yes", "sk:nl-sponsor-yes", "mo:0:nl-sponsor-yes",
+                               "nx:1"]
+    more = talk(desk, tap(1, "mo:0:nl-sponsor-yes")).sent[0][1]
+    assert "Match: 1 strong, 0 transferable, 1 gaps" in more and "Sponsorship Stated yes" in more
     order = [r.page_id for r in desk.ranked()]
     assert "ie-5-years" not in order  # 5 years: over the 4-year limit, skipped with no AI
     assert order.index("pl-clean") < order.index("pl-polish-plus")  # tier first

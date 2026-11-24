@@ -41,7 +41,8 @@ def make_desk():
 
 def test_pending_card_shows_the_keyword_lines():
     d = make_desk()
-    cards = {r.page_id: d.card(r, i, 1).text for i, r in enumerate(d.ranked())}
+    # S11: the full card, behind More on the short one.
+    cards = {r.page_id: d.card(r, i, 1, full=True).text for i, r in enumerate(d.ranked())}
     clean = cards["pl-clean"]
     assert "Skill match: 100% (6 of 6 tools it names)" in clean
     assert "Use their word: EKS (your Kubernetes on AWS)" in clean
