@@ -891,6 +891,8 @@ class Desk:
             return self.add_undo(arg)
         if action == "rf" and arg:  # "Referral asks": your LinkedIn connections there
             return self.referral_tap(arg)
+        if action == "rk" and arg:  # "I sent them" under the referral asks (LOG-02)
+            return self.referral_sent_tap(arg)
         if action == "rm" and arg:  # "Mail them": the referral ask to connections by mail
             return self.referral_mail_tap(arg)
         if action == "rl" and arg:  # "Location and email": Prospeo for those connections
@@ -1872,6 +1874,15 @@ class Desk:
             return []
         return connections.at_company(rows, values["Company"], values.get("Country") or "")
 
+    def _juniors_at(self, values: dict[str, Any]) -> int:
+        if self.connections is None or not values.get("Company"):
+            return 0
+        try:
+            return connections.juniors_at(self.connections.rows_like(values["Company"]),
+                                          values["Company"])
+        except Exception:  # only a count in the message
+            return 0
+
     def _add_connections(self, reply: Reply, job_id: str, values: dict[str, Any],
                          found: list[Any]) -> None:
         """Your LinkedIn connections at the company under the contacts answer, with a
@@ -1934,13 +1945,45 @@ class Desk:
                           "in the 🤝 LinkedIn Connections table.")]
         today = self.today()
         reply = Reply(self.referral_messages(values, matches)[:MAX_TEXT])
+        pid = short_id(job_id)
+        open_ones = [m for m in matches[:connections.MAX_SHOWN] if not m.asked_on(today)]
+        if open_ones and self.connections is not None:  # LOG-02: mark them Asked
+            reply.buttons = [(f"✅ I sent them ({len(open_ones)})", f"rk:{pid}")]
+            reply.text += ("\n\nAfter you send them, tap I sent them: they are marked Asked "
+                           f"for {connections.ASKED_DAYS} days, so Referral first and the next "
+                           "asks leave them out.")
         can_mail = connections.mailable(matches, today)
         if can_mail and self.mail is not None:
-            reply.buttons = [(f"Mail them ({len(can_mail)})", f"rm:{short_id(job_id)}")]
+            reply.buttons = [*reply.buttons, (f"Mail them ({len(can_mail)})", f"rm:{pid}")]
             reply.text += (f"\n\n{len(can_mail)} of them have an email: Mail them adds them as "
                            "contacts of this job, then Write Gmail drafts uses the referral "
                            "template word for word.")
+        if self.contacts is not None and any(m.row.person.url and not m.country
+                                             for m in matches[:connections.MAX_SHOWN]):
+            reply.buttons = [*reply.buttons, ("Location and email", f"rl:{pid}")]
         return [reply]
+
+    def referral_sent_tap(self, job_id: str) -> list[Reply]:
+        """"I sent them" under the referral asks (LOG-02, 24 Nov: nobody was marked, so the
+        30-day rule never worked): the connections shown and not asked yet are marked Asked
+        today in 🤝 LinkedIn Connections."""
+        from jobengine.resume.builder import notion_id
+
+        if self.repo is None or self.connections is None:
+            return [Reply("LinkedIn connections are not available in this bot.")]
+        values = self.repo.get_values(notion_id(job_id)) or {}
+        today = self.today()
+        shown = [m for m in self._connections_at(values)[:connections.MAX_SHOWN]
+                 if not m.asked_on(today)]
+        company = without_region(values.get("Company") or "") or "the company"
+        if not shown:
+            return [Reply(f"Nothing to mark: the connections at {company} shown were already "
+                          "marked Asked.")]
+        connections.mark_asked(self.connections, shown, today)
+        names = ", ".join(m.row.person.name for m in shown)
+        return [Reply(f"Marked Asked on {today:%d %b} ({len(shown)} at {company}): {names}. "
+                      f"Referral first and the next asks leave them out for "
+                      f"{connections.ASKED_DAYS} days.")]
 
     def referral_messages(self, values: dict[str, Any],
                           matches: list[connections.Match]) -> str:
@@ -1954,8 +1997,23 @@ class Desk:
         me = config.get("linkedin.signature") or self.s.apply_pack.get("linkedin_signature")
         company = without_region(values.get("Company") or "")
         today = self.today()
-        blocks = [f"Referral asks for {values.get('Role') or 'the role'} at {company}: send "
-                  "each one yourself as a LinkedIn message (the bot never opens LinkedIn)."]
+        head = (f"Referral asks for {values.get('Role') or 'the role'} at {company}: send "
+                "each one yourself as a LinkedIn message (the bot never opens LinkedIn).")
+        # LOG-02 (24 Nov): say how many, which company names counted, and who was left out.
+        counted = connections.companies(matches)
+        facts = [f"{len(matches)} connection(s)"]
+        if len(counted) > 1:
+            facts.append(f"counted as {company}: "
+                         + ", ".join(f"{name} {n}" for name, n in counted))
+        juniors = self._juniors_at(values)
+        if juniors:
+            facts.append(f"{juniors} junior left out (a junior cannot refer)")
+        head += "\n" + "; ".join(facts) + "."
+        if len(matches) > connections.MAX_SHOWN:
+            head += (f"\nShowing {connections.MAX_SHOWN} of {len(matches)}: the job's country "
+                     "first, then location unknown; engineers first. The rest are in the 🤝 "
+                     "LinkedIn Connections table.")
+        blocks = [head]
         for m in matches[:connections.MAX_SHOWN]:
             p = m.row.person
             asked = m.asked_on(today)

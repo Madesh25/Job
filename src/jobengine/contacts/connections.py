@@ -405,6 +405,24 @@ def at_company(rows: Iterable[StoredRow], company: str, country: str) -> list[Ma
     return sorted(found, key=order)
 
 
+def juniors_at(rows: Iterable[StoredRow], company: str) -> int:
+    """Connections at the company left out as junior (LOG-02: the bot said 20, Notion had
+    21 not removed at Amazon)."""
+    from jobengine.contacts.classify import is_junior
+
+    return sum(1 for row in rows if not row.removed
+               and same_company(row.person.company, company) and is_junior(row.person.position))
+
+
+def companies(matches: list[Match]) -> list[tuple[str, int]]:
+    """The company names counted as the job's company, most connections first ("Amazon Web
+    Services (AWS)" 14, "Amazon" 5): LOG-02, so you see what was counted."""
+    from collections import Counter
+
+    seen = Counter(str(m.row.person.company or "").strip() for m in matches)
+    return sorted(seen.items(), key=lambda kv: (-kv[1], kv[0]))
+
+
 def block(matches: list[Match], company: str, country: str, today: date) -> str:
     """The lines under a job's contacts answer."""
     lines = [f"🤝 Your LinkedIn connections at {company}: {len(matches)}"]

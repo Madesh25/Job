@@ -96,7 +96,8 @@ def test_contacts_answer_lists_your_connections_and_the_referral_flow():
                                 "one yourself as a LinkedIn message")
     assert "https://www.linkedin.com/in/ola-n\nHi Ola, I am applying for the DevOps Engineer" in \
         asks.text
-    assert asks.buttons and asks.buttons[0][1] == "rm:pl-clean"
+    # LOG-02: "I sent them" first (marks the people shown Asked), then Mail them.
+    assert asks.buttons[0][1] == "rk:pl-clean" and asks.buttons[1][1] == "rm:pl-clean"
 
     [mailed] = d.tap("rm:pl-clean")
     assert mailed.text.startswith("Added as contacts of this job:")
