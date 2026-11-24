@@ -29,7 +29,7 @@ from jobengine.resume.builder import hex_id
 from jobengine.safety import gmail_write_allowed
 from jobengine.settings import Settings
 from jobengine.sweep.normalize import canon_company
-from jobengine.track import bounces, followup, holiday, linking
+from jobengine.track import bounces, followup, holiday, linking, reply_analysis
 from jobengine.track.classify import DEFAULT_OPT_OUT, classify, is_auto_reply
 from jobengine.track.models import (
     AUTO_REPLY,
@@ -448,6 +448,7 @@ def cold_replies(run: Run, report: DailyReport) -> None:
             continue
         message = replies[-1]
         cls = classify(message, run.llm(), phrases=run.phrases)
+        reply_analysis.record(cls.kind)  # S9: every reply counted by group
         if cls.kind == AUTO_REPLY:
             continue
         if cls.confidence < run.min_conf:
@@ -478,6 +479,7 @@ def process_job_thread(run: Run, job_id: str, since: datetime, report: DailyRepo
                and not is_auto_reply(m) and not bounces.is_bounce(m)]
     for message in inbound:
         cls = classify(message, run.llm(), phrases=run.phrases)
+        reply_analysis.record(cls.kind)  # S9: every reply counted by group
         if cls.kind == AUTO_REPLY:
             continue
         if cls.confidence < run.min_conf:
