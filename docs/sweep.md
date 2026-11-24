@@ -787,7 +787,10 @@ in the /fetch summary.
 
 - Titles must contain a `sweep.title_include` term and no `sweep.title_exclude` term, matched as
   whole words on the canonical title (so "Internal" does not match "intern"). Lead, Principal,
-  Staff, Manager and similar are dropped.
+  Staff, Manager and similar are dropped. LOG-07 (24 Nov): `ci cd`, `cicd`, `deployment
+  engineer`, `cloud security` and `mlops` were added, so CI/CD Engineer, AI Platform &
+  Deployment Engineer, Cloud Security Engineer and MLOps Engineer are kept (screening judges
+  each on its description); Security Engineer alone and Product Owner stay out.
 - Seniority: Junior (`junior`, `jr`), Mid (`mid`, `regular`, `medior`), Senior (`senior`, `sr`),
   else Unknown.
 - Years required: as posted, from the largest requirement in the description (`2-3 years`,
