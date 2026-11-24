@@ -6,8 +6,9 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 
 from jobengine.contacts import agencies
+from jobengine.resume import header
 from jobengine.screen.runner import pending_rows, waiting_for_jd
-from jobengine.track import commands, costs, what_works
+from jobengine.track import commands, costs, day_ledger, reply_analysis, what_works
 from jobengine.track.runner import TrackDeps
 from jobengine.track.stats import Funnel, compute, pct, replies_report
 
@@ -51,4 +52,8 @@ def run_weekly_digest(deps: TrackDeps, now: datetime) -> str:
                      "learning plan.")
     lines += ["", replies_report(jobs, contacts, today)]
     lines += ["", what_works.text(jobs)]  # S6 (23 Nov): where to spend your time
+    titles = header.approved_titles(deps.s, config)
+    counts = reply_analysis.week_counts(lambda day: day_ledger.day(deps.state, day), today)
+    lines += ["", reply_analysis.text(  # S9 (23 Nov): what got replies
+        counts, jobs, lambda role: header.headline_title(role, titles))]
     return "\n".join(lines)

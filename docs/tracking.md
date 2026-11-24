@@ -103,6 +103,21 @@ the job) to applying, and how many were applied within 2 days. Two tips: the sou
 most approvals for what it finds (at least 10 found), and the sources with at least 30 found
 and none approved: candidates to drop (FETCH 11).
 
+## Reply analysis, in the weekly digest (S9, 23 Nov, your request)
+
+Every reply the daily check reads is classified as before (see "Reply classification"); each
+one is now also counted per day in four groups (`src/jobengine/track/reply_analysis.py`, day
+ledger `reply.<group>`): **interview** (a screening call, an interview, an offer),
+**rejection** (a no, or "do not contact"), **automatic** (a confirmation or an out-of-office)
+and **question** (a positive or neutral answer, a question, anything else).
+
+The Sunday weekly digest gets **📬 Replies**: this week's replies by group, then, from every job
+you applied to, which resume headline (your approved title the job's role names, the same rule
+as the resume header) and which skills the jobs asked for (their Tech stack, at least 2
+applications each, the best 6) got answers: "- DevOps Engineer: 2 of 3 answered (67%), 0
+rejected". A last line names the headline with the most answers, or, after 10 or more
+applications and no answer, says to look at the headline and the first lines of the resume.
+
 ## Claude API cost in the digest
 
 The weekly digest has a line with the month's Claude API cost so far, what it went on, the
