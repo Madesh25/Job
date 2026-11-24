@@ -240,6 +240,54 @@ def same_page(a: str, b: str) -> bool:
     return short_id(a) == short_id(b)
 
 
+def match_rows(body: list[str]) -> list[tuple[str, str]]:
+    """(Strong | Transferable | Gap, the requirement) of the newest "Screening (" section."""
+    start = max((i for i, b in enumerate(body) if b.startswith(SECTION_PREFIX)), default=None)
+    if start is None:
+        return []
+    rows = []
+    for line in body[start + 1:]:
+        if MATRIX_LINE.match(line):
+            parts = [p.strip() for p in line.split("|")]
+            rows.append((parts[0], parts[1] if len(parts) > 1 else ""))
+    return rows
+
+
+CARD_KEY = "pending.card"  # Notion Config (S11): "full" brings back the long /pending card
+TOP_GAPS = 3
+WHY_CHARS = 160
+
+
+def why_line(row: JobRow, body: list[str], permits: tuple[str, int] | None = None) -> str:
+    """S11 (23 Nov): the verdict in one line, from the screening table (no AI): what you match
+    strongly, how much is transferable, and a stated sponsorship."""
+    rows = match_rows(body)
+    strong = [req for kind, req in rows if kind == "Strong" and req]
+    near = sum(1 for kind, _req in rows if kind == "Transferable")
+    parts = []
+    if strong:
+        parts.append("strong on " + ", ".join(strong[:2])
+                     + (f" (+{len(strong) - 2} more)" if len(strong) > 2 else ""))
+    if near:
+        parts.append(f"{near} transferable")
+    if row.sponsorship == "Stated yes":
+        parts.append("sponsorship stated")
+    if permits:
+        parts.append(f"{permits[1]} Irish permits issued to it")
+    text = "; ".join(parts) or "no requirement matched strongly"
+    if len(text) > WHY_CHARS:
+        text = text[:WHY_CHARS - 3].rstrip() + "..."
+    return f"Why: {text}"
+
+
+def gaps_line(row: JobRow) -> str:
+    gaps = split_gaps(row.gaps)
+    if not gaps:
+        return "Gaps: none"
+    more = f" and {len(gaps) - TOP_GAPS} more" if len(gaps) > TOP_GAPS else ""
+    return f"Gaps: {'; '.join(gaps[:TOP_GAPS])}{more}"
+
+
 def match_counts(body: list[str]) -> dict[str, int]:
     """Strong, Transferable and Gap counts from the newest "Screening (" section."""
     start = max((i for i, b in enumerate(body) if b.startswith(SECTION_PREFIX)), default=None)
@@ -666,9 +714,23 @@ class Desk:
                 f"{counts['Gap']} gaps", *self.keyword_lines(body),
                 f"Gaps: {'; '.join(split_gaps(row.gaps)) or 'none'}"]
 
-    def card(self, row: JobRow, index: int, total: int, buttons: bool = True) -> Reply:
+    def short_cards(self) -> bool:
+        """S11: the short /pending card, unless Notion Config pending.card is "full"."""
+        try:
+            return str(self.deps.config().get(CARD_KEY) or "").strip().lower() != "full"
+        except Exception:  # a Config read that fails keeps the short card
+            return True
+
+    def card(self, row: JobRow, index: int, total: int, buttons: bool = True,
+             full: bool | None = None) -> Reply:
+        """A job's /pending card. Short (S11, 23 Nov, your ask): verdict, company and role,
+        place, the top 3 gaps and one Why line, the rest behind More; `full`: every line."""
         assert self.repo is not None
+        if full is None:
+            full = not self.short_cards()
         body = self.repo.read_body(row.page_id)
+        if not full:
+            return self._short_card(row, index, total, body, buttons)
         counts = match_counts(body)
         posted = row.posted_date.isoformat() if row.posted_date else "unknown"
         if fresh(row, self.today()):
@@ -695,6 +757,45 @@ class Desk:
             if self.chosen_country():
                 keys.append(("Change country", "pc:menu"))
         return Reply("\n".join(lines), keys)
+
+    def _short_card(self, row: JobRow, index: int, total: int, body: list[str],
+                    buttons: bool) -> Reply:
+        place = ", ".join(p for p in (row.city, row.country) if p) or "unknown place"
+        if fresh(row, self.today()):
+            place += " · 🆕"
+        _jd, kind = description(body)
+        counts = match_counts(body)
+        if kind != "full" and not any(counts.values()) and not row.gaps:
+            match = ["Why: only a snippet of the description was found; open the link, or "
+                     "/jd <link> to screen it fully."]
+        else:
+            match = [gaps_line(row), why_line(row, body, self.irish_permits(row))]
+        lines = [f"[{index + 1}/{total}] {row.screen_verdict}", f"{row.company}, {row.role}",
+                 f"📍 {place}", *match]
+        if row.url:
+            lines.append(short_link(row.url) or row.url)
+        keys = []
+        if buttons:
+            pid = short_id(row.page_id)
+            keys = [("Approve", f"ap:{pid}"), ("Skip", f"sk:{pid}"),
+                    ("More", f"mo:{index}:{pid}"), ("Next", f"nx:{index + 1}")]
+            if self.chosen_country():
+                keys.append(("Change country", "pc:menu"))
+        return Reply("\n".join(lines), keys)
+
+    def more_tap(self, arg: str) -> list[Reply]:
+        """More under a short /pending card: the full card of that job (S11)."""
+        assert self.repo is not None
+        number, _, pid = arg.partition(":")
+        rows = self.in_country(self.scoped(self.all_ranked()))
+        for i, row in enumerate(rows):
+            if short_id(row.page_id) == pid:
+                return [self.card(row, i, len(rows), full=True)]
+        values = self.repo.get_values(pid)
+        if not values:
+            return [Reply("That job is no longer waiting in /pending.")]
+        index = int(number) if number.isdigit() else 0
+        return [self.card(job_row(pid, values), index, max(len(rows), index + 1), full=True)]
 
     def waiting_line(self) -> str | None:
         assert self.repo is not None
@@ -743,6 +844,8 @@ class Desk:
         action, _, arg = data.partition(":")
         if action == "nx":
             return self.pending(int(arg) if arg.isdigit() else 0)
+        if action == "mo" and arg:  # More under a short /pending card (S11)
+            return self.more_tap(arg)
         if action == "pc" and arg:  # a country button of /pending
             if arg == "menu":
                 return [self.country_menu()]
@@ -3735,7 +3838,8 @@ class Desk:
                 continue
             card = self.card(job_row(page_id, values), len(replies), min(len(ids),
                                                                            MAX_HIGH_ALERTS))
-            replies.append(Reply(f"{HIGH_ALERT}\n{card.text}", card.buttons[:2]))
+            keys = [b for b in card.buttons if b[0] in ("Approve", "Skip", "More")]
+            replies.append(Reply(f"{HIGH_ALERT}\n{card.text}", keys))
         if len(ids) > MAX_HIGH_ALERTS:
             replies.append(Reply(f"{len(ids) - MAX_HIGH_ALERTS} more Apply high jobs are "
                                  "waiting: /pending"))

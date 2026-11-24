@@ -310,6 +310,15 @@ sets `Status` to `Screened` only if it is `New` or `Screened`, so a row never mo
   already read, so it needs 2 Notion requests instead of 4.
 - `/fetch` runs the sweep, then screening, and ends with `N ready to review: /pending`.
 - `/pending` shows one card at a time, best first, with `Approve`, `Skip` and `Next`.
+- Short card (S11, 23 Nov, your ask): the verdict, company and role, `📍` city and country
+  (🆕 when fresh), `Gaps:` with the top 3 (and "N more"), one `Why:` line from the
+  screening table, no AI (what you match strongly, how many are transferable, "sponsorship
+  stated", the Irish permits issued to the company), and the link. A job with only a
+  snippet of its description says so in the Why line. `More` shows the full card as
+  before (board, posted date, ghost risk, contract, sponsorship and visa, match counts,
+  skill match, missing keywords, their words, the Irish permits line) with `Approve`,
+  `Skip` and `Next`. The Apply high cards after screening are short too (Approve, Skip,
+  More). Notion Config `pending.card` = `full` brings back the full card everywhere.
 - Which days (8 Nov, #284; 12 Nov, your rule): Telegram's bare `/pending` shows the jobs
   **found today** (First seen = today, the same list as the Today group of the Notion "By
   day" view; the Swept date, then the Posted date, only when First seen is empty). The Swept
