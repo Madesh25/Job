@@ -687,6 +687,25 @@ def _stale_command(update: dict[str, Any], started: float | None) -> str | None:
     return command if sent is not None and int(sent) < int(started) else None
 
 
+def answer_tap_now(client: TelegramClient, s: Settings, update: dict[str, Any]) -> None:
+    """A button press is answered the moment it arrives, before it waits its turn (LOG-05,
+    24 Nov: an Approve tapped while another job ran was answered minutes later and Telegram
+    said "query is too old"). The toast says when it waits for a running /fetch."""
+    query = update.get("callback_query")
+    if not isinstance(query, dict) or query.get("_answered"):
+        return
+    if str((query.get("from") or {}).get("id", "")) != str(s.telegram_chat_id):
+        return  # handle_callback logs and ignores it
+    text = TAP_TOASTS.get(str(query.get("data") or "").partition(":")[0], TAP_DEFAULT)
+    if CONTROL.running:
+        text = f"{text} (after the running {CONTROL.running})"
+    query["_answered"] = True
+    try:
+        client.answer_callback(str(query.get("id", "")), text)
+    except TelegramError as exc:
+        log.warning("answerCallbackQuery failed: %s", exc)
+
+
 def end_now(client: TelegramClient, s: Settings, update: dict[str, Any]) -> bool:
     """The webhook answers /end at once, before the worker queue (where it would wait behind
     the very run it should stop). True when the update was /end from the configured chat."""
@@ -740,6 +759,7 @@ def poll_once(
                 f"stopped). Send /{command} again to run it.", s))
             continue
         if dispatch is not None:
+            answer_tap_now(client, s, update)  # LOG-05: before it waits its turn
             dispatch(update)
         else:
             handle_one(client, s, update, fetch, desk)
@@ -1161,12 +1181,13 @@ def handle_callback(
         log.warning("Ignoring button press from unknown user %s", sender)
         return
     data = str(query.get("data") or "")
-    try:
-        # Answer at once so the button stops spinning, with a short note of what is happening.
-        client.answer_callback(str(query.get("id", "")),
-                               TAP_TOASTS.get(data.partition(":")[0], TAP_DEFAULT))
-    except TelegramError as exc:
-        log.warning("answerCallbackQuery failed: %s", exc)
+    if not query.get("_answered"):  # long polling and the webhook answered it on arrival
+        try:
+            # Answer at once so the button stops spinning, with a short note of what happens.
+            client.answer_callback(str(query.get("id", "")),
+                                   TAP_TOASTS.get(data.partition(":")[0], TAP_DEFAULT))
+        except TelegramError as exc:
+            log.warning("answerCallbackQuery failed: %s", exc)
     action, _, arg = data.partition(":")
     count, _, scope = arg.partition(":")  # sc:<n>[:<today|week|all>], a /screen choice
     if action == "sc" and count.isdigit() and desk is not None:

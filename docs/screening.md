@@ -295,6 +295,11 @@ sets `Status` to `Screened` only if it is `New` or `Screened`, so a row never mo
   with **Approve** and **Skip**, so you can apply the same day. At most 5 cards at once; the
   rest are in `/pending`. Jobs you already approved or skipped get no card. `/autopilot`
   approves them itself, so it sends no alert.
+- **Buttons are answered at once** (LOG-05, 24 Nov: an Approve tapped while another job ran
+  waited its turn and was answered too late: "query is too old"). A tap gets its short note
+  ("Checking the job link, then building your resume...") the moment it arrives, on the PC
+  (long polling) and on Cloud Run (the webhook), before it waits behind a running job; the
+  note adds "(after the running /fetch)" when one runs. The work itself still comes in turn.
 - Typing `/` shows the command menu. The bot registers it with Telegram (`setMyCommands`)
   each time it starts, and `python -m jobengine.deploy.set_webhook` does the same for
   Cloud Run.
