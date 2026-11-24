@@ -1367,16 +1367,20 @@ class Desk:
         return [*(Reply(text) for text in texts[:-1]),
                 Reply(texts[-1], document=(autofill.SETUP_FILE, autofill.setup_page()))]
 
-    def dryrun_command(self, args: str) -> list[Reply]:
-        """/dryrun <job> [form link]: fill the job's form in a browser, never submit (H8)."""
+    def dryrun_command(self, args: str,
+                       stop: Callable[[], None] | None = None) -> list[Reply]:
+        """/dryrun <job> [form link]: fill the job's form in a browser, never submit (H8).
+        LOG-01 (24 Nov): it says at once that it started, and `stop` (/end) stops it."""
         parts = args.split()
         if not parts:
             return [Reply("Send /dryrun <job URL or page id>, or /dryrun <job> <form link> when "
                           "the form is on another page. It fills the form and never submits.")]
-        return self.dry_run_job(parts[0], parts[1] if len(parts) > 1 else None)
+        return self.dry_run_job(parts[0], parts[1] if len(parts) > 1 else None, stop=stop,
+                                started=True)
 
     def dry_run_job(self, ref: str, form_url: str | None = None,
-                    submit: bool = False) -> list[Reply]:
+                    submit: bool = False, stop: Callable[[], None] | None = None,
+                    started: bool = False) -> list[Reply]:
         """One dry run: the form filled from your answers, the AI and the approved resume,
         a screenshot, the report with Answers OK / Something is wrong. Never submitted,
         except with `submit` (the auto-apply queue) when the auto-submit gate is open and the
@@ -1396,6 +1400,10 @@ class Desk:
         if "://" not in url:
             return [Reply(f"No Job Opportunities row found for {ref}")]
         job = f"{values.get('Company') or ''}, {values.get('Role') or ''}".strip(", ")
+        if started:  # /dryrun by hand: say at once that it runs (LOG-01)
+            self.say(Reply(f"🧪 Dry run started{f': {job}' if job else ''}. The bot opens the "
+                           "form in a browser and fills it; it never submits. About 1 to 3 "
+                           "minutes; /end stops it."))
         config = self.deps.config()
         profile = autofill.fields(self.s, config, values, why=why,
                                   salary=answers.saved_salary(self.state, values.get("Country")))
@@ -1427,7 +1435,7 @@ class Desk:
         result = form_bot.dry_run(self.s, url, profile, saved, name=job or "form",
                                   ai=self._form_ai(values, body, profile, saved),
                                   resume=self._approved_resume(row.page_id) if row else None,
-                                  finish=finish)
+                                  finish=finish, stop=stop)
         if result.submitted == form_submit.CONFIRMED_STATE and row is not None:
             return self._submitted(row.page_id, job, result, now)
         replies = []

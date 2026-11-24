@@ -917,10 +917,12 @@ def dry_run(s: Settings, url: str, values: Mapping[str, str],
             ai: Callable[[list[Answer]], int] | None = None,
             resume: tuple[str, bytes] | None = None,
             finish: Callable[[Any, Result, Sending], None] | None = None,
-            now: Callable[[], datetime] = datetime.now) -> Result:
+            now: Callable[[], datetime] = datetime.now,
+            stop: Callable[[], None] | None = None) -> Result:
     """Open the form, fill it, take a screenshot. `ai` answers the questions left open
     (apply/form_ai.py, step 2). `prepare` gets the browser context before the page opens and
-    `check` the filled page (tests serve and read their own form)."""
+    `check` the filled page (tests serve and read their own form). `stop` is called between
+    the steps and raises to stop the run (/end, LOG-01); each step is logged with its time."""
     result = Result(url=url)
     try:
         safety.assert_page_fetch_allowed(url, s)
@@ -942,7 +944,7 @@ def dry_run(s: Settings, url: str, values: Mapping[str, str],
     try:
         done = _run(s, url, values, saved, result, folder=folder, prepare=prepare, check=check,
                     ai=ai, resume_path=resume_path, name=name, now=now,
-                    sync_playwright=sync_playwright, finish=finish)
+                    sync_playwright=sync_playwright, finish=finish, stop=stop)
         if not done.stopped:  # a form filled (dry run or auto-apply): the daily scorecard
             from jobengine.track import day_ledger
 
@@ -959,8 +961,18 @@ def _run(s: Settings, url: str, values: Mapping[str, str], saved: Sequence[Mappi
          check: Callable[[Any], None] | None, ai: Callable[[list[Answer]], int] | None,
          resume_path: Path | None, name: str, now: Callable[[], datetime],
          sync_playwright: Any,
-         finish: Callable[[Any, Result, Sending], None] | None = None) -> Result:
+         finish: Callable[[Any, Result, Sending], None] | None = None,
+         stop: Callable[[], None] | None = None) -> Result:
     sending = Sending()
+    began = time.monotonic()
+
+    def step(what: str) -> None:
+        """LOG-01 (24 Nov): a /dryrun gave no answer for minutes; each step is logged with
+        its time, and /end stops the run here."""
+        log.info("dry run %s: %s (%.0f s)", name, what, time.monotonic() - began)
+        if stop is not None:
+            stop()
+
     with sync_playwright() as p:
         browser = _launch(p)
         try:
@@ -969,8 +981,10 @@ def _run(s: Settings, url: str, values: Mapping[str, str], saved: Sequence[Mappi
             if prepare is not None:
                 prepare(context)
             page = context.new_page()
+            step("opening the page")
             page.goto(url, wait_until="domcontentloaded", timeout=LOAD_TIMEOUT_MS)
             page.wait_for_timeout(SETTLE_MS)
+            step("page opened")
             links: list[str] = []
             fields, blockers, result.title = _read_settled(page, links)
             landed = page.url
@@ -983,6 +997,7 @@ def _run(s: Settings, url: str, values: Mapping[str, str], saved: Sequence[Mappi
                 target = links[0]
                 try:
                     safety.assert_page_fetch_allowed(target, s)
+                    step("opening its Apply link")
                     page.goto(target, wait_until="domcontentloaded", timeout=LOAD_TIMEOUT_MS)
                     page.wait_for_timeout(SETTLE_MS)
                     result.opened = target
@@ -1007,9 +1022,12 @@ def _run(s: Settings, url: str, values: Mapping[str, str], saved: Sequence[Mappi
             else:
                 result.answers = plan(fields, values, saved,
                                       resume_path.name if resume_path else None)
+                step(f"{len(fields)} field(s) read")
                 if ai is not None:
                     ai(result.answers)
+                    step("the AI answered the open questions")
                 _fill(page, result.answers, resume_path)
+                step("form filled")
                 if check is not None:
                     check(page)
                 if finish is not None:  # auto-submit (apply/form_submit.py); never a dry run

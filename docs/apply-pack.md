@@ -86,6 +86,14 @@ and sends you a screenshot and the list of answers. **It never submits.** This i
 of your decision of 25 Oct: rounds of dry runs until you say the answers are good; only then
 a later step may submit.
 
+LOG-01 (24 Nov, a `/dryrun` gave no answer for minutes and looked stuck): `/dryrun` says at
+once "🧪 Dry run started: Company, Role ... About 1 to 3 minutes; /end stops it.", and `/end`
+stops it at its next step (opening the page, the page opened, the fields read, the AI answers,
+the form filled), answering "/dryrun stopped by /end. Nothing was sent." (its Run Log row says
+Failed, "stopped by /end"). The bot log names each step with its seconds ("dry run Company,
+Role: page opened (6 s)"), so a slow step shows where. The auto-apply queue has no start
+message and is not stopped by /end.
+
 - **Answers:** your saved answers (`/answer`) first, matched to the question's words, then
   your profile and Apply pack answers (the same as the autofill code: name, email, phone,
   links, permit, sponsorship, salary, notice, start, relocation, English, why this company).
