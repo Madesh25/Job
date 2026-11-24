@@ -326,6 +326,11 @@ row already in Notion, or as a better ranked new job in the same sweep, are not 
 so they do not use the daily 30. The summary counts them: `Same job in another city (not saved
 again): 7`.
 
+LOG-10 (24 Nov): a job left out for a reason (title, place, ...) is merged the same way. 19 Sii
+"Senior Technical Product Owner" postings in 19 cities were 19 "title not DevOps-type"; now they
+are 1 "title not DevOps-type" and 18 "same job in another city" (same company and title, same
+reason). The total left out stays the same.
+
 ## Restarting the bot during /fetch
 
 Telegram hands a message to the bot again when the bot stopped before it finished (Ctrl+C in
