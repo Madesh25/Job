@@ -107,7 +107,10 @@ def desk_tasks(s: Settings, desk: Desk, client: tb.TelegramClient,
         if desk.track is None:
             raise RuntimeError("tracking is not available (see the startup log)")
         report = run_daily(desk.track, desk.tracking_now())
-        send(desk.report_replies(report))
+        from jobengine.track import daily_report
+
+        here = daily_report.local(desk.tracking_now(), desk.deps.config())
+        send(desk.daily_check_replies(report, here.time()))  # S12: a quiet 07:30 says nothing
         send(desk.jd_backlog_tick())  # never screened jobs over 7 days old: Expired (S5)
         # The monthly /update by itself (I5): on the Friday evening before /fetch closes, so
         # the 21:30 call counts too (5 Nov); it runs once per gate period whatever calls it.

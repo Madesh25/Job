@@ -37,7 +37,8 @@ def text(desk: Desk) -> str:
     lines = [f"🗓 Timetable ({local.tzname() or 'your time'}; today {local:%a %d %b})", "",
              "Every day:"]
     health = schedule._time(config.get(health_report.TIME_KEY), health_report.DEFAULT_TIME)
-    lines.append(f"{health:%H:%M} Morning check (tokens, keys, Notion, AI credit)")
+    lines.append(f"{health:%H:%M} Morning check (tokens, keys, Notion, AI credit) and today's "
+                 "steps")
     if p.on:
         for at in p.starts:
             lines.append(f"{at:%H:%M} Autopilot ({p.days_text(p.days_for(at))}): fetch, "
@@ -48,7 +49,9 @@ def text(desk: Desk) -> str:
         lines.append(f"Autopilot: off (it would run {p.when_text()}); Config "
                      f"{schedule.SWITCH_KEY} = true turns it on.")
     for at in timed.times(config) if timed.enabled(config) else ():
-        lines.append(f"{at:%H:%M} Daily check (replies, applications, rejections, follow-ups)")
+        quiet = " (a quiet morning one sends nothing)" if at.hour < 12 else ""
+        lines.append(f"{at:%H:%M} Daily check (replies, applications, rejections, follow-ups)"
+                     f"{quiet}")
     if check.status_text(desk).startswith("Afternoon check: on"):
         lines.append(check.status_text(desk))
     if w.enabled:
