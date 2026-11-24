@@ -3883,11 +3883,17 @@ class Desk:
         # 23 Nov, your ask: Telegram gets the short text, the Run Log page the full one.
         run_log.details([summary.text()])
         ready = len(pending_rows(self.repo))
-        if not ready:
-            return summary.short_text()
-        if not summary.results:  # nothing screened now (stopped, or nothing to do)
-            return f"{summary.short_text()}\n{ready} screened earlier still wait in /pending."
-        return f"{summary.short_text()}\n\U0001F4CB {ready} ready to review: /pending"
+        text = summary.short_text()
+        if ready and not summary.results:  # nothing screened now (stopped, or nothing to do)
+            text += f"\n{ready} screened earlier still wait in /pending."
+        elif ready:
+            text += f"\n\U0001F4CB {ready} ready to review: /pending"
+        # LOG-12 (24 Nov): /fetch and the S10 messages end with where the full report is;
+        # /screen did not, although its Run Log page holds the full text.
+        run = run_log.current()
+        if run is not None and run.logged:
+            text += f"\n{run_log.report_line(run)}"
+        return text
 
     def screen(self, args: str = "", progress: Callable[[str], None] | None = None) -> str:
         return self._screen(args, progress)[0]
