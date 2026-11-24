@@ -490,6 +490,21 @@ fields are filled, and a personal address (gmail.com ...) is never stored as a w
 **Referral asks** (button `rf:`): a LinkedIn message per connection, from the peer note
 (`linkedin.note_peer`), with their profile link; you send it yourself.
 
+LOG-02 (24 Nov test log, T23-13: nobody was marked after the asks, so the 30-day rule never
+worked; 20 against 21 in Notion; 10 people shown with no word that there were more):
+
+- The second line says how many connections were counted, which company names counted as
+  the job's company when there are several ("counted as Amazon: Amazon Web Services (AWS)
+  14, Amazon 5, ..."; a name that starts with the company's name counts, since the units
+  of one company share its referral system) and how many juniors were left out ("1 junior
+  left out (a junior cannot refer)").
+- Over 10: "Showing 10 of N: the job's country first, then location unknown; engineers
+  first. The rest are in the 🤝 LinkedIn Connections table."
+- **✅ I sent them (N)** (button `rk:`): after you send the messages, it marks the people
+  shown and not asked in the last 30 days Referral Asked with today's Last asked, so
+  Referral first and the next asks leave them out for 30 days. A second tap marks nobody.
+- **Location and email** (button `rl:`) comes here too when some of them have no country.
+
 **Mail them** (button `rm:`): connections with an email (work email first, else the export's
 email, personal allowed: your OK of 23 Oct), a tech, manager or HR position, not asked in 30
 days, are added as Peer engineer contacts of the job (Source Other, Notes "LinkedIn
