@@ -53,6 +53,7 @@ DEFAULT_SEARCH_TERMS = ("devops", "site reliability", "sre", "platform engineer"
                         "cloud engineer", "kubernetes", "infrastructure engineer", "devsecops")
 # bot_state key: company name -> the board found on its careers page, and when.
 DETECT_KEY = "ats.detected"
+LATER = "later"  # LOG-08: a Workday site left for a later /fetch
 DEFAULT_DETECT_EVERY_DAYS = 7
 DEFAULT_MAX_DETECT_PER_RUN = 25
 
@@ -463,6 +464,123 @@ def _country_facets(facets: Any) -> dict[str, list[str]]:
             any(c.lower() in low for c in ANY_COUNTRY) or any(c in low for c in HUB_CITIES))
 
     return _facet_values(facets, in_hub)
+
+
+WORKDAY_KEY = "workday.turns"
+WORKDAY_FORGET_DAYS = 30
+
+
+def workday_key(board: Board) -> str:
+    return f"{board.token}|{board.host}|{board.site}".lower()
+
+
+class WorkdayTurns:
+    """LOG-08 (24 Nov): Workday refused this PC (HTTP 429) on every /fetch, 27 to 32 sites a
+    day: about 35 sites, 9 searches each, 2 requests a second, and Workday counts all its
+    sites as one visitor. Now each /fetch reads only `workday_sites_per_run` sites, the ones
+    read longest ago, each at most once in `workday_read_every_hours` (their jobs are saved
+    for 20 days, so a site read every day or two loses none); and a refusal is kept in
+    bot_state, so the next /fetch, even after a restart, leaves Workday alone until the
+    rest time (http.SLOW_CLOSE) is over instead of being refused again."""
+
+    def __init__(self, cfg: Mapping[str, Any], state: Any, now: datetime) -> None:
+        self.state = state
+        self.now = now
+        self.per_run = max(1, int(cfg.get("workday_sites_per_run", 10)))
+        self.every = timedelta(hours=float(cfg.get("workday_read_every_hours", 20)))
+        saved: Mapping[str, Any] = {}
+        if state is not None:
+            try:
+                saved = state.get(WORKDAY_KEY) or {}
+            except Exception:  # never fail a sweep over this
+                log.exception("could not read %s", WORKDAY_KEY)
+        self.read: dict[str, str] = dict(saved.get("read") or {})
+        self.refused_until = _stamp(saved.get("refused_until"))
+        self.total = self.now_read = self.recent = self.waiting = 0
+
+    def last(self, key: str) -> datetime | None:
+        return _stamp(self.read.get(key))
+
+    def resting(self) -> datetime | None:
+        """Until when an earlier refusal leaves Workday alone, or None."""
+        if self.refused_until is not None and self.refused_until > self.now:
+            return self.refused_until
+        return None
+
+    def pick(self, keys: list[str]) -> set[str]:
+        """The sites this /fetch reads: none while resting, else the ones read longest ago
+        (never read first) and not read in the last `every` hours, up to `per_run`."""
+        self.total = len(keys)
+        until = self.resting()
+        if until is not None:
+            http.pause_workday((until - self.now).total_seconds())
+            self.waiting = len(keys)
+            return set()
+        due = []
+        for key in keys:
+            last = self.last(key)
+            if last is not None and self.now - last < self.every:
+                self.recent += 1
+            else:
+                due.append(key)
+        oldest = datetime.min.replace(tzinfo=UTC)
+        due.sort(key=lambda key: self.last(key) or oldest)  # stable: Target Companies order
+        return set(due[:self.per_run])
+
+    def done(self, key: str) -> None:
+        self.now_read += 1
+        self.read[key] = self.now.isoformat()
+
+    def line(self) -> str:
+        """The one /fetch line about Workday (empty when no company uses it)."""
+        if not self.total:
+            return ""
+        left = http.workday_pause_left()
+        until = self.resting()
+        if until is not None and not self.now_read:
+            hours = max(1, round((until - self.now).total_seconds() / 3600))
+            return (f"Workday: not asked (it refused this PC earlier; asked again in about "
+                    f"{hours} h); its {self.total} sites wait")
+        text = f"Workday: {self.now_read} of {self.total} sites read"
+        if self.recent:
+            text += f" ({self.recent} read earlier today)"
+        if self.waiting:
+            text += f"; {self.waiting} in the next runs"
+        if left > 0:
+            text += (f"; Workday refused this PC, asked again in about "
+                     f"{max(1, round(left / 3600))} h")
+        return text
+
+    def save(self) -> None:
+        left = http.workday_pause_left()
+        if left > 0:
+            self.refused_until = max(self.refused_until or self.now,
+                                     self.now + timedelta(seconds=left))
+            # One Error Log row a day (Site problem, rate limited) instead of one per site.
+            log.info("Workday refused this PC (HTTP 429): no Workday site is asked until %s",
+                     self.refused_until.strftime("%d %b %H:%M UTC"))
+        if self.state is None:
+            return
+        cutoff = self.now - timedelta(days=WORKDAY_FORGET_DAYS)
+        read = {key: when for key, when in self.read.items()
+                if (stamp := _stamp(when)) is not None and stamp > cutoff}
+        value: dict[str, Any] = {"read": read}
+        if self.refused_until is not None and self.refused_until > self.now:
+            value["refused_until"] = self.refused_until.isoformat()
+        try:
+            self.state.set(WORKDAY_KEY, value)
+        except Exception:  # never fail a sweep over this
+            log.exception("could not store %s", WORKDAY_KEY)
+
+
+def _stamp(text: Any) -> datetime | None:
+    if not text:
+        return None
+    try:
+        when = datetime.fromisoformat(str(text))
+    except ValueError:
+        return None
+    return when if when.tzinfo else when.replace(tzinfo=UTC)
 
 
 def workday(
@@ -1424,9 +1542,10 @@ def fetch(
     page: PageGetter | None = None,
     state: Any = None,
     today: date | None = None,
+    now: datetime | None = None,
 ) -> SourceResult:
     """ATS source over the active Target Companies. `get`, `post` and `page` are the fakes;
-    `state` (bot_state) caches the boards found on careers pages."""
+    `state` (bot_state) caches the boards found on careers pages and Workday's turns."""
     result = SourceResult(name=SOURCE)
     if get is None:
 
@@ -1454,7 +1573,10 @@ def fetch(
     sr_budget = Budget(int(cfg.get("max_detail_calls", 20)))
     wd_budget = Budget(int(cfg.get("workday_detail_calls", 40)))
     terms = tuple(cfg.get("search_terms") or DEFAULT_SEARCH_TERMS)
+    # LOG-08: fewer searches per Workday site (each one is a request Workday counts).
+    wd_terms = tuple(cfg.get("workday_search_terms") or terms)
     wd_pages = int(cfg.get("workday_pages_per_term", 1))
+    turns = WorkdayTurns(cfg, state, now or datetime.now(UTC))
     workers = max(1, int(s.sweep.get("workers", 8)))
     detector = Detector(s, page, get, state, today)
     active = [c for c in companies if c.active]
@@ -1490,6 +1612,12 @@ def fetch(
         read.add(key)
         name = without_region(company.name).strip() or company.name
         tasks.append((replace(company, name=name), board))
+    # LOG-08: only some Workday sites per /fetch, none while Workday rests after a refusal.
+    wd_keys = [workday_key(board) for _, board in tasks if board.ats == "workday"]
+    picked = turns.pick(wd_keys)
+    turns.waiting = len(wd_keys) - len(picked) - turns.recent
+    tasks = [(company, board) for company, board in tasks
+             if board.ats != "workday" or workday_key(board) in picked]
 
     # 2. Every board's feed, several at a time; results are kept in company order.
     def read_board(task: tuple[TargetCompany, Board]) -> tuple[list[RawPosting], int] | str:
@@ -1500,8 +1628,10 @@ def fetch(
             elif board.ats == "lever":
                 postings, dropped, _ = lever(company, board, get, keep)
             elif board.ats == "workday":
+                if http.workday_pause_left() > 0:
+                    return LATER  # Workday refused this PC during this /fetch
                 postings, dropped, _ = workday(company, board, get, post, keep, wd_budget,
-                                               today, terms, wd_pages)
+                                               today, wd_terms, wd_pages)
             elif board.ats == "avature":
                 postings, dropped, _ = avature(company, board, page, keep)
             elif board.ats == "amazon":
@@ -1531,8 +1661,12 @@ def fetch(
         return postings, dropped
 
     dropped_total = 0
-    for (company, _board), outcome in zip(tasks, run_all(read_board, tasks, workers),
-                                          strict=True):
+    for (company, board), outcome in zip(tasks, run_all(read_board, tasks, workers),
+                                         strict=True):
+        if board.ats == "workday" and (
+                outcome == LATER or (isinstance(outcome, str) and "HTTP 429" in outcome)):
+            turns.waiting += 1  # read in a later /fetch, not a site that blocks the bot
+            continue
         if isinstance(outcome, str):
             result.notes.append(f"ats {company.name}: {outcome}")
             # A wrong job board link (HTTP 404) shows in the summary, like a blocked site.
@@ -1544,7 +1678,13 @@ def fetch(
         result.postings.extend(postings)
         result.read.append(company.name)
         dropped_total += dropped
+        if board.ats == "workday":
+            turns.done(workday_key(board))
     detector.save()
+    turns.save()
+    result.workday_line = turns.line()
+    if result.workday_line:
+        log.info("%s", result.workday_line)
     if detector.found:
         result.notes.append(f"ats: found the job board of {detector.found} companies "
                             "on their careers page or by their name")

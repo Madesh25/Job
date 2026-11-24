@@ -152,7 +152,7 @@ A source whose secret is missing is skipped with a line in the summary; the run 
 - SmartRecruiters: `api.smartrecruiters.com/v1/companies/{token}/postings`, then one detail call
   per posting that passed the filters, at most `sweep.ats.max_detail_calls` per run.
 - Workday (`<tenant>.<wdN>.myworkdayjobs.com/<site>`): the JSON search the career site itself
-  uses (`POST /wday/cxs/<tenant>/<site>/jobs`), once per `sweep.ats.search_terms` term, 20
+  uses (`POST /wday/cxs/<tenant>/<site>/jobs`), once per `sweep.ats.workday_search_terms` term, 20
   results each (`workday_pages_per_term` pages). Then one detail call per kept posting, at
   most `sweep.ats.workday_detail_calls` per run: full description, start date and location.
   A posting listed as "3 Locations" is kept only when its detail places it in an active
@@ -162,6 +162,15 @@ A source whose secret is missing is skipped with a line in the summary; the run 
   at a time, a "too many requests" pauses it 30 s, and when that does not help twice it is
   left alone for an hour. Since 19 Nov that hour covers job pages too (the job-link lookup
   and the closed-job check), and a job page refused with HTTP 429 starts it.
+  LOG-08 (24 Nov): Workday still refused this PC on every `/fetch` (27 to 32 sites a day), so
+  it is asked far less. 3 search words per site (`workday_search_terms`, not the 8 of
+  `search_terms`); only `workday_sites_per_run` sites (10) per `/fetch`, the ones read longest
+  ago, each at most once in `workday_read_every_hours` (20; their jobs are saved for 20 days,
+  so nothing is lost); requests 3 s apart (was 0.5 s); and a refusal leaves Workday alone for
+  6 hours (was 1). That time is kept in Bot State (`workday.turns`, with when each site was
+  read), so the next `/fetch`, even after a restart, does not ask Workday again before then.
+  A site left for later is not listed as "Blocked us"; the `/fetch` message has one line,
+  "🏢 Workday: 10 of 35 sites read; 25 in the next runs", and the Error Log one row a day.
 - Workable (23 Oct): `apply.workable.com/api/v1/widget/accounts/{account}?details=true`, the
   public career widget (`apply.workable.com/<account>` or `<account>.workable.com` links).
 - Recruitee: `<company>.recruitee.com/api/offers/`, published offers only; a job both remote
