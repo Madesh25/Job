@@ -503,6 +503,14 @@ sweep:
     - chmurowy
     - chmurowej
     - inzynier platformy
+    # LOG-07 (24 Nov test log, /fetchreport): close roles dropped as "title not DevOps-type":
+    # CI/CD Engineer (NetApp), AI Platform & Deployment Engineer (Devire), Cloud Security
+    # Engineer (Darize). Screening still judges each one on its description.
+    - ci cd
+    - cicd
+    - deployment engineer
+    - cloud security
+    - mlops
   title_exclude:
     - lead
     - principal
