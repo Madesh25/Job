@@ -711,7 +711,7 @@ The `/fetch` summary ends with one line per source ("Where the postings went"). 
 reason has examples). `/fetchreport` (23 Nov, your ask: short) gives the totals (read, new,
 seen before, left out), the new jobs per source and up to 8 reasons with their counts, no
 jobs; `/fetchreport <word>` shows up to 40 jobs of the reasons or
-sources containing that word, for example `/fetchreport skill` or `/fetchreport adzuna`; the four biggest reasons also come as buttons under `/fetchreport`. The `/fetch` summary and the report count postings the same way (a job seen on two sites counts twice). Long answers arrive as several Telegram messages instead of being cut off. A job already in Notion whose company is an agency gets the agency flag on its next `/fetch` (its other flags stay).
+sources containing that word, for example `/fetchreport skill` or `/fetchreport adzuna`; the four biggest reasons also come as buttons under `/fetchreport`. LOG-09 (24 Nov): with a word, the top block lists only the sources that match it; two words both have to match (`/fetchreport title adzuna`: Adzuna's title reason, all its kept jobs); and the last line says what is shown ("up to 40 jobs per reason, taken in turn from each source"; the report keeps 25 per source and reason, the counts are complete). The `/fetch` summary and the report count postings the same way (a job seen on two sites counts twice). Long answers arrive as several Telegram messages instead of being cut off. A job already in Notion whose company is an agency gets the agency flag on its next `/fetch` (its other flags stay).
 
 **Pracuj.pl cards (5 Oct).** A Pracuj.pl alert card reads "!" (badge), title, a badge
 line ("Najlepiej dopasowana", "Nowosc!", "Hit!", "Spiesz sie!", "Wyprzedz innych

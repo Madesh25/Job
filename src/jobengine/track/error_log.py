@@ -37,7 +37,7 @@ from datetime import date, datetime, timedelta
 from typing import Any
 from urllib.parse import urlsplit
 
-from jobengine.track.run_log import bump, redact, where
+from jobengine.track.run_log import blocked_site, redact, where
 
 log = logging.getLogger("jobengine.error_log")
 
@@ -268,7 +268,8 @@ class Collector(logging.Handler):
             return
         if problem.level == LEVEL_SITE and problem.cause in ("Rate limited (429)",
                                                              "Refuses the bot (403)"):
-            bump("sites_blocked")
+            for site in problem.sites or problem.names or [problem.pattern]:
+                blocked_site(site)  # each site once per run (LOG-09)
         with _lock:
             have = _pending.get(problem.pattern)
             if have is None:

@@ -65,7 +65,7 @@ from jobengine.sweep.normalize import (
 )
 from jobengine.sweep.rank import Ranker
 from jobengine.sweep.sources import adzuna, ats, gmail_alerts, iamexpat, jooble, nofluffjobs
-from jobengine.track import day_ledger, expired_check
+from jobengine.track import day_ledger, expired_check, run_log
 
 log = logging.getLogger("jobengine.sweep")
 
@@ -934,6 +934,8 @@ def run_sweep(
     high = sorted(label for label, risk in touched.values() if risk == "High")
     summary.high_ghost = len(high)
     summary.high_ghost_jobs = high
+    # LOG-09: the Run Log's "Sites blocked" is the number this report lists under "Blocked us".
+    run_log.set_sites_blocked(len(summary.blocked_sites))
     if state is not None:
         try:
             state.set(LAST_SUMMARY, {"at": today.isoformat(), "new": summary.new,
