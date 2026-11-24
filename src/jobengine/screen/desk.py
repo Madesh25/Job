@@ -80,6 +80,7 @@ log = logging.getLogger("jobengine.screen.desk")
 
 APPROVED_TEXT = "Approved: {job}."
 REFERRAL_FIRST_KEY = "apply.referral_first"  # S7: "false" turns the referral hint off
+ATS_MIN_KEY = "resume.ats_min"  # S8: the ATS check warns below this percent (default 60)
 NO_RESUME = "Resume building is not available in this bot."
 REBUILD_KEY = "resume.rebuild_ask"  # bot_state: {"log": <Resume Log id>, "at": <iso time>}
 REBUILD_ASK_MINUTES = 30
@@ -935,9 +936,11 @@ class Desk:
             self.state.set(MISSING_KEY, {"job": outcome.job_id, "terms": terms})
             buttons.append((f"Add {len(terms)} keyword{'s' if len(terms) > 1 else ''}",
                             f"mk:{short_id(outcome.job_id)}"))
-        if line and len(text) + len(line) + 1 <= resume_builder.CAPTION_MAX:
-            first, _, rest = text.partition("\n")
-            text = f"{first}\n{line}\n{rest}" if rest else f"{first}\n{line}"
+        # S8: the ATS check first (it may warn), then the keywords you have it leaves out.
+        for extra in (line, self.resume_ats(outcome)):
+            if extra and len(text) + len(extra) + 1 <= resume_builder.CAPTION_MAX:
+                first, _, rest = text.partition("\n")
+                text = f"{first}\n{extra}\n{rest}" if rest else f"{first}\n{extra}"
         return Reply(text, buttons, document=(name, outcome.pdf))
 
     def _pick_gaps(self, values: dict[str, Any]) -> list[str]:
@@ -1022,6 +1025,22 @@ class Desk:
     def resume_cover_line(self, outcome: BuildOutcome) -> str | None:
         """Feature 11: how many of the job's keywords you have the final resume shows."""
         return self.resume_match(outcome)[0]
+
+    def resume_ats(self, outcome: BuildOutcome) -> str | None:
+        """S8 (23 Nov): the ATS check line of a built resume (all the job's key skills, not
+        only yours), with the warning below Config resume.ats_min (default 60%)."""
+        if self.repo is None or not outcome.pdf:
+            return None
+        jd, _kind = description(self.repo.read_body(outcome.job_id))
+        if not jd:
+            return None
+        words = self.ranker().keywords(jd)
+        try:
+            minimum = int(str(self.deps.config().get(ATS_MIN_KEY) or cover.ATS_MIN).strip())
+        except ValueError:
+            minimum = cover.ATS_MIN
+        return cover.ats_line([*words.have, *words.missing], cover.pdf_text(outcome.pdf),
+                              minimum)
 
     def resume_match(self, outcome: BuildOutcome) -> tuple[str | None, list[str]]:
         """(the match line, the job's keywords you have that the resume leaves out). Only

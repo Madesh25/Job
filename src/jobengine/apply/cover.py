@@ -91,6 +91,23 @@ def cover_line(terms: list[str], resume_text: str, limit: int = 6) -> str | None
     return line + "."
 
 
+ATS_MIN = 60  # S8 (23 Nov): below this share of the job's key skills, a warning
+
+
+def ats_line(job_terms: list[str], resume_text: str, minimum: int = ATS_MIN) -> str | None:
+    """S8 (23 Nov): how many of the job's key skills (the tools it names, yours or not) the
+    resume names, as screening software counts them; a warning below `minimum` percent."""
+    terms = list(dict.fromkeys(t for t in job_terms if t))
+    if not terms or not resume_text:
+        return None
+    named = [t for t in terms if _names(t, resume_text)]
+    share = round(100 * len(named) / len(terms))
+    line = f"ATS check: names {len(named)} of {len(terms)} of the job's key skills ({share}%)"
+    if share < minimum:
+        line = f"⚠️ {line}, below {minimum}%: screening software may filter it out"
+    return line + "."
+
+
 def _clean(text: str) -> str:
     text = text.replace(chr(0x2014), ", ").replace(chr(0x2013), "-")  # em, en dash
     return "\n\n".join(" ".join(p.split()) for p in text.split("\n\n") if p.strip())
