@@ -346,7 +346,8 @@ sets `Status` to `Screened` only if it is `New` or `Screened`, so a row never mo
   `remote` or `all` goes straight to one. The choice is kept in Bot State `pending.country`.
   Below the screening match counts the card shows, from the description and your reference
   data (free, no AI, `sweep/rank.py`):
-  - `Skill match: 75% (3 of 4 tools it names)`: the tools the job names that you have.
+  - `Skill match: you have 3 of the 4 tools it names (75%)`: the tools the job names that you
+    have (LOG-06: the resume preview's ATS check counts the ones the resume names).
   - `Missing keywords: java, snowflake`: tools it names that you do not have (at most 6).
   - `Use their word: EKS (your Kubernetes on AWS)`: the job's word for a skill you have under
     another name (Active Term Map rows); say it their way in the resume and the mail.

@@ -692,8 +692,9 @@ class Desk:
         lines = []
         if found.share is not None:
             named = len(found.have) + len(found.missing)
-            lines.append(f"Skill match: {found.share}% ({len(found.have)} of {named} tools "
-                         "it names)")
+            # LOG-06: what it counts (the tools you have), next to the resume's ATS check.
+            lines.append(f"Skill match: you have {len(found.have)} of the {named} tools it "
+                         f"names ({found.share}%)")
         if found.missing:
             more = len(found.missing) - MAX_KEYWORDS
             extra = f" and {more} more" if more > 0 else ""
@@ -1148,7 +1149,7 @@ class Desk:
         except ValueError:
             minimum = cover.ATS_MIN
         return cover.ats_line([*words.have, *words.missing], cover.pdf_text(outcome.pdf),
-                              minimum)
+                              minimum, yours=self.inventory_terms(words.have))
 
     def resume_match(self, outcome: BuildOutcome) -> tuple[str | None, list[str]]:
         """(the match line, the job's keywords you have that the resume leaves out). Only
