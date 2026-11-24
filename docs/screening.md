@@ -163,6 +163,11 @@ then run `/screen`.
      LinkedIn is never fetched, so LinkedIn rows wait here until you paste the JD with `/jd`,
      unless the sweep found the same job on another site (see "LinkedIn descriptions from other
      sites" in [sweep.md](sweep.md)).
+     LOG-03 (24 Nov: 4, 11, 15, 51 and 266 in different messages): only a job with Status New
+     waits (the jobs set Expired as too old, Declined and the rest no longer count), and each
+     message names the jobs it counts: `/screen` "N waiting for JD (found today)" (or "found
+     this week", "all days"), `/pending` and `/report` "N ... all days (M of the last 3 days:
+     /jd)", `/jd` the last 3 days and "N older one(s)", the start message "of the last 3 days".
 3. One LLM call (stage `score`) extracts the facts, then the quote check, the gates, the
    tier and the visa checks run, and the results are written.
 

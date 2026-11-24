@@ -803,7 +803,10 @@ class Desk:
         if not rows:
             return None
         need = "jobs need" if len(rows) > 1 else "job needs"
-        return f"{len(rows)} {need} the JD ({_by_board(rows)}): /jd"
+        # LOG-03: all days, and how many of them /jd lists (posted in the last JD_DAYS days).
+        recent = sum(1 for r in rows if jd_recent(r, self.today()))
+        return (f"{len(rows)} {need} the JD, all days ({_by_board(rows)}); {recent} of the last "
+                f"{JD_DAYS} days: /jd")
 
     def pending(self, index: int = 0, rows: list[JobRow] | None = None) -> list[Reply]:
         """The card at `index`. `rows` reuses a ranking already read (a button tap)."""
@@ -2996,9 +2999,11 @@ class Desk:
         waiting: list[str] = []
         if self.repo is not None:
             try:
+                no_jd = waiting_for_jd(self.repo, self.state)
+                recent = sum(1 for r in no_jd if jd_recent(r, self.today()))  # as /jd
                 waiting = [f"{len(pending_rows(self.repo))} job(s) in /pending",
-                           f"{len(waiting_for_jd(self.repo, self.state))} need a description "
-                           "(/jd)"]
+                           f"{len(no_jd)} need a description, all days ({recent} of the last "
+                           f"{JD_DAYS} days: /jd)"]
             except Exception as exc:  # the report still comes without these two counts
                 log.warning("daily report: could not count waiting jobs: %s", exc)
         entry = day_ledger.day(self.state, today)

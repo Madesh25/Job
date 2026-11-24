@@ -66,7 +66,7 @@ def expire(rows: Sequence[JobRow], update: Callable[[str, dict[str, Any]], None]
 def text(done: int, left: int, waiting: int) -> str:
     more = f" {left} more go in the next runs today." if left else ""
     return (f"🧹 Old jobs cleared: {done} never screened job(s) more than {DAYS} days old are "
-            f"set Expired (too old to apply to).{more} {waiting} job(s) of the last few days "
+            f"set Expired (too old to apply to).{more} {waiting} job(s) of the last 3 days "
             f"wait for a description: /jd shows today's top {TOP}.")
 
 
