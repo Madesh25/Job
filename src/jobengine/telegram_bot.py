@@ -967,12 +967,22 @@ def _reported(name: str, action: Callable[[], list[Reply]], desk: Desk) -> list[
     with _command_run(name, desk) as run:
         try:
             replies = action()
+        except Stopped:  # /end (LOG-01: /dryrun)
+            run.fail("stopped by /end")
+            log.info("%s stopped by /end", name)
+            return [Reply(f"{name} stopped by /end. Nothing was sent.")]
         except Exception as exc:  # report the failure instead of stopping the bot
             run.fail(exc)
             log.exception("%s failed", name)
             return [Reply(f"{name} failed: {exc}")]
         run.note([r for r in replies if not getattr(r, "document", None)])
         return replies
+
+
+def _dry_run_command(desk: Desk, args: str) -> list[Reply]:
+    """/dryrun by hand: /end stops it at its next step (LOG-01, 24 Nov)."""
+    with CONTROL.job("/dryrun"):
+        return desk.dryrun_command(args, stop=CONTROL.check)
 
 
 # A short outage of Notion or the network (26 Oct: "HTTP 500 Unexpected error occurred" on
@@ -1089,7 +1099,7 @@ def desk_replies(update: dict[str, Any], s: Settings, desk: Desk | None) -> list
     if command == "autoapply":
         return _guarded("/autoapply", lambda: desk.autoapply_command(args))
     if command == "dryrun":
-        return _reported("/dryrun", lambda: desk.dryrun_command(args), desk)
+        return _reported("/dryrun", lambda: _dry_run_command(desk, args), desk)
     if command == "applypack":
         return _guarded("/applypack", lambda: desk.applypack_command(args))
     if command == "prep":
