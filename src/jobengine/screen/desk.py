@@ -2785,7 +2785,20 @@ class Desk:
         if at is None:
             return []
         timed.mark(self.state, local.date(), at)
-        return self.report_replies(track_runner.run_daily(self.track, now))
+        return self.daily_check_replies(track_runner.run_daily(self.track, now), at)
+
+    def daily_check_replies(self, report: DailyReport, at: Any) -> list[Reply]:
+        """A scheduled daily check. S12: a quiet morning check (07:30) sends nothing, the
+        morning message already said what today holds; its Run Log row keeps the check."""
+        from jobengine.track import morning, run_log
+
+        if (morning.is_on(self.deps.config()) and morning.morning(at)
+                and morning.quiet(report)):
+            if report.ok:
+                self.heartbeat(True)
+            run_log.details([report.text()])
+            return []
+        return self.report_replies(report)
 
     def reply_ping_tick(self) -> list[Reply]:
         """Every few minutes: ping new replies from contacts and employers (track/ping.py).
@@ -3040,8 +3053,43 @@ class Desk:
         # Sunday's both runs (none on Sunday). Only today's runs are named.
         todays = [f"{at:%H:%M}" for at in plan.starts if today.weekday() in plan.days_for(at)]
         starts = (" and ".join(todays) or health_report.NO_RUN) if plan.on else ""
-        return (health_report.text(today, blockers, soon, fine, starts),
-                health_report.text(today, blockers, soon, fine, starts, short=True))
+        steps = self.morning_steps(config, today, todays if plan.on else [])
+        return (health_report.text(today, blockers, soon, fine, starts) + steps,
+                health_report.text(today, blockers, soon, fine, starts, short=True) + steps)
+
+    def morning_steps(self, config: Any, today: date, runs: list[str]) -> str:
+        """S12 (23 Nov, your ask): the morning check ends with today's steps, what the bot
+        runs and what waits for you, so the morning is one message (track/morning.py)."""
+        from jobengine.screen import schedule
+        from jobengine.track import apply_today, daily_report, morning, nudge
+
+        if not morning.is_on(config):
+            return ""
+
+        def count(read: Callable[[], int]) -> int | None:
+            try:
+                return read()
+            except Exception as exc:  # the morning check never fails over a count
+                log.warning("morning steps: a count was not read: %s", exc)
+                return None
+
+        pending: list[JobRow] = []
+        if self.repo is not None:
+            pending = count(lambda: pending_rows(self.repo)) or []  # type: ignore[assignment]
+        ready = count(lambda: len(self._ready())) if self.repo is not None else None
+        jd = count(lambda: len(self.jd_rows())) if self.repo is not None else None
+        high = sum(1 for r in pending if r.screen_verdict == "Apply high")
+
+        def at(key: str, default: str) -> str:
+            return f"{schedule._time(config.get(key), default):%H:%M}"
+
+        apply_at = (at(apply_today.TIME_KEY, apply_today.DEFAULT_TIME)
+                    if apply_today.is_on(config) else None)
+        nudge_on = (config.get(nudge.SWITCH_KEY) or "true").strip().lower() != "false"
+        nudge_at = at(nudge.TIME_KEY, nudge.DEFAULT_TIME) if nudge_on else None
+        bot = morning.bot_line(today, runs, apply_at,
+                               f"{daily_report.report_time(config):%H:%M}", nudge_at)
+        return morning.block(today, bot, morning.you_lines(ready, len(pending), high, jd))
 
     def health_report_tick(self) -> list[Reply]:
         """Every few minutes (and POST /tasks/health): the morning check, once a day."""

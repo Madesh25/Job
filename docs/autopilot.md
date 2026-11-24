@@ -106,6 +106,23 @@ off) one message comes before the 07:00 run (`track/health_report.py`):
 Long polling checks it every few minutes; Cloud Run gets `POST /tasks/health`
 ([deploy.md](deploy.md)).
 
+One morning message (S12, 23 Nov, your ask; `track/morning.py`): the morning check ends with
+"📋 Today":
+
+- `Bot:` what runs today, in time order: the job search and screening runs, Apply today
+  (08:30), the daily report (21:45), the apply nudge (22:00), and on Saturday the new
+  companies, on Sunday the link check, job board check, screening check and the weekly
+  digest and audit;
+- `You:` the resumes built that wait for you to apply, the jobs in /pending (with how many
+  are Apply high), the jobs of the last 3 days that wait for `/jd`; "Nothing waits for you
+  yet" when there are none.
+
+The 07:30 daily check then comes to Telegram only when it found something or something needs
+you (a reply, a sent mail, a token problem, your call, a note, an error); a quiet one sends
+nothing and is kept in its Run Log row. The 21:30 check always comes. Notion Config
+`morning.one_message` = `false` brings back the morning check without the steps and the 07:30
+check every day.
+
 ## Companies you apply to join Target Companies (Autopilot A2)
 
 With Notion Config `apply.add_companies` = `true` (off by default: Target Companies is shared

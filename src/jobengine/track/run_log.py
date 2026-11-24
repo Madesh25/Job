@@ -93,7 +93,8 @@ class Run:
         self.failure = redact(str(exc) or type(exc).__name__)[:FAILURE_CHARS]
 
     def did_something(self) -> bool:
-        return bool(self.failure or self.errors or self.texts or self.new_jobs or self.screened
+        return bool(self.failure or self.errors or self.texts or self.details or self.new_jobs
+                    or self.screened
                     or self.applied or self.mails_sent or self.sites_blocked or self.cost)
 
     def result(self) -> str:
