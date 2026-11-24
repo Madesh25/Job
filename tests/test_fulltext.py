@@ -255,7 +255,8 @@ def test_workday_postings_with_detail():
     assert cloud.url == ("https://balticbank.wd3.myworkdayjobs.com/careers"
                          "/job/Dublin/Cloud-Engineer_JR1002")
     searches = [u for u in http_fake.requested if u.endswith("/careers/jobs")]
-    assert len(searches) == len(ats.DEFAULT_SEARCH_TERMS) + 1  # + the whole list's filters
+    # LOG-08: Workday has its own 3 search words (+ the whole list's filters).
+    assert len(searches) == len(S.sweep["ats"]["workday_search_terms"]) + 1
 
 
 def test_workday_without_detail_budget_drops_unknown_locations():

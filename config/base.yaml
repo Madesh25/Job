@@ -789,6 +789,14 @@ sweep:
     # Workday: one search per term (20 results each), then a detail call per kept posting.
     workday_detail_calls: 40
     workday_pages_per_term: 1
+    # LOG-08 (24 Nov): Workday refused this PC (HTTP 429) on every /fetch. It counts all its
+    # sites as one visitor, so it is asked less: these 3 searches per site (not the 8 below),
+    # only this many sites per /fetch (the ones read longest ago), each site at most once in
+    # this many hours (their jobs are saved for 20 days, max_posted_age_days). Requests go
+    # 3 s apart and a refusal leaves Workday alone for 6 hours (http.py SLOW_GAP, SLOW_CLOSE).
+    workday_search_terms: [devops, site reliability, cloud platform]
+    workday_sites_per_run: 10
+    workday_read_every_hours: 20
     # Searches for boards too big to read whole (Workday, amazon.jobs).
     search_terms: [devops, site reliability, sre, platform engineer, cloud engineer, kubernetes,
                    infrastructure engineer, devsecops]

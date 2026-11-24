@@ -84,6 +84,7 @@ class SourceResult:
     alert_mails: dict[str, list[tuple[str, str, bool]]] = field(default_factory=dict)
     notes: list[str] = field(default_factory=list)
     emails: int | None = None  # gmail only: alert emails read
+    workday_line: str = ""  # ATS only (LOG-08): Workday sites read now and left for later
 
 
 # Where each posting of a sweep ended (FETCH 10). Every posting lands in exactly one bucket,
@@ -269,6 +270,7 @@ class SweepSummary:
     blocked_sites: list[str] = field(default_factory=list)  # "Name (HTTP 403)"
     no_board_sites: list[str] = field(default_factory=list)
     own_site_count: int = 0  # companies with their own job site, covered by alerts
+    workday_line: str = ""  # LOG-08: "Workday: 10 of 35 sites read; 25 in the next runs"
     full_tried: int = 0
     linkedin_filled: list[str] = field(default_factory=list)  # sweep/crossmatch.py
     direct_links: list[str] = field(default_factory=list)  # sweep/job_links.py
@@ -351,6 +353,8 @@ class SweepSummary:
             lines.append(f"\U0001F9F9 Closed jobs taken off your list: {len(self.closed_jobs)}")
         lines.append(f"\U0001F501 Seen before: {self.updated + self.reposts} · "
                      f"\U0001F6AB Not for you: {self.not_for_you()}")
+        if self.workday_line:
+            lines.append(f"\U0001F3E2 {self.workday_line}")
         todo = []
         if self.wait_for_jd():
             todo.append(f"{self.wait_for_jd()} new job(s) wait for /jd (the bot could not "
@@ -489,6 +493,8 @@ class SweepSummary:
             lines += ["", f"\u26A0\uFE0F Possible ghost jobs (listed for a long time): "
                           f"{self.high_ghost}"]
             lines.extend(f"- {job}" for job in self.high_ghost_jobs)
+        if self.workday_line:
+            lines += ["", f"\U0001F3E2 {self.workday_line}"]
         if self.blocked_sites or self.no_board_sites:
             lines += ["", "\U0001F3E2 Company sites we could not read:"]
             if self.blocked_sites:

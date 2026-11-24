@@ -116,11 +116,15 @@ def _retry_after(resp: httpx.Response, attempt: int = 0) -> float:
 # and job pages (get_page: the job-link lookup, the closed-job check) did not look at the
 # pause at all: 32 more Workday pages were asked and refused. The pause is now an hour and
 # covers every Workday request; a job page refused with HTTP 429 starts it too.
+# LOG-08 (24 Nov): Workday still refused this PC on every /fetch, the next one too: requests
+# are now 3 s apart (were 0.5 s) and a refusal leaves Workday alone for 6 hours (was 1);
+# the sweep keeps that time in bot_state, so a restarted bot does not ask again
+# (sweep/sources/ats.py WorkdayTurns).
 SLOW_HOSTS = ("myworkdayjobs.com", "myworkdaysite.com")
-SLOW_GAP = 0.5
+SLOW_GAP = 3.0
 SLOW_COOL = 30.0
 SLOW_STRIKES = 2
-SLOW_CLOSE = 3600.0
+SLOW_CLOSE = 6 * 3600.0
 _clock: Callable[[], float] = time.monotonic
 
 
@@ -161,6 +165,20 @@ def _workday_refused_page() -> None:
             _slow.closed_until = _clock() + SLOW_CLOSE
             log.info("Workday refused a job page (HTTP 429): no Workday site is asked for "
                      "%.0f min", SLOW_CLOSE / 60)
+
+
+def workday_pause_left() -> float:
+    """Seconds Workday is still left alone (0 when it may be asked)."""
+    with _slow.lock:
+        return max(0.0, _slow.closed_until - _clock())
+
+
+def pause_workday(seconds: float) -> None:
+    """Leave Workday alone for `seconds` (a refusal remembered from an earlier run)."""
+    if seconds <= 0:
+        return
+    with _slow.lock:
+        _slow.closed_until = max(_slow.closed_until, _clock() + seconds)
 
 
 def reset_slow_hosts() -> None:

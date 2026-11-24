@@ -642,6 +642,8 @@ def run_sweep(
         summary.not_supported += len(result.not_supported)
         summary.blocked_sites.extend(result.blocked)
         summary.no_board_sites.extend(result.no_board)
+        if result.workday_line:
+            summary.workday_line = result.workday_line
         # Companies, not rows: Infosys, Infosys (IE) and Infosys (NL) count once (43 rows
         # were shown as 43 companies on 6 Oct).
         summary.own_site_count += len({ats.canon_name(n) for n in result.own_site})
