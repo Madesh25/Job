@@ -105,7 +105,9 @@ def gate_days(config: Any, today: date, state: Any = None, s: Any = None) -> int
 
 
 def text(day: date, blockers: Iterable[str], soon: Iterable[str], fine: Iterable[str],
-         starts: str = "") -> str:
+         starts: str = "", short: bool = False) -> str:
+    """The morning check. `short` (S10, 23 Nov): the Telegram message, what blocks or needs
+    you in full and the checks that passed as one count (they are in the Run Log page)."""
     blockers, soon, fine = list(blockers), list(soon), list(fine)
     when = (" (no autopilot run today)" if starts == NO_RUN
             else f" (before the {starts} run)" if starts else "")
@@ -118,5 +120,8 @@ def text(day: date, blockers: Iterable[str], soon: Iterable[str], fine: Iterable
         lines += [f"- {line}" for line in soon]
     if not blockers and not soon:
         lines.append("✅ Nothing blocks today's run.")
-    lines += [f"✅ {line}" for line in fine]
+    if short:
+        lines.append(f"✅ {len(fine)} other check(s) passed.")
+    else:
+        lines += [f"✅ {line}" for line in fine]
     return "\n".join(lines)

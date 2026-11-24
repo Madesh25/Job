@@ -44,7 +44,9 @@ TASK_STEPS = {
 _EMAIL = re.compile(r"[\w.+-]+@[\w-]+(?:\.[\w-]+)+")
 _LINK_TAIL = re.compile(r"(https?://[^\s?#]+)[?#][^\s)]*")
 _SECRET = re.compile(r"\b(?=[A-Za-z0-9_\-]*\d)(?=[A-Za-z0-9_\-]*[A-Za-z])[A-Za-z0-9_\-]{32,}\b")
-_BEARER = re.compile(r"(?i)\b(bearer\s+|(?:api_?)?(?:token|key|secret|password)\s*[=:]\s*)\S+")
+# S10: a status word after "token:" or "key:" (/health "Gmail sender token: OK") is kept.
+_BEARER = re.compile(r"(?i)\b(bearer\s+|(?:api_?)?(?:token|key|secret|password)\s*[=:]\s*)"
+                     r"(?!(?:OK|FAILED|missing|not|never|expired|refused)\b)\S+")
 
 
 def redact(text: str) -> str:
@@ -78,6 +80,7 @@ class Run:
     # the long one is kept here); empty: the page holds what was sent (texts).
     details: list[str] = field(default_factory=list)
     failure: str = ""
+    logged: bool = False  # its row will be written (a Run Log table is set for it)
 
     def note(self, replies: Sequence[Any] | None) -> None:
         """What the run reported (Reply objects or plain text)."""
@@ -100,13 +103,15 @@ class Run:
 
     def summary(self) -> str:
         lines = [line.strip() for text in self.texts for line in text.splitlines()
-                 if line.strip()]
+                 if line.strip() and REPORT_MARK not in line]
         return redact("\n".join(lines[:SUMMARY_LINES]))[:SUMMARY_CHARS]
 
     def body(self) -> list[str]:
-        """The row's page text: the full report, one line per paragraph, keys and emails
-        blanked."""
-        return [redact(line.rstrip()) for text in (self.details or self.texts)
+        """The row's page text: the full reports, then what was sent that has no full report
+        here (S10: a short message naming this page is left out), one line per paragraph,
+        keys and emails blanked."""
+        texts = [*self.details, *(t for t in self.texts if REPORT_MARK not in t)]
+        return [redact(line.rstrip()) for text in texts
                 for line in text.splitlines() if line.strip()]
 
     def row(self, ended: float | None = None) -> dict[str, Any]:
@@ -172,6 +177,42 @@ def name(run: Run) -> str:
     return f"{run.step} {run.started.strftime('%H:%M')}"
 
 
+REPORT_MARK = "Full report in Notion: Run Log"
+
+
+def report_line(run: Run) -> str:
+    """The last line of a short message: where its full report is."""
+    return f"\U0001F4DD {REPORT_MARK}, row \"{name(run)}\""
+
+
+def brief(full: str, short: str) -> str:
+    """S10 (23 Nov, your ask): the Telegram text of a long report. In a run whose Run Log row
+    will be written, `full` goes to that row's page and `short` comes back with a last line
+    naming the row. Anywhere else (no run here, no Run Log table) `full` comes back as
+    before, so nothing is lost; so does a short text that is not shorter."""
+    run = current()
+    if run is None or not run.logged or not short.strip() or len(short) >= len(full):
+        return full
+    run.details.append(full)
+    return f"{short.rstrip()}\n{report_line(run)}"
+
+
+def current() -> Run | None:
+    """The run recorded on this thread, if any."""
+    return getattr(_local, "run", None)
+
+
+@contextmanager
+def joined(run: Run | None) -> Iterator[None]:
+    """Work on another thread (3 forms filled at once) counted as part of `run`."""
+    outer = getattr(_local, "run", None)
+    _local.run = run
+    try:
+        yield
+    finally:
+        _local.run = outer
+
+
 class Counter(logging.Handler):
     """Counts the bot's warning and error lines for the runs going on now."""
 
@@ -222,7 +263,7 @@ def recorded(step: str, table: Any, now: Callable[[], datetime]) -> Iterator[Run
         started = now()
     except Exception:  # a clock that needs Notion must not stop the run
         started = datetime.now().astimezone()
-    run = Run(step, started)
+    run = Run(step, started, logged=table is not None)
     outer = getattr(_local, "run", None)
     _local.run = run
     with _lock:

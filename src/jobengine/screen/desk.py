@@ -1340,7 +1340,11 @@ class Desk:
                                         url=url, shot=result.screenshot,
                                         answers=result.answers, now=now)
             buttons = form_review.buttons(run_id)
-        replies.append(Reply(form_bot.report(result, job)[:MAX_TEXT], buttons))
+        from jobengine.track import run_log
+
+        # S10: what is left for you here, every filled field in the Run Log page.
+        text = run_log.brief(form_bot.report(result, job), form_bot.report(result, job, True))
+        replies.append(Reply(text[:MAX_TEXT], buttons))
         return replies
 
     def _submitted(self, job_id: str, job: str, result: Any, now: datetime) -> list[Reply]:
@@ -1457,8 +1461,15 @@ class Desk:
         if not jobs:
             return []
         gate = self._submit_open(self.deps.config(), now)
+        from jobengine.track import run_log
+
         replies: list[Reply] = []
-        fill = lambda job: self.dry_run_job(job, submit=True)  # noqa: E731
+        run = run_log.current()  # the 3 browsers' reports go to this run's Run Log page
+
+        def fill(job: str) -> list[Reply]:
+            with run_log.joined(run):
+                return self.dry_run_job(job, submit=True)
+
         for job, got in zip(jobs, queue.run_parallel(jobs, fill), strict=True):
             queue.finish(self.state, job, gate_open=gate)
             if isinstance(got, Exception):
@@ -2641,7 +2652,10 @@ class Desk:
     def report_replies(self, report: DailyReport) -> list[Reply]:
         if report.ok:  # Phase 23 1-08: each good daily check (07:30, 21:30, /today) pings too
             self.heartbeat(True)
-        replies = [Reply(report.text()[:MAX_TEXT])]
+        from jobengine.track import run_log
+
+        # S10: the counts and what needs you here, the full check in its Run Log page.
+        replies = [Reply(run_log.brief(report.text(), report.short_text())[:MAX_TEXT])]
         replies += [Reply(card.text[:MAX_TEXT], card.buttons) for card in report.cards]
         replies += self.add_applied_companies(report.applied_jobs)
         if report.retention is not None:
@@ -2783,8 +2797,13 @@ class Desk:
 
     # ------------------------------------------------------------ daily report (H1, H3)
 
-    def daily_report_text(self) -> str:
-        """/report and the evening report: what the bot did today (track/daily_report.py)."""
+    def daily_report_text(self, short: bool = False) -> str:
+        """/report and the evening report: what the bot did today (track/daily_report.py).
+        `short`: the Telegram message (S10), the full one goes to the Run Log page."""
+        return self.daily_report_texts()[1 if short else 0]
+
+    def daily_report_texts(self) -> tuple[str, str]:
+        """The daily report, full and short (S10), from one read."""
         from jobengine import gmail_renew
         from jobengine.contacts.credits import CreditBook
         from jobengine.screen import schedule
@@ -2807,13 +2826,16 @@ class Desk:
         warned = daily_report.warnings(
             entry, history, tokens=gmail_renew.token_left(self.s, config, today),
             used_up=book.used_up(), missed=schedule.missed(self))
-        return daily_report.text(
+        texts = tuple(daily_report.text(
             entry, today, month_cost=costs.month_line(self.state, today), credits=book.line(),
             tokens=gmail_renew.days_left(self.s, config, today), waiting=waiting,
-            warned=warned)
+            warned=warned, short=short) for short in (False, True))
+        return texts[0], texts[1]
 
     def report_command(self) -> list[Reply]:
-        return [Reply(self.daily_report_text()[:MAX_TEXT])]
+        from jobengine.track import run_log
+
+        return [Reply(run_log.brief(*self.daily_report_texts())[:MAX_TEXT])]
 
     def table_query(self, source: str) -> Any:
         """Read one row of a Notion table (the morning check); raises when it cannot."""
@@ -2824,9 +2846,13 @@ class Desk:
         client = NotionClient(self.s.notion_token, self.s)
         return client.request("POST", f"/data_sources/{source}/query", {"page_size": 1})
 
-    def health_report_text(self) -> str:
+    def health_report_text(self, short: bool = False) -> str:
         """The morning check (Autopilot C, track/health_report.py): what would stop the run
-        first, with the fix."""
+        first, with the fix. `short`: the Telegram message (S10)."""
+        return self.health_report_texts()[1 if short else 0]
+
+    def health_report_texts(self) -> tuple[str, str]:
+        """The morning check, full and short (S10), from one round of checks."""
         from jobengine import gmail_renew
         from jobengine.contacts import connections as connections_mod
         from jobengine.contacts.credits import CreditBook
@@ -2911,7 +2937,8 @@ class Desk:
         # Sunday's both runs (none on Sunday). Only today's runs are named.
         todays = [f"{at:%H:%M}" for at in plan.starts if today.weekday() in plan.days_for(at)]
         starts = (" and ".join(todays) or health_report.NO_RUN) if plan.on else ""
-        return health_report.text(today, blockers, soon, fine, starts)
+        return (health_report.text(today, blockers, soon, fine, starts),
+                health_report.text(today, blockers, soon, fine, starts, short=True))
 
     def health_report_tick(self) -> list[Reply]:
         """Every few minutes (and POST /tasks/health): the morning check, once a day."""
@@ -2922,7 +2949,10 @@ class Desk:
         if not health_report.due(config, self.state, now):
             return []
         health_report.mark_sent(self.state, daily_report.local(now, config).date())
-        return [Reply(self.health_report_text()[:MAX_TEXT])]
+        from jobengine.track import run_log
+
+        # S10: what needs you here, every check that passed in the Run Log page.
+        return [Reply(run_log.brief(*self.health_report_texts())[:MAX_TEXT])]
 
     def ai_cap_tick(self) -> list[Reply]:
         """Every few minutes (and the daily task): the AI cap message at 80% and at 100% of
@@ -2980,8 +3010,11 @@ class Desk:
         if not daily_report.due(config, self.state, now):
             return []
         daily_report.mark_sent(self.state, daily_report.local(now, config).date())
-        text = self.daily_report_text()
-        why = self.owner_mail(f"Job Engine daily report {now:%d %b}", text)
+        from jobengine.track import run_log
+
+        full, short = self.daily_report_texts()
+        why = self.owner_mail(f"Job Engine daily report {now:%d %b}", full)  # the full one
+        text = run_log.brief(full, short)  # S10: short here, full in the Run Log page
         if why:
             text += f"\n(The email copy was not sent: {why})"
         self.heartbeat(True)  # no report for about 26 hours: healthchecks.io emails you
@@ -3046,23 +3079,35 @@ class Desk:
         return [Reply(track_commands.sources_text(self.track))]
 
     def health_command(self) -> list[Reply]:
+        from jobengine.track import run_log
+
         if self.track is None:
             return self._no_track() or []
-        text = track_commands.health_text(self.track)
+        checks = track_commands.health_checks(self.track)
         try:
             self.permits()
-            text += f"\nIrish permits list: {self.permits_note}"
+            checks.append((f"Irish permits list: {self.permits_note}",
+                           not self.permits_note.startswith("NOT")))
         except Exception as exc:  # /health never fails over the permits list
-            text += f"\nIrish permits list: not checked ({type(exc).__name__})"
+            checks.append((f"Irish permits list: not checked ({type(exc).__name__})", False))
         try:  # Phase 19 A-00 (3 Nov): the AI money lines were only in the morning check
             from jobengine.track import balancer, costs
 
             today = self.tracking_now().date()
-            text += (f"\n{costs.month_line(self.state, today)}"
-                     f"\n{balancer.line(self.deps.config(), self.state, today)}")
+            checks += [(costs.month_line(self.state, today), None),
+                       (balancer.line(self.deps.config(), self.state, today), None)]
         except Exception as exc:  # /health never fails over the cost lines
-            text += f"\nAI cost: not checked ({type(exc).__name__})"
-        return [Reply(text)]
+            checks.append((f"AI cost: not checked ({type(exc).__name__})", False))
+        full = "\n".join(line for line, _ok in checks)
+        # S10: the problems here, every line in the Run Log page.
+        problems = [line for line, ok in checks if ok is False]
+        passed = sum(1 for _line, ok in checks if ok)
+        env = next((line for line, _ok in checks if line.startswith("Environment:")), "")
+        short = "\n".join([
+            "🩺 Health: " + (f"{len(problems)} problem(s), {passed} check(s) OK"
+                            if problems else f"all {passed} checks OK"),
+            *(f"❌ {line}" for line in problems), *([env] if env else [])])
+        return [Reply(run_log.brief(full, short))]
 
     def agencies_command(self, args: str) -> list[Reply]:
         """/agencies: recruitment agencies by country; /agencies <name> the intro mail;
@@ -3520,7 +3565,10 @@ class Desk:
     def digest_command(self) -> list[Reply]:
         if self.track is None:
             return self._no_track() or []
-        return [Reply(run_weekly_digest(self.track, self.tracking_now()))]
+        from jobengine.track import digest, run_log
+
+        full = run_weekly_digest(self.track, self.tracking_now())
+        return [Reply(run_log.brief(full, digest.short(full)))]  # S10
 
     def status_lines(self) -> str | None:
         return (track_commands.status_lines(self.track, self.today())

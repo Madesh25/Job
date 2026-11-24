@@ -57,3 +57,17 @@ def run_weekly_digest(deps: TrackDeps, now: datetime) -> str:
     lines += ["", reply_analysis.text(  # S9 (23 Nov): what got replies
         counts, jobs, lambda role: header.headline_title(role, titles))]
     return "\n".join(lines)
+
+
+# The one-line conclusions of the digest's analyses, kept in the short message (S10).
+TIP_STARTS = ("Put more effort where it works:", "Most approvals for what it finds:",
+              "Many found, none approved:", "Most answers:", "No answer yet after")
+
+
+def short(full: str) -> str:
+    """S10 (23 Nov, your ask): the Telegram digest, the week in numbers (the first block)
+    and the tip of each analysis; the analyses in full are in the Run Log page."""
+    head, _, rest = full.partition("\n\n")
+    tips = [line for line in rest.splitlines() if line.startswith(TIP_STARTS)]
+    return "\n".join([head, "", "📈 What gets replies, what works and the replies by resume "
+                      "headline and skill: in the full report.", *tips])
