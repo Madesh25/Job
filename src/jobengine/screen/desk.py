@@ -4139,7 +4139,8 @@ class Desk:
 
     def jd_backlog_tick(self) -> list[Reply]:
         """Once a day (S5): never screened jobs more than 7 days old are set Expired, at
-        most 100 a run; a message only when some were."""
+        most 100 a run. LOG-11 (24 Nov): one message a day, when none is left, with the day's
+        total (it came after each run: 100, then 2 before /screen and 2 before /fetchreport)."""
         if self.repo is None or not backlog.due(self.state, self.today()):
             return []
         today = self.today()
@@ -4147,9 +4148,10 @@ class Desk:
             select_filter("Screen verdict", "Unscreened"))]
         old = backlog.to_expire(rows, today)
         done, left = backlog.expire(old, self.repo.update, today, self.state)
-        if not done:
-            return []
-        return [Reply(backlog.text(done, left, len(self.jd_rows())))]
+        total = backlog.day_total(self.state, today)
+        if left or not total:
+            return []  # the rest go in the next runs today; the message comes then
+        return [Reply(backlog.text(total, 0, len(self.jd_rows())))]
 
     def jd_board(self) -> str | None:
         return (self.state.get(JD_BOARD_KEY) or {}).get("board")

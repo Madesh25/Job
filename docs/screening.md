@@ -474,6 +474,8 @@ jobs were lost in the pile (`src/jobengine/screen/backlog.py`):
 - Once a day a job never screened (Unscreened, Status New) whose posting (else the day /fetch
   found it) is more than 7 days old is set **Expired** (Skip reason Expired): too old to apply
   to. It no longer waits for /jd and `/screen` (week, all, the autopilot) no longer takes it.
-  At most 100 a run, so the first clean-up of the old pile takes a few runs; a message says
-  how many ("🧹 Old jobs cleared: ..."). On the PC it runs in the scheduled loop, on Cloud Run
-  with the daily task.
+  At most 100 a run, so the first clean-up of the old pile takes a few runs. One message a
+  day says how many, when the day's clean-up is done, with the day's total ("🧹 Old jobs
+  cleared today: 202 ..."; LOG-11, 24 Nov: it came after each run, 100 and then 2 before
+  `/screen` and `/fetchreport`). On the PC it runs in the scheduled loop, on Cloud Run with
+  the daily task.
