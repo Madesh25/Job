@@ -53,6 +53,7 @@ from jobengine.sweep.models import (
 )
 from jobengine.sweep.normalize import (
     Rules,
+    dedupe_key,
     index_key,
     normalize,
     parse_active_countries,
@@ -719,6 +720,7 @@ def run_sweep(
     # Pass 1: rows already in Notion are updated; new jobs wait to be ranked.
     candidates: dict[str, list[Job]] = {}  # dedupe key -> postings, first one creates
     seen: list[Job] = []  # every posting in scope, for the LinkedIn cross-match
+    skipped_jobs: set[tuple[str, str]] = set()  # (company|title, reason) left out (LOG-10)
     max_age = max_posted_age(s)
     ats_age = ats_max_posted_age(s)
     summary.max_age_days = max_age
@@ -731,8 +733,19 @@ def run_sweep(
                 say(f"Saving to your Notion: {done} of {total} jobs checked")
             outcome = normalize(raw, rules, active)
             if isinstance(outcome, Skipped):
-                summary.skipped += 1
                 why = outcome.reason.split(" (")[0]
+                # LOG-10 (24 Nov): 19 Sii "Senior Technical Product Owner" postings in 19
+                # cities were 19 "title not DevOps-type" and only 7 "same job in another
+                # city". A job left out for a reason is counted once; its other cities are
+                # "same job in another city", like the saved jobs' other cities.
+                job = (_job_key(dedupe_key(raw.company, raw.title, None, "")), why)
+                if job in skipped_jobs:
+                    summary.other_cities += 1
+                    loss.add(raw.source, OTHER_CITY, f"{raw.title} | {raw.company} | "
+                                                     f"{raw.location_text or '(no place)'}")
+                    continue
+                skipped_jobs.add(job)
+                summary.skipped += 1
                 summary.skipped_by[why] = summary.skipped_by.get(why, 0) + 1
                 loss.add(raw.source, SKIP_WORDS.get(why, why),
                          f"{raw.title} | {raw.company} | {raw.location_text or '(no place)'}")
@@ -775,8 +788,9 @@ def run_sweep(
     room = max(0, limit - used) if limit else sum(len(jobs) for jobs in candidates.values())
     ranker = _ranker(deps) if candidates else None
     ranked = _sort(list(candidates.values()), ranker, today)
-    ranked, summary.other_cities = _one_per_job(
+    ranked, other_cities = _one_per_job(
         ranked, index, lambda jobs: [loss.add(j.source, OTHER_CITY, _label(j)) for j in jobs])
+    summary.other_cities += other_cities
     ranked = _pick(s, deps, ranked, room, ranker, today, summary, say)
     kept = ranked[:room]
     saved_scores: dict[str, int] = {}
