@@ -450,6 +450,13 @@ wrong ones; each wrong one is also written once to the Error Log (Level Reported
 Screen, Status New) so Claude Code fixes it with the other reported rows. The picks of a week
 are the same if the check runs twice, and your ticks are never overwritten.
 
+LOG-04 (24 Nov test log, T23-09: Qualtrics, Expired since 10 Nov, and EY, closed that morning,
+were picked; the Why of the Skip rows showed only the ghost risk): an Expired job (Status or
+Skip reason Expired) is never picked, and the Why starts with the screening lines of the job's
+page, "Verdict: Skip (Seniority)" and its "Note: 6 years required, your limit is 4" (a gate's
+reason is written there, not in a column), then its Status when it is not Screened (a job you
+declined says "Status: Declined"), then the columns as before.
+
 ## The /jd backlog (S5, 23 Nov, your request)
 
 About 290 older Unscreened jobs and the LinkedIn jobs waited for a description, and good new

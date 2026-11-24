@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import random
 from collections import defaultdict
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from datetime import date, datetime, time, timedelta
 from typing import Any
 
@@ -34,6 +34,9 @@ DAYS = 7
 VERDICTS = ("Apply high", "Apply normal", "Apply low", "Needs review", "Skip")
 RIGHT, WRONG = "Right", "Wrong"
 WHY_CHARS = 1900  # Notion keeps 2000 characters in one text value
+# LOG-04 (24 Nov): Qualtrics (Expired since 10 Nov) and EY (closed that morning) were picked.
+GONE = "Expired"
+SECTION = "Screening ("
 TABLE_NAME = "Screening Check"
 
 
@@ -76,9 +79,28 @@ def _list(value: Any) -> str:
     return str(value or "")
 
 
-def why(values: Mapping[str, Any]) -> str:
-    """Why the verdict, from what screening wrote on the job row."""
-    parts = []
+def screening_lines(body: Sequence[str]) -> list[str]:
+    """The verdict and notes of the newest screening section of the job's page ("Verdict:
+    Skip (Seniority)", "Note: 6 years required, your limit is 4"): LOG-04, the Why of a Skip
+    showed only the ghost risk because a gate's reason is written there, not in a column."""
+    start = max((i for i, line in enumerate(body) if line.startswith(SECTION)), default=None)
+    if start is None:
+        return []
+    out = []
+    for line in body[start + 1:]:
+        if line.startswith(SECTION) or line.startswith("Description source:"):
+            break
+        if line.startswith(("Verdict:", "Note:")):
+            out.append(line)
+    return out
+
+
+def why(values: Mapping[str, Any], body: Sequence[str] | None = None) -> str:
+    """Why the verdict: the screening lines of the job's page first, then its status (a job you
+    declined says so), then what screening wrote on the job row."""
+    parts = screening_lines(body or [])
+    if values.get("Status") and values.get("Status") != "Screened":
+        parts.append(f"Status: {values.get('Status')}")
     for label, key in (("Skip reason", "Skip reason"), ("Gaps", "Gaps"),
                        ("Years required", "Years required"), ("Sponsorship", "Sponsorship"),
                        ("Language", "Language required"), ("Visa flags", "Visa flags"),
@@ -98,6 +120,8 @@ def pick(rows: Sequence[tuple[str, Mapping[str, Any]]], today: date, n: int = PI
     for page_id, values in sorted(rows, key=lambda r: r[0]):
         verdict = values.get("Screen verdict")
         seen = _day(values.get("Swept date")) or _day(values.get("First seen"))
+        if GONE in (values.get("Status"), values.get("Skip reason")):
+            continue  # too old or closed: nothing to check (LOG-04)
         if verdict in VERDICTS and seen is not None and since < seen <= today:
             groups[str(verdict)].append((page_id, values))
     rng = rng or random.Random(week_of(today))
@@ -119,13 +143,14 @@ def key(week: str, page_id: str) -> str:
     return f"{week}|{page_id}"
 
 
-def row(page_id: str, values: Mapping[str, Any], week: str, today: date) -> dict[str, Any]:
+def row(page_id: str, values: Mapping[str, Any], week: str, today: date,
+        body: Sequence[str] | None = None) -> dict[str, Any]:
     """The Screening Check row of one picked job (without Your check: that one is yours)."""
     url = str(values.get("URL") or "").split()[0] if values.get("URL") else None
     return {
         "Job": job_name(values)[:150], "Week": week, "Picked": today,
         "Verdict": values.get("Screen verdict"), "Country": values.get("Country"),
-        "Why": why(values)[:WHY_CHARS],
+        "Why": why(values, body)[:WHY_CHARS],
         "Job page": f"https://www.notion.so/{page_id.replace('-', '')}",
         "Job link": url if url and url.startswith("http") else None,
         "Key": key(week, page_id),
@@ -187,14 +212,18 @@ def message(week: str, picked: int, last: str | None) -> str:
 
 
 def run(table: Any, error_table: Any, state: Any, jobs: Sequence[tuple[str, Mapping[str, Any]]],
-        now: datetime) -> str:
+        now: datetime, body: Callable[[str], Sequence[str]] | None = None) -> str:
     """This week's picks into the table, last week's result in the message, its wrong ones
     into the Error Log once. Returns the Telegram message."""
     today = now.date()
     week, last_week = week_of(today), week_of(today - timedelta(days=7))
     picks = pick(jobs, today)
     for page_id, values in picks:
-        props = row(page_id, values, week, today)
+        try:
+            lines = body(page_id) if body is not None else []
+        except Exception:  # the row still comes, with the columns only
+            lines = []
+        props = row(page_id, values, week, today, lines)
         table.upsert({"Key": props.pop("Key")}, props)
     previous = week_rows(table.rows(), last_week)
     sent = (state.get(SENT_KEY) if state is not None else None) or {}
