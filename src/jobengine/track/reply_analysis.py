@@ -31,7 +31,10 @@ ORDER = tuple(GROUPS)
 MIN_APPLIED = 2  # a headline or skill needs this many applications to be named
 TOP_SKILLS = 6
 DAYS = 7
-DEFAULT_HEADLINE = "your main title"
+# LOG-14 (24 Nov): "your main title" was shown as a headline. The digest now passes the
+# Golden Master's first title (what the resume really used); this is only for when the
+# master could not be read.
+DEFAULT_HEADLINE = "your master resume's first title (not read)"
 
 
 def group_of(kind: str) -> str:

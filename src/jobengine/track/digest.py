@@ -23,7 +23,9 @@ def _compare(now: Funnel, before: Funnel) -> str:
     return ", ".join(parts)
 
 
-def run_weekly_digest(deps: TrackDeps, now: datetime) -> str:
+def run_weekly_digest(deps: TrackDeps, now: datetime, main_title: str | None = None) -> str:
+    """`main_title`: the headline your resume gets when the job's role names none of your
+    approved titles (the Golden Master's first title, resume/header.py)."""
     today = now.date()
     jobs = [v for _, v in deps.jobs.query_rows()] if deps.jobs else []
     contacts = [v for _, v in deps.contacts.all_rows()] if deps.contacts else []
@@ -55,7 +57,7 @@ def run_weekly_digest(deps: TrackDeps, now: datetime) -> str:
     titles = header.approved_titles(deps.s, config)
     counts = reply_analysis.week_counts(lambda day: day_ledger.day(deps.state, day), today)
     lines += ["", reply_analysis.text(  # S9 (23 Nov): what got replies
-        counts, jobs, lambda role: header.headline_title(role, titles))]
+        counts, jobs, lambda role: header.headline_title(role, titles) or main_title)]
     return "\n".join(lines)
 
 

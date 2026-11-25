@@ -3790,8 +3790,23 @@ class Desk:
             return self._no_track() or []
         from jobengine.track import digest, run_log
 
-        full = run_weekly_digest(self.track, self.tracking_now())
+        full = run_weekly_digest(self.track, self.tracking_now(), self._master_title())
         return [Reply(run_log.brief(full, digest.short(full)))]  # S10
+
+    def _master_title(self) -> str | None:
+        """The headline a resume gets when the job's role names none of your approved
+        titles: the Golden Master's first title, else its whole headline (LOG-14)."""
+        from jobengine.resume import header
+        from jobengine.resume.master import load_master
+
+        if self.resume is None:
+            return None
+        try:
+            master = load_master(self.resume.blocks(), self.deps.config())
+        except Exception as exc:  # the digest goes on with the fallback words
+            log.info("digest: Golden Master not read: %s", exc)
+            return None
+        return header.main_title(master.html) or header.headline_text(master) or None
 
     def status_lines(self) -> str | None:
         return (track_commands.status_lines(self.track, self.today())

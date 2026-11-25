@@ -88,3 +88,25 @@ def test_the_weekly_digest_has_the_block():
     desk = fake_desk(settings(), FAKE_TODAY, now=Clock())
     [digest] = desk.digest_command()
     assert "📬 Replies this week: " in digest.text
+
+
+def test_a_role_with_no_approved_title_shows_the_title_the_resume_used(monkeypatch):
+    """LOG-14 (24 Nov test log, T23-15 note 1): a "By resume headline" line read "your main
+    title", a placeholder. The resume uses the Golden Master's first title there."""
+    from jobengine.track import digest
+
+    desk = fake_desk(settings(), FAKE_TODAY, now=Clock())
+    assert desk._master_title() == "DevOps Engineer"  # the fake master's first title
+    seen = {}
+    real = ra.text
+
+    def spy(counts, jobs, headline):
+        seen["head"] = headline("Data Platform Specialist")  # names no approved title
+        return real(counts, jobs, headline)
+
+    monkeypatch.setattr(digest.reply_analysis, "text", spy)
+    [reply] = desk.digest_command()
+    assert seen["head"] == "DevOps Engineer"
+    assert "your main title" not in reply.text
+    desk.resume = None  # no master to read: the fallback words say so
+    assert desk._master_title() is None
