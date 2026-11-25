@@ -46,6 +46,11 @@ PROJECT_NUMBER="$(gcloud projects describe $PROJECT --format='value(projectNumbe
 
 ## B1. Google Cloud setup
 
+Since 25 Nov the steps of B1, B2 (the secret containers and who reads them, never the values)
+and B4 are also in Terraform: `infra/terraform` (its README says how to adopt what you already
+made by hand, then `terraform plan` before any change). The gcloud steps below stay as the
+reference.
+
 - [ ] **1. Region.** Default `europe-west1` (a Tier 1 Cloud Run region). Check the current
       Cloud Run pricing and free tier for the region before choosing; use the same region for
       both services, Artifact Registry and Cloud Scheduler.

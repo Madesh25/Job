@@ -1,0 +1,77 @@
+# Adopt what you already created by hand, so Terraform does not try to create it again
+# ("already exists" errors) or create a second one. Copy this file to imports.tf, delete the
+# blocks of anything that does NOT exist yet, then run `terraform plan`: each adopted item
+# shows as "will be imported". After the first `terraform apply`, delete imports.tf.
+#
+# APIs and IAM role grants need no import: Terraform turns on an API or adds a grant that is
+# already there without harm.
+
+locals {
+  import_project = "job-search-engine-509510"
+  import_region  = "europe-west1"
+}
+
+import {
+  to = google_artifact_registry_repository.job_engine
+  id = "projects/${local.import_project}/locations/${local.import_region}/repositories/job-engine"
+}
+
+import {
+  to = google_service_account.dev_runner
+  id = "projects/${local.import_project}/serviceAccounts/job-engine-dev-runner@${local.import_project}.iam.gserviceaccount.com"
+}
+
+import {
+  to = google_service_account.prod_runner
+  id = "projects/${local.import_project}/serviceAccounts/job-pipeline-runner@${local.import_project}.iam.gserviceaccount.com"
+}
+
+import {
+  to = google_service_account.scheduler
+  id = "projects/${local.import_project}/serviceAccounts/job-engine-scheduler@${local.import_project}.iam.gserviceaccount.com"
+}
+
+import {
+  to = google_service_account.deployer
+  id = "projects/${local.import_project}/serviceAccounts/job-engine-deployer@${local.import_project}.iam.gserviceaccount.com"
+}
+
+import {
+  to = google_iam_workload_identity_pool.github
+  id = "projects/${local.import_project}/locations/global/workloadIdentityPools/github"
+}
+
+import {
+  to = google_iam_workload_identity_pool_provider.github
+  id = "projects/${local.import_project}/locations/global/workloadIdentityPools/github/providers/github"
+}
+
+import {
+  for_each = toset(["dev", "prod"])
+  to       = google_cloud_run_v2_service.job_engine[each.key]
+  id       = "projects/${local.import_project}/locations/${local.import_region}/services/job-engine-${each.key}"
+}
+
+# Keep only the secrets that exist (gcloud secrets list); add the optional ones you listed in
+# var.optional_secrets.
+import {
+  for_each = toset([
+    "notion-token-dev", "telegram-token-dev", "telegram-webhook-secret-dev", "anthropic-key-dev",
+    "notion-token-prod", "telegram-token-prod", "telegram-webhook-secret-prod", "anthropic-key-prod",
+    "telegram-chat-id", "gmail-m02-token", "gmail-main-token", "adzuna-app-id", "adzuna-app-key",
+    "apollo-api-key", "hunter-api-key", "snov-client-id", "snov-client-secret",
+  ])
+  to = google_secret_manager_secret.this[each.key]
+  id = "projects/${local.import_project}/secrets/${each.key}"
+}
+
+# Keep only the jobs that exist (gcloud scheduler jobs list --location europe-west1).
+import {
+  for_each = toset([
+    "je-daily-dev", "je-daily-prod", "je-digest-prod", "je-sweep-prod", "je-autopilot-prod",
+    "je-check-prod", "je-mail-prod", "je-replies-prod", "je-health-prod", "je-report-prod",
+    "je-apply-prod", "je-nudge-prod",
+  ])
+  to = google_cloud_scheduler_job.tasks[each.key]
+  id = "projects/${local.import_project}/locations/${local.import_region}/jobs/${each.key}"
+}
