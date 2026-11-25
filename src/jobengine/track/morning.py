@@ -73,10 +73,11 @@ def morning(at: time | None) -> bool:
 
 def quiet(report: Any) -> bool:
     """A daily check with nothing for you: nothing found, nothing to decide, no problem.
-    A DRY RUN note alone (follow-ups not drafted) counts as quiet."""
+    LOG-13 (24 Nov): follow-ups due but not drafted (DRY RUN) are for you, so they are not
+    quiet any more."""
     return not (report.token_lines() or report.sent or report.deleted_drafts or report.replies
                 or report.applications or report.bounced or report.followups
-                or report.followups_queued or report.followup_problems
+                or report.followups_queued or report.followups_dry or report.followup_problems
                 or report.ghosted_contacts or report.ghosted_jobs or report.cards
                 or report.notes or report.errors or report.retention is not None
                 or report.applied_jobs)
