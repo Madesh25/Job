@@ -855,7 +855,10 @@ def test_today_sends_the_report_then_the_cards(desk):
     # S10: the counts and what needs you here, the full check in its Run Log page.
     assert sent[1].startswith("[LOCAL] 📬 Daily check Thu 15 Oct (since 01 Oct 08:00)\n"
                               "2 sent · 2 replies (1 interview) · 3 applications updated · "
-                              "2 bounced · 2 ghosted\n👉 Needs your call: 3 (below)")
+                              "2 bounced · 2 ghosted\n"
+                              # LOG-13: the follow-ups due (DRY RUN) are named here too.
+                              "✉️ 2 follow-up(s) due, not drafted (DRY RUN): Anna Example, "
+                              "Tomek Example\n👉 Needs your call: 3 (below)")
     assert sent[1].endswith('📝 Full report in Notion: Run Log, row "/today 08:00"')
     page = desk.run_log_table.bodies[-1]
     assert "Daily check 2026-10-15 (since 2026-10-01 08:00)" in page

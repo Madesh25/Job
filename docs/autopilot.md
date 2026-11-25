@@ -118,8 +118,10 @@ One morning message (S12, 23 Nov, your ask; `track/morning.py`): the morning che
   yet" when there are none.
 
 The 07:30 daily check then comes to Telegram only when it found something or something needs
-you (a reply, a sent mail, a token problem, your call, a note, an error); a quiet one sends
-nothing and is kept in its Run Log row. The 21:30 check always comes. Notion Config
+you (a reply, a sent mail, a token problem, your call, a note, an error, follow-ups due); a
+quiet one sends nothing and is kept in its Run Log row. LOG-13 (24 Nov): follow-ups due but not
+drafted (DRY RUN) are named in the message ("✉️ 10 follow-up(s) due, not drafted (DRY RUN):
+five names and 5 more") and are no longer counted as quiet. The 21:30 check always comes. Notion Config
 `morning.one_message` = `false` brings back the morning check without the steps and the 07:30
 check every day.
 

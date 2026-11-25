@@ -62,14 +62,16 @@ def test_config_switches_the_steps_off():
 
 def quiet_report():
     return DailyReport(day=TUESDAY, since=datetime(2026, 10, 26, 21, 30),
-                       tokens={"alerts": None, "sender": None},
-                       followups_dry=["Anna Example"])
+                       tokens={"alerts": None, "sender": None})
 
 
 def test_a_quiet_morning_check_sends_nothing_but_keeps_its_row():
     d = desk_at_0635()
     report = quiet_report()
     assert morning.quiet(report)
+    # LOG-13: follow-ups due (DRY RUN, not drafted) are for you: not quiet.
+    assert not morning.quiet(DailyReport(day=TUESDAY, since=report.since, tokens=report.tokens,
+                                         followups_dry=["Anna Example"]))
     replies = tb._scheduled("Daily check", lambda: d.daily_check_replies(report, time(7, 30)), d)
     assert replies == []
     assert d.run_log_table.created[-1]["Step"] == "Daily check"

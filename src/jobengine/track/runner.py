@@ -62,6 +62,8 @@ CHOICES = (("Screening", "screening"), ("Interview", "interview"), ("Rejected", 
 TOKEN_FAILED = "Gmail token for {account} failed: {reason}. Regenerate it (docs/gmail.md)."
 
 
+FOLLOWUP_NAMES = 5  # names in the /today line of follow-ups due (LOG-13)
+
 @dataclass
 class TrackDeps:
     s: Settings
@@ -174,7 +176,18 @@ class DailyReport:
                   (len(self.followups) + len(self.followups_queued), "follow-ups"),
                   (len(self.ghosted_contacts) + len(self.ghosted_jobs), "ghosted")]
         found = [f"{n} {what}" for n, what in counts if n]
-        lines.append(" · ".join(found) if found else "Nothing new since the last check.")
+        if found or not self.followups_dry:
+            lines.append(" · ".join(found) if found else "Nothing new since the last check.")
+        if self.followups_dry:
+            # LOG-13 (24 Nov): "Nothing new since the last check." while the page listed
+            # "DRY RUN: 10 follow-ups not drafted" with 10 names (on 18 Nov that line was in
+            # Telegram). Follow-ups due are for you: one line here.
+            names = self.followups_dry
+            shown = ", ".join(names[:FOLLOWUP_NAMES]) + (
+                f" and {len(names) - FOLLOWUP_NAMES} more" if len(names) > FOLLOWUP_NAMES
+                else "")
+            lines.append(f"\u2709\ufe0f {len(names)} follow-up(s) due, not drafted (DRY RUN): "
+                         f"{shown}")
         if self.cards:
             lines.append(f"\U0001F449 Needs your call: {len(self.cards)} (below)")
         lines.extend(self.notes)
