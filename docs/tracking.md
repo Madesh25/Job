@@ -101,7 +101,11 @@ country and screening verdict, at most 6 lines each (the rest folded into "other
 share approved. "Speed" is the median number of days from posting (else the day /fetch found
 the job) to applying, and how many were applied within 2 days. Two tips: the source with the
 most approvals for what it finds (at least 10 found), and the sources with at least 30 found
-and none approved: candidates to drop (FETCH 11).
+and none approved: candidates to drop (FETCH 11). LOG-15 (24 Nov): the tip says the threshold
+and each source's count ("Jooble (31 found): candidates to drop (30 found or more)"), and a
+source with 10 to 29 found and none approved is named as "None approved yet: Pracuj.pl (29
+found); a source is a candidate to drop from 30 found." "Others" is several small sources
+added up, so it is never named.
 
 ## Reply analysis, in the weekly digest (S9, 23 Nov, your request)
 

@@ -61,7 +61,8 @@ def run_weekly_digest(deps: TrackDeps, now: datetime) -> str:
 
 # The one-line conclusions of the digest's analyses, kept in the short message (S10).
 TIP_STARTS = ("Put more effort where it works:", "Most approvals for what it finds:",
-              "Many found, none approved:", "Most answers:", "No answer yet after")
+              "Many found, none approved:", "None approved yet:", "Most answers:",
+              "No answer yet after")
 
 
 def short(full: str) -> str:
