@@ -82,10 +82,24 @@ def tips(sources: dict[str, BoardRow]) -> list[str]:
         out.append(f"Most approvals for what it finds: {best[0]} "
                    f"({best[1].approved} of {best[1].found}, "
                    f"{pct(best[1].approved / best[1].found)}).")
-    drop = sorted(k for k, r in sources.items() if r.found >= DROP_FOUND and not r.approved)
+    # LOG-15 (24 Nov test log, T23-12 note 2): Pracuj.pl 29 > 0 and "others (4)" 38 > 0
+    # gave no tip: a source is named from DROP_FOUND found (29 is one short) and "others"
+    # is several small sources. The message now says the threshold, and a source close to
+    # it is named as "none approved yet".
+    drop = sorted((k for k, r in sources.items()
+                   if k != "Unknown" and r.found >= DROP_FOUND and not r.approved),
+                  key=lambda k: (-sources[k].found, k))
     if drop:
-        out.append(f"Many found, none approved: {', '.join(drop)}: candidates to drop "
-                   "(FETCH 11).")
+        names = ", ".join(f"{k} ({sources[k].found} found)" for k in drop)
+        out.append(f"Many found, none approved: {names}: candidates to drop "
+                   f"({DROP_FOUND} found or more, FETCH 11).")
+    near = sorted((k for k, r in sources.items()
+                   if k != "Unknown" and MIN_FOUND <= r.found < DROP_FOUND and not r.approved),
+                  key=lambda k: (-sources[k].found, k))
+    if near:
+        names = ", ".join(f"{k} ({sources[k].found} found)" for k in near)
+        out.append(f"None approved yet: {names}; a source is a candidate to drop from "
+                   f"{DROP_FOUND} found.")
     return out
 
 

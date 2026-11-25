@@ -53,7 +53,8 @@ def test_the_block_with_its_tips():
     assert ("Speed: 3 applied job(s), median 1 day(s) from posting to applying; 2 of 3 within "
             "2 days") in text
     assert "Most approvals for what it finds: Company sites (6 of 12, 50%)." in text
-    assert "Many found, none approved: Jooble: candidates to drop (FETCH 11)." in text
+    assert ("Many found, none approved: Jooble (31 found): candidates to drop (30 found or "
+            "more, FETCH 11).") in text
     assert ww.text([]) == "What works: no jobs in Notion yet."
 
 
@@ -72,3 +73,16 @@ def test_stats_works_command_and_the_digest():
     [digest] = desk.digest_command()
     assert "📈 What works" in digest.text
     assert "/stats works: what works" in tb.HELP_TEXT
+
+
+def test_a_source_just_under_the_threshold_is_named_and_the_threshold_said():
+    """LOG-15 (24 Nov test log, T23-12 note 2): Pracuj.pl 29 found, 0 approved: no tip."""
+    sources = {"Pracuj.pl": ww.BoardRow(29, 0, 0, 0, 0), "Jooble": ww.BoardRow(31, 0, 0, 0, 0),
+               "Small": ww.BoardRow(9, 0, 0, 0, 0), "Unknown": ww.BoardRow(40, 0, 0, 0, 0),
+               "Adzuna": ww.BoardRow(20, 2, 1, 0, 0)}
+    lines = ww.tips(sources)
+    assert ("Many found, none approved: Jooble (31 found): candidates to drop (30 found or "
+            "more, FETCH 11).") in lines
+    assert ("None approved yet: Pracuj.pl (29 found); a source is a candidate to drop from "
+            "30 found.") in lines
+    assert not any("Small" in line or "Unknown" in line for line in lines)
