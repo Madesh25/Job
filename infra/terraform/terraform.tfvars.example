@@ -1,0 +1,10 @@
+# Copy to terraform.tfvars and change what differs; every value has a default in variables.tf.
+# No secret goes here.
+project_id = "job-search-engine-509510"
+region     = "europe-west1"
+
+# Optional secrets that already have a value (secrets.tf optional_secret_readers).
+optional_secrets = ["jooble-api-key", "github-token"]
+
+# false until go-live: every Cloud Scheduler job stays paused.
+scheduler_enabled = false

@@ -35,3 +35,9 @@ credentials*.json
 # Generated output
 *.pdf
 out/
+.terraform/
+*.tfstate
+*.tfstate.*
+terraform.tfvars
+infra/terraform/imports.tf
+.terraform.lock.hcl.bak
