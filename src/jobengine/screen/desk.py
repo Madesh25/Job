@@ -118,6 +118,9 @@ CONTACTS_LINKEDIN = ("The bot never opens {host} pages, so it needs the company 
                      "for example: /contacts {url} Acme Cloud, Poland, DevOps Engineer\n"
                      "It saves the job, finds 2 contacts and shows your LinkedIn connections "
                      "there with the referral messages.")
+# LOG-16: a saved Irish permits list older than this is said once a month (bot_state key).
+PERMITS_OLD_DAYS = 30
+PERMITS_TOLD_KEY = "ie_permits.old_told"
 ADD_TIMEOUT = 30.0  # seconds for the /add page (a /fetch page gets http.PAGE_TIMEOUT_SECONDS)
 ADD_COMPANIES_KEY = "apply.add_companies"  # Autopilot A2: "true" turns it on
 ANSWERS_KEY = "reply.answers"  # bot_state: {"items": {key: draft answer}} (5 Nov)
@@ -515,6 +518,12 @@ class Desk:
             url = (self.deps.config().get(ie_permits.URL_KEY)
                    or self.s.screening.get("ie_permits_url"))
             found, problem = None, "no gov.ie link in Config ie_permits.url"
+            # LOG-16 (24 Nov): gov.ie refused the bot (HTTP 403) every day, an Error Log row
+            # each day. The copy you saved is read quietly first; gov.ie is asked only when
+            # there is none, and an old copy is told once a month.
+            found = self._saved_permits(today)
+            if found is not None:
+                url = None
             if url:
                 try:
                     found = ie_permits.load(str(url), self.get_file)
@@ -539,6 +548,33 @@ class Desk:
                                          f"{ie_permits.DOWNLOAD_HINT}")
             self._permits = (today, found)
         return self._permits[1]
+
+    def _saved_permits(self, today: date) -> Any:
+        """The Irish permits list from the copy you saved (out/ie_permits.xlsx), or None.
+        A copy more than PERMITS_OLD_DAYS old is said once a month (a warning: the Error
+        Log pings it), and in /health."""
+        from jobengine import ie_permits
+
+        saved = ie_permits.local_file(self.out_dir)
+        if saved is None:
+            return None
+        try:
+            found = ie_permits.load_file(saved)
+        except Exception as exc:  # a broken copy: gov.ie is tried as before
+            log.info("Irish permits file not read: %s", exc)
+            return None
+        age = max(0, (today - date.fromtimestamp(saved.stat().st_mtime)).days)
+        self.permits_note = (f"read from out/{saved.name} ({len(found.counts)} companies, "
+                             f"saved {age} day(s) ago)")
+        if age > PERMITS_OLD_DAYS:
+            self.permits_note += f". It is old: {ie_permits.DOWNLOAD_HINT}"
+            month = today.strftime("%Y-%m")
+            told = self.state.get(PERMITS_TOLD_KEY) or {}
+            if told.get("month") != month:
+                log.warning("Irish permits list: out/%s is %d days old; %s", saved.name, age,
+                            ie_permits.DOWNLOAD_HINT)
+                self.state.set(PERMITS_TOLD_KEY, {"month": month})
+        return found
 
     def irish_permits(self, row: JobRow) -> tuple[str, int] | None:
         if row.country != "Ireland":
