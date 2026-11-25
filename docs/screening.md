@@ -250,7 +250,9 @@ replies; the /pending card marks these jobs 🆕), posted 3 to 7 days ago +1.
   answers the bot with HTTP 403 (Phase 9 P9-20, seen 26 Oct), so the copy you save yourself
   is read instead: download the yearly file in your browser and save it as
   `out/ie_permits.xlsx` (or `.xls`, `.pdf`, `.csv`). `/health` says where the list came from,
-  or what to do when it could not be read.
+  or what to do when it could not be read. Since LOG-16 (24 Nov) a saved copy is read first and
+  gov.ie is not asked at all (no daily 403 row in the Error Log); a copy more than 30 days old
+  is said once a month ("Irish permits list: out/ie_permits.xlsx is 45 days old; download ...").
 - Agency posts (all countries since 30 Sep): the text says it is posted for a client, the
   company starts with a known agency name (`screen/visa.py` KNOWN_AGENCIES, plus Config
   `agency_names` and `ireland.agency_names`, comma-separated), or its name says recruitment,

@@ -17,6 +17,10 @@ every Irish card). Then the file you downloaded in your browser is read instead:
 yearly "Permits issued to companies" file as out/ie_permits.xlsx (or .xls, .pdf, .csv). The
 page needs no login; the bot reads only the copy you saved. /health says where the list came
 from, or what to do when neither works.
+
+LOG-16 (24 Nov): gov.ie refused every day (an Error Log row a day). When a saved copy exists
+it is read first and gov.ie is not asked; a copy more than 30 days old is said once a month
+(screen/desk.py `_saved_permits`).
 """
 
 from __future__ import annotations
