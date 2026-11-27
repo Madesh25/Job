@@ -37,6 +37,7 @@ from jobengine.safety import contact_lookups, paid_api_allowed
 from jobengine.screen import (
     add_link,
     autopilot,
+    backlog,
     batch,
     jd_capture,
     keywords_report,
@@ -78,6 +79,8 @@ from jobengine.track.runner import DailyReport, TrackDeps
 log = logging.getLogger("jobengine.screen.desk")
 
 APPROVED_TEXT = "Approved: {job}."
+REFERRAL_FIRST_KEY = "apply.referral_first"  # S7: "false" turns the referral hint off
+ATS_MIN_KEY = "resume.ats_min"  # S8: the ATS check warns below this percent (default 60)
 NO_RESUME = "Resume building is not available in this bot."
 REBUILD_KEY = "resume.rebuild_ask"  # bot_state: {"log": <Resume Log id>, "at": <iso time>}
 REBUILD_ASK_MINUTES = 30
@@ -115,6 +118,9 @@ CONTACTS_LINKEDIN = ("The bot never opens {host} pages, so it needs the company 
                      "for example: /contacts {url} Acme Cloud, Poland, DevOps Engineer\n"
                      "It saves the job, finds 2 contacts and shows your LinkedIn connections "
                      "there with the referral messages.")
+# LOG-16: a saved Irish permits list older than this is said once a month (bot_state key).
+PERMITS_OLD_DAYS = 30
+PERMITS_TOLD_KEY = "ie_permits.old_told"
 ADD_TIMEOUT = 30.0  # seconds for the /add page (a /fetch page gets http.PAGE_TIMEOUT_SECONDS)
 ADD_COMPANIES_KEY = "apply.add_companies"  # Autopilot A2: "true" turns it on
 ANSWERS_KEY = "reply.answers"  # bot_state: {"items": {key: draft answer}} (5 Nov)
@@ -235,6 +241,54 @@ def requested_terms(text: str, known: str | None = None) -> list[str]:
 
 def same_page(a: str, b: str) -> bool:
     return short_id(a) == short_id(b)
+
+
+def match_rows(body: list[str]) -> list[tuple[str, str]]:
+    """(Strong | Transferable | Gap, the requirement) of the newest "Screening (" section."""
+    start = max((i for i, b in enumerate(body) if b.startswith(SECTION_PREFIX)), default=None)
+    if start is None:
+        return []
+    rows = []
+    for line in body[start + 1:]:
+        if MATRIX_LINE.match(line):
+            parts = [p.strip() for p in line.split("|")]
+            rows.append((parts[0], parts[1] if len(parts) > 1 else ""))
+    return rows
+
+
+CARD_KEY = "pending.card"  # Notion Config (S11): "full" brings back the long /pending card
+TOP_GAPS = 3
+WHY_CHARS = 160
+
+
+def why_line(row: JobRow, body: list[str], permits: tuple[str, int] | None = None) -> str:
+    """S11 (23 Nov): the verdict in one line, from the screening table (no AI): what you match
+    strongly, how much is transferable, and a stated sponsorship."""
+    rows = match_rows(body)
+    strong = [req for kind, req in rows if kind == "Strong" and req]
+    near = sum(1 for kind, _req in rows if kind == "Transferable")
+    parts = []
+    if strong:
+        parts.append("strong on " + ", ".join(strong[:2])
+                     + (f" (+{len(strong) - 2} more)" if len(strong) > 2 else ""))
+    if near:
+        parts.append(f"{near} transferable")
+    if row.sponsorship == "Stated yes":
+        parts.append("sponsorship stated")
+    if permits:
+        parts.append(f"{permits[1]} Irish permits issued to it")
+    text = "; ".join(parts) or "no requirement matched strongly"
+    if len(text) > WHY_CHARS:
+        text = text[:WHY_CHARS - 3].rstrip() + "..."
+    return f"Why: {text}"
+
+
+def gaps_line(row: JobRow) -> str:
+    gaps = split_gaps(row.gaps)
+    if not gaps:
+        return "Gaps: none"
+    more = f" and {len(gaps) - TOP_GAPS} more" if len(gaps) > TOP_GAPS else ""
+    return f"Gaps: {'; '.join(gaps[:TOP_GAPS])}{more}"
 
 
 def match_counts(body: list[str]) -> dict[str, int]:
@@ -394,6 +448,8 @@ class Desk:
         self.add_skill: Callable[[str, str, str], None] | None = None
         # 🤝 LinkedIn Connections (contacts/connections.py): None when not set up here.
         self.connections: connections.ConnectionsStore | None = None
+        # LOG-18: screening writes "Contacts to find" 1 when your connections work there.
+        self.deps.connections_at = self.helpful_connections
         # /add (23 Oct): adds a Target Companies row (notion_repo.CompanyAdder); None: not here.
         self.companies: Any = None
         # The daily report and failure alerts by email (alerts.py): (subject, text) -> None
@@ -405,6 +461,9 @@ class Desk:
         self.answer_bank: Any = None
         self.autoapply_issues: Any = None
         self.audit_table: Any = None  # Weekly Audit (27 Oct); None: the audit is Telegram only
+        self.run_log_table: Any = None  # Run Log (18 Nov): one row per scheduled run
+        self.error_log_table: Any = None  # Error Log (18 Nov): one row per problem per day
+        self.screen_check_table: Any = None  # Screening Check (S3, 23 Nov): 10 a week
         self._audit_checked: date | None = None  # the day the weekly audit was last checked
         # The weekly job board check (sweep/board_watch.py): (today, folder) -> the checks;
         # None where Target Companies cannot be read.
@@ -461,6 +520,12 @@ class Desk:
             url = (self.deps.config().get(ie_permits.URL_KEY)
                    or self.s.screening.get("ie_permits_url"))
             found, problem = None, "no gov.ie link in Config ie_permits.url"
+            # LOG-16 (24 Nov): gov.ie refused the bot (HTTP 403) every day, an Error Log row
+            # each day. The copy you saved is read quietly first; gov.ie is asked only when
+            # there is none, and an old copy is told once a month.
+            found = self._saved_permits(today)
+            if found is not None:
+                url = None
             if url:
                 try:
                     found = ie_permits.load(str(url), self.get_file)
@@ -485,6 +550,33 @@ class Desk:
                                          f"{ie_permits.DOWNLOAD_HINT}")
             self._permits = (today, found)
         return self._permits[1]
+
+    def _saved_permits(self, today: date) -> Any:
+        """The Irish permits list from the copy you saved (out/ie_permits.xlsx), or None.
+        A copy more than PERMITS_OLD_DAYS old is said once a month (a warning: the Error
+        Log pings it), and in /health."""
+        from jobengine import ie_permits
+
+        saved = ie_permits.local_file(self.out_dir)
+        if saved is None:
+            return None
+        try:
+            found = ie_permits.load_file(saved)
+        except Exception as exc:  # a broken copy: gov.ie is tried as before
+            log.info("Irish permits file not read: %s", exc)
+            return None
+        age = max(0, (today - date.fromtimestamp(saved.stat().st_mtime)).days)
+        self.permits_note = (f"read from out/{saved.name} ({len(found.counts)} companies, "
+                             f"saved {age} day(s) ago)")
+        if age > PERMITS_OLD_DAYS:
+            self.permits_note += f". It is old: {ie_permits.DOWNLOAD_HINT}"
+            month = today.strftime("%Y-%m")
+            told = self.state.get(PERMITS_TOLD_KEY) or {}
+            if told.get("month") != month:
+                log.warning("Irish permits list: out/%s is %d days old; %s", saved.name, age,
+                            ie_permits.DOWNLOAD_HINT)
+                self.state.set(PERMITS_TOLD_KEY, {"month": month})
+        return found
 
     def irish_permits(self, row: JobRow) -> tuple[str, int] | None:
         if row.country != "Ireland":
@@ -638,8 +730,9 @@ class Desk:
         lines = []
         if found.share is not None:
             named = len(found.have) + len(found.missing)
-            lines.append(f"Skill match: {found.share}% ({len(found.have)} of {named} tools "
-                         "it names)")
+            # LOG-06: what it counts (the tools you have), next to the resume's ATS check.
+            lines.append(f"Skill match: you have {len(found.have)} of the {named} tools it "
+                         f"names ({found.share}%)")
         if found.missing:
             more = len(found.missing) - MAX_KEYWORDS
             extra = f" and {more} more" if more > 0 else ""
@@ -660,9 +753,23 @@ class Desk:
                 f"{counts['Gap']} gaps", *self.keyword_lines(body),
                 f"Gaps: {'; '.join(split_gaps(row.gaps)) or 'none'}"]
 
-    def card(self, row: JobRow, index: int, total: int, buttons: bool = True) -> Reply:
+    def short_cards(self) -> bool:
+        """S11: the short /pending card, unless Notion Config pending.card is "full"."""
+        try:
+            return str(self.deps.config().get(CARD_KEY) or "").strip().lower() != "full"
+        except Exception:  # a Config read that fails keeps the short card
+            return True
+
+    def card(self, row: JobRow, index: int, total: int, buttons: bool = True,
+             full: bool | None = None) -> Reply:
+        """A job's /pending card. Short (S11, 23 Nov, your ask): verdict, company and role,
+        place, the top 3 gaps and one Why line, the rest behind More; `full`: every line."""
         assert self.repo is not None
+        if full is None:
+            full = not self.short_cards()
         body = self.repo.read_body(row.page_id)
+        if not full:
+            return self._short_card(row, index, total, body, buttons)
         counts = match_counts(body)
         posted = row.posted_date.isoformat() if row.posted_date else "unknown"
         if fresh(row, self.today()):
@@ -690,13 +797,55 @@ class Desk:
                 keys.append(("Change country", "pc:menu"))
         return Reply("\n".join(lines), keys)
 
+    def _short_card(self, row: JobRow, index: int, total: int, body: list[str],
+                    buttons: bool) -> Reply:
+        place = ", ".join(p for p in (row.city, row.country) if p) or "unknown place"
+        if fresh(row, self.today()):
+            place += " · 🆕"
+        _jd, kind = description(body)
+        counts = match_counts(body)
+        if kind != "full" and not any(counts.values()) and not row.gaps:
+            match = ["Why: only a snippet of the description was found; open the link, or "
+                     "/jd <link> to screen it fully."]
+        else:
+            match = [gaps_line(row), why_line(row, body, self.irish_permits(row))]
+        lines = [f"[{index + 1}/{total}] {row.screen_verdict}", f"{row.company}, {row.role}",
+                 f"📍 {place}", *match]
+        if row.url:
+            lines.append(short_link(row.url) or row.url)
+        keys = []
+        if buttons:
+            pid = short_id(row.page_id)
+            keys = [("Approve", f"ap:{pid}"), ("Skip", f"sk:{pid}"),
+                    ("More", f"mo:{index}:{pid}"), ("Next", f"nx:{index + 1}")]
+            if self.chosen_country():
+                keys.append(("Change country", "pc:menu"))
+        return Reply("\n".join(lines), keys)
+
+    def more_tap(self, arg: str) -> list[Reply]:
+        """More under a short /pending card: the full card of that job (S11)."""
+        assert self.repo is not None
+        number, _, pid = arg.partition(":")
+        rows = self.in_country(self.scoped(self.all_ranked()))
+        for i, row in enumerate(rows):
+            if short_id(row.page_id) == pid:
+                return [self.card(row, i, len(rows), full=True)]
+        values = self.repo.get_values(pid)
+        if not values:
+            return [Reply("That job is no longer waiting in /pending.")]
+        index = int(number) if number.isdigit() else 0
+        return [self.card(job_row(pid, values), index, max(len(rows), index + 1), full=True)]
+
     def waiting_line(self) -> str | None:
         assert self.repo is not None
         rows = waiting_for_jd(self.repo, self.state)
         if not rows:
             return None
         need = "jobs need" if len(rows) > 1 else "job needs"
-        return f"{len(rows)} {need} the JD ({_by_board(rows)}): /jd"
+        # LOG-03: all days, and how many of them /jd lists (posted in the last JD_DAYS days).
+        recent = sum(1 for r in rows if jd_recent(r, self.today()))
+        return (f"{len(rows)} {need} the JD, all days ({_by_board(rows)}); {recent} of the last "
+                f"{JD_DAYS} days: /jd")
 
     def pending(self, index: int = 0, rows: list[JobRow] | None = None) -> list[Reply]:
         """The card at `index`. `rows` reuses a ranking already read (a button tap)."""
@@ -737,6 +886,8 @@ class Desk:
         action, _, arg = data.partition(":")
         if action == "nx":
             return self.pending(int(arg) if arg.isdigit() else 0)
+        if action == "mo" and arg:  # More under a short /pending card (S11)
+            return self.more_tap(arg)
         if action == "pc" and arg:  # a country button of /pending
             if arg == "menu":
                 return [self.country_menu()]
@@ -782,6 +933,8 @@ class Desk:
             return self.add_undo(arg)
         if action == "rf" and arg:  # "Referral asks": your LinkedIn connections there
             return self.referral_tap(arg)
+        if action == "rk" and arg:  # "I sent them" under the referral asks (LOG-02)
+            return self.referral_sent_tap(arg)
         if action == "rm" and arg:  # "Mail them": the referral ask to connections by mail
             return self.referral_mail_tap(arg)
         if action == "rl" and arg:  # "Location and email": Prospeo for those connections
@@ -853,6 +1006,9 @@ class Desk:
         if action in ("ap", "ab"):
             self.repo.update(page_id, {"Status": "Approved"})
             self.say(Reply(APPROVED_TEXT.format(job=job)))
+            hint = self.referral_hint(page_id, values)
+            if hint:  # S7: ask a connection for a referral before you apply
+                self.say(Reply(hint[0], [hint[1]]))
             return self.after_build(self.on_job_approved(page_id, values), position, rest)
         self.repo.update(page_id, {"Status": "Declined"})
         return [Reply(f"Skipped: {job}"), *self.pending(position, rest)]
@@ -927,9 +1083,11 @@ class Desk:
             self.state.set(MISSING_KEY, {"job": outcome.job_id, "terms": terms})
             buttons.append((f"Add {len(terms)} keyword{'s' if len(terms) > 1 else ''}",
                             f"mk:{short_id(outcome.job_id)}"))
-        if line and len(text) + len(line) + 1 <= resume_builder.CAPTION_MAX:
-            first, _, rest = text.partition("\n")
-            text = f"{first}\n{line}\n{rest}" if rest else f"{first}\n{line}"
+        # S8: the ATS check first (it may warn), then the keywords you have it leaves out.
+        for extra in (line, self.resume_ats(outcome)):
+            if extra and len(text) + len(extra) + 1 <= resume_builder.CAPTION_MAX:
+                first, _, rest = text.partition("\n")
+                text = f"{first}\n{extra}\n{rest}" if rest else f"{first}\n{extra}"
         return Reply(text, buttons, document=(name, outcome.pdf))
 
     def _pick_gaps(self, values: dict[str, Any]) -> list[str]:
@@ -1014,6 +1172,22 @@ class Desk:
     def resume_cover_line(self, outcome: BuildOutcome) -> str | None:
         """Feature 11: how many of the job's keywords you have the final resume shows."""
         return self.resume_match(outcome)[0]
+
+    def resume_ats(self, outcome: BuildOutcome) -> str | None:
+        """S8 (23 Nov): the ATS check line of a built resume (all the job's key skills, not
+        only yours), with the warning below Config resume.ats_min (default 60%)."""
+        if self.repo is None or not outcome.pdf:
+            return None
+        jd, _kind = description(self.repo.read_body(outcome.job_id))
+        if not jd:
+            return None
+        words = self.ranker().keywords(jd)
+        try:
+            minimum = int(str(self.deps.config().get(ATS_MIN_KEY) or cover.ATS_MIN).strip())
+        except ValueError:
+            minimum = cover.ATS_MIN
+        return cover.ats_line([*words.have, *words.missing], cover.pdf_text(outcome.pdf),
+                              minimum, yours=self.inventory_terms(words.have))
 
     def resume_match(self, outcome: BuildOutcome) -> tuple[str | None, list[str]]:
         """(the match line, the job's keywords you have that the resume leaves out). Only
@@ -1235,16 +1409,20 @@ class Desk:
         return [*(Reply(text) for text in texts[:-1]),
                 Reply(texts[-1], document=(autofill.SETUP_FILE, autofill.setup_page()))]
 
-    def dryrun_command(self, args: str) -> list[Reply]:
-        """/dryrun <job> [form link]: fill the job's form in a browser, never submit (H8)."""
+    def dryrun_command(self, args: str,
+                       stop: Callable[[], None] | None = None) -> list[Reply]:
+        """/dryrun <job> [form link]: fill the job's form in a browser, never submit (H8).
+        LOG-01 (24 Nov): it says at once that it started, and `stop` (/end) stops it."""
         parts = args.split()
         if not parts:
             return [Reply("Send /dryrun <job URL or page id>, or /dryrun <job> <form link> when "
                           "the form is on another page. It fills the form and never submits.")]
-        return self.dry_run_job(parts[0], parts[1] if len(parts) > 1 else None)
+        return self.dry_run_job(parts[0], parts[1] if len(parts) > 1 else None, stop=stop,
+                                started=True)
 
     def dry_run_job(self, ref: str, form_url: str | None = None,
-                    submit: bool = False) -> list[Reply]:
+                    submit: bool = False, stop: Callable[[], None] | None = None,
+                    started: bool = False) -> list[Reply]:
         """One dry run: the form filled from your answers, the AI and the approved resume,
         a screenshot, the report with Answers OK / Something is wrong. Never submitted,
         except with `submit` (the auto-apply queue) when the auto-submit gate is open and the
@@ -1264,6 +1442,10 @@ class Desk:
         if "://" not in url:
             return [Reply(f"No Job Opportunities row found for {ref}")]
         job = f"{values.get('Company') or ''}, {values.get('Role') or ''}".strip(", ")
+        if started:  # /dryrun by hand: say at once that it runs (LOG-01)
+            self.say(Reply(f"🧪 Dry run started{f': {job}' if job else ''}. The bot opens the "
+                           "form in a browser and fills it; it never submits. About 1 to 3 "
+                           "minutes; /end stops it."))
         config = self.deps.config()
         profile = autofill.fields(self.s, config, values, why=why,
                                   salary=answers.saved_salary(self.state, values.get("Country")))
@@ -1295,7 +1477,7 @@ class Desk:
         result = form_bot.dry_run(self.s, url, profile, saved, name=job or "form",
                                   ai=self._form_ai(values, body, profile, saved),
                                   resume=self._approved_resume(row.page_id) if row else None,
-                                  finish=finish)
+                                  finish=finish, stop=stop)
         if result.submitted == form_submit.CONFIRMED_STATE and row is not None:
             return self._submitted(row.page_id, job, result, now)
         replies = []
@@ -1313,14 +1495,20 @@ class Desk:
                                         url=url, shot=result.screenshot,
                                         answers=result.answers, now=now)
             buttons = form_review.buttons(run_id)
-        replies.append(Reply(form_bot.report(result, job)[:MAX_TEXT], buttons))
+        from jobengine.track import run_log
+
+        # S10: what is left for you here, every filled field in the Run Log page.
+        text = run_log.brief(form_bot.report(result, job), form_bot.report(result, job, True))
+        replies.append(Reply(text[:MAX_TEXT], buttons))
         return replies
 
     def _submitted(self, job_id: str, job: str, result: Any, now: datetime) -> list[Reply]:
         """A form the bot submitted and the company confirmed: the job is Applied today."""
         from jobengine.apply import form_submit, queue
+        from jobengine.track import day_ledger
 
         queue.count_submitted(self.state, now.date().isoformat())
+        day_ledger.count("applied")  # the day's and the run's applications (Run Log)
         if self.repo is not None:
             self.repo.update(job_id, {"Status": "Applied", "Applied date": now.date()})
         replies = [Reply(form_submit.report(result, job))]
@@ -1428,8 +1616,15 @@ class Desk:
         if not jobs:
             return []
         gate = self._submit_open(self.deps.config(), now)
+        from jobengine.track import run_log
+
         replies: list[Reply] = []
-        fill = lambda job: self.dry_run_job(job, submit=True)  # noqa: E731
+        run = run_log.current()  # the 3 browsers' reports go to this run's Run Log page
+
+        def fill(job: str) -> list[Reply]:
+            with run_log.joined(run):
+                return self.dry_run_job(job, submit=True)
+
         for job, got in zip(jobs, queue.run_parallel(jobs, fill), strict=True):
             queue.finish(self.state, job, gate_open=gate)
             if isinstance(got, Exception):
@@ -1727,7 +1922,49 @@ class Desk:
         except Exception as exc:  # the contacts answer still comes without them
             log.warning("LinkedIn connections not read: %s", exc)
             return []
+        rows = self._locate(rows, values["Company"], values.get("Country") or "")
         return connections.at_company(rows, values["Company"], values.get("Country") or "")
+
+    def _locate(self, rows: list[Any], company: str, country: str) -> list[Any]:
+        """LOG-18: where the people with no country work, one Google search per company
+        (connection_places.py; no paid credits). Config connections.locate = off stops it."""
+        from jobengine.contacts import connection_places as places
+
+        try:
+            config = self.deps.config()
+            if str(config.get(places.SWITCH) or "on").strip().lower() == "off":
+                return rows
+            if not places.unknown_people(rows, company, country) or \
+                    not places.due(self.state, company, self.today()):
+                return rows
+            return places.locate(self.deps.llm(config), self.connections, self.state, rows,
+                                 company, country, self.today())
+        except Exception as exc:  # the connections are still shown, unordered by the search
+            log.warning("where connections at %s work: not searched: %s", company, exc)
+            return rows
+
+    def _abroad_at(self, values: dict[str, Any]) -> dict[str, int]:
+        if self.connections is None or not values.get("Company"):
+            return {}
+        try:
+            return connections.abroad(self.connections.rows_like(values["Company"]),
+                                      values["Company"], values.get("Country") or "")
+        except Exception:  # only a count in the message
+            return {}
+
+    def helpful_connections(self, company: str, country: str) -> int:
+        """Your connections at the company who can help with a job in `country`: not junior,
+        not known to work in another country (LOG-18; at_company leaves those out)."""
+        return len(self._connections_at({"Company": company, "Country": country}))
+
+    def _juniors_at(self, values: dict[str, Any]) -> int:
+        if self.connections is None or not values.get("Company"):
+            return 0
+        try:
+            return connections.juniors_at(self.connections.rows_like(values["Company"]),
+                                          values["Company"])
+        except Exception:  # only a count in the message
+            return 0
 
     def _add_connections(self, reply: Reply, job_id: str, values: dict[str, Any],
                          found: list[Any]) -> None:
@@ -1752,6 +1989,29 @@ class Desk:
             reply.buttons = [*reply.buttons, ("Location and email",
                                               f"rl:{short_id(job_id)}")]
 
+    def referral_hint(self, job_id: str,
+                      values: dict[str, Any]) -> tuple[str, tuple[str, str]] | None:
+        """S7 (23 Nov): an Apply high job at a company where you have LinkedIn connections
+        not asked in the last 30 days: ask one of them for a referral before you apply, with
+        the Referral asks button. None otherwise, or when Config apply.referral_first is
+        false."""
+        config = self.deps.config()
+        if (config.get(REFERRAL_FIRST_KEY) or "true").strip().lower() == "false":
+            return None
+        if values.get("Screen verdict") != "Apply high":
+            return None
+        today = self.today()
+        matches = [m for m in self._connections_at(values) if not m.asked_on(today)]
+        if not matches:
+            return None
+        company = without_region(values.get("Company") or "") or "the company"
+        names = ", ".join(m.row.person.name for m in matches[:3])
+        more = f" and {len(matches) - 3} more" if len(matches) > 3 else ""
+        text = (f"🤝 Referral first: {len(matches)} LinkedIn connection(s) at {company} "
+                f"({names}{more}). Ask one of them for a referral before you apply: a "
+                "referral gets an interview far more often than a cold application.")
+        return text, (f"🤝 Referral asks: {company[:24]}", f"rf:{short_id(job_id)}")
+
     def referral_tap(self, job_id: str) -> list[Reply]:
         """A LinkedIn message per connection at the company (the peer note: they are already
         connected, so it is a message, not an invitation), and "Mail them" when some have an
@@ -1768,13 +2028,45 @@ class Desk:
                           "in the 🤝 LinkedIn Connections table.")]
         today = self.today()
         reply = Reply(self.referral_messages(values, matches)[:MAX_TEXT])
+        pid = short_id(job_id)
+        open_ones = [m for m in matches[:connections.MAX_SHOWN] if not m.asked_on(today)]
+        if open_ones and self.connections is not None:  # LOG-02: mark them Asked
+            reply.buttons = [(f"✅ I sent them ({len(open_ones)})", f"rk:{pid}")]
+            reply.text += ("\n\nAfter you send them, tap I sent them: they are marked Asked "
+                           f"for {connections.ASKED_DAYS} days, so Referral first and the next "
+                           "asks leave them out.")
         can_mail = connections.mailable(matches, today)
         if can_mail and self.mail is not None:
-            reply.buttons = [(f"Mail them ({len(can_mail)})", f"rm:{short_id(job_id)}")]
+            reply.buttons = [*reply.buttons, (f"Mail them ({len(can_mail)})", f"rm:{pid}")]
             reply.text += (f"\n\n{len(can_mail)} of them have an email: Mail them adds them as "
                            "contacts of this job, then Write Gmail drafts uses the referral "
                            "template word for word.")
+        if self.contacts is not None and any(m.row.person.url and not m.country
+                                             for m in matches[:connections.MAX_SHOWN]):
+            reply.buttons = [*reply.buttons, ("Location and email", f"rl:{pid}")]
         return [reply]
+
+    def referral_sent_tap(self, job_id: str) -> list[Reply]:
+        """"I sent them" under the referral asks (LOG-02, 24 Nov: nobody was marked, so the
+        30-day rule never worked): the connections shown and not asked yet are marked Asked
+        today in 🤝 LinkedIn Connections."""
+        from jobengine.resume.builder import notion_id
+
+        if self.repo is None or self.connections is None:
+            return [Reply("LinkedIn connections are not available in this bot.")]
+        values = self.repo.get_values(notion_id(job_id)) or {}
+        today = self.today()
+        shown = [m for m in self._connections_at(values)[:connections.MAX_SHOWN]
+                 if not m.asked_on(today)]
+        company = without_region(values.get("Company") or "") or "the company"
+        if not shown:
+            return [Reply(f"Nothing to mark: the connections at {company} shown were already "
+                          "marked Asked.")]
+        connections.mark_asked(self.connections, shown, today)
+        names = ", ".join(m.row.person.name for m in shown)
+        return [Reply(f"Marked Asked on {today:%d %b} ({len(shown)} at {company}): {names}. "
+                      f"Referral first and the next asks leave them out for "
+                      f"{connections.ASKED_DAYS} days.")]
 
     def referral_messages(self, values: dict[str, Any],
                           matches: list[connections.Match]) -> str:
@@ -1788,8 +2080,29 @@ class Desk:
         me = config.get("linkedin.signature") or self.s.apply_pack.get("linkedin_signature")
         company = without_region(values.get("Company") or "")
         today = self.today()
-        blocks = [f"Referral asks for {values.get('Role') or 'the role'} at {company}: send "
-                  "each one yourself as a LinkedIn message (the bot never opens LinkedIn)."]
+        head = (f"Referral asks for {values.get('Role') or 'the role'} at {company}: send "
+                "each one yourself as a LinkedIn message (the bot never opens LinkedIn).")
+        # LOG-02 (24 Nov): say how many, which company names counted, and who was left out.
+        counted = connections.companies(matches)
+        facts = [f"{len(matches)} connection(s)"]
+        if len(counted) > 1:
+            facts.append(f"counted as {company}: "
+                         + ", ".join(f"{name} {n}" for name, n in counted))
+        juniors = self._juniors_at(values)
+        if juniors:
+            facts.append(f"{juniors} junior left out (a junior cannot refer)")
+        far = self._abroad_at(values)  # LOG-18: they cannot refer for a job in this country
+        if far:
+            facts.append(f"{sum(far.values())} more work in "
+                         + ", ".join(f"{place} ({n})" for place, n in far.items())
+                         + ": left out, they cannot refer for this job")
+        head += "\n" + "; ".join(facts) + "."
+        if len(matches) > connections.MAX_SHOWN:
+            head += (f"\nShowing {connections.MAX_SHOWN} of {len(matches)}: the job's country "
+                     "first, then location unknown (connected in "
+                     f"{connections.RECENT_YEAR} or later, or the place in the title, first); "
+                     "engineers first. The rest are in the 🤝 LinkedIn Connections table.")
+        blocks = [head]
         for m in matches[:connections.MAX_SHOWN]:
             p = m.row.person
             asked = m.asked_on(today)
@@ -2404,23 +2717,32 @@ class Desk:
             return [Reply("No /fetch has run yet (or it ran before this report existed). "
                           "Send /fetch first.")]
         report = LossReport.from_state(value)
-        text = report.report_text(dict(SOURCE_LABELS), str(value.get("at") or "?"), args)
-        # Telegram's / menu cannot suggest the words after a command: one button per big
-        # reason opens it instead (1 Oct test R3).
-        top = [] if args.strip() else report.reasons()[:REPORT_BUTTONS]
-        buttons = [(f"{reason} ({n})", f"fr:{reason}"[:60]) for reason, n in top]
-        replies = [Reply(text[:MAX_TEXT], buttons)]
-        if not args.strip() and self.repo is not None:  # 13 Nov (fetch idea 4)
-            from jobengine.track.stats import board_text
+        word = args.strip()
+        when = str(value.get("at") or "?")
+        if word.lower() == "sources":  # 13 Nov (fetch idea 4); its own answer since 23 Nov
+            return [Reply(self._sources_text()[:MAX_TEXT])]
+        if word:
+            return [Reply(report.report_text(dict(SOURCE_LABELS), when, word)[:MAX_TEXT])]
+        # 23 Nov, your ask: a short overview; the jobs come with a word or a button. Telegram's
+        # / menu cannot suggest the words after a command: one button per big reason opens it
+        # instead (1 Oct test R3).
+        buttons = [(f"{reason} ({n})", f"fr:{reason}"[:60])
+                   for reason, n in report.reasons()[:REPORT_BUTTONS]]
+        buttons.append(("Each source, all time", "fr:sources"))
+        return [Reply(report.overview_text(dict(SOURCE_LABELS), when)[:MAX_TEXT], buttons)]
 
-            try:
-                sources = board_text(v for _pid, v in self.repo.query_rows())
-            except Exception:  # the last /fetch's report still comes
-                log.warning("each source's results not read", exc_info=True)
-                sources = ""
-            if sources:
-                replies.append(Reply(sources[:MAX_TEXT]))
-        return replies
+    def _sources_text(self) -> str:
+        """Each source's jobs in Notion: found, approved, applied, answered (FETCH 11)."""
+        from jobengine.track.stats import board_text
+
+        if self.repo is None:
+            return NO_TARGET
+        try:
+            text = board_text(v for _pid, v in self.repo.query_rows())
+        except Exception:
+            log.warning("each source's results not read", exc_info=True)
+            return "Each source's results could not be read from Notion now: try again later."
+        return text or "No jobs in Notion yet."
 
     def alertcheck_command(self) -> list[Reply]:
         """/alertcheck: the alert emails the next /fetch reads and the jobs in each."""
@@ -2561,6 +2883,12 @@ class Desk:
 
     # ------------------------------------------------------------ tracking (Module 07)
 
+    def report_problem(self, said: str, replied: dict[str, Any] | None) -> str:
+        """S2 (23 Nov): your "wrong: ..." reply or /bug, one Error Log row with the message."""
+        from jobengine.track import reports
+
+        return reports.save(self.error_log_table, self.tracking_now, said, replied)
+
     def tracking_now(self) -> datetime:
         """Now, with the configured UTC offset (default +05:30) when the clock is naive."""
         now = (self._track_now or self.now)()
@@ -2574,7 +2902,10 @@ class Desk:
     def report_replies(self, report: DailyReport) -> list[Reply]:
         if report.ok:  # Phase 23 1-08: each good daily check (07:30, 21:30, /today) pings too
             self.heartbeat(True)
-        replies = [Reply(report.text()[:MAX_TEXT])]
+        from jobengine.track import run_log
+
+        # S10: the counts and what needs you here, the full check in its Run Log page.
+        replies = [Reply(run_log.brief(report.text(), report.short_text())[:MAX_TEXT])]
         replies += [Reply(card.text[:MAX_TEXT], card.buttons) for card in report.cards]
         replies += self.add_applied_companies(report.applied_jobs)
         if report.retention is not None:
@@ -2601,7 +2932,20 @@ class Desk:
         if at is None:
             return []
         timed.mark(self.state, local.date(), at)
-        return self.report_replies(track_runner.run_daily(self.track, now))
+        return self.daily_check_replies(track_runner.run_daily(self.track, now), at)
+
+    def daily_check_replies(self, report: DailyReport, at: Any) -> list[Reply]:
+        """A scheduled daily check. S12: a quiet morning check (07:30) sends nothing, the
+        morning message already said what today holds; its Run Log row keeps the check."""
+        from jobengine.track import morning, run_log
+
+        if (morning.is_on(self.deps.config()) and morning.morning(at)
+                and morning.quiet(report)):
+            if report.ok:
+                self.heartbeat(True)
+            run_log.details([report.text()])
+            return []
+        return self.report_replies(report)
 
     def reply_ping_tick(self) -> list[Reply]:
         """Every few minutes: ping new replies from contacts and employers (track/ping.py).
@@ -2716,8 +3060,13 @@ class Desk:
 
     # ------------------------------------------------------------ daily report (H1, H3)
 
-    def daily_report_text(self) -> str:
-        """/report and the evening report: what the bot did today (track/daily_report.py)."""
+    def daily_report_text(self, short: bool = False) -> str:
+        """/report and the evening report: what the bot did today (track/daily_report.py).
+        `short`: the Telegram message (S10), the full one goes to the Run Log page."""
+        return self.daily_report_texts()[1 if short else 0]
+
+    def daily_report_texts(self) -> tuple[str, str]:
+        """The daily report, full and short (S10), from one read."""
         from jobengine import gmail_renew
         from jobengine.contacts.credits import CreditBook
         from jobengine.screen import schedule
@@ -2728,9 +3077,11 @@ class Desk:
         waiting: list[str] = []
         if self.repo is not None:
             try:
+                no_jd = waiting_for_jd(self.repo, self.state)
+                recent = sum(1 for r in no_jd if jd_recent(r, self.today()))  # as /jd
                 waiting = [f"{len(pending_rows(self.repo))} job(s) in /pending",
-                           f"{len(waiting_for_jd(self.repo, self.state))} need a description "
-                           "(/jd)"]
+                           f"{len(no_jd)} need a description, all days ({recent} of the last "
+                           f"{JD_DAYS} days: /jd)"]
             except Exception as exc:  # the report still comes without these two counts
                 log.warning("daily report: could not count waiting jobs: %s", exc)
         entry = day_ledger.day(self.state, today)
@@ -2740,13 +3091,16 @@ class Desk:
         warned = daily_report.warnings(
             entry, history, tokens=gmail_renew.token_left(self.s, config, today),
             used_up=book.used_up(), missed=schedule.missed(self))
-        return daily_report.text(
+        texts = tuple(daily_report.text(
             entry, today, month_cost=costs.month_line(self.state, today), credits=book.line(),
             tokens=gmail_renew.days_left(self.s, config, today), waiting=waiting,
-            warned=warned)
+            warned=warned, short=short) for short in (False, True))
+        return texts[0], texts[1]
 
     def report_command(self) -> list[Reply]:
-        return [Reply(self.daily_report_text()[:MAX_TEXT])]
+        from jobengine.track import run_log
+
+        return [Reply(run_log.brief(*self.daily_report_texts())[:MAX_TEXT])]
 
     def table_query(self, source: str) -> Any:
         """Read one row of a Notion table (the morning check); raises when it cannot."""
@@ -2757,9 +3111,13 @@ class Desk:
         client = NotionClient(self.s.notion_token, self.s)
         return client.request("POST", f"/data_sources/{source}/query", {"page_size": 1})
 
-    def health_report_text(self) -> str:
+    def health_report_text(self, short: bool = False) -> str:
         """The morning check (Autopilot C, track/health_report.py): what would stop the run
-        first, with the fix."""
+        first, with the fix. `short`: the Telegram message (S10)."""
+        return self.health_report_texts()[1 if short else 0]
+
+    def health_report_texts(self) -> tuple[str, str]:
+        """The morning check, full and short (S10), from one round of checks."""
         from jobengine import gmail_renew
         from jobengine.contacts import connections as connections_mod
         from jobengine.contacts.credits import CreditBook
@@ -2844,7 +3202,43 @@ class Desk:
         # Sunday's both runs (none on Sunday). Only today's runs are named.
         todays = [f"{at:%H:%M}" for at in plan.starts if today.weekday() in plan.days_for(at)]
         starts = (" and ".join(todays) or health_report.NO_RUN) if plan.on else ""
-        return health_report.text(today, blockers, soon, fine, starts)
+        steps = self.morning_steps(config, today, todays if plan.on else [])
+        return (health_report.text(today, blockers, soon, fine, starts) + steps,
+                health_report.text(today, blockers, soon, fine, starts, short=True) + steps)
+
+    def morning_steps(self, config: Any, today: date, runs: list[str]) -> str:
+        """S12 (23 Nov, your ask): the morning check ends with today's steps, what the bot
+        runs and what waits for you, so the morning is one message (track/morning.py)."""
+        from jobengine.screen import schedule
+        from jobengine.track import apply_today, daily_report, morning, nudge
+
+        if not morning.is_on(config):
+            return ""
+
+        def count(read: Callable[[], int]) -> int | None:
+            try:
+                return read()
+            except Exception as exc:  # the morning check never fails over a count
+                log.warning("morning steps: a count was not read: %s", exc)
+                return None
+
+        pending: list[JobRow] = []
+        if self.repo is not None:
+            pending = count(lambda: pending_rows(self.repo)) or []  # type: ignore[assignment]
+        ready = count(lambda: len(self._ready())) if self.repo is not None else None
+        jd = count(lambda: len(self.jd_rows())) if self.repo is not None else None
+        high = sum(1 for r in pending if r.screen_verdict == "Apply high")
+
+        def at(key: str, default: str) -> str:
+            return f"{schedule._time(config.get(key), default):%H:%M}"
+
+        apply_at = (at(apply_today.TIME_KEY, apply_today.DEFAULT_TIME)
+                    if apply_today.is_on(config) else None)
+        nudge_on = (config.get(nudge.SWITCH_KEY) or "true").strip().lower() != "false"
+        nudge_at = at(nudge.TIME_KEY, nudge.DEFAULT_TIME) if nudge_on else None
+        bot = morning.bot_line(today, runs, apply_at,
+                               f"{daily_report.report_time(config):%H:%M}", nudge_at)
+        return morning.block(today, bot, morning.you_lines(ready, len(pending), high, jd))
 
     def health_report_tick(self) -> list[Reply]:
         """Every few minutes (and POST /tasks/health): the morning check, once a day."""
@@ -2855,7 +3249,10 @@ class Desk:
         if not health_report.due(config, self.state, now):
             return []
         health_report.mark_sent(self.state, daily_report.local(now, config).date())
-        return [Reply(self.health_report_text()[:MAX_TEXT])]
+        from jobengine.track import run_log
+
+        # S10: what needs you here, every check that passed in the Run Log page.
+        return [Reply(run_log.brief(*self.health_report_texts())[:MAX_TEXT])]
 
     def ai_cap_tick(self) -> list[Reply]:
         """Every few minutes (and the daily task): the AI cap message at 80% and at 100% of
@@ -2913,8 +3310,11 @@ class Desk:
         if not daily_report.due(config, self.state, now):
             return []
         daily_report.mark_sent(self.state, daily_report.local(now, config).date())
-        text = self.daily_report_text()
-        why = self.owner_mail(f"Job Engine daily report {now:%d %b}", text)
+        from jobengine.track import run_log
+
+        full, short = self.daily_report_texts()
+        why = self.owner_mail(f"Job Engine daily report {now:%d %b}", full)  # the full one
+        text = run_log.brief(full, short)  # S10: short here, full in the Run Log page
         if why:
             text += f"\n(The email copy was not sent: {why})"
         self.heartbeat(True)  # no report for about 26 hours: healthchecks.io emails you
@@ -2963,29 +3363,51 @@ class Desk:
         contacts = [v for _, v in self.track.contacts.all_rows()] if self.track.contacts else []
         return [Reply(stats_text(jobs, contacts, self.tracking_now().date())[:MAX_TEXT])]
 
+    def what_works_command(self) -> list[Reply]:
+        """/stats works (S6): found > approved > applied > answered by source, country and
+        verdict, and the days from posting to applying."""
+        from jobengine.track import what_works
+
+        if self.track is None or self.track.jobs is None:
+            return self._no_track() or [Reply(NO_TARGET)]
+        jobs = [v for _, v in self.track.jobs.query_rows()]
+        return [Reply(what_works.text(jobs)[:MAX_TEXT])]
+
     def sources_command(self) -> list[Reply]:
         if self.track is None:
             return self._no_track() or []
         return [Reply(track_commands.sources_text(self.track))]
 
     def health_command(self) -> list[Reply]:
+        from jobengine.track import run_log
+
         if self.track is None:
             return self._no_track() or []
-        text = track_commands.health_text(self.track)
+        checks = track_commands.health_checks(self.track)
         try:
             self.permits()
-            text += f"\nIrish permits list: {self.permits_note}"
+            checks.append((f"Irish permits list: {self.permits_note}",
+                           not self.permits_note.startswith("NOT")))
         except Exception as exc:  # /health never fails over the permits list
-            text += f"\nIrish permits list: not checked ({type(exc).__name__})"
+            checks.append((f"Irish permits list: not checked ({type(exc).__name__})", False))
         try:  # Phase 19 A-00 (3 Nov): the AI money lines were only in the morning check
             from jobengine.track import balancer, costs
 
             today = self.tracking_now().date()
-            text += (f"\n{costs.month_line(self.state, today)}"
-                     f"\n{balancer.line(self.deps.config(), self.state, today)}")
+            checks += [(costs.month_line(self.state, today), None),
+                       (balancer.line(self.deps.config(), self.state, today), None)]
         except Exception as exc:  # /health never fails over the cost lines
-            text += f"\nAI cost: not checked ({type(exc).__name__})"
-        return [Reply(text)]
+            checks.append((f"AI cost: not checked ({type(exc).__name__})", False))
+        full = "\n".join(line for line, _ok in checks)
+        # S10: the problems here, every line in the Run Log page.
+        problems = [line for line, ok in checks if ok is False]
+        passed = sum(1 for _line, ok in checks if ok)
+        env = next((line for line, _ok in checks if line.startswith("Environment:")), "")
+        short = "\n".join([
+            "🩺 Health: " + (f"{len(problems)} problem(s), {passed} check(s) OK"
+                            if problems else f"all {passed} checks OK"),
+            *(f"❌ {line}" for line in problems), *([env] if env else [])])
+        return [Reply(run_log.brief(full, short))]
 
     def agencies_command(self, args: str) -> list[Reply]:
         """/agencies: recruitment agencies by country; /agencies <name> the intro mail;
@@ -3009,6 +3431,45 @@ class Desk:
             return [Reply(f"Recorded: {agency.name} contacted on {self.today().isoformat()}. "
                           f"The digest reminds you after {ag.FOLLOW_UP_DAYS} days.")]
         return [Reply(ag.intro(self.s, config, agency)[:MAX_TEXT])]
+
+    # ------------------------------------------------------------ apply today (S4)
+
+    def apply_today(self) -> list[Reply]:
+        """The 3 to 5 best fresh jobs to apply to now (/applytoday, and 08:30 by itself)."""
+        from jobengine.track import apply_today, nudge
+
+        if self.repo is None:
+            return [Reply("Apply today needs Notion; it is not available here.")]
+        today = self._nudge_here().date()
+        rows = self.repo.query_rows(select_filter("Status", apply_today.READY))
+        picks = apply_today.pick(rows, today)
+        if not picks:
+            return [Reply("☀️ Apply today: no fresh job (posted in the last 2 days, Apply high "
+                          "or normal, resume built) is waiting. /pending shows the rest.")]
+        jobs = [(pid, values, short_id(pid)) for pid, values in picks]
+        minutes = nudge.minutes_per_job(self.deps.config())
+        text = apply_today.text(jobs, today, minutes)
+        buttons = apply_today.buttons(jobs)
+        hints = [h for h in (self.referral_hint(pid, dict(values)) for pid, values, _r in jobs)
+                 if h]
+        if hints:  # S7: referral first for the Apply high jobs with connections
+            text += "\n\n" + "\n".join(h[0] for h in hints)
+            buttons += [h[1] for h in hints]
+        return [Reply(text[:MAX_TEXT], buttons, column=True)]
+
+    def apply_today_tick(self) -> list[Reply]:
+        """08:30 India time (Config schedule.apply_today_time): the card, once a day, only
+        when a fresh ready job waits (S4)."""
+        from jobengine.track import apply_today
+
+        here = self._nudge_here()
+        if self.repo is None or not apply_today.due(self.deps.config(), self.state, here):
+            return []
+        if self.on_holiday():
+            return []
+        apply_today.mark_sent(self.state, here.date())
+        rows = self.repo.query_rows(select_filter("Status", apply_today.READY))
+        return self.apply_today() if apply_today.pick(rows, here.date()) else []
 
     # ------------------------------------------------------------ apply nudge (H7)
 
@@ -3071,8 +3532,13 @@ class Desk:
         values = (self.repo.get_values(job_id) if self.repo else None) or {}
         ref = short_id(job_id)
         text = nudge.card_text(values, applied + 1, target, ref)
-        return [Reply(text, [("✅ I applied", f"ia:{ref}"), ("Not applying", f"na:{ref}"),
-                             ("Done for today", "dd:1")])]
+        buttons = [("✅ I applied", f"ia:{ref}"), ("Not applying", f"na:{ref}"),
+                   ("Done for today", "dd:1")]
+        hint = self.referral_hint(job_id, values)
+        if hint:  # S7: referral first
+            text += f"\n\n{hint[0]}"
+            buttons.insert(0, hint[1])
+        return [Reply(text, buttons, column=hint is not None)]
 
     def nudge_applied(self) -> list[Reply]:
         """After I applied tonight: count it, then the next job or the well done."""
@@ -3168,11 +3634,25 @@ class Desk:
         now = daily_report.local(self.tracking_now(), config)
         if not expired_check.due(config, self.state, now):
             return []
+        # The week counts as done only when the check ended (23 Nov: the bot was stopped 35 s
+        # into Monday's check and, marked done at the start, it waited a whole week). A check
+        # that fails is marked too, so it is not tried again every few minutes; stopping the
+        # bot (Ctrl+C) is not an Exception, so the check runs again after the restart.
+        try:
+            rows = [job_row(pid, values) for pid, values in self.repo.query_rows(
+                select_filter("Status", *expired_check.OPEN_STATUSES))]
+            if rows and self.notify is not None:
+                # 17 Nov, your choice: on the PC the bot answers no command while this runs
+                # (Mondays when Sunday was missed), so it says so first.
+                self.notify(Reply(f"\U0001F9F9 Weekly link check started: {len(rows)} open "
+                                  "job(s) to look at, this takes a few minutes. Commands you "
+                                  "send now are answered as soon as it ends."))
+            result = expired_check.check(rows, self.get_page, now.date())
+            expired_check.expire(result, self.repo.update, now.date())
+        except Exception:
+            expired_check.mark_done(self.state, now.date())
+            raise
         expired_check.mark_done(self.state, now.date())
-        rows = [job_row(pid, values) for pid, values in self.repo.query_rows(
-            select_filter("Status", *expired_check.OPEN_STATUSES))]
-        result = expired_check.check(rows, self.get_page, now.date())
-        expired_check.expire(result, self.repo.update, now.date())
         return [Reply(result.text()[:MAX_TEXT])]
 
     def board_check_tick(self) -> list[Reply]:
@@ -3326,6 +3806,30 @@ class Desk:
         link = f"https://www.notion.so/{str(page_id).replace('-', '')}"
         return [Reply(f"{report.summary}\n{link}")]
 
+    def screen_check(self) -> list[Reply]:
+        """S3 (23 Nov): 10 of the week's verdicts into Notion Screening Check, last week's
+        result in the message (/screencheck, and Sunday 19:30 by itself)."""
+        from jobengine.notion_repo import select_filter
+        from jobengine.track import screen_check
+
+        if self.repo is None or self.screen_check_table is None:
+            return [Reply("The screening check needs Notion (the Screening Check table); it "
+                          "is not available here.")]
+        jobs = self.repo.query_rows(select_filter("Screen verdict", *screen_check.VERDICTS))
+        text = screen_check.run(self.screen_check_table, self.error_log_table, self.state,
+                                jobs, self.tracking_now(), body=self.repo.read_body)
+        return [Reply(text[:MAX_TEXT])]
+
+    def screen_check_tick(self) -> list[Reply]:
+        """Sunday 19:30 India time: the screening check, once a week (S3)."""
+        from jobengine.track import screen_check
+
+        now = self.tracking_now()
+        if not screen_check.due(self.state, now):
+            return []
+        screen_check.mark_sent(self.state, now.date())
+        return self.screen_check()
+
     def spot_check_tick(self) -> list[Reply]:
         """Sunday 20:00 India time (with the digest): the spot check, once a week."""
         from jobengine.track import spot_check
@@ -3361,7 +3865,25 @@ class Desk:
     def digest_command(self) -> list[Reply]:
         if self.track is None:
             return self._no_track() or []
-        return [Reply(run_weekly_digest(self.track, self.tracking_now()))]
+        from jobengine.track import digest, run_log
+
+        full = run_weekly_digest(self.track, self.tracking_now(), self._master_title())
+        return [Reply(run_log.brief(full, digest.short(full)))]  # S10
+
+    def _master_title(self) -> str | None:
+        """The headline a resume gets when the job's role names none of your approved
+        titles: the Golden Master's first title, else its whole headline (LOG-14)."""
+        from jobengine.resume import header
+        from jobengine.resume.master import load_master
+
+        if self.resume is None:
+            return None
+        try:
+            master = load_master(self.resume.blocks(), self.deps.config())
+        except Exception as exc:  # the digest goes on with the fallback words
+            log.info("digest: Golden Master not read: %s", exc)
+            return None
+        return header.main_title(master.html) or header.headline_text(master) or None
 
     def status_lines(self) -> str | None:
         return (track_commands.status_lines(self.track, self.today())
@@ -3448,12 +3970,22 @@ class Desk:
         assert self.repo is not None
         if summary.waiting_for_jd is None:  # /screen collect: the real count (8 Oct)
             summary.errors.append(self.waiting_line() or "No jobs wait for a description.")
+        from jobengine.track import run_log
+
+        # 23 Nov, your ask: Telegram gets the short text, the Run Log page the full one.
+        run_log.details([summary.text()])
         ready = len(pending_rows(self.repo))
-        if not ready:
-            return summary.text()
-        if not summary.results:  # nothing screened now (stopped, or nothing to do)
-            return f"{summary.text()}\n{ready} screened earlier still wait in /pending."
-        return f"{summary.text()}\n{ready} ready to review: /pending"
+        text = summary.short_text()
+        if ready and not summary.results:  # nothing screened now (stopped, or nothing to do)
+            text += f"\n{ready} screened earlier still wait in /pending."
+        elif ready:
+            text += f"\n\U0001F4CB {ready} ready to review: /pending"
+        # LOG-12 (24 Nov): /fetch and the S10 messages end with where the full report is;
+        # /screen did not, although its Run Log page holds the full text.
+        run = run_log.current()
+        if run is not None and run.logged:
+            text += f"\n{run_log.report_line(run)}"
+        return text
 
     def screen(self, args: str = "", progress: Callable[[str], None] | None = None) -> str:
         return self._screen(args, progress)[0]
@@ -3524,7 +4056,8 @@ class Desk:
                 continue
             card = self.card(job_row(page_id, values), len(replies), min(len(ids),
                                                                            MAX_HIGH_ALERTS))
-            replies.append(Reply(f"{HIGH_ALERT}\n{card.text}", card.buttons[:2]))
+            keys = [b for b in card.buttons if b[0] in ("Approve", "Skip", "More")]
+            replies.append(Reply(f"{HIGH_ALERT}\n{card.text}", keys))
         if len(ids) > MAX_HIGH_ALERTS:
             replies.append(Reply(f"{len(ids) - MAX_HIGH_ALERTS} more Apply high jobs are "
                                  "waiting: /pending"))
@@ -3693,13 +4226,30 @@ class Desk:
                 if r.status in (None, "", "New")]
         if recent:
             rows = [r for r in rows if jd_recent(r, today)]
-        if board:
+        top = board == backlog.TOP_BOARD  # S5: today's top 5 of every board
+        if board and not top:
             rows = [r for r in rows if (r.board or "Other") == board]
         scores = best.scores(self.state, today)
         rows.sort(key=lambda r: r.posted_date or r.swept_date or date.min, reverse=True)
         rows.sort(key=lambda r: scores.get(r.page_id.replace("-", ""), float("-inf")),
                   reverse=True)
-        return rows
+        return rows[:backlog.TOP] if top else rows
+
+    def jd_backlog_tick(self) -> list[Reply]:
+        """Once a day (S5): never screened jobs more than 7 days old are set Expired, at
+        most 100 a run. LOG-11 (24 Nov): one message a day, when none is left, with the day's
+        total (it came after each run: 100, then 2 before /screen and 2 before /fetchreport)."""
+        if self.repo is None or not backlog.due(self.state, self.today()):
+            return []
+        today = self.today()
+        rows = [job_row(pid, values) for pid, values in self.repo.query_rows(
+            select_filter("Screen verdict", "Unscreened"))]
+        old = backlog.to_expire(rows, today)
+        done, left = backlog.expire(old, self.repo.update, today, self.state)
+        total = backlog.day_total(self.state, today)
+        if left or not total:
+            return []  # the rest go in the next runs today; the message comes then
+        return [Reply(backlog.text(total, 0, len(self.jd_rows())))]
 
     def jd_board(self) -> str | None:
         return (self.state.get(JD_BOARD_KEY) or {}).get("board")
@@ -3719,11 +4269,14 @@ class Desk:
         for row in rows:
             counts[row.board or "Other"] = counts.get(row.board or "Other", 0) + 1
         order = sorted(counts, key=lambda b: (b != "LinkedIn", -counts[b], b))
-        buttons = [(f"{b} ({counts[b]})", f"jb:{b[:40]}") for b in order]
+        top = min(len(rows), backlog.TOP)
+        buttons = [(f"⭐ Top {top}", f"jb:{backlog.TOP_BOARD}")]  # S5 (23 Nov): start here
+        buttons += [(f"{b} ({counts[b]})", f"jb:{b[:40]}") for b in order]
         buttons.append((f"All ({len(rows)})", "jb:"))
+        lines = "\n".join(backlog.top_lines(rows))
         return [Reply(f"{len(rows)} job(s) of the last {JD_DAYS} days wait for a description"
-                      f"{old}. Tap a board: its jobs come one at a time, best match first.",
-                      buttons)]
+                      f"{old}.\n\nToday's top {top}, best match first (⭐ Top {top} takes "
+                      f"them one at a time):\n{lines}\n\nOr tap a board.", buttons)]
 
     def jd_board_tap(self, board: str) -> list[Reply]:
         self.state.set(JD_BOARD_KEY, {"board": board or None})
@@ -3739,6 +4292,9 @@ class Desk:
         rows = self.jd_rows(board)
         if not rows:
             self.captures.clear()
+            if board == backlog.TOP_BOARD:
+                return [Reply("Today's top jobs all have their description now. /jd shows "
+                              "the boards.")]
             where = f" on {board}" if board else ""
             return [Reply(f"No jobs from the last {JD_DAYS} days wait for a description"
                           f"{where}. /jd shows the other boards.")]
@@ -4346,6 +4902,9 @@ def fake_desk(s: Settings, today: date, now: Callable[[], datetime] | None = Non
     from jobengine.notion_repo import FakeAuditTable
 
     desk.audit_table = FakeAuditTable()
+    desk.run_log_table = FakeTable()
+    desk.error_log_table = FakeTable()
+    desk.screen_check_table = FakeTable()
     desk.pings = []  # type: ignore[attr-defined]  # heartbeat pings: True ok, False fail
     desk.heartbeat = lambda ok: desk.pings.append(ok) or True  # type: ignore[attr-defined]
     desk.owner_mail = lambda subject, text: desk.mails.append(  # type: ignore[attr-defined]
@@ -4420,6 +4979,24 @@ def real_desk(s: Settings) -> Desk | None:
     from jobengine.track import issue_log
 
     desk.audit_table = audit_table(s, client)
+    from jobengine.notion_repo import run_log_table
+    from jobengine.track import run_log
+
+    desk.run_log_table = run_log_table(s, client)
+    run_log.install()  # the warnings and errors of each scheduled run (18 Nov)
+    from jobengine.notion_repo import scorecard_table
+    from jobengine.track import scorecard
+
+    scorecard.bind(scorecard_table(s, client), state, desk.tracking_now)  # S1, 23 Nov
+    from jobengine.notion_repo import error_log_table
+    from jobengine.track import error_log
+
+    desk.error_log_table = error_log_table(s, client)
+    error_log.bind(desk.error_log_table, desk.tracking_now)
+    error_log.install()  # the problems of the day, written at the end of each run (18 Nov)
+    from jobengine.notion_repo import screen_check_table
+
+    desk.screen_check_table = screen_check_table(s, client)  # S3, 23 Nov
     from jobengine.sweep import boards
 
     desk.board_reader = lambda today, folder: boards.read_all(s, today, folder)

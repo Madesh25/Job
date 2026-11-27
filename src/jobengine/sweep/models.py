@@ -84,6 +84,7 @@ class SourceResult:
     alert_mails: dict[str, list[tuple[str, str, bool]]] = field(default_factory=dict)
     notes: list[str] = field(default_factory=list)
     emails: int | None = None  # gmail only: alert emails read
+    workday_line: str = ""  # ATS only (LOG-08): Workday sites read now and left for later
 
 
 # Where each posting of a sweep ended (FETCH 10). Every posting lands in exactly one bucket,
@@ -159,44 +160,98 @@ class LossReport:
         return cls(by_source={k: dict(v) for k, v in (value.get("by_source") or {}).items()},
                    dropped=[tuple(item) for item in value.get("dropped") or []])
 
+    def overview_text(self, labels: dict[str, str], when: str, reasons: int = 8) -> str:
+        """/fetchreport without a word (23 Nov, your ask: the report was too long to read):
+        the totals, the new jobs per source and the reasons with their counts only. A word
+        or a reason button lists the jobs (report_text)."""
+        total = sum(self.read(source) for source in self.by_source)
+        new = sum(c.get(SAVED, 0) for c in self.by_source.values())
+        seen = sum(c.get(ALREADY, 0) + c.get(MERGED, 0) for c in self.by_source.values())
+        lines = [f"\U0001F4CA Last /fetch ({when}): {total} postings read",
+                 f"\U0001F195 {new} new \u00b7 \U0001F501 {seen} seen before \u00b7 "
+                 f"\U0001F6AB {total - new - seen} left out"]
+        order = sorted(self.by_source, key=lambda src: (-self.by_source[src].get(SAVED, 0),
+                                                         -self.read(src)))
+        if order:
+            lines += ["", "New jobs per source:"]
+            lines += [f"- {labels.get(src, src)}: {self.by_source[src].get(SAVED, 0)} of "
+                      f"{self.read(src)}" for src in order]
+        top = self.reasons()
+        if top:
+            lines += ["", "Left out, biggest first:"]
+            lines += [f"- {reason}: {n}" for reason, n in top[:reasons]]
+            if len(top) > reasons:
+                lines.append(f"- and {len(top) - reasons} more reasons")
+        lines += ["", "Tap a reason, or send /fetchreport <word> (for example /fetchreport "
+                      "adzuna), to see its jobs. /fetchreport sources: each source over all "
+                      "time."]
+        return "\n".join(lines)
+
     def report_text(self, labels: dict[str, str], when: str, word: str = "",
                     per_reason: int = 5, max_filtered: int = 40) -> str:
         """/fetchreport: the per-source lines and the dropped jobs by reason. `word` keeps
-        only reasons or sources that contain it, and then lists more of their jobs."""
-        lines = [f"Last /fetch ({when}), where the postings went:", *self.lines(labels)]
-        word = word.strip().lower()
+        only reasons or sources that contain it, and then lists more of their jobs; two
+        words both have to match ("title adzuna": the title reason of Adzuna).
+
+        LOG-09 (24 Nov): "/fetchreport adzuna" still listed all 6 sources at the top, and the
+        last line said 25 jobs are kept per source and reason while about 8 per source were
+        shown. The top lists only the matching sources now, and the last line says what is
+        shown and how to see more."""
+        words = word.strip().lower().split()
+
+        def matches(name: str, reason: str) -> bool:
+            return all(w in reason.lower() or w in name.lower() for w in words)
+
+        shown_sources = {source for source, counts in self.by_source.items()
+                         if not words or any(matches(labels.get(source, source), reason)
+                                             for reason in counts)}
+        lines = [f"Last /fetch ({when}), where the postings went:",
+                 *self._lines_of(labels, shown_sources)]
         groups: dict[str, list[tuple[str, str]]] = {}
         for source, reason, job in self.dropped:
             name = labels.get(source, source)
-            if word and word not in reason.lower() and word not in name.lower():
+            if words and not matches(name, reason):
                 continue
             groups.setdefault(reason, []).append((name, job))
         if not groups:
-            lines += ["", f"No dropped jobs match {word!r}." if word else "No jobs were dropped."]
+            lines += ["", f"No dropped jobs match {word.strip()!r}." if words
+                      else "No jobs were dropped."]
             return "\n".join(lines)
-        limit = max_filtered if word else per_reason
-        lines += ["", "Dropped jobs by reason" + (f" (matching {word!r})" if word else "")
+        limit = max_filtered if words else per_reason
+        lines += ["", "Dropped jobs by reason"
+                  + (f" (matching {word.strip()!r})" if words else "")
                   + ". /fetchreport <word> shows more of one reason, for example "
                     "/fetchreport skill or /fetchreport adzuna:"]
         totals: dict[str, int] = {}  # the complete counts (only some jobs are kept)
         for source, counts in self.by_source.items():
-            name = labels.get(source, source).lower()
+            name = labels.get(source, source)
             for reason, n in counts.items():
-                if reason in groups and (word in reason.lower() or word in name):
+                if reason in groups and (not words or matches(name, reason)):
                     totals[reason] = totals.get(reason, 0) + n
         for reason, jobs in groups.items():
             totals[reason] = max(totals.get(reason, 0), len(jobs))
+        cut = False
         for reason, jobs in sorted(groups.items(), key=lambda item: -totals[item[0]]):
             shown = _fair_pick(jobs, limit)
             lines.append(f"{reason} ({totals[reason]}):")
             lines.extend(f"- {job} [{name}]" for name, job in shown)
             if totals[reason] > len(shown):
                 lines.append(f"- ... and {totals[reason] - len(shown)} more")
-        if any(n > MAX_DROPPED_PER_REASON for counts in self.by_source.values()
-               for reason, n in counts.items() if reason not in KEPT_BUCKETS):
-            lines.append(f"(The report keeps up to {MAX_DROPPED_PER_REASON} jobs per source and "
-                         "reason; the counts are complete.)")
+                cut = True
+        if cut:
+            sources = len({name for jobs in groups.values() for name, _ in jobs})
+            how = (f"Shown: up to {limit} jobs per reason"
+                   + (", taken in turn from each source" if sources > 1 else ""))
+            more = (" Add a source for more of one, for example /fetchreport title adzuna."
+                    if sources > 1 else "")
+            lines.append(f"({how}. The report keeps up to {MAX_DROPPED_PER_REASON} jobs per "
+                         f"source and reason; the counts are complete.{more})")
         return "\n".join(lines)
+
+    def _lines_of(self, labels: dict[str, str], sources: set[str]) -> list[str]:
+        """lines() for some sources only."""
+        keep = LossReport(by_source={s: c for s, c in self.by_source.items() if s in sources})
+        return keep.lines(labels)
 
     def to_state(self, today: str) -> dict[str, Any]:
         return {"at": today, "by_source": self.by_source,
@@ -242,6 +297,7 @@ class SweepSummary:
     blocked_sites: list[str] = field(default_factory=list)  # "Name (HTTP 403)"
     no_board_sites: list[str] = field(default_factory=list)
     own_site_count: int = 0  # companies with their own job site, covered by alerts
+    workday_line: str = ""  # LOG-08: "Workday: 10 of 35 sites read; 25 in the next runs"
     full_tried: int = 0
     linkedin_filled: list[str] = field(default_factory=list)  # sweep/crossmatch.py
     direct_links: list[str] = field(default_factory=list)  # sweep/job_links.py
@@ -297,8 +353,51 @@ class SweepSummary:
             lines.extend(f"- {job}" for job in self.high_ghost_jobs)
         return "\n".join(lines)
 
+    def not_for_you(self) -> int:
+        """Postings left out: wrong title, place, years, age, language, contract, skills."""
+        return (self.skipped + self.not_kept + self.too_senior + self.too_old
+                + self.needs_language + self.b2b_only + self.no_sponsorship + self.fully_remote
+                + self.low_match + self.other_cities)
+
+    def wait_for_jd(self) -> int:
+        """New alert jobs whose page the bot could not read: they wait for /jd."""
+        return self.not_on_site_yet + self.site_unchecked
+
+    def short_text(self) -> str:
+        """The /fetch message for Telegram (23 Nov, your ask: the long one tired you to read;
+        it now goes to the Run Log row in Notion). Only what happened and what needs you."""
+        if self.blocked:
+            return self.blocked
+        flags = " · ".join(
+            f"{COUNTRY_FLAGS.get(c, '')} {self.new_by_country.get(c, 0)}".strip()
+            for c in (self.countries or sorted(self.new_by_country)))
+        lines = ["✅ Job search finished", "",
+                 f"\U0001F195 New jobs: {self.new}" + (f" ({flags})" if flags else "")]
+        if self.direct_links_tried:
+            lines.append(f"\U0001F3AF Own job link found: {len(self.direct_links)} of "
+                         f"{self.direct_links_tried} jobs looked up")
+        if self.closed_jobs:
+            lines.append(f"\U0001F9F9 Closed jobs taken off your list: {len(self.closed_jobs)}")
+        lines.append(f"\U0001F501 Seen before: {self.updated + self.reposts} · "
+                     f"\U0001F6AB Not for you: {self.not_for_you()}")
+        if self.workday_line:
+            lines.append(f"\U0001F3E2 {self.workday_line}")
+        todo = []
+        if self.wait_for_jd():
+            todo.append(f"{self.wait_for_jd()} new job(s) wait for /jd (the bot could not "
+                        "read their page)")
+        if self.not_written:
+            todo.append(f"{len(self.not_written)} job(s) could not be saved to Notion")
+        if self.alert_emails == 0:
+            todo.append("no alert email was read: check the Gmail labels and /health")
+        todo.extend(self.not_checked)
+        if todo:
+            lines += ["", "⚠️ For you:"] + [f"- {item}" for item in todo]
+        return "\n".join(lines)
+
     def friendly_text(self) -> str:
-        """Short plain-language summary for Telegram."""
+        """The full plain-language report (since 23 Nov in the Run Log row's page; Telegram
+        gets short_text)."""
         if self.blocked:
             return self.blocked
         lines = [
@@ -421,12 +520,17 @@ class SweepSummary:
             lines += ["", f"\u26A0\uFE0F Possible ghost jobs (listed for a long time): "
                           f"{self.high_ghost}"]
             lines.extend(f"- {job}" for job in self.high_ghost_jobs)
+        if self.workday_line:
+            lines += ["", f"\U0001F3E2 {self.workday_line}"]
         if self.blocked_sites or self.no_board_sites:
             lines += ["", "\U0001F3E2 Company sites we could not read:"]
+            # LOG-09: the counts, so they can be held against the Run Log's Sites blocked.
             if self.blocked_sites:
-                lines.append(f"- Blocked us: {_names(self.blocked_sites)}")
+                lines.append(f"- Blocked us ({len(self.blocked_sites)}): "
+                             f"{_names(self.blocked_sites)}")
             if self.no_board_sites:
-                lines.append(f"- No job board found: {_names(self.no_board_sites)}")
+                lines.append(f"- No job board found ({len(self.no_board_sites)}): "
+                             f"{_names(self.no_board_sites)}")
             lines.append("Put their job board link (for example the myworkdayjobs.com or "
                          "greenhouse.io page) in Careers URL in Target Companies. /sources "
                          "lists them all.")

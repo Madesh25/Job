@@ -13,6 +13,13 @@ from jobengine.screen.models import Extraction, JobRow, MatrixItem, Requirement
 TIERS = ("Needs review", "Apply low", "Apply normal", "Apply high")  # lowest first
 LARGE_TIERS = frozenset({1, 2, 3, 4, 6})
 SNIPPET_NOTE = "snippet only, paste the full JD with /jd"
+# 20 Nov audit: Rabobank's "DevOps Engineer SaaS Security & Integration" was Apply high and
+# four Netflix rows Apply low with no requirement found in their text (Google's copy, a team
+# introduction only): no requirements meant no gaps, so the best tier. Fewer than
+# MIN_REQUIREMENTS named (skills and requirements, requirement_count) is no evidence of a
+# fit: you read it yourself.
+MIN_REQUIREMENTS = 2
+FEW_REQUIREMENTS_NOTE = "no requirements found in the description, read it yourself"
 # Freshest first (28 Oct, your OK): the first applicants get the most replies, so a job
 # posted today or in the FRESH_DAYS before ranks above an older one of the same tier.
 FRESH_DAYS = 2
@@ -33,6 +40,9 @@ def _strength(backings: list[Backing]) -> tuple[str, Backing | None]:
 def matrix_item(req: Requirement, ref: Reference, mandatory: bool) -> MatrixItem:
     terms = req.terms or [req.text]
     backings = [b for b in (ref.lookup(t) for t in terms) if b is not None]
+    if not backings:  # "Scripting language": your best skill of that kind (20 Nov audit)
+        backings = [b for b in (ref.category_backing(t) for t in [*terms, req.text])
+                    if b is not None][:1]
     strength, backing = _strength(backings)
     return MatrixItem(strength=strength, text=req.text, backing=backing.name if backing else None,
                       mandatory=mandatory, kind=req.kind)
@@ -44,11 +54,22 @@ def build_matrix(ext: Extraction, ref: Reference) -> list[MatrixItem]:
     ]
 
 
-def gap_count(matrix: list[MatrixItem]) -> int:
-    """Gaps across mandatory non-tool requirements and nice-to-haves (mandatory tools are
-    counted by tier() from unbacked_tools, one gap per tool you do not have)."""
+# 20 Nov audit: Motorola's three "could have" items (RabbitMQ, Spring Boot/Angular,
+# Wireshark) alone made a strong DevOps fit Needs review. A nice-to-have you lack weighs half
+# a mandatory gap.
+NICE_GAP_WEIGHT = 0.5
+
+
+def requirement_count(ext: Extraction) -> int:
+    """Skills and requirements the description names: "Docker, Kubernetes and Azure" is 3."""
+    return sum(max(1, len(r.terms)) for r in [*ext.mandatory_requirements, *ext.nice_to_have])
+
+
+def gap_count(matrix: list[MatrixItem]) -> float:
+    """Gaps across mandatory non-tool requirements (1 each) and nice-to-haves (half each);
+    mandatory tools are counted by tier() from unbacked_tools, one gap per tool you lack."""
     return sum(
-        1 for item in matrix
+        1 if item.mandatory else NICE_GAP_WEIGHT for item in matrix
         if item.strength == "Gap" and not (item.mandatory and item.kind == "tool")
     )
 
@@ -96,7 +117,7 @@ class Tiering:
     verdict: str
     bottom: bool
     employer: str
-    gap_count: int
+    gap_count: float
     flags: tuple[str, ...]  # flags added by tiering (Sponsorship stated)
     notes: tuple[str, ...]
 
@@ -117,7 +138,7 @@ def tier(
         verdict = "Apply high"
     elif gaps <= 1:
         verdict = "Apply normal"
-    elif gaps == 2:
+    elif gaps <= 2:
         verdict = "Apply low"
     else:
         verdict = "Needs review"
@@ -137,6 +158,9 @@ def tier(
     if description_kind == "snippet":
         verdict = "Needs review"
         notes.append(SNIPPET_NOTE)
+    elif requirement_count(ext) < MIN_REQUIREMENTS:
+        verdict = "Needs review"
+        notes.append(FEW_REQUIREMENTS_NOTE)
     return Tiering(verdict, bottom, employer, gaps, tuple(added), tuple(notes))
 
 

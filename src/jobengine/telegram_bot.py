@@ -25,7 +25,8 @@ import urllib.error
 import urllib.request
 import uuid
 from collections import deque
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from datetime import date, datetime
 from pathlib import Path
 from typing import Any, TextIO
@@ -40,6 +41,7 @@ from jobengine.screen.desk import Desk, Reply, fake_desk, real_desk
 from jobengine.settings import ROOT_DIR, Settings, get_settings, use_local_time
 from jobengine.sweep import fakes
 from jobengine.sweep.runner import fake_deps, real_deps, run_sweep
+from jobengine.track import reports
 
 log = logging.getLogger("jobengine.telegram_bot")
 
@@ -65,8 +67,8 @@ HELP_TEXT = (
     "/fetchreport - where the last /fetch's postings went and why jobs were dropped\n"
     "/alertcheck - the job alert mails the next /fetch reads, and their jobs\n"
     "\n🟢 Review and apply\n"
-    "/pending - pick a country, then its jobs found today (week: 3 days, all); /pending poland, "
-    "netherlands or ireland\n"
+    "/pending - pick a country, then today's jobs (/pending week, all, /pending poland)\n"
+    "/applytoday - the 3 to 5 best fresh jobs to apply to now\n"
     "/applypack <url or id> - ready answers for a job's form (visa, notice, salary)\n"
     "/autofill - the bookmark that fills forms from the Apply pack code\n"
     "/answer <question> = <answer> - save a form answer for every form\n"
@@ -74,32 +76,32 @@ HELP_TEXT = (
     "/dryrun <url or id> - fill the job's form in a browser, never submit\n"
     "/autoapply - fill forms of jobs with a resume; submit when it is on (50 a day)\n"
     "/gaps - skills jobs ask for that you lack, and which certificate covers most\n"
-    "/keywords - the tools your best jobs name most, and which to add to your LinkedIn profile\n"
+    "/keywords - the tools your best jobs name most, to add to LinkedIn\n"
     "\n🟠 Contacts and mails\n"
-    "/fetchcontacts - contacts and Gmail drafts (resume attached) for today's applied jobs\n"
+    "/fetchcontacts - contacts and Gmail drafts for today's applied jobs\n"
     "/contacts <url or id> - contacts for a job, and your LinkedIn connections there\n"
     "/drafts <url or id> - write Gmail drafts for a job's contacts again\n"
     "/connections - your LinkedIn connections; send the export zip to update\n"
     "/credits - contact credits left, asked from each provider\n"
     "/outreach - this week's budget: which approved jobs get contacts and cold mails\n"
-    "/mailmode - draft (only write Gmail drafts) or send (check every mail, then send it)\n"
+    "/mailmode - draft (write Gmail drafts only) or send (check each mail, then send)\n"
     "/mailqueue - mails waiting for the recipient's morning (Mon to Fri, 8 to 11)\n"
     "/agencies - recruitment agencies by country; /agencies <name> gives the intro mail\n"
     "\n🔴 Replies and interviews\n"
     "/today - run the daily check now (sent mails, replies, bounces, follow-ups)\n"
     "/followups - follow-up drafts waiting to be sent, and follow-ups due soon\n"
-    "/prep <url or id> - interview prep: likely questions, your gaps, questions to ask them\n"
+    "/prep <url or id> - interview prep: likely questions, gaps, what to ask\n"
     "/thanks <url or id> <name> - the thank-you mail after an interview\n"
-    "/stats - applied, replies, interviews and reply rates (30 days and all time)\n"
+    "/stats - applied, replies, reply rates; /stats works: what works by source\n"
     "/digest - the weekly digest now\n"
     "/spotcheck - 2 of the week's resumes to look at (/spotcheck notes)\n"
-    "/report - today's daily report now (it also comes every evening, and by email)\n"
+    "/screencheck - 10 of the week's verdicts to tick in Notion\n"
+    "/report - today's daily report now (also every evening, by email)\n"
     "\n🟡 Strategy, health and control\n"
     "/update - monthly strategy research (opens /fetch); /update new again\n"
     "/rules - V16 rules, thresholds, adopted tips and the /fetch gate\n"
     "/audit - the weekly self-audit now (it also comes every Sunday)\n"
-    "/autopilot - fetch, screen, approve the best (10 a day), resumes, contacts, Gmail "
-    "drafts\n"
+    "/autopilot - fetch, screen, approve the best 10, resumes, contacts, drafts\n"
     "/autopilot when - its schedule (07:00 and 19:30) and the next run\n"
     "/timetable - when everything runs, your time and theirs\n"
     "/next - your day in order: what is done and what to do now\n"
@@ -107,6 +109,7 @@ HELP_TEXT = (
     "/resume - end holiday mode now\n"
     "/gmailtoken - your Gmail tokens; /gmailtoken m02 or mm renews one\n"
     "/health - Notion, Gmail tokens, Anthropic key, last runs\n"
+    "/bug <what> - report a problem\n"
     "/status - environment, safety settings, job and contact counts\n"
     "/sources - sweep sources, their secrets and the last counts\n"
     "/start - check that the bot is alive\n"
@@ -143,8 +146,53 @@ def split_text(text: str, limit: int = MESSAGE_LIMIT) -> list[str]:
 MENU_FIRST = ("start", "next", "status", "fetch", "autopilot")  # the / menu starts with these
 
 
+# 23 Nov, your ask (FEAT-02): the / menu suggests only command names, never the words after
+# a space ("/screen we" showed nothing). Each fixed sub-option is its own menu entry, listed
+# right after its command: typing "/screen" shows /screen_week, /screen_all and the rest, and
+# the bot reads "/screen_week" as "/screen week". Sub-options that need your own text (a job
+# link, a company name, /pause 5d) cannot be menu entries. /mailmode send is left out on
+# purpose: switching to real sending is never one tap from the menu.
+SHORTCUTS: dict[str, tuple[str, str]] = {
+    "screen_week": ("screen week", "screen the jobs of the last 7 days"),
+    "screen_all": ("screen all", "screen every Unscreened job"),
+    "screen_batch": ("screen batch", "send the jobs at half price, answers later"),
+    "screen_collect": ("screen collect", "save the answers of the half-price batch"),
+    "pending_poland": ("pending poland", "Poland's jobs to review"),
+    "pending_netherlands": ("pending netherlands", "the Netherlands' jobs to review"),
+    "pending_ireland": ("pending ireland", "Ireland's jobs to review"),
+    "fetchreport_sources": ("fetchreport sources", "each source over all time: found, "
+                            "approved, applied, answered"),
+    "answers_start": ("answers start", "the common form questions to answer"),
+    "autoapply_status": ("autoapply status", "the form queue and each site's dry runs"),
+    "autopilot_when": ("autopilot when", "its schedule and the next run"),
+    "stats_works": ("stats works", "what works: found to answered by source, country, verdict"),
+    "spotcheck_notes": ("spotcheck notes", "your notes on the spot-checked resumes"),
+    "update_new": ("update new", "monthly strategy research again"),
+    "gmailtoken_m02": ("gmailtoken m02", "renew the madeshwaranm02 Gmail token"),
+    "gmailtoken_mm": ("gmailtoken mm", "renew the madeshwaran.manikam Gmail token"),
+}
+
+
+def expand_shortcut(text: str) -> str:
+    """"/screen_week" (a menu entry) as "/screen week"; any other text as it is."""
+    name = parse_command(text)
+    if name not in SHORTCUTS:
+        return text
+    rest = text.split(maxsplit=1)[1:]
+    return "/" + SHORTCUTS[name][0] + (" " + rest[0] if rest else "")
+
+
+def _expanded(update: dict[str, Any]) -> dict[str, Any]:
+    message = update.get("message")
+    text = (message or {}).get("text")
+    if not isinstance(text, str) or expand_shortcut(text) == text:
+        return update
+    return {**update, "message": {**message, "text": expand_shortcut(text)}}
+
+
 def bot_commands() -> list[dict[str, str]]:
-    """The / menu Telegram shows while typing: one entry per command in HELP_TEXT."""
+    """The / menu Telegram shows while typing: one entry per command in HELP_TEXT, each
+    followed by its fixed sub-options (SHORTCUTS)."""
     out: dict[str, str] = {name: "" for name in MENU_FIRST}
     for line in HELP_TEXT.splitlines():
         if not line.startswith("/"):  # the first line, group headings, blank lines
@@ -153,7 +201,13 @@ def bot_commands() -> list[dict[str, str]]:
         name = head.split()[0].lstrip("/")
         if not out.get(name):
             out[name] = description[:256]
-    return [{"command": name, "description": text} for name, text in out.items()]
+    menu: dict[str, str] = {}
+    for name, text in out.items():
+        menu[name] = text
+        for short, (full, what) in SHORTCUTS.items():
+            if full.split()[0] == name:
+                menu[short] = f"/{full}: {what}"[:256]
+    return [{"command": name, "description": text} for name, text in menu.items()]
 
 
 # Shown at once on a button tap (Telegram's small popup) while the work runs.
@@ -188,8 +242,9 @@ DESK_COMMANDS = ("next", "pending", "add", "newcompanies", "report", "jd", "done
                  "outreach", "drafts", "answer", "answers", "autofill", "dryrun", "autoapply",
                  "fetchcontacts",
                  "alertcheck", "fetchreport", "linkedin", "today", "followups", "stats",
-                 "sources", "health", "digest", "spotcheck", "update", "rules", "pause",
-                 "resume", "audit")
+                 "sources", "health", "digest", "spotcheck", "screencheck", "applytoday",
+                 "update", "rules",
+                 "pause", "resume", "audit", "bug")
 
 # (method, payload, http_timeout) -> decoded JSON response
 Transport = Callable[[str, dict[str, Any], float], dict[str, Any]]
@@ -411,7 +466,9 @@ class TelegramClient:
         except TelegramNetworkError as exc:
             if method == "getUpdates":  # the polling loop already waits and asks again
                 raise
-            log.warning("%s, retrying in %ss", exc, SEND_RETRY_SECONDS)
+            # 19 Nov: a retry that then works is no problem (the Error Log pinged for it); a
+            # second failure is raised to the caller.
+            log.info("%s, retrying in %ss", exc, SEND_RETRY_SECONDS)
             self._sleep(SEND_RETRY_SECONDS)
             data = self._transport(method, payload, timeout)
         if not data.get("ok"):
@@ -590,6 +647,8 @@ def reply_for(text: str, s: Settings, fetch: Fetcher | None = None) -> str:
     if command == "restart":
         return ("/restart restarts the bot running on your PC. On Cloud Run each deploy starts "
                 "the bot again; the --fake bot has nothing to restart.")
+    if command == "bug":  # S2: needs the Error Log (Notion), which this bot does not have
+        return "Not saved: a report needs Notion (the Error Log), and this bot has none."
     if command is None:
         return "I only understand commands for now. Send /help to see them."
     return f"Unknown command /{command}. Send /help to see the commands."
@@ -602,7 +661,7 @@ def handle_update(
 
     Messages from any chat other than TELEGRAM_CHAT_ID are ignored.
     """
-    message = update.get("message") or {}
+    message = _expanded(update).get("message") or {}
     chat_id = str((message.get("chat") or {}).get("id", ""))
     text = message.get("text")
     if not chat_id or text is None:
@@ -621,11 +680,30 @@ STALE_COMMANDS = ("fetch", "screen", "update", "autopilot", "restart")
 
 def _stale_command(update: dict[str, Any], started: float | None) -> str | None:
     message = update.get("message") or {}
-    command = parse_command(message.get("text") or "")
+    command = parse_command(expand_shortcut(message.get("text") or ""))
     if started is None or command not in STALE_COMMANDS:
         return None
     sent = message.get("date")  # Telegram always sets it; the terminal harness does not
     return command if sent is not None and int(sent) < int(started) else None
+
+
+def answer_tap_now(client: TelegramClient, s: Settings, update: dict[str, Any]) -> None:
+    """A button press is answered the moment it arrives, before it waits its turn (LOG-05,
+    24 Nov: an Approve tapped while another job ran was answered minutes later and Telegram
+    said "query is too old"). The toast says when it waits for a running /fetch."""
+    query = update.get("callback_query")
+    if not isinstance(query, dict) or query.get("_answered"):
+        return
+    if str((query.get("from") or {}).get("id", "")) != str(s.telegram_chat_id):
+        return  # handle_callback logs and ignores it
+    text = TAP_TOASTS.get(str(query.get("data") or "").partition(":")[0], TAP_DEFAULT)
+    if CONTROL.running:
+        text = f"{text} (after the running {CONTROL.running})"
+    query["_answered"] = True
+    try:
+        client.answer_callback(str(query.get("id", "")), text)
+    except TelegramError as exc:
+        log.warning("answerCallbackQuery failed: %s", exc)
 
 
 def end_now(client: TelegramClient, s: Settings, update: dict[str, Any]) -> bool:
@@ -681,6 +759,7 @@ def poll_once(
                 f"stopped). Send /{command} again to run it.", s))
             continue
         if dispatch is not None:
+            answer_tap_now(client, s, update)  # LOG-05: before it waits its turn
             dispatch(update)
         else:
             handle_one(client, s, update, fetch, desk)
@@ -738,14 +817,26 @@ def handle_one(
     desk: Desk | None = None,
 ) -> None:
     """Answer one update. Long polling and the webhook (jobengine.web) both call this, so the
-    chat ID lock and every command behave the same in both modes."""
+    chat ID lock and every command behave the same in both modes. The Error Log gets what the
+    command logged when it ends (20 Nov: only scheduled steps wrote it, and the problems of
+    a /fetch were lost when the bot was stopped)."""
+    from jobengine.track import run_log
+
+    try:
+        _handle_one(client, s, _expanded(update), fetch, desk)
+    finally:
+        run_log.flush_errors()
+
+
+def _handle_one(client: TelegramClient, s: Settings, update: dict[str, Any],
+                fetch: Fetcher | None, desk: Desk | None) -> None:
     _bind_notify(client, s, desk)
     if "callback_query" in update:
         handle_callback(client, s, update["callback_query"], desk)
         return
     if fetch is not None and _is_fetch(update, s):
         with Typing(client, str(s.telegram_chat_id)):  # "typing..." until the summary
-            run_fetch(client, s, str(s.telegram_chat_id), fetch)
+            run_fetch(client, s, str(s.telegram_chat_id), fetch, desk=desk)
         return
     chat = str(s.telegram_chat_id)
     message = update.get("message") or {}
@@ -874,8 +965,11 @@ def send_replies(client: TelegramClient, s: Settings, chat_id: str, replies: lis
 
 def _bind_notify(client: TelegramClient, s: Settings, desk: Desk | None) -> None:
     if desk is not None:
+        from jobengine.track import error_log
+
         chat = str(s.telegram_chat_id)
         desk.notify = lambda reply: send_replies(client, s, chat, [reply])
+        error_log.set_notify(lambda text: send_replies(client, s, chat, [Reply(text)]))
 
 
 def _guarded(name: str, action: Callable[[], list[Reply]]) -> list[Reply]:
@@ -884,6 +978,31 @@ def _guarded(name: str, action: Callable[[], list[Reply]]) -> list[Reply]:
     except Exception as exc:  # report the failure instead of stopping the bot
         log.exception("%s failed", name)
         return [Reply(f"{name} failed: {exc}")]
+
+
+def _reported(name: str, action: Callable[[], list[Reply]], desk: Desk) -> list[Reply]:
+    """A command with a long report (/health, /today, /report, /digest, /dryrun): it gets its
+    Run Log row, whose page holds the full report while Telegram gets the short one (S10,
+    23 Nov). A failure is answered as by _guarded and recorded as Failed."""
+    with _command_run(name, desk) as run:
+        try:
+            replies = action()
+        except Stopped:  # /end (LOG-01: /dryrun)
+            run.fail("stopped by /end")
+            log.info("%s stopped by /end", name)
+            return [Reply(f"{name} stopped by /end. Nothing was sent.")]
+        except Exception as exc:  # report the failure instead of stopping the bot
+            run.fail(exc)
+            log.exception("%s failed", name)
+            return [Reply(f"{name} failed: {exc}")]
+        run.note([r for r in replies if not getattr(r, "document", None)])
+        return replies
+
+
+def _dry_run_command(desk: Desk, args: str) -> list[Reply]:
+    """/dryrun by hand: /end stops it at its next step (LOG-01, 24 Nov)."""
+    with CONTROL.job("/dryrun"):
+        return desk.dryrun_command(args, stop=CONTROL.check)
 
 
 # A short outage of Notion or the network (26 Oct: "HTTP 500 Unexpected error occurred" on
@@ -895,22 +1014,29 @@ _passing: dict[str, int] = {}
 
 
 def _scheduled(name: str, action: Callable[[], list[Reply]], desk: Desk) -> list[Reply]:
-    """A scheduled step: a failure is told in Telegram and mailed to you (H3, 25 Oct)."""
-    try:
-        replies = action()
-    except Exception as exc:  # report the failure instead of stopping the bot
-        if PASSING_ERROR.search(str(exc)):
-            _passing[name] = _passing.get(name, 0) + 1
-            if _passing[name] < PASSING_TRIES:
-                log.warning("%s failed (try %d, again at the next tick): %s", name,
-                            _passing[name], exc)
-                return []
-            _passing[name] = 0  # told now; the next one waits for PASSING_TRIES again
-        log.exception("%s failed", name)
-        desk.alert_failure(name, exc)
-        return [Reply(f"{name} failed: {exc}")]
-    _passing.pop(name, None)
-    return replies
+    """A scheduled step: a failure is told in Telegram and mailed to you (H3, 25 Oct). A step
+    that did something gets its Run Log row (18 Nov, track/run_log.py)."""
+    from jobengine.track import run_log
+
+    with run_log.recorded(name, getattr(desk, "run_log_table", None),
+                          desk.tracking_now) as run:
+        try:
+            replies = action()
+        except Exception as exc:  # report the failure instead of stopping the bot
+            run.fail(exc)
+            if PASSING_ERROR.search(str(exc)):
+                _passing[name] = _passing.get(name, 0) + 1
+                if _passing[name] < PASSING_TRIES:
+                    log.warning("%s failed (try %d, again at the next tick): %s", name,
+                                _passing[name], exc)
+                    return []
+                _passing[name] = 0  # told now; the next one waits for PASSING_TRIES again
+            log.exception("%s failed", name)
+            desk.alert_failure(name, exc)
+            return [Reply(f"{name} failed: {exc}")]
+        _passing.pop(name, None)
+        run.note(replies)
+        return replies
 
 
 def desk_replies(update: dict[str, Any], s: Settings, desk: Desk | None) -> list[Reply] | None:
@@ -928,6 +1054,9 @@ def desk_replies(update: dict[str, Any], s: Settings, desk: Desk | None) -> list
     if command in next_steps.PERIODIC:  # /next lists them again a week or a month later
         _guarded("Used", lambda: desk.note_command(command) or [])
     replied = message.get("reply_to_message") or {}
+    said = reports.words(text)
+    if said is not None:  # S2: "wrong: ..." or /bug, saved in the Error Log with the message
+        return _guarded("Report", lambda: [Reply(desk.report_problem(said, replied or None))])
     if command is None and replied:
         ref_text = replied.get("caption") or replied.get("text") or ""
         replies = _guarded("Correction", lambda: desk.correction(ref_text, text) or [])
@@ -983,10 +1112,14 @@ def desk_replies(update: dict[str, Any], s: Settings, desk: Desk | None) -> list
         return _guarded("/autofill", desk.autofill_command)
     if command == "spotcheck":
         return _guarded("/spotcheck", lambda: desk.spot_check_command(args))
+    if command == "applytoday":  # S4: the morning card now
+        return _guarded("/applytoday", desk.apply_today)
+    if command == "screencheck":  # S3: the weekly screening check now
+        return _guarded("/screencheck", desk.screen_check)
     if command == "autoapply":
         return _guarded("/autoapply", lambda: desk.autoapply_command(args))
     if command == "dryrun":
-        return _guarded("/dryrun", lambda: desk.dryrun_command(args))
+        return _reported("/dryrun", lambda: _dry_run_command(desk, args), desk)
     if command == "applypack":
         return _guarded("/applypack", lambda: desk.applypack_command(args))
     if command == "prep":
@@ -1001,9 +1134,13 @@ def desk_replies(update: dict[str, Any], s: Settings, desk: Desk | None) -> list
         return _guarded("/mailmode", lambda: desk.mailmode_command(args))
     if command == "status" and desk.track is not None:
         return _guarded("/status", lambda: [Reply(f"{status_text(s)}\n{desk.status_lines()}")])
+    if command == "stats" and args.strip().lower() == "works":  # S6: what works
+        return _guarded("/stats works", desk.what_works_command)
     tracking = {"today": desk.today_command, "followups": desk.followups_command,
                 "stats": desk.stats_command, "sources": desk.sources_command,
                 "health": desk.health_command, "digest": desk.digest_command}
+    if command in ("today", "health", "digest"):  # S10: short here, full in the Run Log
+        return _reported(f"/{command}", tracking[command], desk)
     if command in tracking:
         return _guarded(f"/{command}", tracking[command])
     if command == "update":
@@ -1021,7 +1158,7 @@ def desk_replies(update: dict[str, Any], s: Settings, desk: Desk | None) -> list
     if command == "newcompanies":
         return _guarded("/newcompanies", lambda: desk.newcompanies_command(args))
     if command == "report":
-        return _guarded("/report", desk.report_command)
+        return _reported("/report", desk.report_command, desk)
     if command == "jd":
         return _guarded("/jd", lambda: desk.jd(args))
     if command == "done":
@@ -1044,12 +1181,13 @@ def handle_callback(
         log.warning("Ignoring button press from unknown user %s", sender)
         return
     data = str(query.get("data") or "")
-    try:
-        # Answer at once so the button stops spinning, with a short note of what is happening.
-        client.answer_callback(str(query.get("id", "")),
-                               TAP_TOASTS.get(data.partition(":")[0], TAP_DEFAULT))
-    except TelegramError as exc:
-        log.warning("answerCallbackQuery failed: %s", exc)
+    if not query.get("_answered"):  # long polling and the webhook answered it on arrival
+        try:
+            # Answer at once so the button stops spinning, with a short note of what happens.
+            client.answer_callback(str(query.get("id", "")),
+                                   TAP_TOASTS.get(data.partition(":")[0], TAP_DEFAULT))
+        except TelegramError as exc:
+            log.warning("answerCallbackQuery failed: %s", exc)
     action, _, arg = data.partition(":")
     count, _, scope = arg.partition(":")  # sc:<n>[:<today|week|all>], a /screen choice
     if action == "sc" and count.isdigit() and desk is not None:
@@ -1087,22 +1225,56 @@ def run_fetch(
     chat_id: str,
     fetch: Fetcher,
     clock: Callable[[], float] = time.monotonic,
+    desk: Desk | None = None,
 ) -> None:
     """/fetch: reply at once, keep one progress message updated, then send the summary."""
     progress = ProgressMessage(client, chat_id, s, clock=clock)
-    try:
-        with CONTROL.job("/fetch"):
-            summary = fetch(progress.update)
-    except Stopped:
-        _stopped(client, s, chat_id, "/fetch", progress)
-        return
-    except Exception as exc:  # report any sweep failure instead of stopping the bot
-        log.exception("/fetch failed")
-        progress.finish(ok=False)
-        client.send_message(chat_id, telegram_text(f"/fetch failed: {exc}", s))
-        return
+    with _command_run("/fetch", desk) as run:
+        try:
+            with CONTROL.job("/fetch"):
+                summary = fetch(progress.update)
+        except Stopped:
+            run.fail("stopped by /end")
+            _stopped(client, s, chat_id, "/fetch", progress)
+            return
+        except Exception as exc:  # report any sweep failure instead of stopping the bot
+            run.fail(exc)
+            log.exception("/fetch failed")
+            progress.finish(ok=False)
+            client.send_message(chat_id, telegram_text(f"/fetch failed: {exc}", s))
+            return
+        summary = with_report_line(summary, run, desk)
+        run.note([summary.split(NEXT_STEP)[0]])
     progress.finish(ok=True)
     client.send_message(chat_id, telegram_text(summary, s))
+
+
+def with_report_line(summary: str, run: Any, desk: Desk | None) -> str:
+    """The short /fetch message names the Run Log row that holds the full report."""
+    from jobengine.track import run_log
+
+    if getattr(desk, "run_log_table", None) is None or not run.details:
+        return summary
+    line = run_log.report_line(run)
+    head, sep, tail = summary.partition(NEXT_STEP)
+    return f"{head}\n{line}{sep}{tail}"
+
+
+@contextmanager
+def _command_run(name: str, desk: Desk | None) -> Iterator[Any]:
+    """A long command sent by hand (/fetch, /screen, /autopilot) gets its Run Log row like a
+    scheduled step (20 Nov: your /fetch runs left no row, so a hung or stopped one could not
+    be looked up). Step is the command, so it is told apart from the scheduled runs."""
+    from jobengine.track import run_log
+
+    def now() -> datetime:
+        try:
+            return desk.tracking_now() if desk is not None else datetime.now().astimezone()
+        except Exception:  # a clock that needs Notion must not stop the command
+            return datetime.now().astimezone()
+
+    with run_log.recorded(name, getattr(desk, "run_log_table", None), now) as run:
+        yield run
 
 
 def _stopped(client: TelegramClient, s: Settings, chat_id: str, name: str,
@@ -1140,17 +1312,21 @@ def run_screen(
     `scope`: today (the default), week or all (6 Nov)."""
     progress = ProgressMessage(client, chat_id, s, clock=clock, name="Screening",
                                first="Screening new jobs")
-    try:
-        with CONTROL.job("/screen"):
-            replies = desk.screen_replies(scope, progress.update, limit)
-    except Stopped:
-        _stopped(client, s, chat_id, "/screen", progress)
-        return
-    except Exception as exc:  # report the failure instead of stopping the bot
-        log.exception("/screen failed")
-        progress.finish(ok=False)
-        client.send_message(chat_id, telegram_text(f"/screen failed: {exc}", s))
-        return
+    with _command_run("/screen", desk) as run:
+        try:
+            with CONTROL.job("/screen"):
+                replies = desk.screen_replies(scope, progress.update, limit)
+        except Stopped:
+            run.fail("stopped by /end")
+            _stopped(client, s, chat_id, "/screen", progress)
+            return
+        except Exception as exc:  # report the failure instead of stopping the bot
+            run.fail(exc)
+            log.exception("/screen failed")
+            progress.finish(ok=False)
+            client.send_message(chat_id, telegram_text(f"/screen failed: {exc}", s))
+            return
+        run.note(replies)
     progress.finish(ok=True)
     send_replies(client, s, chat_id, with_next_step("/screen", replies))
 
@@ -1191,17 +1367,21 @@ def run_autopilot(
     """/autopilot: one progress message, then the summary and the resumes."""
     progress = ProgressMessage(client, chat_id, s, clock=clock, name="Autopilot",
                                first="Autopilot started")
-    try:
-        with CONTROL.job("/autopilot"):
-            replies = desk.autopilot(autopilot_fetch(fetch), progress.update)
-    except Stopped:
-        _stopped(client, s, chat_id, "/autopilot", progress)
-        return
-    except Exception as exc:  # report the failure instead of stopping the bot
-        log.exception("/autopilot failed")
-        progress.finish(ok=False)
-        client.send_message(chat_id, telegram_text(f"/autopilot failed: {exc}", s))
-        return
+    with _command_run("/autopilot", desk) as run:
+        try:
+            with CONTROL.job("/autopilot"):
+                replies = desk.autopilot(autopilot_fetch(fetch), progress.update)
+        except Stopped:
+            run.fail("stopped by /end")
+            _stopped(client, s, chat_id, "/autopilot", progress)
+            return
+        except Exception as exc:  # report the failure instead of stopping the bot
+            run.fail(exc)
+            log.exception("/autopilot failed")
+            progress.finish(ok=False)
+            client.send_message(chat_id, telegram_text(f"/autopilot failed: {exc}", s))
+            return
+        run.note([r for r in replies if not getattr(r, "document", None)])
     progress.finish(ok=True)
     send_replies(client, s, chat_id, with_next_step("/autopilot", replies))
 
@@ -1222,12 +1402,15 @@ def autopilot_check(client: TelegramClient, s: Settings, desk: Desk | None,
     replies += _scheduled("Monthly update", desk.auto_update_tick, desk)
     replies += _scheduled("Autopilot",
                          lambda: desk.autopilot_scheduled(autopilot_fetch(fetch)) or [], desk)
+    replies += _scheduled("Apply today", desk.apply_today_tick, desk)
     replies += _scheduled("Afternoon check",
                           lambda: desk.check_scheduled(autopilot_fetch(fetch)) or [], desk)
     replies += _scheduled("Mail queue", desk.mail_queue_tick, desk)
     replies += _scheduled("Reply check", desk.reply_ping_tick, desk)
     replies += _scheduled("Daily check", desk.tracking_tick, desk)
+    replies += _scheduled("Old jobs", desk.jd_backlog_tick, desk)
     replies += _scheduled("Daily report", desk.daily_report_tick, desk)
+    replies += _scheduled("Screening check", desk.screen_check_tick, desk)
     replies += _scheduled("Spot check", desk.spot_check_tick, desk)
     replies += _scheduled("Link check", desk.expired_check_tick, desk)
     replies += _scheduled("Board check", desk.board_check_tick, desk)
@@ -1346,11 +1529,12 @@ def run(
     scheduled /autopilot starts when it is due. With `background` (the real bot) updates are
     answered on a background thread so /end can stop a long run; /restart stops the running
     job, then calls `restart`."""
+    from jobengine.track import run_log
+
     register_menu(client, s)
     client.send_message(str(s.telegram_chat_id), telegram_text("Job Engine bot started.", s))
     offset: int | None = None
     started = time.time()
-    polls = 0
     next_check = clock()
     chat = str(s.telegram_chat_id)
     bg = None
@@ -1358,12 +1542,33 @@ def run(
         bg = Background(lambda update: handle_one(client, s, update, fetch, desk),
                         lambda update, name: client.send_message(chat, telegram_text(
                             f"Waiting: this runs after {name} (/end stops {name}).", s)))
+    next_flush = clock() + ERROR_FLUSH_SECONDS
+    try:
+        _poll_loop(client, s, offset, started, fetch, desk, clock, sleep, restart, bg,
+                   max_polls, next_check, next_flush)
+    finally:  # stopped (Ctrl+C, docker stop): what was logged still reaches the Error Log
+        run_log.flush_errors()
+
+
+def _poll_loop(client: TelegramClient, s: Settings, offset: int | None, started: float,
+               fetch: Fetcher | None, desk: Desk | None, clock: Callable[[], float],
+               sleep: Callable[[float], None], restart: Callable[[], None] | None,
+               bg: Background | None, max_polls: int | None, next_check: float,
+               next_flush: float) -> None:
+    from jobengine.track import run_log
+
+    polls = 0
+    lost = 0
     while max_polls is None or polls < max_polls:
         polls += 1
+        if clock() >= next_flush:  # a long command (a /fetch) writes its problems on the way
+            next_flush = clock() + ERROR_FLUSH_SECONDS
+            run_log.flush_errors()
         try:
             offset = poll_once(client, s, offset, fetch, desk, started=started,
                                dispatch=bg.submit if bg else None,
                                timeout=WAITING_POLL if bg and bg.waiting else POLL_TIMEOUT)
+            lost = 0
             if bg is not None:
                 bg.pump()
             if desk is not None and clock() >= next_check and (bg is None or bg.idle()):
@@ -1373,6 +1578,14 @@ def run(
             offset = request.offset
             if _restart(client, s, bg, request.offset, restart):
                 return
+        except TelegramNetworkError as exc:
+            # 18 Nov: one lost connection was an Error row; the next poll usually works.
+            lost += 1
+            if lost == POLL_LOST_WARN:
+                log.warning("Telegram not reached %d times in a row: %s", lost, exc)
+            else:
+                log.info("%s, retrying in 5s", exc)
+            sleep(5)
         except TelegramError as exc:
             log.error("%s, retrying in 5s", exc)
             sleep(5)
@@ -1381,6 +1594,8 @@ def run(
         bg.pump()
 
 
+ERROR_FLUSH_SECONDS = 300.0  # the Error Log is written at least this often while a command runs
+POLL_LOST_WARN = 12  # lost polls in a row (5 s apart at least) before it is a problem
 RESTART_WAIT = 60.0  # seconds a running job gets to reach its next step before the restart
 WAITING_POLL = 2  # a short poll while updates wait for the background thread
 
@@ -1442,7 +1657,12 @@ def make_fetcher(s: Settings, fake: bool, desk: Desk | None = None) -> Fetcher:
         else:
             state = desk.state if desk is not None else None
             summary = run_sweep(s, real_deps(s), date.today(), progress=progress, state=state)
-        text = summary.friendly_text()
+        from jobengine.track import run_log
+
+        # 23 Nov, your ask: Telegram gets the short summary; the full report goes to the
+        # page of this /fetch's Run Log row (and /fetchreport still lists the dropped jobs).
+        run_log.details([summary.friendly_text()])
+        text = summary.short_text()
         if summary.blocked or not summary.new:
             return text
         from jobengine.screen import daily

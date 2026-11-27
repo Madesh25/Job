@@ -30,6 +30,15 @@
 <label for="dpn">Data Protection Information Notice</label><select id="dpn" name="dpn"><option>Select...</option><option>1 month</option><option>Acknowledge</option></select>
 <fieldset><legend>Gender</legend><label><input type="radio" name="gender2" value="m">Male</label><label><input type="radio" name="gender2" value="f">Female</label><label><input type="radio" name="gender2" value="x">Prefer not to answer</label></fieldset>
 <label for="why">Portfolio or anything else? (required, no answer)</label><input id="other" name="other_q" required>
+<fieldset><legend>Have you worked at Demo Co?</legend>
+<label><input type="checkbox" id="w1" name="worked[]"> I have never worked at Demo Co</label>
+<label><input type="checkbox" id="w2" name="worked[]"> I am a current Demo Co employee or intern</label></fieldset>
+<div class="wk-q"><span id="wk1-label">Do you have a valid residence and work permit for The Netherlands?*</span>
+<div role="radiogroup" aria-labelledby="wk1-label"><label><input type="radio" name="QA_1" value="true" style="opacity:0;position:absolute">YES</label>
+<label><input type="radio" name="QA_1" value="false" style="opacity:0;position:absolute">NO</label></div></div>
+<div class="wk-q"><div>Do you need visa sponsorship to work here?*</div>
+<div><label><input type="radio" name="QA_2" value="true" style="display:none"><span>YES</span></label>
+<label><input type="radio" name="QA_2" value="false" style="display:none"><span>NO</span></label></div></div>
 <label><input type="checkbox" id="consent" name="consent" required> I agree to the privacy policy</label>
 <button type="submit" id="submit" onclick="window.CLICKED=1">Submit application</button>
 </form>
@@ -110,6 +119,53 @@ function ghCombo(id, label, options, chosen) {
 }
 ghCombo('gh1', 'Will you require visa sponsorship to work in Ireland? *', ['Yes', 'No']);
 ghCombo('gh2', 'Do you need a visa sponsorship for this role? *', ['Yes', 'No'], 'Yes');
+/* 17 Nov, real Greenhouse form (InterSystems): the list shows only options with the typed
+   text, and none has the words of the answer. */
+ghCombo('gh3', 'Are you Hispanic/Latino?', ['Yes', 'No', 'Decline To Self Identify']);
+ghCombo('gh4', 'Veteran Status', ['I am not a protected veteran',
+  'I identify as one or more of the classifications of a protected veteran', "I don't wish to answer"]);
+ghCombo('gh5', 'Job Location *', ['Able to work at job location', 'Able to relocate to job location',
+  'Unable to work or relocate to job location (remote work required)']);
+ghCombo('gh6', 'Discipline *', ['Computer Science', 'Mechanical Engineering']);
+/* 17 Nov, InterSystems "Location (City)": places from a search site that answers after 2.5 s
+   and shows "Loading..." meanwhile; it finds a place only by the text as typed. */
+function slowCombo(id, label, places) {
+  const box = document.createElement('div');
+  box.className = 'select__container field';
+  box.innerHTML = `<label id="${id}-label" for="${id}">${label}</label>
+    <div class="select__control"><div class="select__single-value" id="${id}-value"></div>
+    <input id="${id}" role="combobox" aria-autocomplete="list" aria-required="true"
+      aria-labelledby="${id}-label" class="select__input"></div><div class="select__menu"></div>`;
+  document.getElementById('combos').appendChild(box);
+  const input = box.querySelector('input'), menu = box.querySelector('.select__menu');
+  let ask = 0;
+  input.addEventListener('input', () => {
+    const typed = input.value.toLowerCase(), mine = ++ask;
+    menu.innerHTML = typed ? '<div class="select__menu-notice--loading">Loading...</div>' : '';
+    if (!typed) { return; }
+    setTimeout(() => {
+      if (mine !== ask) { return; }
+      const shown = places.filter(o => o.toLowerCase().includes(typed));
+      menu.innerHTML = shown.length ? `<div role="listbox" id="${id}-listbox">` + shown.map((o, i) =>
+        `<div role="option" id="${id}-opt-${i}">${o}</div>`).join('') + '</div>' :
+        '<div class="select__menu-notice--no-options">No options</div>';
+      input.setAttribute('aria-controls', `${id}-listbox`);
+      for (const opt of menu.querySelectorAll('[role=option]')) {
+        opt.addEventListener('click', () => {
+          box.querySelector('.select__single-value').textContent = opt.textContent;
+          input.value = ''; menu.innerHTML = '';
+        });
+      }
+    }, 2500);
+  });
+}
+slowCombo('slow1', 'Location (City) *', ['Chennai, Tamil Nadu, India', 'Chennai Central, Chennai',
+  'Dublin, County Dublin, Ireland']);
+/* 17 Nov, InterSystems: worked for the company before, a list and a group of boxes. */
+ghCombo('gh7', 'Do you now or have you previously worked for a Demo Co client? *', [
+  'I currently work for a Demo Co client', 'I previously worked for a Demo Co client',
+  'I have never worked for a Demo Co client']);
+ghCombo('gh8', 'How many years were you an employee at Demo Co? *', ['None', '1 to 2']);
 </script>
 <ul class="iti__country-list" role="listbox"><li class="iti__country" role="option" data-dial-code="47">Yes</li></ul>
 </body></html>

@@ -92,6 +92,36 @@ of the Cloud Run task come with the 07:30 call only. `/autopilot when` names the
    are kept so they are never mailed again.
 10. The marker is written and the report sent.
 
+## What works, in the weekly digest (S6, 23 Nov, your request)
+
+The Sunday weekly digest ends with **📈 What works** (`src/jobengine/track/what_works.py`),
+also sent at any time with `/stats works` (menu `/stats_works`). From every job in Notion it
+counts found > approved > applied > answered (and interviews), split by source (Board),
+country and screening verdict, at most 6 lines each (the rest folded into "others"), with the
+share approved. "Speed" is the median number of days from posting (else the day /fetch found
+the job) to applying, and how many were applied within 2 days. Two tips: the source with the
+most approvals for what it finds (at least 10 found), and the sources with at least 30 found
+and none approved: candidates to drop (FETCH 11). LOG-15 (24 Nov): the tip says the threshold
+and each source's count ("Jooble (31 found): candidates to drop (30 found or more)"), and a
+source with 10 to 29 found and none approved is named as "None approved yet: Pracuj.pl (29
+found); a source is a candidate to drop from 30 found." "Others" is several small sources
+added up, so it is never named.
+
+## Reply analysis, in the weekly digest (S9, 23 Nov, your request)
+
+Every reply the daily check reads is classified as before (see "Reply classification"); each
+one is now also counted per day in four groups (`src/jobengine/track/reply_analysis.py`, day
+ledger `reply.<group>`): **interview** (a screening call, an interview, an offer),
+**rejection** (a no, or "do not contact"), **automatic** (a confirmation or an out-of-office)
+and **question** (a positive or neutral answer, a question, anything else).
+
+The Sunday weekly digest gets **📬 Replies**: this week's replies by group, then, from every job
+you applied to, which resume headline (your approved title the job's role names, the same rule
+as the resume header) and which skills the jobs asked for (their Tech stack, at least 2
+applications each, the best 6) got answers: "- DevOps Engineer: 2 of 3 answered (67%), 0
+rejected". A last line names the headline with the most answers, or, after 10 or more
+applications and no answer, says to look at the headline and the first lines of the resume.
+
 ## Claude API cost in the digest
 
 The weekly digest has a line with the month's Claude API cost so far, what it went on, the
@@ -195,6 +225,12 @@ gave the email (Apollo, Hunter, Snov, Prospeo, Tomba, GitHub, Job posting), and 
   is never drafted again and never picked from the cache; it is kept so it is never found
   and mailed again. A late answer still turns it into Replied. Notion Config
   `contacts.dead_end_after` changes the number.
+- **LOG-18 (25 Nov, your rules): a new person after a silence or a no.** A **Ghosted** contact
+  (no answer 14 days after the follow-up) is never picked from the cache or drafted again, so
+  the company's next job gets a new person. A reply saying they **cannot help** or are not the
+  right person (reply class `cant_help`, also a "Can't help" button on a low-confidence card)
+  makes the contact **Dead end** with a note, even after an earlier friendly answer; the job's
+  own status is not changed. A late answer from a Ghosted person still turns them Replied.
 
 ## Reply classification
 
@@ -211,6 +247,7 @@ text by email. It comes even when nothing ran, so a stopped bot shows the same d
 
 ```
 📊 Daily report, Thu 01 Oct
+📊 Today: Found 16 · Screened 16 · Resumes 3 · Forms 0 · Mails 1 · Replies 1 · Problems 0
 🔎 Fetch: 2 run(s) (07:02, 19:31), 16 new job(s) saved. Found: Email alerts 38, Adzuna 9, Company sites 2.
 🧪 Screening: 16 screened (2 apply high, 5 apply normal, 9 skip).
 📄 Resumes: 3 built, keyword match on average 8 of 12 (lowest 6 of 12).
@@ -289,6 +326,10 @@ opening the link. Closed jobs get Status Expired, so /pending only shows live jo
   Expired:` with the reason for each. Wrong? Set the Status back in Notion.
 - Notion Config `schedule.expired_check` = `false` switches it off (default on). Bot State
   `expired.check` keeps the date of the last check. On Cloud Run the Sunday digest task runs it.
+- The date is written when the check ends (23 Nov: the bot was stopped 35 s into Monday's
+  check, and the date written at the start made it wait a week). A check that fails with an
+  error is marked too (no retry every few minutes); a check cut by stopping the bot runs again
+  after the restart.
 
 ## Weekly job board check (28 Oct, your request)
 
@@ -369,6 +410,131 @@ before that write are lost. Bot State `audit.done` keeps the last audited week.
 Tables: Weekly Audit (DEV) in DEV Sandbox (`notion.write.weekly_audit` in dev and local).
 There is no prod table yet: in prod the audit comes in Telegram only, with a DRY RUN line,
 until you OK the prod table.
+
+## Run Log (18 Nov, your request)
+
+One Notion row per scheduled run, so the days after go-live show what ran, when, for how long,
+how it went and what it did. A run is one scheduled step on your PC (`telegram_bot._scheduled`:
+Autopilot, Mail queue, Reply check ...) or one Cloud Run task (`web/app.py` `desk_tasks`).
+Since 20 Nov also /fetch, /screen and /autopilot sent by hand: Step is the command ("/fetch
+10:11"), and one stopped by /end is Failed with "stopped by /end".
+
+While a run goes on, the numbers the day ledger records (new jobs, screened, applied, mails
+sent, AI cost) and the bot's own WARNING and ERROR lines are counted for it in memory
+(`track/run_log.py`), so the Run Log costs no Notion read. When it ends one row is written:
+
+- Result: **OK**, **Problems** (an error was logged) or **Failed** (the step stopped with an
+  error, or a Cloud Run task answered `ok: false`);
+- Step, Where (PC or Cloud Run), Started, Seconds, the numbers, Errors, Warnings;
+- Summary: the first 4 lines of what the run reported; Failure: why it failed.
+- The row's page holds the full report, one line per paragraph (keys and emails
+  blanked). 23 Nov: /fetch sends Telegram a short message (new jobs per country, own job
+  links found, closed jobs, seen before, not for you, and "For you": jobs waiting for /jd,
+  jobs Notion refused, no alert email read, sources not checked) ending with
+  "Full report in Notion: Run Log, row /fetch HH:MM"; the long report is that page.
+- S10 (23 Nov, your ask): the same for the other long messages. Telegram gets the short one
+  ending with "📝 Full report in Notion: Run Log, row <name>"; the row's page holds the full
+  one (and what else the run sent that has no full report of its own):
+  - the daily check (07:30, 21:30 and /today): the counts in one line (sent, replies and
+    interviews, applications updated, bounced, follow-ups, ghosted), then only what needs
+    you: failed tokens, "Needs your call", the notes, the first error. The cards follow as
+    before;
+  - the daily report (21:45 and /report): the day's line, the warnings and what waits for
+    you. The email copy is still the full report;
+  - the morning check: what blocks the run and what needs you soon in full, the checks that
+    passed as one count ("✅ 5 other check(s) passed.");
+  - /health: "🩺 Health: N problem(s), M check(s) OK", each problem, and the Environment line;
+  - the weekly digest (Sunday and /digest): the week in numbers (its first block) and the
+    one-line tip of each analysis ("Put more effort where it works", "Most approvals for
+    what it finds", "Many found, none approved", "Most answers");
+  - the autopilot summary (scheduled and /autopilot): the counts and only the jobs that need
+    you (no resume built, or not approved); the resumes, apply packs and questions follow
+    as before;
+  - each dry run report (/dryrun and the auto-apply queue, 3 forms at once): what is left
+    for you (❗ and ❓ fields, the /answer line, blocked requests); the list of filled
+    fields is in the page and the screenshot shows them;
+  - the weekly audit was already short (its report is the Weekly Audit page).
+
+  /today, /report, /health, /digest and /dryrun now get a Run Log row too (Step is the
+  command). Where no Run Log row is written (no Run Log table), the full message comes as
+  before. In the page, a status word after "token:" or "key:" (OK, FAILED, missing) is
+  kept; a real key or token is still blanked.
+
+A run that did nothing (most ticks: "not due yet") writes no row. Email addresses, keys,
+tokens and the query part of links are blanked. Writing the row never fails the run.
+
+Sites blocked: the sites that refused the bot (403) or asked it to slow down (429) in the run,
+each site once (LOG-09, 24 Nov: every refused request was counted, 64 against the 30 the page
+listed). A `/fetch` writes the number its page lists under "Blocked us (N)".
+
+Tables: Run Log (DEV) (`notion.write.run_log` in dev and local) and Run Log in prod.
+
+## Daily scorecard (S1, 23 Nov, your request)
+
+One line a day that says what the bot did, so a testing day after go-live is reading one
+line (`src/jobengine/track/scorecard.py`). It opens the daily report (line 2 above):
+
+```
+📊 Today: Found 19 · Screened 11 · Resumes 2 · Forms 1 · Mails 0 · Replies 0 · Problems 1
+❌ Failed or with errors: Link check 10:15 (Run Log has why)
+```
+
+- Found: new jobs saved by /fetch. Screened: every verdict. Resumes, Mails, Replies: as in the
+  report. Forms: forms the form bot filled (dry run or auto-apply; a captcha or login stop is
+  not counted).
+- Problems: runs whose Run Log Result is Failed or Problems; the ❌ line names them with
+  their time, the same name as their Run Log row, where the reason is.
+- The same numbers are one row a day in Notion **Daily Scorecard** (`notion.write.
+  daily_scorecard`; Daily Scorecard (DEV) under DEV Sandbox in dev and local), updated after
+  every run that did something or had a problem. An idle tick writes nothing.
+- A scorecard problem is only logged: it never stops the run it counts.
+
+## Error Log (18 Nov, your request)
+
+One Notion row per kind of problem per day (`track/error_log.py`), so you can look back and
+ask Claude Code to "read the Error Log rows with Status New and fix them".
+
+- What counts: every ERROR and WARNING line of the bot's own loggers, and the site problems
+  the bot logs as INFO because the run goes on (403, 429, 404/410, timeouts, 5xx): Level
+  Error, Warning or Site problem.
+- One kind: an error by its message (links, ids and numbers blanked); a warning or a site
+  problem by the line in the code that logged it and its likely cause. "careers page not
+  read" for 30 sites is one row, Count 30, with the sites in Example.
+- Each row: Problem, Day, First seen, Last seen, Count, Stage (by the module that logged it),
+  Level, Likely cause (Rate limited (429), Refuses the bot (403), Key expired or wrong (401),
+  Page gone (404), Timeout, Network, Server error (5xx), Bot bug, Other), Where, Status (New),
+  Example (emails, keys, tokens and link queries blanked) and Key (do not edit).
+- Written at the end of every scheduled run (PC and Cloud Run), so short Cloud Run tasks lose
+  nothing; since 20 Nov also at the end of every command (/fetch, /screen ...), every 5
+  minutes while one runs (a /fetch that hangs still leaves its rows) and when the bot is
+  stopped (Ctrl+C, docker stop): the rows of the last 8 days are read once, today's row of a problem gets the new
+  count, a new one is added. Your Status, Notes and Fix PR are never overwritten. A row
+  written again the same day keeps the sites or companies it named and adds the new ones
+  (20 Nov).
+- A new kind of error or warning (no row in the last 7 days) comes to Telegram once, the
+  others of the same run in the same message (at most 5 named). Site problems never ping.
+- Writing the rows or the message never fails the run; rows that could not be written are
+  kept for the next run.
+- Not a problem (19 Nov): a retry still going on (a Telegram message sent on the second try,
+  a page asked again), and the DRY RUN lines saying what the dry run did not do (they do not
+  count as warnings in the Run Log either). Lost Telegram polls are a Warning only after
+  12 in a row ("Telegram not reached 12 times in a row"); a single lost poll is not.
+- Sites in Example are host names from the line (small letters); "Page.goto" in a browser
+  error is no site.
+
+Tables: Error Log (DEV) (`notion.write.error_log` in dev and local) and Error Log in prod.
+
+## Report a problem from Telegram (S2, 23 Nov, your request)
+
+When a bot message is wrong, reply to it with `wrong: what is wrong` (or `bug: ...`), or send
+`/bug what is wrong`. The bot saves one Error Log row (`src/jobengine/track/reports.py`):
+Problem "You: <your words>", Level **Reported by you**, Stage Reported, Likely cause Your
+report, Status New, and in Example your words, then the message you replied to with its time
+(emails, keys, tokens and link queries blanked). No logs or screenshots need pasting: Claude
+Code reads the rows with Status New and fixes them like the bot's own problems. A report never
+pings (you sent it). Without a reply the row says no message was attached; `/bug` alone answers
+how to write one. When the Error Log cannot be written (DRY RUN for Notion, or Notion down) the
+answer says "Not saved" and why.
 
 ## Heartbeat (Autopilot H4)
 

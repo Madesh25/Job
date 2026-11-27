@@ -36,7 +36,8 @@ PROFILE = {"email": "profile.email", "phone": "profile.phone",
            "website": "profile.website_url"}
 ANSWERS = ("city", "sponsorship_needed",
            "authorized_without_sponsorship", "expected_salary", "current_salary",
-           "notice_period", "earliest_start", "relocation", "english", "gender")
+           "notice_period", "earliest_start", "relocation", "english", "gender",
+           "other_diversity", "education")
 HOW = ("Autofill: on the form page click your \"Job Engine autofill\" bookmark and paste this "
        "whole message. It fills the empty fields it knows, marks them in orange and never "
        "presses Submit. No bookmark yet? Send /autofill.")
@@ -67,6 +68,8 @@ def fields(s: Settings, config: ConfigStore, values: dict[str, Any], *,
     for name, key in PROFILE.items():
         if config.get(key):
             out[name] = " ".join(str(config.get(key)).split())
+    if values.get("Company"):  # 17 Nov: "Have you worked for <company> before?"
+        out["company"] = " ".join(str(values["Company"]).split())
     if why:
         out["why"] = why
     if letter:
@@ -169,7 +172,8 @@ AUTOFILL_JS = r"""
     .replace(/[^a-z0-9]+/g, ' ').trim();
   const shown = el => !!(el.offsetWidth || el.offsetHeight || el.getClientRects().length);
   const inputs = () => [...document.querySelectorAll('input, textarea, select')]
-    .filter(el => shown(el) && !el.disabled && !el.readOnly &&
+    .filter(el => (shown(el) || (el.type === 'radio' && el.labels &&
+      [...el.labels].some(shown))) && !el.disabled && !el.readOnly &&
       el.getAttribute('aria-hidden') !== 'true' && !el.closest('[aria-hidden=true]') &&
       !/^(hidden|file|submit|button|reset|image|password|checkbox|search)$/i.test(el.type || ''));
   const frame = [...document.querySelectorAll('iframe')].map(f => f.src || '')
@@ -214,6 +218,9 @@ AUTOFILL_JS = r"""
     'contact person|reference|emergency|manager|recruiter)\\b');
   /* 16 Nov, real Greenhouse form (Qube): "Base Salary Currency" is not a salary amount. */
   const NOT_PAY = /\b(currency|bonus|deferred|claw ?back|equity|stock|commission)\b/;
+  const DECLINE = new RegExp('\\b(prefer not|decline|don t wish|do not wish|rather not|' +
+    'do not want|don t want|not to (say|answer|disclose)|wish not)\\b');
+  const NOT_ABLE = /\b(unable|not able|cannot|can t)\b/;
   const RULES = [
     [/\b(first|given) ?name\b|\bforename\b/, 'first_name', OTHER_PERSON],
     [/\b(last|family) ?name\b|\bsurname\b/, 'last_name', OTHER_PERSON],
@@ -242,6 +249,11 @@ AUTOFILL_JS = r"""
     [/\brelocat/, 'relocation', null],
     [/\benglish\b/, 'english', null],
     [/\bgender\b/, 'gender', null],
+    /* 17 Nov, real Greenhouse form (InterSystems): the US questions after Gender. */
+    [/\b(hispanic|latin[oa]|veteran|disabilit\w*|race|ethnic\w*|sexual orientation)\b/,
+      'other_diversity', null],
+    [/\bjob location\b/, 'relocation', null],
+    [/\bdiscipline\b|\bfield of study\b|^(your )?major$/, 'education', null],
     [/\b(city|town)\b|\bcurrent location\b|^(your )?location$|\bwhere are you (currently )?based\b/,
       'city',
       /\b(relocat|prefer|willing|office|desired)/],
@@ -274,6 +286,37 @@ AUTOFILL_JS = r"""
     }
     return best;
   };
+  /* 17 Nov, Keylane (Workable): the question of YES / NO buttons sits outside their group,
+     so the first label in the box was the YES option itself. The question of a radio group:
+     its aria-labelledby or legend, else the first line of the nearest box around the whole
+     group (and no other field) that is not one of its options. */
+  const txt = n => (n && (n.innerText || n.textContent) || '').replace(/\s+/g, ' ').trim();
+  const groupQuestion = el => {
+    const mates = el.name ? [...document.querySelectorAll('input[type=radio]')]
+      .filter(r => r.name === el.name) : [el];
+    const options = new Set(mates.map(r => norm(txt(r.labels && r.labels[0]) || r.value)));
+    const group = el.closest('fieldset, [role=radiogroup], [role=group]');
+    if (group) {
+      const by = (group.getAttribute('aria-labelledby') || '').split(/\s+/).filter(Boolean)
+        .map(id => txt(document.getElementById(id))).filter(Boolean).join(' ');
+      if (by) { return by; }
+      if (group.getAttribute('aria-label')) { return group.getAttribute('aria-label'); }
+      const legend = group.querySelector('legend');
+      if (legend && txt(legend)) { return txt(legend); }
+    }
+    for (let p = group || el.parentElement, d = 0; p && d < 6; p = p.parentElement, d++) {
+      if (mates.some(r => !p.contains(r))) { continue; }
+      if (p.querySelectorAll('input:not([type=hidden]), textarea, select').length >
+        mates.length) { break; }
+      const line = (p.innerText || '').split('\n').map(s => s.trim()).find(s => {
+        let rest = ' ' + norm(s) + ' ';
+        for (const o of options) { if (o) { rest = rest.split(' ' + o + ' ').join(' '); } }
+        return rest.trim();
+      });
+      if (line) { return line; }
+    }
+    return '';
+  };
   const partsOf = el => {
     const parts = [];
     if (el.labels) { for (const l of el.labels) { parts.push(l.innerText); } }
@@ -286,7 +329,10 @@ AUTOFILL_JS = r"""
     }
     parts.push(el.getAttribute('aria-label'), el.getAttribute('placeholder'),
       el.getAttribute('data-automation-id'), el.name, el.id);
-    if (!parts.slice(0, -2).join('').trim() || el.type === 'radio') {
+    const asked = el.type === 'radio' ? groupQuestion(el) : '';
+    if (asked) {
+      parts.push(asked);
+    } else if (!parts.slice(0, -2).join('').trim() || el.type === 'radio') {
       const box = el.closest('fieldset, [role=radiogroup], [role=group], .application-question, ' +
         '.field, [data-automation-id^=formField]');
       const legend = box && box.querySelector('legend, label, .application-label, .text');
@@ -306,7 +352,22 @@ AUTOFILL_JS = r"""
         return f[key];
       }
     }
-    return null;
+    return workedHere(parts, el.type);
+  };
+  /* 17 Nov, real Greenhouse form (InterSystems): "Have you previously worked for
+     InterSystems?" and the box "I have never worked at InterSystems": you apply to a company
+     you have not worked for. Only a question naming the job's own company, never why or how. */
+  const company = norm(f.company || String(data.job || '').split(',')[0]).replace(new RegExp(
+    '( (b ?v|n ?v|gmbh|inc|ltd|llc|plc|ag|sa|sp z o ?o|group|ab|as|oy|srl|spa|limited|' +
+    'corporation|corp))+$'), '');
+  const workedHere = (parts, type) => {
+    if (company.length < 3) { return null; }
+    const text = parts.find(p => (' ' + p + ' ').includes(' ' + company + ' ') &&
+      /\b(worked|employed|employee|intern)\b/.test(p) &&
+      !/\b(why|how|what|when|where|which|who)\b/.test(p));
+    if (!text) { return null; }
+    if (type === 'checkbox') { return /\bnever\b/.test(text) ? 'Yes' : null; }
+    return 'No, never';
   };
   const fire = el => {
     el.dispatchEvent(new Event('input', {bubbles: true}));
@@ -366,20 +427,40 @@ AUTOFILL_JS = r"""
     if (i < 0 && words.length > 1) {
       i = texts.findIndex(t => words.every(w => t.split(' ').includes(w)));
     }
+    /* 17 Nov, InterSystems: "Prefer not to say" is "Decline To Self Identify" there, and
+       "Open to relocate" is "Able to relocate to job location". */
+    for (const re of [DECLINE, /\brelocat/, /\bnever\b/]) {
+      if (i < 0 && re.test(want)) {
+        const hits = texts.map((t, k) => re.test(t) && !NOT_ABLE.test(t) ? k : -1)
+          .filter(k => k >= 0);
+        if (hits.length === 1) { i = hits[0]; }
+      }
+    }
     return i;
   };
+  const loading = () => [...document.querySelectorAll('[class*=menu-notice--loading], ' +
+      '[class*=loading-indicator], [class*=loadingIndicator], [class*=loadingMessage]')]
+    .some(shown);
   const pick = async (el, v) => {
-    setText(el, v);
-    el.dispatchEvent(new KeyboardEvent('keyup', {key: 'Unidentified', bubbles: true}));
-    for (let n = 0; n < 12; n++) {
-      await sleep(150);
-      const opts = optionsOf(el);
-      if (!opts.length) { continue; }
-      const i = choice(opts.map(o => norm(o.innerText)), v);
-      if (i < 0) { break; }
-      const text = norm(opts[i].innerText);
-      opts[i].click();
-      return text;
+    /* 17 Nov, InterSystems: the list shows only options with the typed text, and "Prefer not
+       to say" is "Decline To Self Identify" there: then the whole list is looked at. */
+    /* 17 Nov, InterSystems "Location (City)": its places come from a search site, slower than
+       1.8 s at times: waited for (up to 6 s) while the list says it is loading; "Chennai,
+       India" is also searched as "Chennai". */
+    const head = String(v).split(',')[0].trim();
+    for (const typed of [v, ...(head && head !== String(v).trim() ? [head] : []), '']) {
+      setText(el, typed);
+      el.dispatchEvent(new KeyboardEvent('keyup', {key: 'Unidentified', bubbles: true}));
+      for (let n = 0; n < 40; n++) {
+        await sleep(150);
+        const opts = optionsOf(el);
+        if (!opts.length) { if (n >= 11 && !loading()) { break; } continue; }
+        const i = choice(opts.map(o => norm(o.innerText)), v);
+        if (i < 0) { break; }
+        const text = norm(opts[i].innerText);
+        opts[i].click();
+        return text;
+      }
     }
     setText(el, '');
     return null;
@@ -440,6 +521,18 @@ AUTOFILL_JS = r"""
     } else if (!had) {
       refused.push(partsOf(el)[0] || el.name || 'a field');
     }
+  }
+  /* 17 Nov, InterSystems: the box "I have never worked at InterSystems", when no box of its
+     group is ticked yet. */
+  for (const box of document.querySelectorAll('input[type=checkbox]')) {
+    if (box.disabled || box.checked) { continue; }
+    if (!shown(box) && !(box.labels && box.labels[0] && shown(box.labels[0]))) { continue; }
+    const parts = partsOf(box);
+    if (workedHere(parts, 'checkbox') !== 'Yes') { continue; }
+    if ([...document.querySelectorAll('input[type=checkbox]')]
+      .some(b => b.checked && b.name && b.name === box.name)) { continue; }
+    box.click();
+    if (box.checked) { mark(box.parentElement || box, parts[0] || 'never worked here'); }
   }
   await sleep(300);
   const empty = inputs().filter(el =>

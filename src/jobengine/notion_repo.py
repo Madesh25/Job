@@ -14,7 +14,7 @@ import re
 import threading
 import time
 from collections.abc import Callable, Iterator
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 from typing import Any, Protocol
 
@@ -67,6 +67,9 @@ JOB_PROPERTY_TYPES = {
     "Resume": "relation",
     "Applied date": "date",
     "Last activity date": "date",
+    # Written by screening, used by the contact finder (LOG-18, 27 Nov): how many contacts
+    # the job gets. Written only where the database has the column (NEW_JOB_COLUMNS).
+    "Contacts to find": "number",
     # Written by the contact finder (Module 05).
     "Contacts": "relation",
     "Contact source": "select",
@@ -509,11 +512,17 @@ def page_values(page: dict[str, Any]) -> dict[str, Any]:
     return {name: plain_value(prop) for name, prop in (page.get("properties") or {}).items()}
 
 
+# Columns added after the databases were made: left out of a write until the database has
+# them (prod gets them at go-live), so a missing column never fails screening.
+NEW_JOB_COLUMNS = ("Contacts to find",)
+
+
 class NotionJobsRepo:
     def __init__(self, client: NotionClient, data_source_id: str):
         self.client = client
         self.data_source_id = data_source_id
         self._years_type: str | None = None
+        self._columns: set[str] | None = None
         self._lock = threading.Lock()
 
     def _props(self, plan: dict[str, Any]) -> dict[str, Any]:
@@ -527,6 +536,16 @@ class NotionJobsRepo:
                     self._years_type = prop.get("type") or "rich_text"
             if self._years_type == "number":
                 plan = {**plan, "Years required": years_low(plan["Years required"])}
+        if any(name in plan for name in NEW_JOB_COLUMNS):
+            with self._lock:
+                if self._columns is None:
+                    schema = self.client.request("GET", f"/data_sources/{self.data_source_id}")
+                    self._columns = set(schema.get("properties") or {})
+            missing = [n for n in NEW_JOB_COLUMNS if n in plan and n not in self._columns]
+            if missing:
+                log.info("Job Opportunities has no column %s yet: not written",
+                         ", ".join(missing))
+                plan = {k: v for k, v in plan.items() if k not in missing}
         out = {}
         for name, value in plan.items():
             kind = JOB_PROPERTY_TYPES[name]
@@ -1243,6 +1262,9 @@ ISSUE_TYPES = {
 }
 
 
+BLOCKS_PER_REQUEST = 100  # Notion's limit of blocks in one request
+
+
 class NotionTable:
     """A small table the bot adds rows to and reads (Answer bank, Auto-apply issues).
     Written only through the target from safety.notion_write_target."""
@@ -1250,11 +1272,20 @@ class NotionTable:
     def __init__(self, client: NotionClient, data_source_id: str, types: dict[str, str]):
         self.client, self.data_source_id, self.types = client, data_source_id, types
 
-    def create(self, props: dict[str, Any]) -> str:
+    def create(self, props: dict[str, Any], lines: list[str] | None = None) -> str:
+        """A new row; `lines` become its page text, one paragraph each (23 Nov: the full
+        /fetch report goes into its Run Log row, Telegram gets the short one)."""
         body = {"parent": {"type": "data_source_id", "data_source_id": self.data_source_id},
                 "properties": {name: notion_value(self.types[name], value)
                                for name, value in props.items() if value not in (None, "")}}
-        return self.client.request("POST", "/pages", body)["id"]
+        lines = list(lines or [])
+        if lines:
+            body["children"] = paragraph_blocks(lines[:BLOCKS_PER_REQUEST])
+        page_id = self.client.request("POST", "/pages", body)["id"]
+        for start in range(BLOCKS_PER_REQUEST, len(lines), BLOCKS_PER_REQUEST):
+            self.client.request("PATCH", f"/blocks/{page_id}/children", {
+                "children": paragraph_blocks(lines[start:start + BLOCKS_PER_REQUEST])})
+        return page_id
 
     def rows(self) -> list[dict[str, Any]]:
         return [page_values(page) for page in self.client.query(self.data_source_id)]
@@ -1283,13 +1314,31 @@ def _same_value(have: Any, want: Any) -> bool:
 class FakeTable:
     def __init__(self) -> None:
         self.created: list[dict[str, Any]] = []
+        self.bodies: list[list[str]] = []  # the page text of each created row
 
-    def create(self, props: dict[str, Any]) -> str:
+    def create(self, props: dict[str, Any], lines: list[str] | None = None) -> str:
         self.created.append(dict(props))
+        self.bodies.append(list(lines or []))
         return f"fake-{len(self.created)}"
 
     def rows(self) -> list[dict[str, Any]]:
         return [dict(r) for r in self.created]
+
+    def recent(self, since: date) -> list[tuple[str, dict[str, Any]]]:
+        """The rows whose Day is `since` or later (Error Log)."""
+        out = []
+        for n, row in enumerate(self.created):
+            day = row.get("Day")
+            if isinstance(day, datetime):
+                day = day.date()
+            if isinstance(day, str):
+                day = date.fromisoformat(day[:10])
+            if day is not None and day >= since:
+                out.append((f"fake-{n + 1}", dict(row)))
+        return out
+
+    def update(self, page_id: str, props: dict[str, Any]) -> None:
+        self.created[int(page_id.rsplit("-", 1)[1]) - 1].update(props)
 
     def upsert(self, match: dict[str, Any], props: dict[str, Any],
                new: dict[str, Any] | None = None) -> str:
@@ -1344,6 +1393,87 @@ def audit_table(s: Settings, client: NotionClient) -> AuditTable | None:
         log.warning("DRY RUN: would write to weekly_audit")
         return None
     return AuditTable(client, target, AUDIT_TYPES)
+
+
+RUN_LOG_TYPES = {
+    "Run": "title", "Started": "date", "Step": "select", "Where": "select", "Result": "select",
+    "Seconds": "number", "New jobs": "number", "Screened": "number", "Applied": "number",
+    "Mails sent": "number", "Sites blocked": "number", "AI cost": "number", "Errors": "number",
+    "Warnings": "number", "Summary": "rich_text", "Failure": "rich_text",
+}
+
+
+ERROR_LOG_TYPES = {
+    "Problem": "title", "Day": "date", "First seen": "date", "Last seen": "date",
+    "Count": "number", "Stage": "select", "Level": "select", "Likely cause": "select",
+    "Where": "select", "Status": "select", "Example": "rich_text", "Notes": "rich_text",
+    "Fix PR": "rich_text", "Key": "rich_text",
+}
+
+
+class ErrorLogTable(NotionTable):
+    """Error Log (18 Nov): reads only the rows of the last days, updates a row by its id."""
+
+    def recent(self, since: date) -> list[tuple[str, dict[str, Any]]]:
+        body = {"filter": {"property": "Day", "date": {"on_or_after": since.isoformat()}}}
+        return [(str(page["id"]), page_values(page))
+                for page in self.client.query(self.data_source_id, body)]
+
+    def update(self, page_id: str, props: dict[str, Any]) -> None:
+        body = {"properties": {name: notion_value(self.types[name], value)
+                               for name, value in props.items() if value not in (None, "")}}
+        self.client.request("PATCH", f"/pages/{page_id}", body)
+
+
+def error_log_table(s: Settings, client: NotionClient) -> ErrorLogTable | None:
+    """Error Log (18 Nov): one row per kind of problem per day, or None when not writable."""
+    target = notion_write_target("error_log", s)
+    if target is None:
+        log.warning("DRY RUN: would write to error_log")
+        return None
+    return ErrorLogTable(client, target, ERROR_LOG_TYPES)
+
+
+SCORECARD_TYPES = {
+    "Day": "title", "Date": "date", "Result": "select", "Found": "number",
+    "Screened": "number", "Resumes": "number", "Forms": "number", "Mails": "number",
+    "Replies": "number", "Problems": "number", "Failed steps": "rich_text",
+    "AI cost": "number", "Updated": "date",
+}
+
+
+SCREEN_CHECK_TYPES = {
+    "Job": "title", "Week": "rich_text", "Picked": "date", "Verdict": "select",
+    "Country": "rich_text", "Why": "rich_text", "Job page": "url", "Job link": "url",
+    "Your check": "select", "Should be": "select", "Note": "rich_text", "Key": "rich_text",
+}
+
+
+def screen_check_table(s: Settings, client: NotionClient) -> NotionTable | None:
+    """Screening Check (S3, 23 Nov): 10 verdicts a week to tick, or None when not writable."""
+    target = notion_write_target("screen_check", s)
+    if target is None:
+        log.warning("DRY RUN: would write to screen_check")
+        return None
+    return NotionTable(client, target, SCREEN_CHECK_TYPES)
+
+
+def scorecard_table(s: Settings, client: NotionClient) -> NotionTable | None:
+    """Daily Scorecard (S1, 23 Nov): one row a day, or None when not writable here."""
+    target = notion_write_target("daily_scorecard", s)
+    if target is None:
+        log.warning("DRY RUN: would write to daily_scorecard")
+        return None
+    return NotionTable(client, target, SCORECARD_TYPES)
+
+
+def run_log_table(s: Settings, client: NotionClient) -> NotionTable | None:
+    """Run Log (18 Nov): one row per scheduled run, or None when not writable here."""
+    target = notion_write_target("run_log", s)
+    if target is None:
+        log.warning("DRY RUN: would write to run_log")
+        return None
+    return NotionTable(client, target, RUN_LOG_TYPES)
 
 
 def autoapply_tables(s: Settings, client: NotionClient) -> tuple[Any, Any]:

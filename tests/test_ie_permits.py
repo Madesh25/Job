@@ -3,6 +3,7 @@
 import io
 from datetime import date
 
+import pytest
 from openpyxl import Workbook
 from test_review_one_at_a_time import make_desk
 
@@ -69,8 +70,9 @@ def test_irish_card_says_it_and_ranks_higher():
     d.repo.rows["pl-clean"].update({"Country": "Ireland", "Company": "Tulip Data"})
     row = next(r for r in d.all_ranked() if r.page_id == "pl-clean")
     assert d.irish_permits(row) == ("Tulip Data Ireland Ltd", 7)
-    card = d.card(row, 0, 1)
+    card = d.card(row, 0, 1, full=True)  # the full card (More)
     assert "Irish permits: 7 issued to Tulip Data Ireland Ltd (DETE list)" in card.text
+    assert "; 7 Irish permits issued to it" in d.card(row, 0, 1).text  # S11: in the Why line
     d._permits = (date.min, None)
     calls = []
     d.get_file = lambda url: calls.append(url) or (url, "application/vnd.ms-excel", xlsx)
@@ -106,5 +108,47 @@ def test_gov_ie_refuses_so_the_file_you_saved_is_read(tmp_path):
     (tmp_path / "ie_permits.xlsx").write_bytes(workbook())
     d._permits = None  # the next day, or after a restart
     assert d.irish_permits(row) == ("Tulip Data Ireland Ltd", 7)
-    assert d.permits_note.startswith("read from out/ie_permits.xlsx (2 companies; gov.ie:")
+    # LOG-16: the saved copy is read first, quietly (gov.ie is not asked).
+    assert d.permits_note.startswith("read from out/ie_permits.xlsx (2 companies, saved ")
     assert "Irish permits list: read from out/ie_permits.xlsx" in d.health_command()[0].text
+
+
+def test_a_saved_copy_is_read_without_asking_gov_ie(tmp_path, caplog):
+    """LOG-16 (24 Nov): "Irish permits list not read: HTTP 403" every day in the Error Log."""
+    import os
+    from datetime import datetime, timedelta
+
+    d = make_desk()
+    d.out_dir = tmp_path
+    asked = []
+    d.get_file = lambda url: asked.append(url) or pytest.fail("gov.ie asked")
+    saved = tmp_path / "ie_permits.xlsx"
+    saved.write_bytes(workbook())
+    day = datetime.combine(d.today(), datetime.min.time())
+    os.utime(saved, ((day - timedelta(days=5)).timestamp(),) * 2)
+    d.repo.rows["pl-clean"].update({"Country": "Ireland", "Company": "Tulip Data"})
+    row = next(r for r in d.all_ranked() if r.page_id == "pl-clean")
+    assert d.irish_permits(row) == ("Tulip Data Ireland Ltd", 7)
+    assert asked == []
+    assert d.permits_note == "read from out/ie_permits.xlsx (2 companies, saved 5 day(s) ago)"
+    assert not [r for r in caplog.records if r.levelname == "WARNING"]
+
+
+def test_an_old_copy_is_told_once_a_month(tmp_path, caplog):
+    import os
+    from datetime import datetime, timedelta
+
+    d = make_desk()
+    d.out_dir = tmp_path
+    d.get_file = lambda url: pytest.fail("gov.ie asked")
+    saved = tmp_path / "ie_permits.xlsx"
+    saved.write_bytes(workbook())
+    day = datetime.combine(d.today(), datetime.min.time())
+    os.utime(saved, ((day - timedelta(days=45)).timestamp(),) * 2)
+    for _ in range(2):  # two days of the same month
+        d._permits = None
+        assert d.permits() is not None
+    old = [r for r in caplog.records if r.levelname == "WARNING"
+           and "is 45 days old" in r.getMessage()]
+    assert len(old) == 1
+    assert "It is old: download" in d.permits_note

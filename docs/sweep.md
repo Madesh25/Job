@@ -134,7 +134,7 @@ careers site that links to no known ATS).
 
 | Source | Needs | Notes |
 |---|---|---|
-| Gmail alerts | `GMAIL_ALERTS_TOKEN_JSON_m02` and `GMAIL_ALERTS_TOKEN_JSON_mm` (madeshwaranm02 and madeshwaran.manikam, `gmail.readonly`; the old `GMAIL_ALERTS_TOKEN_JSON` is read as m02) | Both mailboxes are read; one failing is a note and the other is still read. Emails with the label `sweep.gmail.label` ("Job Alerts") or from a sender in `sweep.gmail.sender_boards`, last `sweep.gmail.days` (2) days, Spam included (23 Oct: Gmail put LinkedIn alerts in Spam; only labelled or known-sender emails are read there, and `/alertcheck` says which emails sit in Spam so you can add a "Never send it to Spam" filter). Board from the sender domain. Non-LinkedIn job links are followed to the real job page for its link and full description; LinkedIn links are never requested. `/alertcheck` shows each email. |
+| Gmail alerts | `GMAIL_ALERTS_TOKEN_JSON_m02` and `GMAIL_ALERTS_TOKEN_JSON_mm` (madeshwaranm02 and madeshwaran.manikam, `gmail.readonly`; the old `GMAIL_ALERTS_TOKEN_JSON` is read as m02) | Both mailboxes are read; one failing is a note and the other is still read. Emails with the label `sweep.gmail.label` ("Job Alerts") or from a sender in `sweep.gmail.sender_boards`, last `sweep.gmail.days` (3, the same window as `max_posted_age_days` 2: today and the 2 days before; 23 Nov: 2 days missed the alerts of 21 Nov morning after a weekend) days, Spam included (23 Oct: Gmail put LinkedIn alerts in Spam; only labelled or known-sender emails are read there, and `/alertcheck` says which emails sit in Spam so you can add a "Never send it to Spam" filter). Board from the sender domain. Non-LinkedIn job links are followed to the real job page for its link and full description; LinkedIn links are never requested. `/alertcheck` shows each email. |
 | Adzuna | `ADZUNA_APP_ID`, `ADZUNA_APP_KEY` | `pl` and `nl` only (Adzuna has no Ireland), at most `sweep.adzuna.max_calls_per_run` calls, split evenly between the countries (12 calls, 6 pages of 50 each by default) so every country is searched. The feed gives a snippet; the full text is read from the job page for jobs that may be saved. Predicted salaries are ignored. |
 | Jooble | `JOOBLE_API_KEY` (free, https://jooble.org/api/about) | Job search over many job boards, Ireland included. One call per country and term in `sweep.jooble` (3 x 4 = 12 calls). Board is the site Jooble found the job on when it is a known board (IrishJobs.ie, Indeed and so on, from `sweep.gmail.sender_boards`), else `Other`. The feed gives a snippet; the full text is read from the job page. Skipped without the key. |
 | NoFluffJobs | none | FETCH 4 (5 Oct): the public search page (`sweep.nofluffjobs`, newest first, `pages` pages per term, one request a second, robots.txt respected) carries its jobs as page data (`serverApp-state`): title, company, cities, posted date, salary. Poland. The description is read from the job page. A 403 or a changed page stops it quietly with a note in the summary. |
@@ -152,12 +152,25 @@ A source whose secret is missing is skipped with a line in the summary; the run 
 - SmartRecruiters: `api.smartrecruiters.com/v1/companies/{token}/postings`, then one detail call
   per posting that passed the filters, at most `sweep.ats.max_detail_calls` per run.
 - Workday (`<tenant>.<wdN>.myworkdayjobs.com/<site>`): the JSON search the career site itself
-  uses (`POST /wday/cxs/<tenant>/<site>/jobs`), once per `sweep.ats.search_terms` term, 20
+  uses (`POST /wday/cxs/<tenant>/<site>/jobs`), once per `sweep.ats.workday_search_terms` term, 20
   results each (`workday_pages_per_term` pages). Then one detail call per kept posting, at
   most `sweep.ats.workday_detail_calls` per run: full description, start date and location.
   A posting listed as "3 Locations" is kept only when its detail places it in an active
   country. Posting ID `workday-<tenant>-<last path part>`. Any `myworkdayjobs.com` subdomain is
   allowed through `safety.allowed_host_suffixes`.
+  Workday counts every company's site as one visitor (17 Nov): Workday is asked one request
+  at a time, a "too many requests" pauses it 30 s, and when that does not help twice it is
+  left alone for an hour. Since 19 Nov that hour covers job pages too (the job-link lookup
+  and the closed-job check), and a job page refused with HTTP 429 starts it.
+  LOG-08 (24 Nov): Workday still refused this PC on every `/fetch` (27 to 32 sites a day), so
+  it is asked far less. 3 search words per site (`workday_search_terms`, not the 8 of
+  `search_terms`); only `workday_sites_per_run` sites (10) per `/fetch`, the ones read longest
+  ago, each at most once in `workday_read_every_hours` (20; their jobs are saved for 20 days,
+  so nothing is lost); requests 3 s apart (was 0.5 s); and a refusal leaves Workday alone for
+  6 hours (was 1). That time is kept in Bot State (`workday.turns`, with when each site was
+  read), so the next `/fetch`, even after a restart, does not ask Workday again before then.
+  A site left for later is not listed as "Blocked us"; the `/fetch` message has one line,
+  "🏢 Workday: 10 of 35 sites read; 25 in the next runs", and the Error Log one row a day.
 - Workable (23 Oct): `apply.workable.com/api/v1/widget/accounts/{account}?details=true`, the
   public career widget (`apply.workable.com/<account>` or `<account>.workable.com` links).
 - Recruitee: `<company>.recruitee.com/api/offers/`, published offers only; a job both remote
@@ -313,6 +326,11 @@ row already in Notion, or as a better ranked new job in the same sweep, are not 
 so they do not use the daily 30. The summary counts them: `Same job in another city (not saved
 again): 7`.
 
+LOG-10 (24 Nov): a job left out for a reason (title, place, ...) is merged the same way. 19 Sii
+"Senior Technical Product Owner" postings in 19 cities were 19 "title not DevOps-type"; now they
+are 1 "title not DevOps-type" and 18 "same job in another city" (same company and title, same
+reason). The total left out stays the same.
+
 ## Restarting the bot during /fetch
 
 Telegram hands a message to the bot again when the bot stopped before it finished (Ctrl+C in
@@ -448,8 +466,13 @@ site (`src/jobengine/sweep/job_links.py`), newest first:
    the browser /dryrun uses; plain GETs only, never a site that refuses the bot). Opened
    there: short pages (little text or few links) and, since 4 Nov, any careers page that
    shows no job list (YachtCloud: big menus, the jobs come later by JavaScript); a long page
-   that already lists jobs is not. At most 2 per job and `max_rendered` (40, DEV 80) per
-   sweep: on 30 Oct CGI's long pages used 5 of 15 and the rest of the sweep had none. A jobs
+   that already lists jobs is not. At most 6 per job and `max_rendered` (120, DEV and PC 150) per
+   sweep: on 30 Oct CGI's long pages used 5 of 15 and the rest of the sweep had none.
+   `browsers` (3) pages are open at the same time, each in its own browser (17 Nov,
+   measured: 26 pages in 15 s instead of 46 s, about 170 MB more memory per browser). A page
+   gets 60 s in all; a browser still busy then (20 Nov: Fortray's page never answered and
+   /fetch, and /end, waited for it) is left for the rest of the sweep, the others go on, and
+   closing waits at most 10 s per browser. A jobs
    box from another site inside the page (an iframe: Recruitee, Homerun, Personio ...) is
    read too, with its links made whole with the box's own site. A Workday link without its
    server part (`armacell.myworkdayjobs.com`, an address that does not exist) or with a
@@ -468,7 +491,10 @@ site (`src/jobengine/sweep/job_links.py`), newest first:
    it carries a job number of 5 digits or more), the text is at least as
    long as a full description and names the role; the description says "found by Google's copy of
    the company page". Never for a job whose job list was read without it (a ghost job).
-   One search from `max_searches`.
+   One search from `max_searches`. **Off since 20 Nov** (`sweep.job_links.google_copy:
+   false`, AI cost): Gemini gives "0 result links" for these searches, so Google's copy
+   found 0 of 26 jobs on 19 and 20 Nov while it was about half of each /fetch's Google
+   searches. Turn it on again when the /fetch log shows result links.
 3. Only when no careers page was found: one AI web search for the job itself (on 30 Oct it
    found nothing the careers page had missed, so the searches go to more companies).
 
@@ -648,7 +674,8 @@ send weekly digests unless set to daily).
 
 ### Each source's results (13 Nov, fetch idea 4)
 
-/fetchreport ends with one line per source (the Board of every job in Notion): found >
+`/fetchreport sources` (or the button "Each source, all time"; until 23 Nov the end of
+/fetchreport) gives one line per source (the Board of every job in Notion): found >
 approved > applied > answered (a reply or a rejection), and interviews. Sources with fewer
 than 3 jobs are added up as "others". A source with many found and none approved is a
 candidate to drop, decided in FETCH 11 with live numbers.
@@ -686,9 +713,10 @@ to what each source read and nothing is dropped without a trace:
 
 The `/fetch` summary ends with one line per source ("Where the postings went"). Bot State
 `sweep.last_report` keeps the counts and up to 25 dropped jobs per source and reason (so every
-reason has examples); `/fetchreport` shows them by reason with the complete counts (5 jobs per
-reason), and `/fetchreport <word>` shows up to 40 jobs of the reasons or
-sources containing that word, for example `/fetchreport skill` or `/fetchreport adzuna`; the four biggest reasons also come as buttons under `/fetchreport`. The `/fetch` summary and the report count postings the same way (a job seen on two sites counts twice). Long answers arrive as several Telegram messages instead of being cut off. A job already in Notion whose company is an agency gets the agency flag on its next `/fetch` (its other flags stay).
+reason has examples). `/fetchreport` (23 Nov, your ask: short) gives the totals (read, new,
+seen before, left out), the new jobs per source and up to 8 reasons with their counts, no
+jobs; `/fetchreport <word>` shows up to 40 jobs of the reasons or
+sources containing that word, for example `/fetchreport skill` or `/fetchreport adzuna`; the four biggest reasons also come as buttons under `/fetchreport`. LOG-09 (24 Nov): with a word, the top block lists only the sources that match it; two words both have to match (`/fetchreport title adzuna`: Adzuna's title reason, all its kept jobs); and the last line says what is shown ("up to 40 jobs per reason, taken in turn from each source"; the report keeps 25 per source and reason, the counts are complete). The `/fetch` summary and the report count postings the same way (a job seen on two sites counts twice). Long answers arrive as several Telegram messages instead of being cut off. A job already in Notion whose company is an agency gets the agency flag on its next `/fetch` (its other flags stay).
 
 **Pracuj.pl cards (5 Oct).** A Pracuj.pl alert card reads "!" (badge), title, a badge
 line ("Najlepiej dopasowana", "Nowosc!", "Hit!", "Spiesz sie!", "Wyprzedz innych
@@ -731,6 +759,10 @@ Poland"); other card lines are searched too. Boards that only list one country
 (`sweep.gmail.board_country`: JustJoin IT, NoFluffJobs, Pracuj.pl, theprotocol.it, Bulldogjob
 for Poland; IrishJobs.ie, Jobs.ie, JobsIreland for Ireland; IamExpat and Nationale
 Vacaturebank for the Netherlands) give that country when a card names only a city or none.
+When no city of yours is found and the title or place names another country ("in Pune,
+IN", "Bangalore", ", US"), the job is left out as "country not active" (20 Nov: a JustJoin
+IT job in Pune, India was saved as Poland). A city of yours wins: "Dublin or London, UK" stays
+a Dublin job.
 23 Oct, more alert boards: Glassdoor (glassdoor.com, .nl, .ie, .co.uk), Solid.Jobs and
 RocketJobs (Poland), Welcome to the Jungle, Monsterboard (the Netherlands) and Recruit Ireland
 (Ireland). Their sites are on `sweep.fulltext.blocked_hosts` until their terms are checked
@@ -769,7 +801,10 @@ in the /fetch summary.
 
 - Titles must contain a `sweep.title_include` term and no `sweep.title_exclude` term, matched as
   whole words on the canonical title (so "Internal" does not match "intern"). Lead, Principal,
-  Staff, Manager and similar are dropped.
+  Staff, Manager and similar are dropped. LOG-07 (24 Nov): `ci cd`, `cicd`, `deployment
+  engineer`, `cloud security` and `mlops` were added, so CI/CD Engineer, AI Platform &
+  Deployment Engineer, Cloud Security Engineer and MLOps Engineer are kept (screening judges
+  each on its description); Security Engineer alone and Product Owner stay out.
 - Seniority: Junior (`junior`, `jr`), Mid (`mid`, `regular`, `medior`), Senior (`senior`, `sr`),
   else Unknown.
 - Years required: as posted, from the largest requirement in the description (`2-3 years`,
@@ -795,6 +830,10 @@ in the /fetch summary.
 ## Dedupe and writing
 
 - Dedupe key: `company|title|city` (or country when there is no city), all canonical.
+  Adzuna's "@ Company" ending of a title, and the company's name at the end of the title
+  part, are left out (20 Nov audit: Sopra Steria's and Netflix's jobs from Adzuna were saved
+  a second time next to the LinkedIn and NoFluffJobs rows); rows saved before keep it in
+  their stored key and are found by the index all the same.
 - `Posting IDs` holds `source:id` values, comma separated, last 50 kept.
 - New key: a row with Company, Role, City, Country, Board, URL, Posted date, Salary, Seniority,
   Years required, Dedupe key, Posting IDs, First seen, Swept date, Times seen 1, Status New,
@@ -931,8 +970,8 @@ words, even when they show only part of it (on 4 Nov the copy-only rule gave "no
 - `sweep.job_links.copy_model`: another Gemini for Google's copy; empty (the default) uses
   the fetch model. Tried on 4 Nov with `gemini-3.8-flash`: it made 20 to 78 Google searches
   a call (Gemini cannot be told a maximum), timed out or answered no JSON, and found no
-  more, so it is off again. Google's copy never falls back to Claude. `max_searches` in DEV is 150: a company can take three
-  searches now (careers page, job system, Google's copy).
+  more, so it is off again. Google's copy never falls back to Claude. `max_searches` in DEV was 150 (a company could
+  take three searches: careers page, job system, Google's copy); 60 since 20 Nov.
 - LOOKUP_VERSION 3: the next /fetch looks up again, once, the jobs not found before.
 
 ### Round 4 (4 Nov evening)

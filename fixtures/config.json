@@ -136,6 +136,11 @@
     "Type": "Setting"
   },
   {
+    "Key": "contacts.find.on",
+    "Value": "false",
+    "Type": "Setting"
+  },
+  {
     "Key": "contacts.cache_months",
     "Value": "6",
     "Type": "Setting"

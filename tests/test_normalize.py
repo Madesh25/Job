@@ -248,3 +248,44 @@ def test_one_job_under_two_names_of_the_employer_is_one_key():
     old = "motorola solutions systems polska|devops engineer|krakow"
     assert index_key(old, "Motorola Solutions Systems Polska") == \
         dedupe_key("Motorola Solutions", "DevOps Engineer", "Krakow", "Poland")
+
+
+def test_an_adzuna_at_company_ending_is_the_same_job():
+    """20 Nov audit: Adzuna's "DevOps Engineer (GitLab CI/CD) @ Sopra Steria Poland" and
+    LinkedIn's "DevOps Engineer (GitLab CI/CD)" at "Sopra Steria" were two rows, and so were
+    Netflix's Data Platform job from NoFluffJobs and Adzuna."""
+    from jobengine.sweep.normalize import dedupe_key, index_key
+
+    assert dedupe_key("Sopra Steria Poland", "DevOps Engineer (GitLab CI/CD) @ Sopra Steria "
+                      "Poland", "Katowice", "Poland") == dedupe_key(
+        "Sopra Steria", "DevOps Engineer (GitLab CI/CD)", "Katowice", "Poland")
+    assert dedupe_key("Netflix", "Distributed Systems Engineer 4 - Data Platform Poland @ "
+                      "Netflix", "Warszawa", "Poland") == dedupe_key(
+        "Netflix", "Distributed Systems Engineer 4 - Data Platform Poland", "Warszawa",
+        "Poland")
+    # A row saved before 20 Nov kept the ending in its stored key: it is found all the same.
+    old = "netflix|distributed systems engineer 4 data platform poland netflix|warszawa"
+    assert index_key(old, "Netflix") == dedupe_key(
+        "Netflix", "Distributed Systems Engineer 4 - Data Platform Poland", "Warszawa",
+        "Poland")
+    # A title that is only the company's name stays as it is.
+    assert dedupe_key("Netflix", "Netflix", None, "Poland") == "netflix|netflix|poland"
+
+
+def test_a_title_naming_another_country_is_not_your_country():
+    """20 Nov: a JustJoin IT alert for a job in Pune, India was saved as Poland with no city
+    (JustJoin IT's home country is used when the card's place is unknown)."""
+    pune = raw("Hybrid Role - Platform Engineer Microsoft 365 in Pune, IN", "emagine Polska",
+               "", board="JustJoin IT", location_area=("Poland",))
+    got = normalize(pune, RULES, ACTIVE)
+    assert isinstance(got, Skipped) and got.reason == "country not active (India)"
+    bangalore = raw("DevOps Engineer", location="Bangalore", location_area=("Poland",))
+    assert normalize(bangalore, RULES, ACTIVE).reason == "country not active (India)"
+    # A city of yours wins: the job is in Dublin even if the title names London too.
+    both = raw("DevOps Engineer (Dublin or London, UK)", location="Dublin")
+    assert isinstance(normalize(both, RULES, ACTIVE), Job)
+    # An unknown Polish town keeps the board's home country.
+    town = raw("DevOps Engineer", location="Gliwice-Sośnica", location_area=("Poland",))
+    assert normalize(town, RULES, ACTIVE).country == "Poland"
+    assert isinstance(normalize(raw("DevOps Engineer, Indiana team", location="",
+                                    location_area=("Poland",)), RULES, ACTIVE), Job)

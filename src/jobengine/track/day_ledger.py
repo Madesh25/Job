@@ -54,6 +54,9 @@ def _bump(entry: dict[str, Any], name: str, n: float) -> None:
 
 def count(name: str, n: float = 1) -> None:
     """Add n to today's counter `name` ("resumes", "drafts", "screened.Skip" ...)."""
+    from jobengine.track import run_log
+
+    run_log.bump(name, n)  # the scheduled run going on now (18 Nov, Run Log)
     if _bound is None or not n:
         return
     state, today, _now = _bound
@@ -61,11 +64,17 @@ def count(name: str, n: float = 1) -> None:
 
 
 def add_cost(state: BotState, day: date, dollars: float) -> None:
+    from jobengine.track import run_log
+
+    run_log.bump("cost", dollars)
     _update(state, day, lambda entry: _bump(entry, "cost", dollars))
 
 
 def add_sweep(sources: Mapping[str, int], new: int, updated: int) -> None:
     """One /fetch: the time it ended, its postings per source and the jobs it saved."""
+    from jobengine.track import run_log
+
+    run_log.bump("new_jobs", new)
     if _bound is None:
         return
     state, today, now = _bound
@@ -87,6 +96,19 @@ def add_match(shown: int, total: int) -> None:
 
     def change(entry: dict[str, Any]) -> None:
         entry["matches"] = [*(entry.get("matches") or []), [shown, total]]
+
+    _update(state, today(), change)
+
+
+def note_problem(name: str) -> None:
+    """A run that failed or logged an error ("Link check 10:15"), for the daily scorecard."""
+    if _bound is None:
+        return
+    state, today, _now = _bound
+
+    def change(entry: dict[str, Any]) -> None:
+        _bump(entry, "problems", 1)
+        entry["failed"] = [*(entry.get("failed") or []), name]
 
     _update(state, today(), change)
 

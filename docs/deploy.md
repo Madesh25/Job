@@ -46,6 +46,11 @@ PROJECT_NUMBER="$(gcloud projects describe $PROJECT --format='value(projectNumbe
 
 ## B1. Google Cloud setup
 
+Since 25 Nov the steps of B1, B2 (the secret containers and who reads them, never the values)
+and B4 are also in Terraform: `infra/terraform` (its README says how to adopt what you already
+made by hand, then `terraform plan` before any change). The gcloud steps below stay as the
+reference.
+
 - [ ] **1. Region.** Default `europe-west1` (a Tier 1 Cloud Run region). Check the current
       Cloud Run pricing and free tier for the region before choosing; use the same region for
       both services, Artifact Registry and Cloud Scheduler.
@@ -180,6 +185,9 @@ These exist on the DEV copies since Modules 02 to 08 and are now applied to prod
 - [ ] Job Opportunities: add the Skip reason option `No sponsorship` (jobs that offer no
       visa sponsorship are skipped with it; without the option Notion would add it itself).
 - [ ] Config: add `schedule.auto_fetch` = `false`.
+- [ ] Job Opportunities: add the number column `Contacts to find` (LOG-18, 27 Nov; screening
+      writes it, the contact search uses it; until it exists the bot leaves it out of its
+      writes).
 
 ## B4. Cloud Scheduler (time zone Asia/Kolkata)
 

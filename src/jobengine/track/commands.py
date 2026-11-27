@@ -162,28 +162,37 @@ def gemini_line(s: Settings, check: Any) -> str:
 
 
 def health_text(deps: TrackDeps) -> str:
+    return "\n".join(line for line, _ok in health_checks(deps))
+
+
+def health_checks(deps: TrackDeps) -> list[tuple[str, bool | None]]:
+    """/health line by line: True a check that passed, False a problem, None information
+    (S10: the short /health names the problems and counts the rest)."""
     s = deps.s
     try:
         deps.config()
-        notion = "Notion: OK"
+        notion: tuple[str, bool | None] = ("Notion: OK", True)
     except Exception as exc:  # report, never raise
-        notion = f"Notion: FAILED ({exc})"
+        notion = (f"Notion: FAILED ({exc})", False)
     lines = [notion]
     for name in ("alerts", "sender"):
         reason = deps.token_check(name)
-        lines.append(f"Gmail {name} token: {'OK' if reason is None else f'FAILED ({reason})'}")
+        lines.append((f"Gmail {name} token: {'OK' if reason is None else f'FAILED ({reason})'}",
+                      reason is None))
     if not s.anthropic_api_key:
-        lines.append("Anthropic key: missing")
+        lines.append(("Anthropic key: missing", False))
     else:
         try:
             problem = deps.key_check()
         except Exception as exc:  # report, never raise
             problem = f"not checked ({type(exc).__name__})"
-        lines.append(f"Anthropic key: {'OK' if problem is None else problem}")
+        lines.append((f"Anthropic key: {'OK' if problem is None else problem}", problem is None))
     if (s.force_model or "").startswith("gemini-") or s.vertex_api_key:
-        lines.append(f"Google AI: {gemini_line(s, deps.gemini_check)}")
-    lines.append(last_check_line(deps.state))
-    lines.append(f"Last sweep: {(deps.state.get(SWEEP_SUMMARY) or {}).get('at') or 'never'}")
-    lines.append(f"Environment: {s.app_env}, DRY_RUN {'on' if s.dry_run else 'off'}")
-    lines.append(f"Contact lookups: {contact_lookups(s)}")
-    return "\n".join(lines)
+        google = gemini_line(s, deps.gemini_check)
+        lines.append((f"Google AI: {google}", google.endswith("OK")))
+    lines.append((last_check_line(deps.state), None))
+    lines.append((f"Last sweep: {(deps.state.get(SWEEP_SUMMARY) or {}).get('at') or 'never'}",
+                  None))
+    lines.append((f"Environment: {s.app_env}, DRY_RUN {'on' if s.dry_run else 'off'}", None))
+    lines.append((f"Contact lookups: {contact_lookups(s)}", None))
+    return lines

@@ -387,10 +387,37 @@ class Match:
         return None
 
 
+# LOG-18 (25 Nov, your rule): most people you connected with before this year work in India
+# and cannot refer for a job in Poland, the Netherlands or Ireland; newer ones more likely can.
+RECENT_YEAR = 2026
+
+
+def connected_year(person: Connection) -> int | None:
+    """The year of LinkedIn's "Connected On" ("27 Nov 2026")."""
+    found = re.search(r"\b(19|20)\d{2}\b", person.connected_on or "")
+    return int(found.group()) if found else None
+
+
+def place_sign(row: StoredRow, country: str) -> bool:
+    """No country known, but a sign of the job's country: the position or company names it
+    or one of its cities, or you connected in RECENT_YEAR or later."""
+    from jobengine.contacts.providers.github import COUNTRY_WORDS
+
+    text = f"{row.person.position} {row.person.company}".casefold()
+    words = COUNTRY_WORDS.get(country, (country.casefold(),) if country else ())
+    if any(re.search(rf"(?<!\w){re.escape(w)}(?!\w)", text) for w in words):
+        return True
+    year = connected_year(row.person)
+    return year is not None and year >= RECENT_YEAR
+
+
 def at_company(rows: Iterable[StoredRow], company: str, country: str) -> list[Match]:
-    """Your connections at the job's company: the job's country first, then location
-    unknown, then other countries; engineers, then managers, HR and the rest. Removed and
-    junior people are left out (a junior cannot refer or hire, your rule of 22 Oct)."""
+    """Your connections at the job's company who can help with a job in `country`, the most
+    likely first (LOG-18, 25 Nov, your rules): known to work in the job's country; then
+    location unknown with a sign of it (place_sign); then location unknown. People known to
+    work in another country are left out (abroad() counts them). Inside each group engineers,
+    then managers, HR and the rest. Removed and junior people are left out (a junior cannot
+    refer or hire, your rule of 22 Oct)."""
     from jobengine.contacts.classify import is_junior
 
     found = [Match(row, kind(row.person.position)) for row in rows
@@ -399,10 +426,47 @@ def at_company(rows: Iterable[StoredRow], company: str, country: str) -> list[Ma
 
     def order(m: Match) -> tuple[int, int, str]:
         where = m.country.casefold()
-        place = 0 if where and where == country.casefold() else (1 if not where else 2)
+        if where:
+            place = 0 if where == country.casefold() or not country else 9
+        else:
+            place = 1 if place_sign(m.row, country) else 2
         return place, KIND_ORDER.index(m.kind), m.row.person.name
 
-    return sorted(found, key=order)
+    return sorted((m for m in found if order(m)[0] < 9), key=order)
+
+
+def abroad(rows: Iterable[StoredRow], company: str, country: str) -> dict[str, int]:
+    """People at the company known to work in another country: country -> how many (they
+    cannot refer for this job; LOG-18)."""
+    from jobengine.contacts.classify import is_junior
+
+    out: dict[str, int] = {}
+    for row in rows:
+        where = str(row.info.get("Country") or "").strip()
+        if (row.removed or not where or not country or where.casefold() == country.casefold()
+                or not same_company(row.person.company, company)
+                or is_junior(row.person.position)):
+            continue
+        out[where] = out.get(where, 0) + 1
+    return dict(sorted(out.items(), key=lambda item: (-item[1], item[0])))
+
+
+def juniors_at(rows: Iterable[StoredRow], company: str) -> int:
+    """Connections at the company left out as junior (LOG-02: the bot said 20, Notion had
+    21 not removed at Amazon)."""
+    from jobengine.contacts.classify import is_junior
+
+    return sum(1 for row in rows if not row.removed
+               and same_company(row.person.company, company) and is_junior(row.person.position))
+
+
+def companies(matches: list[Match]) -> list[tuple[str, int]]:
+    """The company names counted as the job's company, most connections first ("Amazon Web
+    Services (AWS)" 14, "Amazon" 5): LOG-02, so you see what was counted."""
+    from collections import Counter
+
+    seen = Counter(str(m.row.person.company or "").strip() for m in matches)
+    return sorted(seen.items(), key=lambda kv: (-kv[1], kv[0]))
 
 
 def block(matches: list[Match], company: str, country: str, today: date) -> str:

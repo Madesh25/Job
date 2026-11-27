@@ -89,19 +89,29 @@ def desk_tasks(s: Settings, desk: Desk, client: tb.TelegramClient,
     """The real task bodies: they run the same desk code as the Telegram commands and send
     their reports to the chat."""
     from jobengine.strategy.runner import run_strategy_reminder
-    from jobengine.track.digest import run_weekly_digest
     from jobengine.track.runner import run_daily
 
     chat = str(s.telegram_chat_id)
+    from jobengine.track import error_log
+
+    # A new kind of error found at the end of a task comes to Telegram (18 Nov).
+    error_log.set_notify(lambda text: tb.send_replies(client, s, chat, [Reply(text)]))
 
     def send(replies: list[Reply]) -> None:
+        from jobengine.track import run_log
+
+        run_log.note(replies)  # the Run Log's summary of this task (18 Nov)
         tb.send_replies(client, s, chat, replies)
 
     def daily() -> dict[str, Any]:
         if desk.track is None:
             raise RuntimeError("tracking is not available (see the startup log)")
         report = run_daily(desk.track, desk.tracking_now())
-        send(desk.report_replies(report))
+        from jobengine.track import daily_report
+
+        here = daily_report.local(desk.tracking_now(), desk.deps.config())
+        send(desk.daily_check_replies(report, here.time()))  # S12: a quiet 07:30 says nothing
+        send(desk.jd_backlog_tick())  # never screened jobs over 7 days old: Expired (S5)
         # The monthly /update by itself (I5): on the Friday evening before /fetch closes, so
         # the 21:30 call counts too (5 Nov); it runs once per gate period whatever calls it.
         auto = desk.auto_update_tick()
@@ -128,7 +138,8 @@ def desk_tasks(s: Settings, desk: Desk, client: tb.TelegramClient,
     def digest() -> dict[str, Any]:
         if desk.track is None:
             raise RuntimeError("tracking is not available (see the startup log)")
-        send([Reply(run_weekly_digest(desk.track, desk.tracking_now()))])
+        send(desk.digest_command())  # short; the full digest in its Run Log page (S10)
+        send(desk.screen_check_tick())  # Sunday 19:30 India time: 10 verdicts to tick (S3)
         send(desk.spot_check_tick())  # Sunday 20:00 India time: 2 resumes to look at (H5)
         send(desk.expired_check_tick())  # the weekly link check: closed jobs Expired (I1)
         send(desk.board_check_tick())  # the weekly job board check, before the audit
@@ -208,15 +219,27 @@ def desk_tasks(s: Settings, desk: Desk, client: tb.TelegramClient,
         return {"ok": True, "sent": bool(sent)}
 
     def apply() -> dict[str, Any]:
-        """The auto-apply queue (apply/queue.py): ask about the laptop, or fill 3 forms."""
+        """The auto-apply queue (apply/queue.py): ask about the laptop, or fill 3 forms. The
+        morning Apply today card (S4, 08:30 India time) rides on these 15-minute calls."""
+        send(desk.apply_today_tick())
         sent = desk.autoapply_tick()
         if sent:
             send(sent)
         return {"ok": True, "sent": len(sent)}
 
-    return Tasks(daily=daily, digest=digest, sweep=sweep, autopilot=autopilot, mail=mail,
-                 replies=replies, check=check, report=report, nudge=nudge, apply=apply,
-                 health=health)
+    from jobengine.track import run_log
+
+    def logged(name: str, body: Callable[[], dict[str, Any]]) -> Callable[[], dict[str, Any]]:
+        """Each task run gets its Run Log row (18 Nov, track/run_log.py)."""
+        return run_log.wrap(run_log.TASK_STEPS.get(name, name), body,
+                            getattr(desk, "run_log_table", None), desk.tracking_now)
+
+    return Tasks(daily=logged("daily", daily), digest=logged("digest", digest),
+                 sweep=logged("sweep", sweep), autopilot=logged("autopilot", autopilot),
+                 mail=logged("mail", mail), replies=logged("replies", replies),
+                 check=logged("check", check), report=logged("report", report),
+                 nudge=logged("nudge", nudge), apply=logged("apply", apply),
+                 health=logged("health", health))
 
 
 def create_app(
@@ -257,6 +280,7 @@ def create_app(
             return JSONResponse({"ok": True, "duplicate": True})
         if tb.end_now(client, s, update):  # /end must not wait behind the run it stops
             return JSONResponse({"ok": True})
+        tb.answer_tap_now(client, s, update)  # LOG-05: a button before it waits its turn
         # Answer Telegram at once; the worker runs the (possibly long) handler.
         worker.submit(lambda: tb.handle_one(client, s, update, fetch, desk))
         return JSONResponse({"ok": True})

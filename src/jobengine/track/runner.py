@@ -29,17 +29,18 @@ from jobengine.resume.builder import hex_id
 from jobengine.safety import gmail_write_allowed
 from jobengine.settings import Settings
 from jobengine.sweep.normalize import canon_company
-from jobengine.track import bounces, followup, holiday, linking
+from jobengine.track import bounces, followup, holiday, linking, reply_analysis
 from jobengine.track.classify import DEFAULT_OPT_OUT, classify, is_auto_reply
 from jobengine.track.models import (
     AUTO_REPLY,
+    CANT_HELP,
     FOLLOWUP_SENT,
     INTERVIEW,
     OPT_OUT,
     Classification,
     Message,
 )
-from jobengine.track.status import JOB_TERMINAL, advance_contact, effect
+from jobengine.track.status import CONTACT_FINAL, JOB_TERMINAL, advance_contact, effect
 
 log = logging.getLogger("jobengine.track")
 
@@ -57,10 +58,13 @@ DEAD_END = "Dead end"
 REMAILED = ("Contacted", "Followed up", "Ghosted", "Replied")
 # Buttons on a low-confidence card: (label, class). "positive" means Replied.
 CHOICES = (("Screening", "screening"), ("Interview", "interview"), ("Rejected", "rejection"),
-           ("Offer", "offer"), ("Replied", "positive"), ("Do not contact", "opt_out"),
+           ("Offer", "offer"), ("Replied", "positive"), ("Can't help", "cant_help"),
+           ("Do not contact", "opt_out"),
            ("Ignore", "ignore"))
 TOKEN_FAILED = "Gmail token for {account} failed: {reason}. Regenerate it (docs/gmail.md)."
 
+
+FOLLOWUP_NAMES = 5  # names in the /today line of follow-ups due (LOG-13)
 
 @dataclass
 class TrackDeps:
@@ -156,6 +160,41 @@ class DailyReport:
         lines.append("Tokens: " + ", ".join(
             f"{name} {'OK' if reason is None else 'FAILED'}"
             for name, reason in self.tokens.items()))
+        return "\n".join(lines)
+
+    def short_text(self) -> str:
+        """S10 (23 Nov, your ask): the Telegram message; text() goes to the Run Log page.
+        The counts, then only what needs you (token failures, your calls, notes, errors)."""
+        lines = self.token_lines()
+        shown = self.last_check or self.since
+        lines.append(f"\U0001F4EC Daily check {self.day:%a %d %b} (since "
+                     f"{shown:%d %b %H:%M})")
+        interviews = sum("-> Interview" in r for r in self.replies)
+        counts = [(len(self.sent), "sent"),
+                  (len(self.replies), "replies" + (f" ({interviews} interview)"
+                                                   if interviews else "")),
+                  (len(self.applications), "applications updated"),
+                  (len(self.bounced), "bounced"),
+                  (len(self.followups) + len(self.followups_queued), "follow-ups"),
+                  (len(self.ghosted_contacts) + len(self.ghosted_jobs), "ghosted")]
+        found = [f"{n} {what}" for n, what in counts if n]
+        if found or not self.followups_dry:
+            lines.append(" · ".join(found) if found else "Nothing new since the last check.")
+        if self.followups_dry:
+            # LOG-13 (24 Nov): "Nothing new since the last check." while the page listed
+            # "DRY RUN: 10 follow-ups not drafted" with 10 names (on 18 Nov that line was in
+            # Telegram). Follow-ups due are for you: one line here.
+            names = self.followups_dry
+            shown = ", ".join(names[:FOLLOWUP_NAMES]) + (
+                f" and {len(names) - FOLLOWUP_NAMES} more" if len(names) > FOLLOWUP_NAMES
+                else "")
+            lines.append(f"\u2709\ufe0f {len(names)} follow-up(s) due, not drafted (DRY RUN): "
+                         f"{shown}")
+        if self.cards:
+            lines.append(f"\U0001F449 Needs your call: {len(self.cards)} (below)")
+        lines.extend(self.notes)
+        if self.errors:
+            lines.append(f"\u26a0\ufe0f {len(self.errors)} error(s): {self.errors[0]}")
         return "\n".join(lines)
 
     def token_lines(self) -> list[str]:
@@ -412,12 +451,17 @@ def apply_contact_class(run: Run, pid: str, kind: str, report: DailyReport | Non
     """Section 3 for a cold-mail reply. Returns the report line."""
     c = run.contacts[pid]
     name = c.get("Name") or c.get("Email") or pid
-    target = "Do not contact" if kind == OPT_OUT else "Replied"
+    target = {OPT_OUT: "Do not contact", CANT_HELP: DEAD_END}.get(kind, "Replied")
     props: dict[str, Any] = {}
     new = advance_contact(c.get("Status"), target)
+    if kind == CANT_HELP and c.get("Status") not in CONTACT_FINAL:
+        # LOG-18: "I can't help" ends it even after an earlier friendly reply (Replied).
+        new = None if c.get("Status") == DEAD_END else DEAD_END
+        props["Notes"] = _append(c.get("Notes"), f"said they cannot help {run.today}: "
+                                 "not mailed again, the company's next job gets a new person")
     if new:
         props["Status"] = new
-    if kind != OPT_OUT and not c.get("Replied"):
+    if kind not in (OPT_OUT, CANT_HELP) and not c.get("Replied"):
         props["Replied"] = True  # reused for the company's next jobs
     if c.get("Follow-up draft ID"):
         props["Follow-up draft ID"] = ""
@@ -448,6 +492,7 @@ def cold_replies(run: Run, report: DailyReport) -> None:
             continue
         message = replies[-1]
         cls = classify(message, run.llm(), phrases=run.phrases)
+        reply_analysis.record(cls.kind)  # S9: every reply counted by group
         if cls.kind == AUTO_REPLY:
             continue
         if cls.confidence < run.min_conf:
@@ -478,6 +523,7 @@ def process_job_thread(run: Run, job_id: str, since: datetime, report: DailyRepo
                and not is_auto_reply(m) and not bounces.is_bounce(m)]
     for message in inbound:
         cls = classify(message, run.llm(), phrases=run.phrases)
+        reply_analysis.record(cls.kind)  # S9: every reply counted by group
         if cls.kind == AUTO_REPLY:
             continue
         if cls.confidence < run.min_conf:

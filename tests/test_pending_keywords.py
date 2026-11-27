@@ -41,13 +41,15 @@ def make_desk():
 
 def test_pending_card_shows_the_keyword_lines():
     d = make_desk()
-    cards = {r.page_id: d.card(r, i, 1).text for i, r in enumerate(d.ranked())}
+    # S11: the full card, behind More on the short one.
+    cards = {r.page_id: d.card(r, i, 1, full=True).text for i, r in enumerate(d.ranked())}
     clean = cards["pl-clean"]
-    assert "Skill match: 100% (6 of 6 tools it names)" in clean
+    assert "Skill match: you have 6 of the 6 tools it names (100%)" in clean  # LOG-06
     assert "Use their word: EKS (your Kubernetes on AWS)" in clean
     assert "Missing keywords" not in clean
     tulip = cards["nl-sponsor-yes"]
-    assert "Skill match: 75% (3 of 4 tools it names)\nMissing keywords: java" in tulip
+    assert "Skill match: you have 3 of the 4 tools it names (75%)\nMissing keywords: java" in \
+        tulip
     # The new lines sit between the match counts and the screening gaps.
     lines = tulip.splitlines()
     assert lines.index("Missing keywords: java") < lines.index("Gaps: Java services")

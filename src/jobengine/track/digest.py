@@ -6,8 +6,9 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 
 from jobengine.contacts import agencies
+from jobengine.resume import header
 from jobengine.screen.runner import pending_rows, waiting_for_jd
-from jobengine.track import commands, costs
+from jobengine.track import commands, costs, day_ledger, reply_analysis, what_works
 from jobengine.track.runner import TrackDeps
 from jobengine.track.stats import Funnel, compute, pct, replies_report
 
@@ -22,7 +23,9 @@ def _compare(now: Funnel, before: Funnel) -> str:
     return ", ".join(parts)
 
 
-def run_weekly_digest(deps: TrackDeps, now: datetime) -> str:
+def run_weekly_digest(deps: TrackDeps, now: datetime, main_title: str | None = None) -> str:
+    """`main_title`: the headline your resume gets when the job's role names none of your
+    approved titles (the Golden Master's first title, resume/header.py)."""
     today = now.date()
     jobs = [v for _, v in deps.jobs.query_rows()] if deps.jobs else []
     contacts = [v for _, v in deps.contacts.all_rows()] if deps.contacts else []
@@ -50,4 +53,24 @@ def run_weekly_digest(deps: TrackDeps, now: datetime) -> str:
         lines.append("Monthly: /keywords for your LinkedIn profile keywords, /gaps for the "
                      "learning plan.")
     lines += ["", replies_report(jobs, contacts, today)]
+    lines += ["", what_works.text(jobs)]  # S6 (23 Nov): where to spend your time
+    titles = header.approved_titles(deps.s, config)
+    counts = reply_analysis.week_counts(lambda day: day_ledger.day(deps.state, day), today)
+    lines += ["", reply_analysis.text(  # S9 (23 Nov): what got replies
+        counts, jobs, lambda role: header.headline_title(role, titles) or main_title)]
     return "\n".join(lines)
+
+
+# The one-line conclusions of the digest's analyses, kept in the short message (S10).
+TIP_STARTS = ("Put more effort where it works:", "Most approvals for what it finds:",
+              "Many found, none approved:", "None approved yet:", "Most answers:",
+              "No answer yet after")
+
+
+def short(full: str) -> str:
+    """S10 (23 Nov, your ask): the Telegram digest, the week in numbers (the first block)
+    and the tip of each analysis; the analyses in full are in the Run Log page."""
+    head, _, rest = full.partition("\n\n")
+    tips = [line for line in rest.splitlines() if line.startswith(TIP_STARTS)]
+    return "\n".join([head, "", "📈 What gets replies, what works and the replies by resume "
+                      "headline and skill: in the full report.", *tips])

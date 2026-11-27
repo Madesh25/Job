@@ -53,6 +53,7 @@ from jobengine.sweep.models import (
 )
 from jobengine.sweep.normalize import (
     Rules,
+    dedupe_key,
     index_key,
     normalize,
     parse_active_countries,
@@ -65,7 +66,7 @@ from jobengine.sweep.normalize import (
 )
 from jobengine.sweep.rank import Ranker
 from jobengine.sweep.sources import adzuna, ats, gmail_alerts, iamexpat, jooble, nofluffjobs
-from jobengine.track import day_ledger, expired_check
+from jobengine.track import day_ledger, expired_check, run_log
 
 log = logging.getLogger("jobengine.sweep")
 
@@ -220,7 +221,8 @@ def _find_links(s: Settings, repo: JobsRepo, config: ConfigStore, state: Any, to
     cfg = job_links.settings(s)
     browser = None
     if cfg.get("browser", True) and render.available():
-        browser = render.Renderer(s, int(cfg.get("max_rendered", render.DEFAULT_MAX_PAGES)))
+        browser = render.Renderer(s, int(cfg.get("max_rendered", render.DEFAULT_MAX_PAGES)),
+                                  int(cfg.get("browsers", render.DEFAULT_BROWSERS)))
     else:
         log.info("direct job links: no browser (Playwright not installed), careers pages "
                  "built by JavaScript are not read")
@@ -641,6 +643,8 @@ def run_sweep(
         summary.not_supported += len(result.not_supported)
         summary.blocked_sites.extend(result.blocked)
         summary.no_board_sites.extend(result.no_board)
+        if result.workday_line:
+            summary.workday_line = result.workday_line
         # Companies, not rows: Infosys, Infosys (IE) and Infosys (NL) count once (43 rows
         # were shown as 43 companies on 6 Oct).
         summary.own_site_count += len({ats.canon_name(n) for n in result.own_site})
@@ -716,6 +720,7 @@ def run_sweep(
     # Pass 1: rows already in Notion are updated; new jobs wait to be ranked.
     candidates: dict[str, list[Job]] = {}  # dedupe key -> postings, first one creates
     seen: list[Job] = []  # every posting in scope, for the LinkedIn cross-match
+    skipped_jobs: set[tuple[str, str]] = set()  # (company|title, reason) left out (LOG-10)
     max_age = max_posted_age(s)
     ats_age = ats_max_posted_age(s)
     summary.max_age_days = max_age
@@ -728,8 +733,19 @@ def run_sweep(
                 say(f"Saving to your Notion: {done} of {total} jobs checked")
             outcome = normalize(raw, rules, active)
             if isinstance(outcome, Skipped):
-                summary.skipped += 1
                 why = outcome.reason.split(" (")[0]
+                # LOG-10 (24 Nov): 19 Sii "Senior Technical Product Owner" postings in 19
+                # cities were 19 "title not DevOps-type" and only 7 "same job in another
+                # city". A job left out for a reason is counted once; its other cities are
+                # "same job in another city", like the saved jobs' other cities.
+                job = (_job_key(dedupe_key(raw.company, raw.title, None, "")), why)
+                if job in skipped_jobs:
+                    summary.other_cities += 1
+                    loss.add(raw.source, OTHER_CITY, f"{raw.title} | {raw.company} | "
+                                                     f"{raw.location_text or '(no place)'}")
+                    continue
+                skipped_jobs.add(job)
+                summary.skipped += 1
                 summary.skipped_by[why] = summary.skipped_by.get(why, 0) + 1
                 loss.add(raw.source, SKIP_WORDS.get(why, why),
                          f"{raw.title} | {raw.company} | {raw.location_text or '(no place)'}")
@@ -772,8 +788,9 @@ def run_sweep(
     room = max(0, limit - used) if limit else sum(len(jobs) for jobs in candidates.values())
     ranker = _ranker(deps) if candidates else None
     ranked = _sort(list(candidates.values()), ranker, today)
-    ranked, summary.other_cities = _one_per_job(
+    ranked, other_cities = _one_per_job(
         ranked, index, lambda jobs: [loss.add(j.source, OTHER_CITY, _label(j)) for j in jobs])
+    summary.other_cities += other_cities
     ranked = _pick(s, deps, ranked, room, ranker, today, summary, say)
     kept = ranked[:room]
     saved_scores: dict[str, int] = {}
@@ -931,6 +948,8 @@ def run_sweep(
     high = sorted(label for label, risk in touched.values() if risk == "High")
     summary.high_ghost = len(high)
     summary.high_ghost_jobs = high
+    # LOG-09: the Run Log's "Sites blocked" is the number this report lists under "Blocked us".
+    run_log.set_sites_blocked(len(summary.blocked_sites))
     if state is not None:
         try:
             state.set(LAST_SUMMARY, {"at": today.isoformat(), "new": summary.new,

@@ -120,21 +120,47 @@ def dedupe_company(company: str | None) -> str:
     return DEDUPE_ALIASES.get(value, value)
 
 
+# 20 Nov audit: Adzuna ends a title with "@ Company" ("DevOps Engineer (GitLab CI/CD) @
+# Sopra Steria Poland"), so the same job from LinkedIn ("Sopra Steria", "DevOps Engineer
+# (GitLab CI/CD)") had another key and was saved twice (Netflix's Data Platform job too).
+_AT_COMPANY = re.compile(r"\s+@\s+.*$")
+
+
+def _without_company(title: str, company: str | None) -> str:
+    """A canonical title without the company's name at its end ("... sopra steria poland"),
+    as an "@ Company" ending leaves it; the title alone stays when nothing else is left."""
+    words = title.split()
+    for name in dict.fromkeys(filter(None, (canon_company(without_region(company)),
+                                             canon(company), dedupe_company(company)))):
+        tail = name.split()
+        if len(words) > len(tail) and words[-len(tail):] == tail:
+            return " ".join(words[:-len(tail)])
+    return title
+
+
 def dedupe_key(company: str, title: str, city: str | None, country: str) -> str:
     """V16 company-role-city key, all parts canonical (a "(IE)" style tag, a legal suffix
-    and a trailing country or generic word of the company are left out)."""
+    and a trailing country or generic word of the company are left out, and so is an
+    "@ Company" ending of the title)."""
     place = canon_city(city) if city else canon(country)
-    return f"{dedupe_company(company)}|{canon_title(title)}|{place}"
+    role = _without_company(canon_title(_AT_COMPANY.sub("", title or "")), company)
+    return f"{dedupe_company(company)}|{role}|{place}"
 
 
 def index_key(dedupe: str, company: str | None) -> str:
     """The key an existing row is found by: its stored Dedupe key, with the company part
     rebuilt from its Company the way dedupe_key builds it now (rows saved before 8 Nov have
-    the older company part)."""
+    the older company part), and the company's name left out of the end of the title part
+    (rows saved before 20 Nov kept an Adzuna "@ Company" ending)."""
     if not company:
         return dedupe
     _, sep, rest = dedupe.partition("|")
-    return f"{dedupe_company(company)}{sep}{rest}" if sep else dedupe
+    if not sep:
+        return dedupe
+    role, sep2, place = rest.partition("|")
+    if sep2:
+        rest = f"{_without_company(role, company)}{sep2}{place}"
+    return f"{dedupe_company(company)}{sep}{rest}"
 
 
 # 13 Nov (fetch idea 6): one job under two titles was two rows (Lepaya "DevSecOps" from
@@ -423,6 +449,42 @@ def place(location_text: str, rules: Rules, area: Iterable[str] = ()
     return country, city
 
 
+# 20 Nov: a JustJoin IT alert for "Hybrid Role - Platform Engineer Microsoft 365 in Pune, IN"
+# was saved as Poland with no city: JustJoin IT lists Polish jobs, so its home country is
+# used when the card's place is unknown. A place in the title or on the card that names
+# another country is that country. Checked only when no city of yours was found, so
+# "London or Dublin" stays a Dublin job.
+FOREIGN_PLACES: Mapping[str, tuple[str, ...]] = {
+    "India": ("india", "pune", "bangalore", "bengaluru", "hyderabad", "chennai", "mumbai",
+              "noida", "gurgaon", "gurugram", "new delhi", "delhi", "kolkata", "ahmedabad"),
+    "United States": ("usa", "united states"),
+    "United Kingdom": ("united kingdom", "england", "scotland"),
+    "Ukraine": ("ukraine", "kyiv", "kiev", "lviv", "kharkiv"),
+    "Philippines": ("philippines", "manila"),
+    "Mexico": ("mexico",),
+    "Brazil": ("brazil", "brasil"),
+    "Canada": ("canada",),
+}
+# A country code after a comma at the end ("in Pune, IN", "Austin, TX, US"): upper case only.
+FOREIGN_CODES = {"IN": "India", "US": "United States", "USA": "United States",
+                 "UK": "United Kingdom", "GB": "United Kingdom", "UA": "Ukraine",
+                 "PH": "Philippines", "MX": "Mexico", "BR": "Brazil"}
+_CODE_AT_END = re.compile(r",\s*([A-Z]{2,3})\s*\)?\s*$")
+
+
+def foreign_place(*texts: str) -> str | None:
+    """The other country a title or place names ("in Pune, IN" -> India), or None."""
+    for text in texts:
+        match = _CODE_AT_END.search(text or "")
+        if match and match.group(1) in FOREIGN_CODES:
+            return FOREIGN_CODES[match.group(1)]
+        value = canon(text or "")
+        for country, names in FOREIGN_PLACES.items():
+            if value and _has_term(value, names):
+                return country
+    return None
+
+
 def place_allowed(country: str | None, city: str | None, active: Iterable[str],
                   rules: Rules) -> bool:
     return country in set(active) or (
@@ -443,6 +505,10 @@ def normalize(
         return Skipped(raw, f"location not recognised ({raw.location_text or 'empty'})")
     if not place_allowed(country, city, active_countries, rules):
         return Skipped(raw, f"country not active ({country})")
+    if city is None:
+        foreign = foreign_place(raw.title, raw.location_text)
+        if foreign and foreign not in set(active_countries):
+            return Skipped(raw, f"country not active ({foreign})")
     if not rules.remote_jobs and remote_only(raw.location_text, raw.title, city):
         return Skipped(raw, REMOTE_ONLY)
     return Job(

@@ -490,6 +490,21 @@ fields are filled, and a personal address (gmail.com ...) is never stored as a w
 **Referral asks** (button `rf:`): a LinkedIn message per connection, from the peer note
 (`linkedin.note_peer`), with their profile link; you send it yourself.
 
+LOG-02 (24 Nov test log, T23-13: nobody was marked after the asks, so the 30-day rule never
+worked; 20 against 21 in Notion; 10 people shown with no word that there were more):
+
+- The second line says how many connections were counted, which company names counted as
+  the job's company when there are several ("counted as Amazon: Amazon Web Services (AWS)
+  14, Amazon 5, ..."; a name that starts with the company's name counts, since the units
+  of one company share its referral system) and how many juniors were left out ("1 junior
+  left out (a junior cannot refer)").
+- Over 10: "Showing 10 of N: the job's country first, then location unknown; engineers
+  first. The rest are in the 🤝 LinkedIn Connections table."
+- **✅ I sent them (N)** (button `rk:`): after you send the messages, it marks the people
+  shown and not asked in the last 30 days Referral Asked with today's Last asked, so
+  Referral first and the next asks leave them out for 30 days. A second tap marks nobody.
+- **Location and email** (button `rl:`) comes here too when some of them have no country.
+
 **Mail them** (button `rm:`): connections with an email (work email first, else the export's
 email, personal allowed: your OK of 23 Oct), a tech, manager or HR position, not asked in 30
 days, are added as Peer engineer contacts of the job (Source Other, Notes "LinkedIn
@@ -518,6 +533,18 @@ follow `safety.paid_api_allowed` (prod with DRY_RUN off, or CONTACTS_LIVE on you
    with a Domain). Once per renewal (Bot State `connections.leftover`); the answer says how
    many were looked up and filled.
 
+## Referral first (S7, 23 Nov, your request)
+
+A referral gets an interview far more often than a cold application, so for an **Apply high**
+job at a company where you have LinkedIn connections (not asked in the last 30 days) the bot
+suggests the referral before you apply: "🤝 Referral first: N LinkedIn connection(s) at
+<company> (names). Ask one of them for a referral before you apply ..." with the
+"🤝 Referral asks" button (the same LinkedIn messages as under /contacts). It comes in three
+places: right after you tap Approve (before the resume is built), on the 08:30 Apply today
+card and on the 22:00 nudge card (the button first). Apply normal and lower jobs, companies
+without connections and connections asked recently get nothing. Notion Config
+`apply.referral_first` = `false` turns it off.
+
 ## Recruitment agencies (flow feature 7, /agencies)
 
 `src/jobengine/contacts/agencies.py`. Established recruiters with IT teams in Poland, the
@@ -536,3 +563,32 @@ or not a DevOps focus).
 - `/agencies sent <name>` records today's date. The weekly digest names the agencies not
   contacted in the last 30 days.
 - Jobs that agencies post stay marked "Agency posting" (no cold mails), as before.
+
+## How many contacts a job gets (LOG-18, 27 Nov, your rules)
+
+Screening writes the job's **Contacts to find** column: **3** for Apply high (recruiter, hiring
+manager, team lead), **2** for Apply low (recruiter, hiring manager), **1** when your LinkedIn
+connections work there (not junior, not known to work in another country): the referral asks
+go to them, and one email to the recruiter (a hiring manager when none is found). A number you
+type in the column before Approve wins, and screening never overwrites it. The contact search
+uses the column; a job without it uses Config `contacts.per_job` as before. Notion Config
+`contacts.find.apply_high`, `contacts.find.apply_low` and `contacts.find.with_connections`
+change the numbers; `contacts.find.on` = `false` turns it off.
+
+
+## Which of your connections come first (LOG-18 part C, 27 Nov, your rules)
+
+Your LinkedIn connections at a job's company are ordered by **whether they work in the job's
+country**, never by their name: first the people known to work there; then people whose place
+is unknown but with a sign of it (their position or company names the country or one of its
+cities, or you connected in 2026 or later: most people you connected with before work in
+India); then the other unknown ones. Inside each group: engineers, managers, HR, others.
+Juniors and people known to work in **another country** are left out, with a count line in the
+referral asks ("3 more work in India (3): left out, they cannot refer for this job").
+
+Where the unknown people work comes from **one Google search per company** (Config
+`model.people`: Gemini with Google Search, Google's official API; `contacts/connection_places.py`):
+no Prospeo or Hunter credit, and the bot never opens LinkedIn or google.com. An answer counts
+only when a search result names the person with this company; the country is saved in the 🤝
+LinkedIn Connections table (Location source "Google search"). A company is searched again
+after 90 days. Notion Config `connections.locate` = `off` stops the search.

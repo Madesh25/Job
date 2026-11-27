@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING
 
 from jobengine.mail import timing
 from jobengine.screen import check, schedule
-from jobengine.track import daily_report, health_report, nudge, timed
+from jobengine.track import apply_today, daily_report, health_report, nudge, timed
 
 if TYPE_CHECKING:
     from jobengine.screen.desk import Desk
@@ -37,7 +37,8 @@ def text(desk: Desk) -> str:
     lines = [f"🗓 Timetable ({local.tzname() or 'your time'}; today {local:%a %d %b})", "",
              "Every day:"]
     health = schedule._time(config.get(health_report.TIME_KEY), health_report.DEFAULT_TIME)
-    lines.append(f"{health:%H:%M} Morning check (tokens, keys, Notion, AI credit)")
+    lines.append(f"{health:%H:%M} Morning check (tokens, keys, Notion, AI credit) and today's "
+                 "steps")
     if p.on:
         for at in p.starts:
             lines.append(f"{at:%H:%M} Autopilot ({p.days_text(p.days_for(at))}): fetch, "
@@ -48,7 +49,9 @@ def text(desk: Desk) -> str:
         lines.append(f"Autopilot: off (it would run {p.when_text()}); Config "
                      f"{schedule.SWITCH_KEY} = true turns it on.")
     for at in timed.times(config) if timed.enabled(config) else ():
-        lines.append(f"{at:%H:%M} Daily check (replies, applications, rejections, follow-ups)")
+        quiet = " (a quiet morning one sends nothing)" if at.hour < 12 else ""
+        lines.append(f"{at:%H:%M} Daily check (replies, applications, rejections, follow-ups)"
+                     f"{quiet}")
     if check.status_text(desk).startswith("Afternoon check: on"):
         lines.append(check.status_text(desk))
     if w.enabled:
@@ -67,6 +70,9 @@ def text(desk: Desk) -> str:
                          "next 14 days.")
     else:
         lines.append("Mails: sent at once (Config mail.send_window = off).")
+    if apply_today.is_on(config):
+        at = schedule._time(config.get(apply_today.TIME_KEY), apply_today.DEFAULT_TIME)
+        lines.append(f"{at:%H:%M} Apply today: the 3 to 5 best fresh jobs")
     lines.append("07:00 to 23:45 Reply pings every 15 minutes (with Send in their morning)")
     lines.append(f"{daily_report.report_time(config):%H:%M} Daily report (Telegram and email)")
     if (config.get(nudge.SWITCH_KEY) or "true").strip().lower() != "false":
@@ -75,6 +81,7 @@ def text(desk: Desk) -> str:
     lines += ["", "Every week:",
               "Sat 11:00 New companies from the visa sponsor lists (/newcompanies)",
               "Sun 09:00 Link check (closed jobs Expired), 10:00 job board check",
+              "Sun 19:30 Screening check (10 verdicts to tick in Notion)",
               "Sun 20:00 Weekly digest, spot check (2 resumes) and the Weekly Audit page",
               "", "Every month:",
               "Friday evening before /fetch closes: /update research, for your Saturday review",

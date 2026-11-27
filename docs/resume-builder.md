@@ -74,6 +74,16 @@ Not applying -> "Why?" [the job is closed or expired] [not a fit after all] [ano
   most 8) builds one new revision that shows them. A keyword no longer in your Skills
   Inventory at the tap is dropped, so it never adds a skill you do not have. Bot State
   `resume.missing_keywords` keeps the newest preview's list.
+- ATS check (S8, 23 Nov, your request): the caption's first line after the title says how many
+  of the job's key skills (every tool its description names, yours or not) the resume names,
+  as screening software counts them: "ATS check: the resume names 7 of the 12 tools the job
+  names (58%)". Below 60% (Notion Config `resume.ats_min`) it starts with ⚠️ and adds "below
+  60%: screening software may filter it out", before you tap Approve resume. `Add N keywords`
+  fixes the part that is yours; the rest are real gaps (Add skills only for a skill you really
+  have). LOG-06 (24 Nov: the card said "Skill match 83% (15 of 18)", the preview "ATS 8 of
+  18, 44%", which looked contradictory): both count the same tools of the job; the card counts
+  the ones you have, the ATS check the ones the resume names, and the ATS line ends with "; 7
+  more are skills you have (the card's Skill match): Add keywords puts them in".
 - "Add anyway": a preview with one gap has an `Add <skill>` button, and a refused instruction
   ("add PowerShell") has `Add anyway (I'll learn it)`. The next revision lists that skill in
   the Technical Skills tables only (never in the experience bullets), the caption says

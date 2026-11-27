@@ -103,7 +103,8 @@ def test_every_reason_keeps_examples_and_complete_counts():
     assert "title not DevOps-type (500):" in text
     assert f"- ... and {500 - 5} more" in text
     assert "Low skill match (1):\n- Cloud Engineer | Acme [Adzuna]" in text
-    assert f"(The report keeps up to {MAX_DROPPED_PER_REASON} jobs per source and reason" in text
+    assert (f"(Shown: up to 5 jobs per reason. The report keeps up to "
+            f"{MAX_DROPPED_PER_REASON} jobs per source and reason") in text
     assert "Cloud Engineer | Acme" in report.report_text({"adzuna": "Adzuna"}, "x", "skill")
     assert len(report.dropped) == MAX_DROPPED_PER_REASON + 1
 
@@ -113,8 +114,9 @@ def test_fetchreport_has_a_button_per_big_reason():
     d = fake_desk(settings(), FAKE_TODAY, now=Clock())
     summary, _ = sweep()
     d.state.set(LAST_REPORT, summary.loss.to_state("2026-10-01"))
-    reply, _sources = d.fetchreport_command()  # 13 Nov: then each source's results
+    [reply] = d.fetchreport_command()  # 23 Nov: one short answer, sources by button
     assert reply.buttons and all(data.startswith("fr:") for _, data in reply.buttons)
+    assert reply.buttons[-1] == ("Each source, all time", "fr:sources")
     reason = reply.buttons[0][1][3:]
     [detail] = d.tap(reply.buttons[0][1])
     assert f"(matching {reason!r})" in detail.text and not detail.buttons
@@ -157,3 +159,54 @@ def test_the_same_job_is_listed_once_but_counted_per_posting():
         loss.add("ats", "Dutch required", "Rabobank, Cloud Engineer (Netherlands)")
     assert loss.by_source["ats"]["Dutch required"] == 2
     assert loss.dropped == [("ats", "Dutch required", "Rabobank, Cloud Engineer (Netherlands)")]
+
+
+def test_fetchreport_without_a_word_is_a_short_overview():
+    """23 Nov, your ask: the report (3 messages, 5 jobs per reason) was too long to read."""
+    from jobengine.sweep.models import ALREADY, SAVED, LossReport
+
+    report = LossReport()
+    for _ in range(4):
+        report.add("adzuna", SAVED)
+    for _ in range(17):
+        report.add("adzuna", ALREADY)
+    for i in range(30):
+        report.add("adzuna", "title not DevOps-type", f"QA Engineer {i}")
+    for _ in range(15):
+        report.add("gmail", SAVED)
+    report.add("gmail", "too senior", "Senior SRE | Acme")
+    text = report.overview_text({"adzuna": "Adzuna", "gmail": "Email alerts"}, "2026-11-23")
+    assert text.splitlines() == [
+        "\U0001F4CA Last /fetch (2026-11-23): 67 postings read",
+        "\U0001F195 19 new \u00b7 \U0001F501 17 seen before \u00b7 \U0001F6AB 31 left out", "",
+        "New jobs per source:", "- Email alerts: 15 of 16", "- Adzuna: 4 of 51", "",
+        "Left out, biggest first:", "- title not DevOps-type: 30", "- too senior: 1", "",
+        "Tap a reason, or send /fetchreport <word> (for example /fetchreport adzuna), to see "
+        "its jobs. /fetchreport sources: each source over all time."]
+    assert "QA Engineer" not in text  # the jobs come with a word or a button
+
+
+def test_the_short_fetch_message_has_only_what_happened_and_what_needs_you():
+    """23 Nov: 50 lines a /fetch were too many; the full report is in the Run Log page."""
+    from jobengine.sweep.models import SweepSummary
+
+    s = SweepSummary(new=19, updated=60, reposts=7, skipped=733, too_senior=35, too_old=97,
+                     needs_language=18, low_match=1, other_cities=19,
+                     countries=["Poland", "Netherlands", "Ireland"],
+                     new_by_country={"Poland": 8, "Netherlands": 7, "Ireland": 4},
+                     direct_links=["a"] * 6, direct_links_tried=17, closed_jobs=["x"] * 32,
+                     not_on_site_yet=1, site_unchecked=10, alert_emails=33,
+                     blocked_sites=["LSEG (HTTP 429)"], new_companies=71)
+    text = s.short_text()
+    assert text.splitlines() == [
+        "✅ Job search finished", "",
+        "\U0001F195 New jobs: 19 (\U0001F1F5\U0001F1F1 8 · \U0001F1F3\U0001F1F1 7 · "
+        "\U0001F1EE\U0001F1EA 4)",
+        "\U0001F3AF Own job link found: 6 of 17 jobs looked up",
+        "\U0001F9F9 Closed jobs taken off your list: 32",
+        "\U0001F501 Seen before: 67 · \U0001F6AB Not for you: 903", "",
+        "⚠️ For you:",
+        "- 11 new job(s) wait for /jd (the bot could not read their page)"]
+    assert "LSEG" in s.friendly_text()  # the full report keeps every detail
+    quiet = SweepSummary(new=0, countries=["Poland"], alert_emails=0).short_text()
+    assert "- no alert email was read: check the Gmail labels and /health" in quiet

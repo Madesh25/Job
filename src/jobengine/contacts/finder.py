@@ -40,6 +40,7 @@ from jobengine.contacts.models import (
     Candidate,
     Chosen,
     ContactsResult,
+    Mix,
 )
 from jobengine.contacts.providers import apollo, github, hunter, prospeo, snov, tomba
 from jobengine.contacts.providers.base import FixtureHttp, ProviderDeps, Request, real_request
@@ -466,6 +467,25 @@ APPLY_ONLY_NOTE = ("Apply only: no paid lookup for this job (outreach budget). T
                    "contacts anyway to spend credits on it.")
 
 
+def contacts_wanted(values: dict[str, Any]) -> int | None:
+    """The job's "Contacts to find" (LOG-18), or None to use Config contacts.per_job."""
+    try:
+        wanted = int(values.get("Contacts to find") or 0)
+    except (TypeError, ValueError):
+        return None
+    return wanted if wanted > 0 else None
+
+
+def mix_for(wanted: int) -> Mix:
+    """LOG-18 (25 Nov, your rules; the recruiter reads mail first): 1 = the recruiter (a
+    hiring manager when none is found); 2 = recruiter and hiring manager; 3 = recruiter,
+    hiring manager and team lead (team leads are hiring people); more: engineers too."""
+    recruiter = 1
+    hiring = min(2, max(0, wanted - 1))
+    return Mix(peer=max(0, wanted - recruiter - hiring), hiring=hiring, recruiter=recruiter,
+               total=wanted)
+
+
 def find_contacts(deps: ContactDeps, job_id: str, paid: bool = True) -> ContactsResult:
     """`paid` False (an apply-only job, Module 10): only the free sources, the Contacts cache
     and emails in the job description; no domain question and no provider calls."""
@@ -479,6 +499,9 @@ def find_contacts(deps: ContactDeps, job_id: str, paid: bool = True) -> Contacts
     country = values.get("Country") or job_country(values, deps.reference(), deps.s) or "Other"
     config = deps.config()
     mix = parse_mix(config.get("contacts.mix"), config.get("contacts.per_job"))
+    wanted = contacts_wanted(values)
+    if wanted:  # LOG-18: the job's own number (screening sets it, you may change it)
+        mix = mix_for(wanted)
     result = ContactsResult(job_id=job_id, company=company, role=role, country=country,
                             target=mix.total)
     if mix.note:

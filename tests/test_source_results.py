@@ -49,5 +49,6 @@ def test_fetchreport_adds_the_block():
     d = make_desk()
     report = LossReport().to_state(date(2026, 11, 13))
     d.state.set(LAST_REPORT, {**report, "at": "2026-11-13 07:00"})
-    replies = d.fetchreport_command()
-    assert replies[-1].text.startswith("Each source, all jobs in Notion")
+    [reply] = d.fetchreport_command("sources")  # 23 Nov: its own answer (and button)
+    assert reply.text.startswith("Each source, all jobs in Notion")
+    assert d.tap("fr:sources")[0].text.startswith("Each source, all jobs in Notion")

@@ -34,7 +34,9 @@ UOP = [Quoted(value="UoP", quote="q")]
 
 def ext(gaps=0, **kw):
     nice = [req(f"Gap {i}", "Cobol", kind="other") for i in range(gaps)]
-    base = dict(mandatory_requirements=[req("Kubernetes", "Kubernetes")], nice_to_have=nice,
+    base = dict(mandatory_requirements=[req("Kubernetes", "Kubernetes"),
+                                        req("Kubernetes operators", "Kubernetes")],
+                nice_to_have=nice,
                 contract_types=UOP)
     base.update(kw)
     return Extraction(**base)
@@ -60,7 +62,7 @@ def test_matrix_strengths():
         ("Gap", None),
         ("Gap", None),
     ]
-    assert gap_count(matrix) == 3
+    assert gap_count(matrix) == 2  # the degree 1, the two nice-to-haves half each
 
 
 def test_apply_high_needs_zero_gaps_large_employer_and_permanent():
@@ -70,15 +72,32 @@ def test_apply_high_needs_zero_gaps_large_employer_and_permanent():
     assert run(row(company="Odra Systems S.A.")).verdict == "Apply normal"
 
 
+def must_gaps(n, **kw):
+    """A job with n mandatory requirements you lack (not tools)."""
+    return ext(mandatory_requirements=[req("Kubernetes", "Kubernetes"),
+                                       req("Kubernetes operators", "Kubernetes"),
+                                       *(req(f"Gap {i}", "Cobol", kind="other")
+                                         for i in range(n))], **kw)
+
+
 def test_base_tier_by_gap_count():
     r = row(company="Odra Systems S.A.")
-    assert [run(r, ext(gaps=n)).verdict for n in range(5)] == [
+    assert [run(r, must_gaps(n)).verdict for n in range(5)] == [
         "Apply normal", "Apply normal", "Apply low", "Needs review", "Needs review"]
+
+
+def test_a_nice_to_have_gap_weighs_half():
+    """20 Nov audit: Motorola's three "could have" items alone made a strong fit Needs
+    review."""
+    r = row(company="Odra Systems S.A.")
+    assert [run(r, ext(gaps=n)).verdict for n in range(6)] == [
+        "Apply normal", "Apply normal", "Apply normal", "Apply low", "Apply low",
+        "Needs review"]
 
 
 def test_sponsorship_stated_moves_up_and_flags():
     yes = Quoted(value="stated_yes", quote="q")
-    result = run(row(company="Odra Systems S.A."), ext(gaps=2, sponsorship=yes))
+    result = run(row(company="Odra Systems S.A."), must_gaps(2, sponsorship=yes))
     assert result.verdict == "Apply normal"
     assert result.flags == (visa.SPONSORSHIP_STATED,)
     assert run(row(company="Odra Systems S.A."), ext(sponsorship=yes)).verdict == "Apply high"
@@ -107,7 +126,7 @@ def test_cannot_sponsor_goes_to_bottom():
     result = run(row(company="Unknown BV", country="Netherlands"), ext(contract_types=[]),
                  flags=[visa.NOT_ON_IND])
     assert (result.employer, result.verdict, result.bottom) == ("weak", "Apply low", True)
-    result = run(row(company="Odra Systems S.A."), ext(gaps=3, sponsorship=no))
+    result = run(row(company="Odra Systems S.A."), must_gaps(3, sponsorship=no))
     assert (result.verdict, result.bottom) == ("Needs review", True)
 
 
@@ -166,3 +185,45 @@ def test_freshest_first_within_a_tier():
     assert fresh(row(posted_date=TODAY), TODAY)
     assert not fresh(row(posted_date=date(2026, 9, 28)), TODAY)
     assert days_old(row(posted_date=date(2026, 10, 3)), TODAY) is None  # a future date
+
+
+def test_a_kind_of_skill_is_backed_by_your_skill_of_that_kind():
+    """20 Nov audit: Motorola's NoFluffJobs tags "Scripting language" and the misspelled
+    "Continous integration/Continous delivery" were gaps although you have Bash, Python and
+    GitLab CI, so a strong DevOps fit was Needs review."""
+    e = Extraction(mandatory_requirements=[
+        req("Scripting language", "Scripting language", kind="practice"),
+        req("Continous integration/Continous delivery",
+            "Continous integration/Continous delivery", kind="practice"),
+        req("Infrastructure as Code", "Infrastructure as Code", kind="practice"),
+        req("Virtualization", "Virtualization", kind="practice"),
+    ])
+    matrix = build_matrix(e, REF)
+    assert [(m.strength, m.backing) for m in matrix] == [
+        ("Strong", "Bash"),  # Bash is Production, Python Hands-on: the best one backs it
+        ("Strong", "GitLab CI"),
+        ("Strong", "Terraform"),
+        ("Gap", None),  # no clear skill of that kind: still a gap
+    ]
+    assert gap_count(matrix) == 1
+
+
+def test_postings_misspellings_are_the_same_word():
+    from jobengine.reference import canon_term
+
+    assert canon_term("Continous integration") == "continuous integration"
+    assert canon_term("Virtualisation") == "virtualization"
+
+
+def test_a_description_with_no_requirements_is_needs_review():
+    """20 Nov audit: Rabobank (Google's copy) was Apply high and four Netflix rows (a team
+    introduction only) Apply low with no requirement found: no gaps is no evidence."""
+    empty = ext(mandatory_requirements=[], nice_to_have=[])
+    got = run(e=empty)
+    assert got.verdict == "Needs review"
+    assert "no requirements found in the description, read it yourself" in got.notes
+    one = ext(mandatory_requirements=[req("Kubernetes", "Kubernetes")])
+    assert run(e=one).verdict == "Needs review"
+    many = ext(mandatory_requirements=[req("Docker, Kubernetes and Azure", "Docker",
+                                           "Kubernetes", "Azure")])
+    assert run(e=many).verdict != "Needs review"  # one line naming three tools is enough

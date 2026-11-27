@@ -255,7 +255,8 @@ def test_workday_postings_with_detail():
     assert cloud.url == ("https://balticbank.wd3.myworkdayjobs.com/careers"
                          "/job/Dublin/Cloud-Engineer_JR1002")
     searches = [u for u in http_fake.requested if u.endswith("/careers/jobs")]
-    assert len(searches) == len(ats.DEFAULT_SEARCH_TERMS) + 1  # + the whole list's filters
+    # LOG-08: Workday has its own 3 search words (+ the whole list's filters).
+    assert len(searches) == len(S.sweep["ats"]["workday_search_terms"]) + 1
 
 
 def test_workday_without_detail_budget_drops_unknown_locations():
@@ -388,8 +389,9 @@ def test_friendly_summary_lists_sites_to_fix():
     summary = SweepSummary(blocked_sites=["Intel (IE) (HTTP 403)"],
                            no_board_sites=[f"Co {i}" for i in range(10)])
     text = summary.friendly_text()
-    assert "- Blocked us: Intel (IE) (HTTP 403)" in text
-    assert "- No job board found: Co 0, Co 1, Co 2, Co 3, Co 4, Co 5, Co 6, Co 7 and 2 more" in text
+    assert "- Blocked us (1): Intel (IE) (HTTP 403)" in text
+    assert ("- No job board found (10): Co 0, Co 1, Co 2, Co 3, Co 4, Co 5, Co 6, Co 7 "
+            "and 2 more") in text
 
 
 ADZ = replace(JOB, url="https://www.adzuna.pl/details/5901137322?utm_medium=api")

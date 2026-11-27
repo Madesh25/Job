@@ -300,6 +300,15 @@ resume:
   # (or " | ") separates the parts.
   relocation_template: "Chennai, India | Open to relocate to {country}"
 contacts:
+  # LOG-18 (25 Nov, your rules): how many contacts a job gets, written by screening in the
+  # job's "Contacts to find" column (you may change it before Approve). With connections at
+  # the company: 1 email (the recruiter, else a hiring manager) and referral asks to them.
+  # Notion Config contacts.find.apply_high / apply_low / with_connections win over these.
+  find:
+    on: true        # false (or Config contacts.find.on = false): contacts.per_job for all
+    apply_high: 3   # recruiter, hiring manager, team lead
+    apply_low: 2    # recruiter, hiring manager
+    with_connections: 1
   # Hunter's new credits come on this day of each month (hunter.io/usage, 23 Oct). Used for
   # the leftover run (contacts/connection_lookup.py) when Hunter's answer has no reset date.
   hunter_renewal_day: 23
@@ -430,16 +439,30 @@ sweep:
     recheck_days: 3
     linkedin_days: 30
     workers: 5
+  # Empty Target Companies columns of the companies the bot added (Tier, Careers URL, ATS
+  # platform), one AI search each. 20 Nov (AI cost): 5 a /fetch instead of 20; most found
+  # nothing or only a homepage.
+  company_details:
+    max_per_run: 5
   job_links:
     enabled: true
     max_rows: 40
     # AI web searches per sweep: a company's careers page (remembered 60 days) or one job.
     max_searches: 40
+    # Google's copy of a job whose site could not be checked (4 Nov). Off since 20 Nov (AI
+    # cost): Gemini gives "0 result links" for these searches, so 0 of 26 were found on 19
+    # and 20 Nov while they were about half of each /fetch's Google searches (5,000 free a
+    # month, then $14 per 1,000). Turn on again when /fetch logs show result links.
+    google_copy: false
     # Careers pages built by JavaScript are opened in a browser, at most this many per
-    # sweep (2 per job), when Playwright is installed (in every Docker build since 30 Oct).
+    # sweep (6 per job), when Playwright is installed (in every Docker build since 30 Oct).
     # Only short pages are opened: a long page is not one that JavaScript fills in.
     browser: true
-    max_rendered: 40
+    # 17 Nov (FEAT-01, measured): 3 browsers read 26 job pages in 15 s instead of 46 s, at
+    # about 880 MB with the app (each browser about 170 MB more). 4 would leave too little of
+    # Cloud Run's 2 GB for heavy pages.
+    max_rendered: 120
+    browsers: 3
     # Companies looked up at the same time (your idea of 30 Oct): searches and page reads
     # are mostly waiting. All jobs of one company stay on one worker.
     workers: 3
@@ -489,6 +512,14 @@ sweep:
     - chmurowy
     - chmurowej
     - inzynier platformy
+    # LOG-07 (24 Nov test log, /fetchreport): close roles dropped as "title not DevOps-type":
+    # CI/CD Engineer (NetApp), AI Platform & Deployment Engineer (Devire), Cloud Security
+    # Engineer (Darize). Screening still judges each one on its description.
+    - ci cd
+    - cicd
+    - deployment engineer
+    - cloud security
+    - mlops
   title_exclude:
     - lead
     - principal
@@ -635,8 +666,11 @@ sweep:
     # it with Gmail filters), plus those from a sender domain in sender_boards below, from the
     # last `days` days. The label works whatever address a board sends from. A `query` key,
     # when set, replaces the whole search.
+    # 3 days, the same as max_posted_age_days 2 (today and the 2 days before): 23 Nov, the
+    # /fetch after a weekend searched only 2 days, so the alerts of 21 Nov before 10:18 (still
+    # young enough to keep) were never read.
     label: "Job Alerts"
-    days: 2
+    days: 3
     max_messages: 100
     # Sender domain (or parent domain) -> Board option in Job Opportunities.
     sender_boards:
@@ -764,6 +798,14 @@ sweep:
     # Workday: one search per term (20 results each), then a detail call per kept posting.
     workday_detail_calls: 40
     workday_pages_per_term: 1
+    # LOG-08 (24 Nov): Workday refused this PC (HTTP 429) on every /fetch. It counts all its
+    # sites as one visitor, so it is asked less: these 3 searches per site (not the 8 below),
+    # only this many sites per /fetch (the ones read longest ago), each site at most once in
+    # this many hours (their jobs are saved for 20 days, max_posted_age_days). Requests go
+    # 3 s apart and a refusal leaves Workday alone for 6 hours (http.py SLOW_GAP, SLOW_CLOSE).
+    workday_search_terms: [devops, site reliability, cloud platform]
+    workday_sites_per_run: 10
+    workday_read_every_hours: 20
     # Searches for boards too big to read whole (Workday, amazon.jobs).
     search_terms: [devops, site reliability, sre, platform engineer, cloud engineer, kubernetes,
                    infrastructure engineer, devsecops]

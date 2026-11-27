@@ -44,10 +44,12 @@ def test_the_jobs_country_first_and_no_juniors_or_removed():
     stored.append(StoredRow("gone", Connection("Gone", "X", "", "", "Vistula Cloud",
                                                "SRE"), True))
     found = conn.at_company(stored, "Vistula Cloud", "Poland")
-    assert [m.row.person.name for m in found] == ["Ola Nowak", "Ewa Kowalska", "Piotr Example"]
+    # LOG-18: Piotr works in India: left out of a Poland job, counted by abroad().
+    assert [m.row.person.name for m in found] == ["Ola Nowak", "Ewa Kowalska"]
+    assert conn.abroad(stored, "Vistula Cloud", "Poland") == {"India": 1}
     text = conn.block(found, "Vistula Cloud", "Poland", FAKE_TODAY)
     assert "- Ola Nowak: Engineering Manager [Manager, Poland, has an email]" in text
-    assert "- Piotr Example: Senior DevOps Engineer [Engineer, India]" in text
+    assert "Piotr Example" not in text
 
 
 def test_nobody_in_the_country_gets_the_other_office_note():
@@ -96,7 +98,8 @@ def test_contacts_answer_lists_your_connections_and_the_referral_flow():
                                 "one yourself as a LinkedIn message")
     assert "https://www.linkedin.com/in/ola-n\nHi Ola, I am applying for the DevOps Engineer" in \
         asks.text
-    assert asks.buttons and asks.buttons[0][1] == "rm:pl-clean"
+    # LOG-02: "I sent them" first (marks the people shown Asked), then Mail them.
+    assert asks.buttons[0][1] == "rk:pl-clean" and asks.buttons[1][1] == "rm:pl-clean"
 
     [mailed] = d.tap("rm:pl-clean")
     assert mailed.text.startswith("Added as contacts of this job:")

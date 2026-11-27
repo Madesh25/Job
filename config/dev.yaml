@@ -11,6 +11,13 @@ notion:
     autoapply_issues: "6625f742-f410-4836-a4c1-a9e1d9026952"
     # 27 Oct: the weekly self-audit, Weekly Audit (DEV) in DEV Sandbox.
     weekly_audit: "8c2c1eaf-8ce3-4482-8fac-55f838b47a9e"
+    # 18 Nov: Run Log (DEV) and Error Log (DEV) in DEV Sandbox, created by Claude Code.
+    run_log: "41c6edc2-b0d4-81e3-b155-000bbf95a38c"
+    error_log: "41c6edc2-b0d4-81ee-bf4e-000b62c4cf63"
+    # 23 Nov (S1): Daily Scorecard, one row a day, created by Claude Code next to Run Log.
+    daily_scorecard: "4216edc2-b0d4-8177-b0c3-000bdc693a97"
+    # 23 Nov (S3): Screening Check, 10 verdicts a week to tick, created by Claude Code.
+    screen_check: "4216edc2-b0d4-8104-ae6c-000b0410c2c5"
 gmail:
   sender: "madeshwaranm02@gmail.com"
 llm:
@@ -27,11 +34,13 @@ sweep:
   job_links:
     max_rows: 80
     # AI searches: a company's careers page, or the job when no careers page is found.
-    max_searches: 150  # 4 Nov: a company can take 3 now (careers page, job system, Google's copy)
+    # 20 Nov (AI cost): 150 to 60. Each AI search is one Gemini call of 2 to 7 Google
+    # searches; with Google's copy off a /fetch needs about 15 to 20.
+    max_searches: 60
     copy_model: ""  # 4 Nov: gemini-3.8-flash made 20 to 78 searches a call: not used
     # Browser pages for careers pages built by JavaScript: one per job looked up (2 Nov:
     # 40 ran out halfway through the 80 jobs).
-    max_rendered: 80
+    max_rendered: 150  # 17 Nov, FEAT-01: 3 browsers at a time (base.yaml)
     # 5 companies at a time (2 Nov, your decision: a DEV /fetch took 22 min). Prod keeps the
     # recommended 3 (base.yaml); back to 3 here at go-live (Job Engine To-do).
     workers: 5

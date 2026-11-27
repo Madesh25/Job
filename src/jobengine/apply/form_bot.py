@@ -98,6 +98,12 @@ RULES: tuple[tuple[re.Pattern[str], str, re.Pattern[str] | None], ...] = tuple(
         (r"\brelocat", "relocation", None),
         (r"\benglish\b", "english", None),
         (r"\bgender\b", "gender", None),
+        # 17 Nov, real Greenhouse form (InterSystems): the US questions after Gender, and
+        # "Job Location" (able to work there, able to relocate, or neither).
+        (r"\b(hispanic|latin[oa]|veteran|disabilit\w*|race|ethnic\w*|sexual orientation)\b",
+         "other_diversity", None),
+        (r"\bjob location\b", "relocation", None),
+        (r"\bdiscipline\b|\bfield of study\b|^(your )?major$", "education", None),
         (r"\b(city|town)\b|\bcurrent location\b|^(your )?location$"
          r"|\bwhere are you (currently )?based\b",
          "city", r"\b(relocat|prefer|willing|office|desired)"),
@@ -117,7 +123,8 @@ STOP = {"the", "and", "you", "your", "are", "for", "with", "have", "what", "how"
 SOURCES = {"profile": "your profile and Apply pack", "saved": "your saved answer",
            "form": "shown on the form already",
            "resume": "the approved resume for this job",
-           "ai": "🤖 AI from your facts: check it"}
+           "ai": "🤖 AI from your facts: check it",
+           "company": "you have not worked for the company you apply to: check it"}
 
 
 def norm(text: Any) -> str:
@@ -222,6 +229,28 @@ def rule_for(label: str, values: Mapping[str, str], kind: str) -> str | None:
     return None
 
 
+WORKED = re.compile(r"\b(worked|employed|employee|intern)\b")
+NOT_WORKED_QUESTION = re.compile(r"\b(why|how|what|when|where|which|who)\b")
+LEGAL_FORM = re.compile(r"( (b ?v|n ?v|gmbh|inc|ltd|llc|plc|ag|sa|sp z o ?o|group|ab|as|oy|"
+                        r"srl|spa|limited|corporation|corp))+$")
+
+
+def worked_here(label: str, company: str, kind: str) -> str | None:
+    """17 Nov, real Greenhouse form (InterSystems): "Have you previously worked for
+    InterSystems?" and the box "I have never worked at InterSystems". You apply to a company
+    you have not worked for: No (the box with "never" is ticked). Only a question that names
+    the job's own company; never a why or how question."""
+    name = LEGAL_FORM.sub("", norm(company))
+    text = norm(label)
+    if len(name) < 3 or not re.search(rf"\b{re.escape(name)}\b", text):
+        return None
+    if not WORKED.search(text) or NOT_WORKED_QUESTION.search(text):
+        return None
+    if kind == "checkbox":
+        return "Yes" if re.search(r"\bnever\b", text) else "No"
+    return "No, never"
+
+
 NEEDS_PERMIT = re.compile(r"\b(need|require)\w*\b.*\b(permit|sponsor\w*|visa)\b|^not yet\b")
 
 
@@ -239,6 +268,13 @@ def permit_choice(label: str, options: Sequence[str], value: str) -> int | None:
         return None
     hits = [i for i, option in enumerate(options) if NEEDS_PERMIT.search(norm(option))]
     return hits[0] if len(hits) == 1 else None
+
+
+DECLINE = re.compile(r"\b(prefer not|decline|don t wish|do not wish|rather not|do not want|"
+                     r"don t want|not to (say|answer|disclose)|wish not)\b")
+RELOCATE = re.compile(r"\brelocat")
+NEVER = re.compile(r"\bnever\b")
+NOT_ABLE = re.compile(r"\b(unable|not able|cannot|can t)\b")
 
 
 def choice(options: Sequence[str], value: str) -> int | None:
@@ -267,6 +303,14 @@ def choice(options: Sequence[str], value: str) -> int | None:
         for i, text in enumerate(texts):
             if words <= set(text.split(" ")):
                 return i
+    # 17 Nov, InterSystems: "Prefer not to say" is "Decline To Self Identify" or "I don't
+    # wish to answer" there; "Open to relocate" is "Able to relocate to job location".
+    for wanted, fits in ((DECLINE, DECLINE), (RELOCATE, RELOCATE), (NEVER, NEVER)):
+        if wanted.search(want):
+            hits = [i for i, text in enumerate(texts)
+                    if fits.search(text) and not NOT_ABLE.search(text)]
+            if len(hits) == 1:
+                return hits[0]
     return None
 
 
@@ -307,6 +351,8 @@ def plan(fields: Sequence[Field], values: Mapping[str, str],
         value, source = saved_for(f.label, saved), "saved"
         if value is None:
             value, source = rule_for(f.label, values, f.kind), "profile"
+        if value is None:
+            value, source = worked_here(f.label, values.get("company") or "", f.kind), "company"
         if value is None and f.hint and not _words(f.label)[1:]:
             # A one-word label ("First", "Last"): the field's own name says what it asks.
             value = rule_for(norm(f.hint), values, f.kind)
@@ -343,8 +389,10 @@ def filled(answers: Sequence[Answer]) -> list[Answer]:
     return [a for a in answers if a.value is not None and not a.note]
 
 
-def report(result: Result, job: str = "") -> str:
-    """The Telegram text: what was filled and from where, what is left for you."""
+def report(result: Result, job: str = "", short: bool = False) -> str:
+    """The Telegram text: what was filled and from where, what is left for you. `short`
+    (S10, 23 Nov): without the list of filled fields (the screenshot shows them, the full
+    report is in the Run Log page)."""
     head = f"🧪 Dry run{f' ({job})' if job else ''}: nothing was sent.\n{result.url}"
     if result.opened:
         head += f"\nOpened its Apply link: {result.opened}"
@@ -354,7 +402,7 @@ def report(result: Result, job: str = "") -> str:
     left = [a for a in result.answers if a not in done]
     lines = [head, f"Filled {len(done)} of {len(result.answers)} field(s). The screenshot "
              "shows the form as it would go."]
-    if done:
+    if done and not short:
         lines.append("")
         lines += [f"✅ {_short(a.field.label)}: {_short(a.value or '', 120)} "
                   f"({SOURCES.get(a.source, a.source)})" for a in done]
@@ -424,6 +472,37 @@ READ_JS = r"""
     /search (for )?jobs?|search job|keyword/i.test(el.getAttribute('aria-label') || '') ||
     /search (for )?jobs?|search job|keyword/i.test(el.getAttribute('placeholder') || '');
   const text = n => (n && (n.innerText || n.textContent) || '').replace(/\s+/g, ' ').trim();
+  const norm = s => String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+  // 17 Nov, Keylane (Workable): the question of YES / NO buttons sits outside their group,
+  // so "the first label in the box" was the YES option itself. The question of a radio group:
+  // its group's aria-labelledby or legend, else the first line of the nearest box around the
+  // whole group (and no other field) that is not one of its options.
+  const groupQuestion = el => {
+    const mates = el.name ? [...document.querySelectorAll('input[type=radio]')]
+      .filter(r => r.name === el.name) : [el];
+    const options = new Set(mates.map(r => norm(text(r.labels && r.labels[0]) || r.value)));
+    const group = el.closest('fieldset, [role=radiogroup], [role=group]');
+    if (group) {
+      const by = (group.getAttribute('aria-labelledby') || '').split(/\s+/).filter(Boolean)
+        .map(id => text(document.getElementById(id))).filter(Boolean).join(' ');
+      if (by) { return by; }
+      if (group.getAttribute('aria-label')) { return group.getAttribute('aria-label'); }
+      const legend = group.querySelector('legend');
+      if (legend && text(legend)) { return text(legend); }
+    }
+    for (let p = group || el.parentElement, d = 0; p && d < 6; p = p.parentElement, d++) {
+      if (mates.some(r => !p.contains(r))) { continue; }
+      if (p.querySelectorAll('input:not([type=hidden]), textarea, select').length >
+        mates.length) { break; }
+      const line = (p.innerText || '').split('\n').map(s => s.trim()).find(s => {
+        let rest = ' ' + norm(s) + ' ';
+        for (const o of options) { if (o) { rest = rest.split(' ' + o + ' ').join(' '); } }
+        return rest.trim();
+      });
+      if (line) { return line; }
+    }
+    return '';
+  };
   const labelOf = el => {
     const parts = [];
     if (el.labels) { for (const l of el.labels) { parts.push(text(l)); } }
@@ -431,7 +510,10 @@ READ_JS = r"""
     if (by) { for (const id of by.split(/\s+/)) { parts.push(text(document.getElementById(id))); } }
     parts.push(el.getAttribute('aria-label') || '');
     let label = parts.filter(Boolean)[0] || '';
-    if (!label || el.type === 'radio') {
+    const asked = el.type === 'radio' ? groupQuestion(el) : '';
+    if (asked) {
+      label = asked;
+    } else if (!label || el.type === 'radio') {
       // 16 Nov, real Ashby form: "Location" is the label of the field's box, the field itself
       // only has the hint "Start typing...".
       const box = el.closest('fieldset, [role=radiogroup], [role=group], .application-question, ' +
@@ -484,7 +566,9 @@ READ_JS = r"""
     if (el.disabled || /^(hidden|submit|button|reset|image|password|search)$/.test(type)) {
       continue;
     }
-    if (type !== 'file' && !shown(el)) { continue; }
+    // 17 Nov: a radio button drawn by its label (the input itself invisible) is a choice.
+    if (type !== 'file' && !shown(el) &&
+      !(type === 'radio' && el.labels && [...el.labels].some(shown))) { continue; }
     if (siteSearch(el)) { continue; }
     const label = labelOf(el);
     const hint = [el.name, el.id, el.getAttribute('autocomplete')].filter(Boolean).join(' ');
@@ -579,21 +663,42 @@ async ({ref, value}) => {
     if (i < 0 && words.length > 1) {
       i = texts.findIndex(t => words.every(w => t.split(' ').includes(w)));
     }
+    for (const re of [DECLINE, /\brelocat/, /\bnever\b/]) {
+      if (i < 0 && re.test(want)) {
+        const hits = texts.map((t, k) => re.test(t) && !NOT_ABLE.test(t) ? k : -1)
+          .filter(k => k >= 0);
+        if (hits.length === 1) { i = hits[0]; }
+      }
+    }
     return i;
   };
+  const DECLINE = new RegExp('\\b(prefer not|decline|don t wish|do not wish|rather not|' +
+    'do not want|don t want|not to (say|answer|disclose)|wish not)\\b');
+  const NOT_ABLE = /\b(unable|not able|cannot|can t)\b/;
   el.focus();
-  setText(value);
-  el.dispatchEvent(new KeyboardEvent('keyup', {key: 'Unidentified', bubbles: true}));
-  for (let n = 0; n < 12; n++) {
-    await sleep(150);
-    const opts = options();
-    if (!opts.length) { continue; }
-    const i = choice(opts.map(o => norm(o.innerText)), value);
-    if (i < 0) { break; }
-    const chosen = opts[i].innerText.trim();
-    opts[i].click();
-    await sleep(200);
-    return chosen;
+  /* 17 Nov, InterSystems: the list shows only options with the typed text, and "Prefer not
+     to say" is "Decline To Self Identify" there: then the whole list is looked at. */
+  /* 17 Nov, InterSystems "Location (City)": its places come from a search site, slower than
+     1.8 s at times: waited for (up to 6 s) while the list says it is loading; "Chennai,
+     India" is also searched as "Chennai". */
+  const loading = () => [...document.querySelectorAll('[class*=menu-notice--loading], ' +
+      '[class*=loading-indicator], [class*=loadingIndicator], [class*=loadingMessage]')]
+    .some(shown);
+  const head = String(value).split(',')[0].trim();
+  for (const typed of [value, ...(head && head !== String(value).trim() ? [head] : []), '']) {
+    setText(typed);
+    el.dispatchEvent(new KeyboardEvent('keyup', {key: 'Unidentified', bubbles: true}));
+    for (let n = 0; n < 40; n++) {
+      await sleep(150);
+      const opts = options();
+      if (!opts.length) { if (n >= 11 && !loading()) { break; } continue; }
+      const i = choice(opts.map(o => norm(o.innerText)), value);
+      if (i < 0) { break; }
+      const chosen = opts[i].innerText.trim();
+      opts[i].click();
+      await sleep(200);
+      return chosen;
+    }
   }
   setText('');
   return null;
@@ -812,10 +917,12 @@ def dry_run(s: Settings, url: str, values: Mapping[str, str],
             ai: Callable[[list[Answer]], int] | None = None,
             resume: tuple[str, bytes] | None = None,
             finish: Callable[[Any, Result, Sending], None] | None = None,
-            now: Callable[[], datetime] = datetime.now) -> Result:
+            now: Callable[[], datetime] = datetime.now,
+            stop: Callable[[], None] | None = None) -> Result:
     """Open the form, fill it, take a screenshot. `ai` answers the questions left open
     (apply/form_ai.py, step 2). `prepare` gets the browser context before the page opens and
-    `check` the filled page (tests serve and read their own form)."""
+    `check` the filled page (tests serve and read their own form). `stop` is called between
+    the steps and raises to stop the run (/end, LOG-01); each step is logged with its time."""
     result = Result(url=url)
     try:
         safety.assert_page_fetch_allowed(url, s)
@@ -835,9 +942,14 @@ def dry_run(s: Settings, url: str, values: Mapping[str, str],
         resume_path = upload / (Path(resume[0]).name or "resume.pdf")
         resume_path.write_bytes(resume[1])
     try:
-        return _run(s, url, values, saved, result, folder=folder, prepare=prepare, check=check,
+        done = _run(s, url, values, saved, result, folder=folder, prepare=prepare, check=check,
                     ai=ai, resume_path=resume_path, name=name, now=now,
-                    sync_playwright=sync_playwright, finish=finish)
+                    sync_playwright=sync_playwright, finish=finish, stop=stop)
+        if not done.stopped:  # a form filled (dry run or auto-apply): the daily scorecard
+            from jobengine.track import day_ledger
+
+            day_ledger.count("forms")
+        return done
     finally:
         if resume_path is not None:
             resume_path.unlink(missing_ok=True)
@@ -849,8 +961,18 @@ def _run(s: Settings, url: str, values: Mapping[str, str], saved: Sequence[Mappi
          check: Callable[[Any], None] | None, ai: Callable[[list[Answer]], int] | None,
          resume_path: Path | None, name: str, now: Callable[[], datetime],
          sync_playwright: Any,
-         finish: Callable[[Any, Result, Sending], None] | None = None) -> Result:
+         finish: Callable[[Any, Result, Sending], None] | None = None,
+         stop: Callable[[], None] | None = None) -> Result:
     sending = Sending()
+    began = time.monotonic()
+
+    def step(what: str) -> None:
+        """LOG-01 (24 Nov): a /dryrun gave no answer for minutes; each step is logged with
+        its time, and /end stops the run here."""
+        log.info("dry run %s: %s (%.0f s)", name, what, time.monotonic() - began)
+        if stop is not None:
+            stop()
+
     with sync_playwright() as p:
         browser = _launch(p)
         try:
@@ -859,8 +981,10 @@ def _run(s: Settings, url: str, values: Mapping[str, str], saved: Sequence[Mappi
             if prepare is not None:
                 prepare(context)
             page = context.new_page()
+            step("opening the page")
             page.goto(url, wait_until="domcontentloaded", timeout=LOAD_TIMEOUT_MS)
             page.wait_for_timeout(SETTLE_MS)
+            step("page opened")
             links: list[str] = []
             fields, blockers, result.title = _read_settled(page, links)
             landed = page.url
@@ -873,6 +997,7 @@ def _run(s: Settings, url: str, values: Mapping[str, str], saved: Sequence[Mappi
                 target = links[0]
                 try:
                     safety.assert_page_fetch_allowed(target, s)
+                    step("opening its Apply link")
                     page.goto(target, wait_until="domcontentloaded", timeout=LOAD_TIMEOUT_MS)
                     page.wait_for_timeout(SETTLE_MS)
                     result.opened = target
@@ -897,9 +1022,12 @@ def _run(s: Settings, url: str, values: Mapping[str, str], saved: Sequence[Mappi
             else:
                 result.answers = plan(fields, values, saved,
                                       resume_path.name if resume_path else None)
+                step(f"{len(fields)} field(s) read")
                 if ai is not None:
                     ai(result.answers)
+                    step("the AI answered the open questions")
                 _fill(page, result.answers, resume_path)
+                step("form filled")
                 if check is not None:
                     check(page)
                 if finish is not None:  # auto-submit (apply/form_submit.py); never a dry run

@@ -10,7 +10,9 @@ from jobengine.contacts.classify import title_allowed
 from jobengine.contacts.models import TYPE_ORDER, Chosen, Mix
 from jobengine.sweep.normalize import canon_company
 
-BLOCKED = frozenset({"Bounced", "Do not contact", "Dead end"})
+# LOG-18 (25 Nov, your rule): Ghosted (no answer 14 days after the follow-up) is never picked
+# again for the company's next jobs: a new person is found. A late answer turns them Replied.
+BLOCKED = frozenset({"Bounced", "Do not contact", "Dead end", "Ghosted"})
 
 
 def months_before(day: date, months: int) -> date:

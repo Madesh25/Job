@@ -82,6 +82,9 @@ class ScreenDeps:
     write: bool = True
     notes: list[str] = field(default_factory=list)
     state: BotState | None = None  # holds the daily screening count
+    # LOG-18: (company, country) -> how many of your LinkedIn connections work there and can
+    # help (not junior, not known to work in another country); None: not known here.
+    connections_at: Callable[[str, str], int] | None = None
 
 
 def fake_deps(s: Settings, base: Path = FIXTURES, write: bool = True) -> ScreenDeps:
@@ -157,7 +160,15 @@ def job_row(page_id: str, values: dict[str, Any]) -> JobRow:
         gaps=values.get("Gaps"),
         swept_date=values.get("Swept date"),
         first_seen=values.get("First seen"),
+        contacts_to_find=_whole(values.get("Contacts to find")),
     )
+
+
+def _whole(value: Any) -> int | None:
+    try:
+        return int(value) if value not in (None, "") else None
+    except (TypeError, ValueError):
+        return None
 
 
 def description(blocks: list[str], full_min: int = FULL_MIN_CHARS) -> tuple[str, str]:
@@ -233,6 +244,44 @@ def years_update(row: JobRow, jd: str) -> dict[str, Any]:
     if years is None or (row.years_required is not None and years <= row.years_required):
         return {}
     return {"Years required": experience(jd) or f"{years} years"}
+
+
+# LOG-18 (25 Nov, your rules): how many contacts a job gets. Notion Config
+# contacts.find.apply_high / apply_low / with_connections win over these.
+CONTACTS_TO_FIND = {"Apply high": 3, "Apply low": 2}
+WITH_CONNECTIONS = 1
+
+
+def contacts_to_find(config: Any, s: Settings, verdict: str, row: JobRow,
+                     connections_at: Callable[[str, str], int] | None) -> int | None:
+    """The "Contacts to find" number screening writes: 3 for Apply high, 2 for Apply low, 1
+    when your connections work there (referrals do the rest). None: leave the column as it
+    is (a Skip, or a number you set yourself)."""
+    if row.contacts_to_find is not None or verdict not in CONTACTS_TO_FIND:
+        return None
+    base = (s.contacts or {}).get("find") or {}
+    switch = config.get("contacts.find.on") if config is not None else None
+    if str(switch if switch not in (None, "") else base.get("on", True)).strip().lower() in (
+            "false", "off", "no", "0"):
+        return None  # off: every job uses Config contacts.per_job, as before
+
+    def number(key: str, default: int) -> int:
+        value = config.get(f"contacts.find.{key}") if config is not None else None
+        try:
+            return max(1, int(value if value not in (None, "") else base.get(key, default)))
+        except (TypeError, ValueError):
+            return default
+
+    if connections_at is not None:
+        try:
+            known = connections_at(row.company, row.country or "")
+        except Exception:  # the number by verdict then
+            log.info("connections not read for %s", row.company, exc_info=True)
+            known = 0
+        if known:
+            return number("with_connections", WITH_CONNECTIONS)
+    key = "apply_high" if verdict == "Apply high" else "apply_low"
+    return number(key, CONTACTS_TO_FIND[verdict])
 
 
 def plan_props(
@@ -388,7 +437,11 @@ class _Run:
             result.notes.extend(checks.notes)
             result.notes.extend(tiering.notes)
         if self.deps.write:
-            repo.update(row.page_id, plan_props(result, row, status_from) | prepared.years_fix)
+            found = contacts_to_find(self.config, self.s, result.verdict, row,
+                                     self.deps.connections_at)
+            extra = {"Contacts to find": found} if found else {}
+            repo.update(row.page_id,
+                        plan_props(result, row, status_from) | prepared.years_fix | extra)
             repo.append_body(row.page_id, body_section(result, self.today))
             day_ledger.count(f"screened.{result.verdict}")
         return result
@@ -462,7 +515,7 @@ def unscreened_rows(deps: ScreenDeps, today: date | None = None,
     waiting = _batch_rows(deps)
     rows = [job_row(pid, v) for pid, v in
             deps.repo.query_rows(select_filter("Screen verdict", "Unscreened"))
-            if pid not in waiting]
+            if pid not in waiting and v.get("Status") != "Expired"]  # S5: too old
     rows = [r for r in rows if in_scope(r, scope, today)]
     ranked = best.scores(deps.state, today) if today else {}
     rows.sort(key=lambda r: r.posted_date or date.min, reverse=True)
@@ -484,7 +537,7 @@ def screen_pending(
     `limit` (the CLI --limit) caps this run instead of what is left of today's limit.
     `scope` (SCOPES): only the jobs found today or in the last 7 days; /screen's default
     is today."""
-    summary = ScreenSummary()
+    summary = ScreenSummary(waiting_scope=WAITING_SCOPE.get(scope, ""))
     if deps.repo is None:
         summary.errors.append("DRY RUN: no Job Opportunities target here, nothing screened")
         return summary
@@ -612,7 +665,7 @@ def _limit_note(s: Settings, used: int, left: int, limit: int | None) -> str:
 def screen_one(s: Settings, deps: ScreenDeps, today: date, ref: str) -> ScreenSummary:
     """Re-screen one row whatever its verdict. Status becomes Screened only from New or
     Screened, so a row past Screened never moves backwards."""
-    summary = ScreenSummary()
+    summary = ScreenSummary(waiting_scope="")
     if deps.repo is None:
         summary.errors.append("DRY RUN: no Job Opportunities target here, nothing screened")
         return summary
@@ -651,6 +704,10 @@ def pending_rows(repo: JobsRepo) -> list[JobRow]:
     return [job_row(pid, v) for pid, v in rows]
 
 
+WAITING_SCOPE = {"today": "found today", "week": "found this week", "all": "all days"}
+WAITING_STATUSES = (None, "", "New")  # Expired, Declined ... no longer wait for /jd
+
+
 def waiting_for_jd(repo: JobsRepo, state: Any = None) -> list[JobRow]:
     """Unscreened rows that wait for /jd: LinkedIn rows (LinkedIn is never fetched) and,
     with `state`, rows whose page gave no description (screen/waiting.py: Pracuj.pl and
@@ -661,9 +718,11 @@ def waiting_for_jd(repo: JobsRepo, state: Any = None) -> list[JobRow]:
         return [job_row(pid, v) for pid, v in rows]
     known = set(waiting.noted(state))
     # 5 Nov: a LinkedIn row whose own link on the company's site was found (sweep/job_links)
-    # has its description: it no longer waits for /jd.
+    # has its description: it no longer waits for /jd. LOG-03 (24 Nov): only a New row waits;
+    # the 202 jobs set Expired that morning (S5) were still counted (266 against /jd's 50).
     rows = [job_row(pid, v)
             for pid, v in repo.query_rows(select_filter("Screen verdict", "Unscreened"))
-            if (v.get("Board") == "LinkedIn" and "linkedin." in str(v.get("URL") or ""))
-            or pid in known]
+            if v.get("Status") in WAITING_STATUSES
+            and ((v.get("Board") == "LinkedIn" and "linkedin." in str(v.get("URL") or ""))
+                 or pid in known)]
     return sorted(rows, key=lambda r: (r.board != "LinkedIn", r.board or ""))

@@ -71,6 +71,11 @@ Screening done: 14 screened (5 high, 1 normal, 2 low, 1 needs review, 5 skipped)
 - Skip (Tech mismatch): Odra Systems S.A., Platform Engineer (Poznań) | ...
 ```
 
+In Telegram (23 Nov, your ask: short and easy to read) /screen answers with the verdict
+counts that are not zero, the jobs waiting for /jd, the AI cost, how many wait in /pending
+and how many older jobs were not taken ("/screen week"). The full text above, with tokens
+and the model, is the page of the /screen row in Run Log.
+
 ## Free checks before the AI
 
 Before a job goes to the LLM it is checked for free, with the same rules the sweep uses
@@ -158,6 +163,11 @@ then run `/screen`.
      LinkedIn is never fetched, so LinkedIn rows wait here until you paste the JD with `/jd`,
      unless the sweep found the same job on another site (see "LinkedIn descriptions from other
      sites" in [sweep.md](sweep.md)).
+     LOG-03 (24 Nov: 4, 11, 15, 51 and 266 in different messages): only a job with Status New
+     waits (the jobs set Expired as too old, Declined and the rest no longer count), and each
+     message names the jobs it counts: `/screen` "N waiting for JD (found today)" (or "found
+     this week", "all days"), `/pending` and `/report` "N ... all days (M of the last 3 days:
+     /jd)", `/jd` the last 3 days and "N older one(s)", the start message "of the last 3 days".
 3. One LLM call (stage `score`) extracts the facts, then the quote check, the gates, the
    tier and the visa checks run, and the results are written.
 
@@ -189,7 +199,17 @@ Exactly 5 years passes and only ranks lower.
 
 Every requirement gets a strength: `Strong` (Production skill or Active Term Map row),
 `Transferable` (Hands-on skill) or `Gap`. `gap_count` counts the gaps in mandatory non-tool
-requirements and nice-to-haves.
+requirements (1 each) and nice-to-haves (half each since 20 Nov: Motorola's three "could
+have" items alone made a strong fit Needs review).
+
+A requirement that names only a kind of skill ("Scripting language", "Continuous
+integration/Continuous delivery", "Infrastructure as Code", "Monitoring", "Containers",
+"Version control") is backed by your best Production or Hands-on skill of that Skills
+Inventory Category (Scripting, CI/CD, IaC, Monitoring, Containers, Version control) when no
+skill matches by name (20 Nov audit: Motorola's NoFluffJobs tags were gaps although you have
+Bash, Python and GitLab CI). Postings' misspellings ("Continous") count as the word. A kind
+with no clear skill (virtualization) stays a gap. The extraction also lists the examples a
+posting gives ("scripting languages (e.g. Bash, Python)") as the requirement's terms.
 
 - Employer size (Config `employer.size_rules`): `large` for Target Companies Tier 1, 2, 3, 4
   or 6, or `On IND register`; `weak` for a company outside Target Companies without stated
@@ -197,13 +217,17 @@ requirements and nice-to-haves.
 - Permanent contract: Poland `UoP` or both; Netherlands and Ireland `permanent` stated, or not
   stated as `contract`.
 - Base: 0 gaps, large employer and permanent contract: `Apply high`. At most 1 gap:
-  `Apply normal`. 2 gaps: `Apply low`. 3 or more: `Needs review`.
+  `Apply normal`. Up to 2: `Apply low`. More: `Needs review`.
 - Then: stated sponsorship moves up one tier and adds the Visa flag `Sponsorship stated`; a
   weak employer is capped at `Apply low`; a job that cannot sponsor (sponsorship stated no,
   `Not on IND register`, `Agency posting (IE)`) becomes at most `Apply low` and goes to the
   bottom of `/pending`. A `Needs review` row is never promoted by this rule.
 - A snippet that survives the gates is `Needs review` ("snippet only, paste the full JD
   with /jd").
+- A full description that names fewer than 2 skills or requirements is `Needs review` too
+  ("no requirements found in the description, read it yourself"; 20 Nov audit: Rabobank's
+  Google copy was `Apply high` and four Netflix team introductions `Apply low` with nothing
+  found, because no requirements meant no gaps). "Docker, Kubernetes and Azure" counts 3.
 
 `/pending` order: tier, then rows that cannot sponsor last, then points: years 2 to 4 +3,
 unknown +1, exactly 5 -2; sponsorship stated +3; Target Companies tier 1 to 4 or 6 +2; ghost
@@ -226,7 +250,9 @@ replies; the /pending card marks these jobs 🆕), posted 3 to 7 days ago +1.
   answers the bot with HTTP 403 (Phase 9 P9-20, seen 26 Oct), so the copy you save yourself
   is read instead: download the yearly file in your browser and save it as
   `out/ie_permits.xlsx` (or `.xls`, `.pdf`, `.csv`). `/health` says where the list came from,
-  or what to do when it could not be read.
+  or what to do when it could not be read. Since LOG-16 (24 Nov) a saved copy is read first and
+  gov.ie is not asked at all (no daily 403 row in the Error Log); a copy more than 30 days old
+  is said once a month ("Irish permits list: out/ie_permits.xlsx is 45 days old; download ...").
 - Agency posts (all countries since 30 Sep): the text says it is posted for a client, the
   company starts with a known agency name (`screen/visa.py` KNOWN_AGENCIES, plus Config
   `agency_names` and `ireland.agency_names`, comma-separated), or its name says recruitment,
@@ -271,9 +297,22 @@ sets `Status` to `Screened` only if it is `New` or `Screened`, so a row never mo
   with **Approve** and **Skip**, so you can apply the same day. At most 5 cards at once; the
   rest are in `/pending`. Jobs you already approved or skipped get no card. `/autopilot`
   approves them itself, so it sends no alert.
+- **Buttons are answered at once** (LOG-05, 24 Nov: an Approve tapped while another job ran
+  waited its turn and was answered too late: "query is too old"). A tap gets its short note
+  ("Checking the job link, then building your resume...") the moment it arrives, on the PC
+  (long polling) and on Cloud Run (the webhook), before it waits behind a running job; the
+  note adds "(after the running /fetch)" when one runs. The work itself still comes in turn.
 - Typing `/` shows the command menu. The bot registers it with Telegram (`setMyCommands`)
   each time it starts, and `python -m jobengine.deploy.set_webhook` does the same for
   Cloud Run.
+- Sub-options in the menu (23 Nov, FEAT-02): Telegram suggests only command names, never the
+  words after a space, so each fixed sub-option is its own entry right after its command:
+  `/screen_week`, `/screen_all`, `/screen_batch`, `/screen_collect`, `/pending_poland`,
+  `/pending_netherlands`, `/pending_ireland`, `/fetchreport_sources`, `/answers_start`,
+  `/autoapply_status`, `/autopilot_when`, `/spotcheck_notes`, `/update_new`,
+  `/gmailtoken_m02`, `/gmailtoken_mm` (`telegram_bot.SHORTCUTS`). Type `/screen` and pick one;
+  the bot reads `/screen_week` exactly as `/screen week`. Sub-options with your own text (a job
+  link, a word, `/pause 5d`) are typed as before; `/mailmode send` is left out on purpose.
 - Every command and button shows "typing..." until the reply is ready (sent again every 4
   seconds, since Telegram clears it after about 5).
 - `/screen` without a job keeps one progress message updated ("Screening: 10 of 24 jobs
@@ -283,6 +322,15 @@ sets `Status` to `Screened` only if it is `New` or `Screened`, so a row never mo
   already read, so it needs 2 Notion requests instead of 4.
 - `/fetch` runs the sweep, then screening, and ends with `N ready to review: /pending`.
 - `/pending` shows one card at a time, best first, with `Approve`, `Skip` and `Next`.
+- Short card (S11, 23 Nov, your ask): the verdict, company and role, `📍` city and country
+  (🆕 when fresh), `Gaps:` with the top 3 (and "N more"), one `Why:` line from the
+  screening table, no AI (what you match strongly, how many are transferable, "sponsorship
+  stated", the Irish permits issued to the company), and the link. A job with only a
+  snippet of its description says so in the Why line. `More` shows the full card as
+  before (board, posted date, ghost risk, contract, sponsorship and visa, match counts,
+  skill match, missing keywords, their words, the Irish permits line) with `Approve`,
+  `Skip` and `Next`. The Apply high cards after screening are short too (Approve, Skip,
+  More). Notion Config `pending.card` = `full` brings back the full card everywhere.
 - Which days (8 Nov, #284; 12 Nov, your rule): Telegram's bare `/pending` shows the jobs
   **found today** (First seen = today, the same list as the Today group of the Notion "By
   day" view; the Swept date, then the Posted date, only when First seen is empty). The Swept
@@ -305,7 +353,8 @@ sets `Status` to `Screened` only if it is `New` or `Screened`, so a row never mo
   `remote` or `all` goes straight to one. The choice is kept in Bot State `pending.country`.
   Below the screening match counts the card shows, from the description and your reference
   data (free, no AI, `sweep/rank.py`):
-  - `Skill match: 75% (3 of 4 tools it names)`: the tools the job names that you have.
+  - `Skill match: you have 3 of the 4 tools it names (75%)`: the tools the job names that you
+    have (LOG-06: the resume preview's ATS check counts the ones the resume names).
   - `Missing keywords: java, snowflake`: tools it names that you do not have (at most 6).
   - `Use their word: EKS (your Kubernetes on AWS)`: the job's word for a skill you have under
     another name (Active Term Map rows); say it their way in the resume and the mail.
@@ -391,3 +440,44 @@ odpowiedzialnością sp.k." becomes "PwC Advisory"); a second tap on Approve res
    `python -m jobengine.screen --no-write` shows what real screening would decide.
 3. Then `python -m jobengine.screen` writes the results to Job Opportunities (DEV).
 4. In Telegram: `/pending`, tap the buttons, and try `/jd` with a LinkedIn job.
+
+## Weekly screening check (S3, 23 Nov, your request)
+
+The 20 Nov audit of a week of /screen (58 jobs checked one by one, 4 faults found), done by
+itself every week in about 5 minutes (`src/jobengine/track/screen_check.py`). Every Sunday from
+19:30 India time (and with `/screencheck` at any time) the bot picks 10 jobs screened in the
+last 7 days at random, the verdicts in turn (Apply high, Apply normal, Apply low, Needs review,
+Skip, then again), so a rare verdict is not missed. Each one is a row of Notion **Screening
+Check** (`notion.write.screen_check`; Screening Check (DEV) under DEV Sandbox in dev and local):
+the job, its verdict, why (skip reason, gaps, years, sponsorship, language, visa flags,
+contract, ghost risk) and links to its Notion page and its posting.
+
+You tick **Your check** Right or Wrong; for a wrong one pick **Should be** and add a Note. The
+next Sunday's message says last week's result ("8 right, 1 wrong, 1 not ticked") and names the
+wrong ones; each wrong one is also written once to the Error Log (Level Reported by you, Stage
+Screen, Status New) so Claude Code fixes it with the other reported rows. The picks of a week
+are the same if the check runs twice, and your ticks are never overwritten.
+
+LOG-04 (24 Nov test log, T23-09: Qualtrics, Expired since 10 Nov, and EY, closed that morning,
+were picked; the Why of the Skip rows showed only the ghost risk): an Expired job (Status or
+Skip reason Expired) is never picked, and the Why starts with the screening lines of the job's
+page, "Verdict: Skip (Seniority)" and its "Note: 6 years required, your limit is 4" (a gate's
+reason is written there, not in a column), then its Status when it is not Screened (a job you
+declined says "Status: Declined"), then the columns as before.
+
+## The /jd backlog (S5, 23 Nov, your request)
+
+About 290 older Unscreened jobs and the LinkedIn jobs waited for a description, and good new
+jobs were lost in the pile (`src/jobengine/screen/backlog.py`):
+
+- `/jd` starts with **today's top 5**: the jobs of the last 3 days that wait for a description,
+  best /fetch match first, listed in the message; "⭐ Top 5" takes them one at a time (send
+  the saved page or paste the text, as before). The board buttons and "All" stay below it.
+- Once a day a job never screened (Unscreened, Status New) whose posting (else the day /fetch
+  found it) is more than 7 days old is set **Expired** (Skip reason Expired): too old to apply
+  to. It no longer waits for /jd and `/screen` (week, all, the autopilot) no longer takes it.
+  At most 100 a run, so the first clean-up of the old pile takes a few runs. One message a
+  day says how many, when the day's clean-up is done, with the day's total ("🧹 Old jobs
+  cleared today: 202 ..."; LOG-11, 24 Nov: it came after each run, 100 and then 2 before
+  `/screen` and `/fetchreport`). On the PC it runs in the scheduled loop, on Cloud Run with
+  the daily task.

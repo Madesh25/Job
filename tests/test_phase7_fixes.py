@@ -80,7 +80,8 @@ def test_jd_list_gives_every_board_a_share():
     for i in range(30):  # more LinkedIn jobs than the whole list holds
         d.repo.rows[f"li-{i}"] = {**d.repo.rows["li-no-jd"], "Company": f"Co\n{i}"}
     waiting.note(d.state, ["pl-clean"], date(2026, 10, 9))
-    d.repo.rows["pl-clean"].update({"Screen verdict": "Unscreened", "Board": "Pracuj.pl"})
+    d.repo.rows["pl-clean"].update({"Screen verdict": "Unscreened", "Board": "Pracuj.pl",
+                                    "Status": "New"})  # LOG-03: only a New row waits
     text = d.waiting_list().text
     assert "\nPracuj.pl:\n- " in text and "more LinkedIn jobs" in text
     assert "Co\n" not in text  # one line per company

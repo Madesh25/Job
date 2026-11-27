@@ -351,12 +351,17 @@ def test_field_names_and_required_marks_in_the_text_are_read(tmp_path, monkeypat
     ("What is your expected salary?", "expected_salary"),
     ("Base Salary Currency *", None),
     ("Are you subject to any deferred compensation or potential claw back?*", None),
+    ("Are you Hispanic/Latino?", "other_diversity"),  # 17 Nov, Greenhouse (InterSystems)
+    ("Veteran Status", "other_diversity"),
+    ("Job Location*", "relocation"),
+    ("Discipline*", "education"),
 ])
 def test_the_question_rules_found_on_real_forms(label, key):
     """16 Nov: the same corrections as the bookmark (apply/autofill.py, #330 and #333)."""
     values = {k: k for k in ("full_name", "authorized_without_sponsorship", "sponsorship_needed",
                              "earliest_start", "city", "why", "notice_period",
-                             "expected_salary", "current_salary")}
+                             "expected_salary", "current_salary", "other_diversity",
+                             "relocation", "education")}
     kind = "textarea" if key == "why" else "text"
     assert form_bot.rule_for(label, values, kind) == key
 
@@ -422,7 +427,9 @@ def test_custom_dropdowns_get_an_option_or_count_as_unanswered(tmp_path, monkeyp
           q2: document.getElementById('q2-v').textContent,
           q3: document.getElementById('q3-v').textContent})"""))
 
-    values = {**VALUES, "sponsorship_needed": "No", "gender": "Prefer not to say"}
+    # 17 Nov: "Prefer not to say" now picks "I don't wish to answer"; an answer with no
+    # option at all is still not typed in.
+    values = {**VALUES, "sponsorship_needed": "No", "gender": "Non-binary"}
     result = form_bot.dry_run(settings(), "https://jobs.example.com/apply", values, SAVED,
                               folder=tmp_path, prepare=_serve(DROPDOWN_FORM), check=check)
     assert not result.stopped, result.stopped
@@ -430,11 +437,57 @@ def test_custom_dropdowns_get_an_option_or_count_as_unanswered(tmp_path, monkeyp
     got = {a.field.label: a for a in result.answers}
     assert got["Will you require visa sponsorship?*"].value == "No"
     assert got["Country*"].source == "form"  # it showed an answer: left as it is
-    assert got["Gender*"].note == 'no option matches "Prefer not to say"'
+    assert got["Gender*"].note == 'no option matches "Non-binary"'
     assert (got["Dial code*"].value, got["Dial code*"].source) == ("+91", "form")
     gate = form_submit.blockers(result.answers, allowed_privacy=False)
-    assert gate == ['required: "Gender*" (no option matches "Prefer not to say")',
+    assert gate == ['required: "Gender*" (no option matches "Non-binary")',
                     "the resume is not attached"]  # this test page has no resume field
+
+
+SLOW_PLACES = """<!doctype html><html><head><title>Apply</title></head><body><form>
+<label for="fn">First Name*</label><input id="fn" name="first_name" required>
+<div class="select__container"><label id="city-label" for="city">Location (City)*</label>
+<div class="select__control"><div class="select__single-value" id="city-v"></div>
+<input id="city" role="combobox" aria-autocomplete="list" aria-required="true"
+  aria-labelledby="city-label" class="select__input"></div>
+<div class="select__menu" id="menu"></div></div>
+<button type="submit">Submit application</button></form>
+<script>
+/* 17 Nov, InterSystems "Location (City)": places from a search site after 2.5 s, "Loading..."
+   meanwhile, found only by the text as typed. */
+const input = document.getElementById('city'), menu = document.getElementById('menu');
+const places = ['Chennai, Tamil Nadu, India', 'Chennai Central, Chennai'];
+let ask = 0;
+input.addEventListener('input', () => {
+  const typed = input.value.toLowerCase(), mine = ++ask;
+  menu.innerHTML = typed ? '<div class="select__menu-notice--loading">Loading...</div>' : '';
+  if (!typed) { return; }
+  setTimeout(() => {
+    if (mine !== ask) { return; }
+    const shown = places.filter(o => o.toLowerCase().includes(typed));
+    menu.innerHTML = '<div role="listbox" id="city-list">' + shown.map((o, i) =>
+      `<div role="option" id="city-o${i}">${o}</div>`).join('') + '</div>';
+    input.setAttribute('aria-controls', 'city-list');
+    for (const o of menu.querySelectorAll('[role=option]')) {
+      o.addEventListener('click', () => {
+        document.getElementById('city-v').textContent = o.textContent; input.value = '';
+        menu.innerHTML = ''; });
+    }
+  }, 2500);
+});
+</script></body></html>"""
+
+
+@browser
+def test_a_slow_place_search_is_waited_for(tmp_path, monkeypatch):
+    """17 Nov, real Greenhouse form (InterSystems): "Location (City)" got no choice."""
+    monkeypatch.setattr(form_bot, "SETTLE_MS", 100)
+    values = {**VALUES, "city": "Chennai, India"}
+    result = form_bot.dry_run(settings(), "https://jobs.example.com/apply", values, SAVED,
+                              folder=tmp_path, prepare=_serve(SLOW_PLACES))
+    got = {a.field.label: a for a in result.answers}
+    assert got["Location (City)*"].value == "Chennai, Tamil Nadu, India"
+    assert got["Location (City)*"].note == ""
 
 
 STYLED_RADIOS = """<!doctype html><html><head><title>Apply</title><style>
@@ -499,6 +552,42 @@ def test_radios_hidden_off_screen_are_ticked_by_their_label(tmp_path, monkeypatc
     assert seen["auth"] == "false"
 
 
+WORKABLE_RADIOS = """<!doctype html><html><head><title>Apply</title></head><body><form>
+<label for="fn">Full name</label><input id="fn" name="name">
+<div class="q"><span id="q1-label">Do you have a valid residence and work permit for The
+Netherlands?*</span>
+<div role="radiogroup" aria-labelledby="q1-label">
+<label><input type="radio" name="QA_1" value="true" style="opacity:0;position:absolute">YES</label>
+<label><input type="radio" name="QA_1" value="false" style="opacity:0;position:absolute">NO</label>
+</div></div>
+<div class="q"><div>Do you need visa sponsorship to work here?*</div><div>
+<label><input type="radio" name="QA_2" value="true" style="display:none"><span>YES</span></label>
+<label><input type="radio" name="QA_2" value="false" style="display:none"><span>NO</span></label>
+</div></div></form></body></html>"""
+
+
+@browser
+def test_yes_no_buttons_with_the_question_outside_their_group(tmp_path, monkeypatch):
+    """17 Nov, Keylane (Workable): the work permit YES / NO question stayed unanswered."""
+    monkeypatch.setattr(form_bot, "SETTLE_MS", 100)
+    seen = {}
+
+    def check(page):
+        seen.update(page.evaluate("""() => ({
+          q1: (document.querySelector('input[name=QA_1]:checked') || {}).value || '',
+          q2: (document.querySelector('input[name=QA_2]:checked') || {}).value || ''})"""))
+
+    values = {**VALUES, "authorized_without_sponsorship": "No", "sponsorship_needed": "Yes"}
+    result = form_bot.dry_run(settings(), "https://jobs.example.com/apply", values, SAVED,
+                              folder=tmp_path, prepare=_serve(WORKABLE_RADIOS), check=check)
+    radios = {a.field.label: a for a in result.answers if a.field.kind == "radio"}
+    assert set(radios) == {
+        "Do you have a valid residence and work permit for The Netherlands?*",
+        "Do you need visa sponsorship to work here?*"}
+    assert [(a.value, a.note) for a in radios.values()] == [("NO", ""), ("YES", "")]
+    assert seen == {"q1": "false", "q2": "true"}
+
+
 def test_a_choice_with_every_word_of_the_answer():
     """16 Nov, /dryrun test on real forms: "Chennai, India" never matched a location choice
     like "Chennai, Tamil Nadu, India"."""
@@ -506,6 +595,40 @@ def test_a_choice_with_every_word_of_the_answer():
     assert form_bot.choice(options, "Chennai, India") == 1
     assert form_bot.choice(["Yes", "No"], "Chennai, India") is None
     assert form_bot.choice(["Male", "Female"], "Female") == 1  # one word: exact only
+
+
+@pytest.mark.parametrize("label,kind,answer", [
+    ("Do you now or have you previously worked for an InterSystems client?*", "combobox",
+     "No, never"),
+    ("Have you ever been employed by InterSystems B.V.?", "select", "No, never"),
+    ("I have never worked at InterSystems", "checkbox", "Yes"),
+    ("I am a current InterSystems employee or intern", "checkbox", "No"),
+    ("Why do you want to work for InterSystems?", "textarea", None),
+    ("How many years were you an employee at InterSystems?", "text", None),
+    ("Have you previously worked for a startup?", "select", None),  # not this company
+])
+def test_a_company_you_never_worked_for(label, kind, answer):
+    """17 Nov, real Greenhouse form (InterSystems): the "worked for us before" questions."""
+    assert form_bot.worked_here(label, "InterSystems", kind) == answer
+
+
+def test_never_finds_its_choice():
+    options = ["I currently work for an InterSystems client",
+               "I previously worked for an InterSystems client",
+               "I have never worked for an InterSystems client"]
+    assert form_bot.choice(options, "No, never") == 2
+    assert form_bot.choice(["Yes", "No"], "No, never") == 1
+
+
+def test_prefer_not_to_say_and_open_to_relocate_find_their_choice():
+    """17 Nov, real Greenhouse form (InterSystems): the choices use other words."""
+    assert form_bot.choice(["Yes", "No", "Decline To Self Identify"], "Prefer not to say") == 2
+    assert form_bot.choice(["I am not a protected veteran", "I identify as a protected veteran",
+                            "I don't wish to answer"], "Prefer not to say") == 2
+    where = ["Able to work at job location", "Able to relocate to job location",
+             "Unable to work or relocate to job location (remote work required)"]
+    assert form_bot.choice(where, "Open to relocate at my own cost") == 1
+    assert form_bot.choice(["Yes", "No"], "Prefer not to say") is None
 
 
 JOB_LIST = """<!doctype html><html><head><title>Jobs at Catawiki</title></head><body>

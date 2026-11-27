@@ -79,6 +79,13 @@ def board_api(postings):
     return get
 
 
+@pytest.fixture
+def google_copy_on(monkeypatch):
+    """Google's copy is off since 20 Nov (sweep.job_links.google_copy): these tests turn it
+    on to keep it working for the day Gemini gives its result links again."""
+    monkeypatch.setattr(job_links, "google_copy", lambda s: True)
+
+
 def deps(rows, pages=None, get=None, llm=None, state=None, careers=None):
     repo = FakeJobsRepo([{"page_id": f"p{i}", **r} for i, r in enumerate(rows)])
     return job_links.Deps(s=load_settings("local", {}), repo=repo, page=Pages(pages or {}),
@@ -253,6 +260,7 @@ def test_the_careers_page_of_target_companies_is_read_first_and_costs_no_search(
     assert "https://www.dunedata.com/careers/senior-devops-engineer" not in d.page.opened
 
 
+@pytest.mark.usefixtures("google_copy_on")
 def test_the_careers_page_is_found_once_by_a_search_and_remembered():
     state = FakeBotState()
     search = Search(careers=CAREERS)
@@ -699,8 +707,16 @@ def test_a_job_link_with_http_is_opened_with_https():
 
 
 def test_dev_opens_a_browser_page_per_job_looked_up():
-    assert load_settings("local", {}).sweep["job_links"]["max_rendered"] == 80
-    assert load_settings("prod", {}).sweep["job_links"]["max_rendered"] == 40
+    """17 Nov, FEAT-01: 3 browsers at the same time; 150 pages on DEV and your PC, 120 on
+    Cloud Run (2 GB: about 880 MB with 3 browsers on real job pages)."""
+    for env, pages in (("local", 150), ("dev", 150), ("prod", 120)):
+        cfg = load_settings(env, {}).sweep["job_links"]
+        assert (cfg["max_rendered"], cfg["browsers"]) == (pages, 3), env
+
+
+def test_one_job_can_open_six_browser_pages():
+    """16 Nov /fetch: Alliander and 1dea stopped at 4 pages with 56 to 60 left."""
+    assert job_links.MAX_RENDERS_PER_JOB == 6
 
 
 
@@ -1099,6 +1115,7 @@ ADVERT = ("DevOps Engineer in Amsterdam. You build and run our Kubernetes platfo
 OWN = "https://www.dunedata.com/careers/devops-engineer-amsterdam"
 
 
+@pytest.mark.usefixtures("google_copy_on")
 def test_a_site_that_could_not_be_checked_is_read_from_googles_copy():
     """4 Nov, your decision: Serco's site refuses the bot; Google has its page."""
     search = GoogleCopy({"found": True, "url": OWN, "description": ADVERT},
@@ -1131,6 +1148,7 @@ def test_googles_copy_is_used_only_when_it_is_this_job_on_the_company_site(reply
     assert d.repo.rows["p0"]["URL"] == LINKEDIN
 
 
+@pytest.mark.usefixtures("google_copy_on")
 def test_googles_copy_takes_its_answer_on_the_company_site_when_it_names_the_job():
     """4 Nov: Serco, Medtronic and HSBC came back with the job's own address as the answer
     but only LinkedIn and Indeed as sources."""
@@ -1152,19 +1170,37 @@ def test_an_address_names_the_job_only_with_every_title_word():
     assert not job_links._url_names_role("https://x.com/jobs/1", "DevOps Engineer")
 
 
+@pytest.mark.usefixtures("google_copy_on")
+def test_googles_copy_with_an_address_that_no_longer_opens_is_not_used():
+    """18 Nov /fetch: Google gave PwC Polska, Netflix, Rado Bank and Rabobank addresses that
+    no longer exist; the closed-job check then marked four open jobs Expired. Google's
+    address is opened once: a page that is gone (HTTP 404) is never saved; a site that
+    refused the bot is not opened again (4 Nov rule)."""
+    gone = "https://jobs.dunedata.nl/jobs/42050-devops-engineer"
+    search = GoogleCopy({"found": True, "url": gone, "description": ADVERT}, [gone])
+    d = deps([row()], llm=search, careers={"dune data": CAREERS})
+    d.page = Refuses({})  # dunedata.com refuses the bot; jobs.dunedata.nl answers 404
+    job_links.run(d, BOARDS)
+    assert d.repo.rows["p0"]["URL"] != gone  # the alert's own link is kept
+    assert gone in d.page.opened  # opened once to check
+    assert job_links._gone(d, OWN) is None  # outside a lookup: a refusal is not "gone"
+
+
 @pytest.mark.parametrize("answer", [
     "https://www.dunedata.com/eu/careers/find-jobs/job-details?jobId=313360",  # Serco
     "https://boards.greenhouse.io/dunedata/jobs/7478061002",  # Sony
 ])
+@pytest.mark.usefixtures("google_copy_on")
 def test_googles_answer_with_a_job_number_on_the_company_site_counts(answer):
     """4 Nov: Serco's and Sony's answers named the job by its number, not its title."""
     search = GoogleCopy({"found": True, "url": answer, "description": ADVERT}, [])
     d = deps([row()], llm=search, careers={"dune data": CAREERS})
-    d.page = Refuses({})
+    d.page = Refuses({answer: f"<html><body>{ADVERT}</body></html>"})  # the page exists
     job_links.run(d, BOARDS)
     assert d.repo.rows["p0"]["URL"] == answer
 
 
+@pytest.mark.usefixtures("google_copy_on")
 def test_googles_redirect_link_as_its_answer_is_followed(monkeypatch):
     """4 Nov: ChipSoft's answer was Google's own redirect link."""
     from jobengine import http
@@ -1179,6 +1215,7 @@ def test_googles_redirect_link_as_its_answer_is_followed(monkeypatch):
     assert d.repo.rows["p0"]["URL"] == OWN
 
 
+@pytest.mark.usefixtures("google_copy_on")
 def test_googles_copy_when_the_job_list_needed_the_browser_and_none_was_left(monkeypatch):
     """4 Nov: TNO, CGI and SURF: their job lists need the browser, this job's browser pages
     were used up, so the list was never really read: no ghost, and Google's copy is asked."""
@@ -1187,7 +1224,8 @@ def test_googles_copy_when_the_job_list_needed_the_browser_and_none_was_left(mon
             + "".join(f"<a href='/p{i}'>Senior Engineer {i}</a>" for i in range(5))
             + "</body></html>")
     search = GoogleCopy({"found": True, "url": OWN, "description": ADVERT}, [OWN])
-    d = deps([row()], pages={CAREERS: thin}, llm=search, careers={"dune data": CAREERS})
+    d = deps([row()], pages={CAREERS: thin, OWN: f"<html><body>{ADVERT}</body></html>"},
+             llm=search, careers={"dune data": CAREERS})
     browser = Pages({})
     browser.left = 40
     d.render = browser
@@ -1370,28 +1408,99 @@ def test_a_page_is_opened_in_the_browser_once_per_fetch():
         def __init__(self):
             self.opened = []
 
-        def submit(self, fn, url):
+        def submit(self, fn, n, url):
             self.opened.append(url)
 
             class Done:
-                def result(self):
+                def result(self, timeout=None):
                     if "fails" in url:
                         raise http.HttpError("page not rendered: timeout")
                     return url, "<html/>"
             return Done()
 
     browser = render.Renderer(load_settings("local", {}), left=5)
-    browser._thread = Thread()
+    browser._threads = [Thread()]
     for _ in range(3):
         assert browser("https://www.dunedata.com/careers") == (
             "https://www.dunedata.com/careers", "<html/>")
         with pytest.raises(http.HttpError):
             browser("https://www.dunedata.com/fails")
-    assert browser._thread.opened == ["https://www.dunedata.com/careers",
+    assert browser._threads[0].opened == ["https://www.dunedata.com/careers",
                                       "https://www.dunedata.com/fails"]
     assert browser.left == 3
 
 
+def test_one_page_with_or_without_the_last_slash_is_opened_once():
+    """16 Nov /fetch: Alliander's "https://werkenbij.alliander.com" and ".../" were two
+    browser pages, the job's 4 ran out before its job list was read."""
+    from jobengine.sweep import render
+
+    assert render.page_key("https://werkenbij.alliander.com") == render.page_key(
+        "https://Werkenbij.Alliander.com/#jobs")
+    assert render.page_key("https://x.nl/jobs/?p=2") == render.page_key("https://x.nl/jobs?p=2")
+    assert render.page_key("https://x.nl/jobs?p=2") != render.page_key("https://x.nl/jobs?p=3")
+
+    class Thread:
+        def __init__(self):
+            self.opened = []
+
+        def submit(self, fn, n, url):
+            self.opened.append(url)
+
+            class Done:
+                def result(self, timeout=None):
+                    return url, "<html/>"
+            return Done()
+
+    browser = render.Renderer(load_settings("local", {}), left=5)
+    browser._threads = [Thread()]
+    browser("https://werkenbij.alliander.com")
+    assert browser.has("https://werkenbij.alliander.com/")
+    browser("https://werkenbij.alliander.com/")
+    assert browser._threads[0].opened == ["https://werkenbij.alliander.com"]
+    assert browser.left == 4
+
+
+def test_three_browsers_open_pages_at_the_same_time_and_one_page_once():
+    """17 Nov, FEAT-01: up to `browsers` pages are open at once; a page asked for by two
+    workers at the same time is opened once (the second waits for its answer)."""
+    import threading
+    import time
+
+    from jobengine.sweep import render
+
+    now, most, opened = [0], [0], []
+    lock = threading.Lock()
+
+    class Thread:
+        def submit(self, fn, n, url):
+            class Done:
+                def result(self, timeout=None):
+                    with lock:
+                        now[0] += 1
+                        most[0] = max(most[0], now[0])
+                        opened.append(url)
+                    time.sleep(0.2)
+                    with lock:
+                        now[0] -= 1
+                    return url, "<html/>"
+            return Done()
+
+    browser = render.Renderer(load_settings("local", {}), left=20, browsers=3)
+    browser._threads = [Thread(), Thread(), Thread()]
+    urls = [f"https://www.dunedata.com/p{i}" for i in range(6)] + [
+        "https://www.dunedata.com/p0/"] * 3
+    workers = [threading.Thread(target=browser, args=(u,)) for u in urls]
+    for w in workers:
+        w.start()
+    for w in workers:
+        w.join()
+    assert most[0] == 3  # never more than 3 at once
+    assert sorted(opened) == sorted(urls[:6])  # p0 and "p0/" opened once
+    assert browser.left == 14
+
+
+@pytest.mark.usefixtures("google_copy_on")
 def test_googles_copy_can_use_a_stronger_gemini():
     search = GoogleCopy({"found": False}, [])
     seen = {}
@@ -1428,6 +1537,7 @@ def test_a_close_title_with_its_place_after_it():
                                      "DevOps Engineer", None, "Poland")
 
 
+@pytest.mark.usefixtures("google_copy_on")
 def test_googles_copy_never_falls_back_to_claude():
     search = GoogleCopy({"found": False}, [])
     seen = {}
@@ -1553,3 +1663,66 @@ def test_a_link_that_is_another_rows_link_skips_the_alert_row():
     summary = SweepSummary(direct_links_tried=1, same_link_jobs=result.same)
     assert "1 the same job as a row already in Notion" in summary.friendly_text()
 
+
+
+def test_a_browser_page_that_never_answers_stops_neither_the_search_nor_end(monkeypatch):
+    """20 Nov /fetch: one browser page never answered (Fortray, from 10:20): the job-link
+    search waited for it without end, and after /end closing the browser waited behind it,
+    so /fetch never finished."""
+    import threading
+    from concurrent.futures import ThreadPoolExecutor
+
+    from jobengine.sweep import render
+
+    monkeypatch.setattr(render, "PAGE_SECONDS", 0.3)
+    monkeypatch.setattr(render, "CLOSE_SECONDS", 0.3)
+    stuck = threading.Event()
+    closed = []
+
+    def open_page(n, url):
+        if "fortray" in url:
+            stuck.wait(5)  # a page that does not answer
+        return url, "<html/>"
+
+    browser = render.Renderer(load_settings("local", {}), left=10, browsers=2)
+    monkeypatch.setattr(browser, "_open", open_page)
+    monkeypatch.setattr(browser, "_close", lambda n: closed.append(n))
+    with pytest.raises(http.HttpError, match="no answer in"):
+        browser("https://www.fortray.com/")
+    assert browser("https://www.logius.nl/vacatures") == (
+        "https://www.logius.nl/vacatures", "<html/>")  # the other browser goes on
+    assert browser("https://www.tno.nl/vacatures")[1] == "<html/>"
+    with pytest.raises(http.HttpError):
+        browser("https://www.fortray.com/")  # its answer is kept: not opened again
+    browser.close()  # does not wait for the stuck page
+    assert closed == [1]
+    stuck.set()
+
+    browser = render.Renderer(load_settings("local", {}), left=10, browsers=1)
+    monkeypatch.setattr(browser, "_open", open_page)
+    stuck.clear()
+    with pytest.raises(http.HttpError):
+        browser("https://www.fortray.com/careers")
+    with pytest.raises(http.HttpError, match="no browser left"):
+        browser("https://www.logius.nl/vacatures")  # at once, no waiting
+    stuck.set()
+    assert isinstance(browser._threads[0], ThreadPoolExecutor)
+
+
+def test_googles_copy_is_off_by_default_and_the_searches_stay_lower():
+    """20 Nov, your decision: Google's copy took about half of each /fetch's Google searches
+    and found 0 of 26 jobs on 19 and 20 Nov (Gemini gave "0 result links"), so it is off.
+    The other searches stay; DEV and PC allow 60 AI searches a /fetch, company details 5."""
+    from jobengine.sweep import company_details
+
+    search = GoogleCopy({"found": True, "url": OWN, "description": ADVERT},
+                        ["https://www.linkedin.com/jobs/view/1", OWN])
+    d = deps([row()], llm=search, careers={"dune data": CAREERS})
+    d.page = Refuses({})
+    job_links.run(d, BOARDS)
+    assert search.google == [] and d.repo.rows["p0"]["URL"] == LINKEDIN
+    for env in ("local", "dev", "prod"):
+        s = load_settings(env, {})
+        assert not job_links.google_copy(s)
+        assert s.sweep["job_links"]["max_searches"] <= 60
+        assert company_details.max_per_run(s) == 5

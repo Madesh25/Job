@@ -19,7 +19,8 @@ DATA = {"job": "Demo Co, DevOps Engineer", "fields": {
     "expected_salary": "EUR 60000", "notice_period": "1 month", "sponsorship_needed": "No",
     "authorized_without_sponsorship": "Yes", "cover_letter": "Dear team, ...",
     "earliest_start": "1 month after an offer", "gender": "Prefer not to say",
-    "why": "Your platform team works on what I do best."},
+    "why": "Your platform team works on what I do best.", "other_diversity": "Prefer not to say",
+    "relocation": "Open to relocate at my own cost", "education": "Mechanical Engineering"},
     "answers": [["Years of experience with Kubernetes", "4"],
                 ["Where do you live", "Chennai, India"], ["Degree", "B.E."]]}
 
@@ -40,7 +41,7 @@ def run(tmp_path, data=DATA):
     mark.write_text(autofill.bookmarklet(), encoding="utf-8")
     code.write_text(autofill.encode(data), encoding="utf-8")
     out = subprocess.run(["node", str(HERE / "run.js"), str(HERE / "form.html"), str(mark),
-                          str(code)], capture_output=True, text=True, timeout=60, check=True)
+                          str(code)], capture_output=True, text=True, timeout=120, check=True)
     result = json.loads(out.stdout)
     assert result["errors"] == []
     return result
@@ -73,7 +74,8 @@ def test_custom_dropdowns_get_their_option_or_are_named(tmp_path):
     assert s["q2-value"] == "No, I chose this"  # a dropdown you answered stays yours
     assert s["q4-value"] == ""  # "1 month" matches no option: nothing chosen, typing cleared
     alert = result["dialogs"][-1]["message"]
-    assert "2 required list question(s) still to choose" in alert  # q4, and q6 asks two things
+    # q4, q6 (asks two things) and gh8 (how many years: never "never")
+    assert "3 required list question(s) still to choose" in alert
     assert "choose yourself: what is your notice period" in alert
 
 
@@ -108,6 +110,50 @@ def test_a_greenhouse_dropdown_opens_on_key_up_and_its_hidden_twin_is_not_counte
     assert s["gh2-value"] == "Yes"  # chosen by you before: never changed (16 Nov, BearingPoint)
     alert = result["dialogs"][-1]["message"]
     assert "1 required field is still empty" in alert  # only "other", not the hidden twin
+
+
+@needs_browser
+def test_diversity_job_location_and_discipline_lists_get_their_choice(tmp_path):
+    """17 Nov, real Greenhouse form (InterSystems): Hispanic/Latino, Veteran Status, Job
+    Location and Discipline stayed empty; the list shows only options with the typed text, so
+    "Prefer not to say" found nothing."""
+    s = run(tmp_path)["state"]
+    assert s["gh3-value"] == "Decline To Self Identify"
+    assert s["gh4-value"] == "I don't wish to answer"
+    assert s["gh5-value"] == "Able to relocate to job location"
+    assert s["gh6-value"] == "Mechanical Engineering"
+
+
+@needs_browser
+def test_a_slow_place_search_is_waited_for(tmp_path):
+    """17 Nov, real Greenhouse form (InterSystems): "Location (City)" got no choice; its
+    places come from a search site that can take seconds, and "Chennai, India" as typed may
+    find nothing while "Chennai" does."""
+    data = {**DATA, "fields": {**DATA["fields"], "city": "Chennai, India"}}
+    s = run(tmp_path, data)["state"]
+    assert s["slow1-value"] == "Chennai, Tamil Nadu, India"
+
+
+@needs_browser
+def test_a_company_you_never_worked_for(tmp_path):
+    """17 Nov, real Greenhouse form (InterSystems): "worked for an InterSystems client?" and
+    the box "I have never worked at InterSystems" stayed empty."""
+    result = run(tmp_path)
+    s = result["state"]
+    assert s["gh7-value"] == "I have never worked for a Demo Co client"
+    assert s["gh8-value"] == ""  # a how question: never answered "never"
+    assert (s["w1"], s["w2"]) == (True, False)
+
+
+@needs_browser
+def test_yes_no_buttons_with_the_question_outside_their_group(tmp_path):
+    """17 Nov, Keylane (Workable): "Do you have a valid residence and work permit for The
+    Netherlands?" stayed unanswered: the question sits outside its YES / NO group, so the
+    first label in the group (YES) was taken for the question; the radios themselves are
+    invisible, drawn by their labels."""
+    s = run(tmp_path)["state"]
+    assert (s["QA_1:true"], s["QA_1:false"]) == (True, False)  # authorized: Yes (test answers)
+    assert (s["QA_2:true"], s["QA_2:false"]) == (False, True)  # sponsorship needed: No
 
 
 @needs_browser

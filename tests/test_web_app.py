@@ -200,7 +200,7 @@ def test_daily_task_sends_the_report(real_tasks_harness):
     http, telegram, _, _ = real_tasks_harness
     r = http.post("/tasks/daily", headers={"Authorization": "Bearer good"})
     assert r.status_code == 200 and r.json()["ok"] is True
-    assert telegram.sent[0].startswith("[LOCAL] Daily check 2026-10-15")
+    assert telegram.sent[0].startswith("[LOCAL] 📬 Daily check Thu 15 Oct")  # S10: short
     r = http.post("/tasks/digest", headers={"Authorization": "Bearer good"})
     assert telegram.sent[-1].startswith("[LOCAL] Weekly digest")
 

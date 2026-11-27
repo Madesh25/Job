@@ -232,7 +232,7 @@ def test_fetch_in_fake_mode_returns_prefixed_summary(monkeypatch, capsys):
     assert tb.main(["--fake"]) == 0
     out = capsys.readouterr().out
     assert "bot> [LOCAL] \u2705 Job search finished" in out
-    assert "New jobs added to Notion: 8" in out
+    assert "\U0001F195 New jobs: 8 (" in out
 
 
 def test_fetch_reply_goes_through_telegram_text():
@@ -350,11 +350,10 @@ def test_fake_bot_fetch_shows_start_progress_and_summary(monkeypatch, capsys):
     out = capsys.readouterr().out
     assert "bot> [LOCAL] \U0001F50E Searching for jobs (started " in out
     assert "bot (updated)> [LOCAL] \u2705 Job search done in under a minute." in out
-    assert "\U0001F1F5\U0001F1F1 Poland: 3" in out
-    assert "\U0001F1F3\U0001F1F1 Netherlands: 2" in out
-    assert "\U0001F1EE\U0001F1EA Ireland: 3" in out
-    assert "Already in Notion, seen again: 5" in out
-    assert "Not a match (skipped): 3" in out
+    assert "\U0001F195 New jobs: 8 (\U0001F1F5\U0001F1F1 3 \u00b7 \U0001F1F3\U0001F1F1 2 \u00b7 " \
+        "\U0001F1EE\U0001F1EA 3)" in out
+    assert "\U0001F501 Seen before: 5 \u00b7 \U0001F6AB Not for you: 6" in out
+    assert "Already in Notion, seen again" not in out  # the long report is in Notion now
 
 
 def test_poll_once_routes_fetch_to_run_fetch():
@@ -448,10 +447,17 @@ def test_pending_shows_one_card_in_rank_order(desk):
     assert len(fake.sent) == 1
     text = fake.sent[0][1]
     assert text.startswith("[LOCAL] [1/")
-    assert "Apply high\nTulip Data B.V., Cloud Engineer" in text
-    assert "Match: 1 strong, 0 transferable, 1 gaps" in text
-    assert "2 jobs need the JD (1 LinkedIn, 1 Company site): /jd" in text
-    assert fake.buttons[0] == ["ap:nl-sponsor-yes", "sk:nl-sponsor-yes", "nx:1"]
+    # S11: the short card; More shows the full one.
+    assert ("Apply high\nTulip Data B.V., Cloud Engineer\n📍 Utrecht, Netherlands\n"
+            "Gaps: Java services\nWhy: strong on AWS, Terraform and Kubernetes; "
+            "sponsorship stated\nhttps://jobs.example.com/nl-sponsor-yes") in text
+    assert "Match: " not in text
+    assert ("2 jobs need the JD, all days (1 LinkedIn, 1 Company site); 1 of the last 3 days: "
+            "/jd") in text  # LOG-03: the scope is named
+    assert fake.buttons[0] == ["ap:nl-sponsor-yes", "sk:nl-sponsor-yes", "mo:0:nl-sponsor-yes",
+                               "nx:1"]
+    more = talk(desk, tap(1, "mo:0:nl-sponsor-yes")).sent[0][1]
+    assert "Match: 1 strong, 0 transferable, 1 gaps" in more and "Sponsorship Stated yes" in more
     order = [r.page_id for r in desk.ranked()]
     assert "ie-5-years" not in order  # 5 years: over the 4-year limit, skipped with no AI
     assert order.index("pl-clean") < order.index("pl-polish-plus")  # tier first
@@ -547,7 +553,7 @@ def test_screen_command(desk):
     fake = talk(desk, "/screen", "/screen pl-clean")
     assert fake.sent[0][1].startswith("[LOCAL] \U0001F50E Screening new jobs (started ")
     assert fake.sent[1][1].startswith("[LOCAL] Screening done: 0 screened")
-    assert fake.sent[2][1].startswith("[LOCAL] Screening done: 1 screened (1 high")
+    assert fake.sent[2][1].startswith("[LOCAL] Screening done: 1 screened\n\u2705 1 Apply high")
     assert "ready to review: /pending" in fake.sent[2][1]
 
 
@@ -563,7 +569,7 @@ def test_fetch_never_screens_by_itself():
     calls = []
     d.screen = lambda *a, **k: calls.append(1) or "screened"
     text = tb.make_fetcher(s, True, d)(lambda line: None)
-    assert "New jobs added to Notion: 8" in text
+    assert "\U0001F195 New jobs: 8 (" in text
     assert calls == [] and "Screening done" not in text
     assert text.endswith("Next: /screen checks the new jobs against your profile (uses the AI, "
                          "at most 50 jobs a day).")
@@ -846,9 +852,19 @@ def test_today_sends_the_report_then_the_cards(desk):
     fake = talk(desk, "/today")
     sent = texts(fake)
     assert sent[0] == "[LOCAL] Running the daily check..."
-    assert sent[1].startswith("[LOCAL] Daily check 2026-10-15 (since 2026-10-01 08:00)")
-    assert "Replies: Piotr Example (Vistula Cloud) -> Interview" in sent[1]
-    assert "Tokens: alerts OK, sender OK" in sent[1]
+    # S10: the counts and what needs you here, the full check in its Run Log page.
+    assert sent[1].startswith("[LOCAL] 📬 Daily check Thu 15 Oct (since 01 Oct 08:00)\n"
+                              "2 sent · 2 replies (1 interview) · 3 applications updated · "
+                              "2 bounced · 2 ghosted\n"
+                              # LOG-13: the follow-ups due (DRY RUN) are named here too.
+                              "✉️ 2 follow-up(s) due, not drafted (DRY RUN): Anna Example, "
+                              "Tomek Example\n👉 Needs your call: 3 (below)")
+    assert sent[1].endswith('📝 Full report in Notion: Run Log, row "/today 08:00"')
+    page = desk.run_log_table.bodies[-1]
+    assert "Daily check 2026-10-15 (since 2026-10-01 08:00)" in page
+    assert any(line.startswith("Replies: Piotr Example (Vistula Cloud) -> Interview")
+               for line in page)
+    assert "Tokens: alerts OK, sender OK" in page
     assert any("Reply from marek.example@vistula.example.com" in t for t in sent)
     assert ["lk:jobfjord:t-fjord-a", "lk:jobfjord:-"] in fake.buttons
     assert "rd:20261015" in [b for row in fake.buttons for b in row]
@@ -880,17 +896,23 @@ def test_stats_followups_health_sources_digest(desk):
     follow = talk(desk, "/followups").sent[0][1]
     assert "- Ola Example (Vistula Cloud): due 2026-10-17" in follow
     health = talk(desk, "/health").sent[0][1]
-    assert "Notion: OK" in health and "Gmail sender token: OK" in health
-    assert "Environment: local, DRY_RUN on" in health
+    # S10: the problems and a count here; every line in the Run Log page.
+    assert health.startswith("[LOCAL] 🩺 Health: 2 problem(s), 4 check(s) OK\n"
+                             "❌ Anthropic key: missing\n❌ Irish permits list: NOT read")
+    assert "Environment: local, DRY_RUN on" in health and "Notion: OK" not in health
+    page = desk.run_log_table.bodies[-1]
+    assert "Notion: OK" in page and "Gmail sender token: OK" in page
     # Phase 19 A-00 (3 Nov): the AI money lines, as in the morning check.
-    assert "AI in October" in health and "Credit balancer: off" in health
+    assert "AI in October: nothing used yet." in page
+    assert any(line.startswith("Credit balancer: off") for line in page)
     tb.make_fetcher(settings(), True, desk)(lambda line: None)  # a fake sweep stores counts
     sources = talk(desk, "/sources").sent[0][1]
     assert "Sweep sources (last sweep: 2026-10-01)" in sources
     assert "ats: enabled, no secret needed, last sweep" in sources
     digest = talk(desk, "/digest").sent[0][1]
     assert digest.startswith("[LOCAL] Weekly digest 2026-10-15")
-    assert "Strategy gate:" in digest
+    assert "Strategy gate:" in digest and "📈 What gets replies, what works" in digest
+    assert "By source:" not in digest and "By source:" in desk.run_log_table.bodies[-1]
 
 
 def test_help_lists_tracking_commands():
@@ -1178,3 +1200,33 @@ def test_a_few_words_are_not_saved_as_a_description(desk):
                 "/done")
     assert "Only 12 characters collected: that is not a job description" in fake.sent[-1][1]
     assert not desk.repo.rows["li-no-jd"].get("body")
+
+
+def test_sub_options_are_menu_entries_and_work_like_the_typed_words():
+    """23 Nov, FEAT-02: typing "/screen we" showed no suggestion; the / menu matches only
+    command names, so each fixed sub-option is its own entry (/screen_week)."""
+    import re
+
+    names = [c["command"] for c in tb.bot_commands()]
+    assert names[names.index("screen"):names.index("screen") + 5] == [
+        "screen", "screen_week", "screen_all", "screen_batch", "screen_collect"]
+    assert {"pending_poland", "fetchreport_sources", "autoapply_status", "answers_start",
+            "autopilot_when", "gmailtoken_m02"} <= set(names)
+    assert "mailmode_send" not in names  # real sending is never one tap from the menu
+    assert len(names) <= 100 and len(set(names)) == len(names)  # Telegram's limits
+    assert all(re.fullmatch(r"[a-z0-9_]{1,32}", n) for n in names)
+    for short, (full, _what) in tb.SHORTCUTS.items():  # every shortcut is a real command
+        assert full.split()[0] in names, short
+    assert tb.expand_shortcut("/screen_week") == "/screen week"
+    assert tb.expand_shortcut("/pending_poland@MadeshDevBot") == "/pending poland"
+    assert tb.expand_shortcut("/screen week") == "/screen week"
+    assert tb.expand_shortcut("hello") == "hello"
+    for short, (full, _what) in tb.SHORTCUTS.items():  # the same answer as the typed words
+        assert tb.handle_update(update(1, f"/{short}"), settings()) == \
+            tb.handle_update(update(1, f"/{full}"), settings()), short
+
+
+def test_a_shortcut_sent_before_the_start_is_not_run_again():
+    old = update(5, "/screen_week")
+    old["message"]["date"] = 100
+    assert tb._stale_command(old, started=200) == "screen"

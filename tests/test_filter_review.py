@@ -10,6 +10,7 @@ from jobengine.bot_state import FakeBotState
 from jobengine.sweep import filter_watch
 from jobengine.sweep.models import KEPT_BUCKETS, SAVED
 from jobengine.sweep.runner import fake_deps, run_sweep
+from jobengine.sweep.sources import ats
 from jobengine.track import audit
 
 HEAD = "Fetch and filters: jobs a filter may have got wrong"
@@ -45,6 +46,8 @@ def test_each_fetch_adds_to_its_week():
     excluded = week["excluded"]
     assert excluded["lead platform engineer"][:3] == [1, "Lead Platform Engineer", "lead"]
     read = sum(v[0] for v in week["sources"].values())
+    # LOG-08: a Workday site is read once a day; forgotten here so both runs read the same.
+    state.set(ats.WORKDAY_KEY, {})
     run_sweep(S, fake_deps(S), TODAY, state=state)
     again = filter_watch.week_of(state.get(filter_watch.KEY), filter_watch.monday_of(TODAY))
     assert again["runs"] == 2

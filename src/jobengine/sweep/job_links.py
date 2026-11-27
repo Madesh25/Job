@@ -50,7 +50,7 @@ import logging
 import re
 import threading
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import date, timedelta
 from typing import Any
 from urllib.parse import unquote, urlencode, urljoin, urlsplit
@@ -60,7 +60,7 @@ from bs4 import BeautifulSoup
 from jobengine import textblocks
 from jobengine.notion_repo import JobsRepo, select_filter
 from jobengine.safety import SafetyError
-from jobengine.sweep import fulltext, normalize
+from jobengine.sweep import fulltext, normalize, render
 from jobengine.sweep.crossmatch import DESCRIPTION_HEADER, plain_title, title_key
 from jobengine.sweep.dedupe import DESCRIPTION_BLOCK_CHARS, DESCRIPTION_MAX_BLOCKS, link_rank
 from jobengine.sweep.normalize import canon, canon_city, canon_company, without_region
@@ -82,8 +82,9 @@ MAX_BODY_READS = 200  # pages read in one sweep to see whether a description is 
 NO_BOARD_DAYS = 14  # a company without a job board or careers page is asked again after
 # Browser pages for one job: one site never uses the whole budget. 13 Nov: 2 -> 4 (11 jobs
 # stopped at 2 while 63 of the /fetch's pages were unused); a page opened before in the same
-# /fetch costs nothing (render.Renderer keeps it).
-MAX_RENDERS_PER_JOB = 4
+# /fetch costs nothing (render.Renderer keeps it). 17 Nov: 4 -> 6 (16 Nov: Alliander and
+# 1dea stopped at 4 while 56 to 60 of the /fetch's pages were unused).
+MAX_RENDERS_PER_JOB = 6
 THIN_PAGE_CHARS = 3000  # a page with less text than this may fill itself with JavaScript
 THIN_PAGE_LINKS = 30
 MAX_LINE = 160  # longer link texts are whole cards or menus, not titles
@@ -177,6 +178,14 @@ Indeed, Glassdoor, job boards or aggregators. When you cannot find this advert o
 employer's own page at all, answer {"found": false}."""
 GOOGLE_HOW = "Google's copy of the company page"  # its site does not let the bot read it
 MIN_TITLE_SHARE = 0.5  # of the role's words the text must name
+
+
+def google_copy(s: Any) -> bool:
+    """sweep.job_links.google_copy: ask Google's copy of the job when the site could not be
+    checked (4 Nov). Off since 20 Nov, to save money: it is taken only when Google names its
+    sources, and Gemini has given "0 result links" for these searches, so 0 of 26 asked on
+    19 and 20 Nov were found, at about half of each /fetch's Google searches."""
+    return bool((s.sweep.get("job_links") or {}).get("google_copy", False))
 
 
 def copy_model(s: Any) -> str:
@@ -1014,9 +1023,9 @@ def from_site(deps: Deps, careers: str, company: str, role: str, city: str | Non
     seen: set[str] = set()
     while queue and reads[0] > 0:
         url, how, depth = queue.pop(0)
-        if url in seen:
+        if render.page_key(url) in seen:
             continue
-        seen.add(url)
+        seen.add(render.page_key(url))
         reads[0] -= 1
         try:
             final, html = deps.page(url)
@@ -1352,8 +1361,56 @@ def from_google(deps: Deps, company: str, role: str, city: str | None,
         return None
     url = answer if answer and any(urlsplit(answer).hostname == urlsplit(u).hostname
                                    for u in own) else own[0]
+    gone = _gone(deps, url)
+    if gone:
+        # 18 Nov /fetch: Google gave PwC Polska, Netflix, Rado Bank and Rabobank addresses
+        # that no longer exist (Netflix moved its job site); the closed-job check then found
+        # HTTP 404 there and marked four open jobs Expired. Such an address is never saved.
+        log.info("Google's copy for %s, %s not used: its address no longer opens (%s): %s",
+                 company, role, gone, url)
+        return None
     log.info("Google's copy for %s, %s: %s (%d characters)", company, role, url, len(text))
     return Found(url, text, GOOGLE_HOW)
+
+
+GONE_STATUS = (404, 410)
+
+
+def _gone(deps: Deps, url: str) -> str | None:
+    """"HTTP 404" when the page does not exist (any more), else None: a page that opens, or a
+    site that refuses the bot (403, 429, a timeout) is taken on Google's word."""
+    from jobengine import http
+
+    host = urlsplit(url).hostname or ""
+    if host in getattr(_CHECK, "refused", set()):
+        return None  # 4 Nov, your decision: a site that refused the bot is never opened again
+    try:
+        deps.page(url)
+    except http.HttpError as exc:
+        if exc.status in GONE_STATUS:
+            return f"HTTP {exc.status}"
+    except Exception as exc:  # a refused or unsafe address: not a sign the job is gone
+        log.info("Google's address not checked %s: %s", host, exc)
+    return None
+
+
+REFUSED_STATUS = (401, 403, 429)
+
+
+def _noting_refusals(page: Callable[[str], Any]) -> Callable[[str], Any]:
+    """deps.page that remembers, for the job being looked up, the hosts that refused it."""
+    from jobengine import http
+
+    def read(url: str) -> Any:
+        try:
+            return page(url)
+        except http.HttpError as exc:
+            if exc.status in REFUSED_STATUS:
+                refused = getattr(_CHECK, "refused", None)
+                if refused is not None:
+                    refused.add(urlsplit(url).hostname or "")
+            raise
+    return read
 
 
 def blocks(found: Found, board: str, old_url: str | None) -> list[str]:
@@ -1379,6 +1436,7 @@ def run(deps: Deps, boards: tuple[str, ...], with_body: set[str] | None = None,
     cfg = settings(deps.s)
     max_rows = int(cfg.get("max_rows", DEFAULT_MAX_ROWS))
     workers = max(1, int(cfg.get("workers", DEFAULT_WORKERS)))
+    deps = replace(deps, page=_noting_refusals(deps.page))
     result = Result()
     if max_rows <= 0 or not boards:
         return result
@@ -1538,7 +1596,8 @@ def run(deps: Deps, boards: tuple[str, ...], with_body: set[str] | None = None,
         # (never when its job list was read without this job: that is a ghost job).
         # 4 Nov: also when its job list needed the browser and no browser page was left for
         # this job (TNO, CGI, SURF: the list was never really read).
-        if (found is None and deps.llm is not None and not getattr(_SHORT, "hit", False)
+        if (found is None and deps.llm is not None and google_copy(deps.s)
+                and not getattr(_SHORT, "hit", False)
                 and (getattr(_CHECK, "seen", False) or not getattr(_CHECK, "read", False)
                      or getattr(_CHECK, "partial", False))
                 and search()):
@@ -1644,6 +1703,7 @@ def run(deps: Deps, boards: tuple[str, ...], with_body: set[str] | None = None,
             _CHECK.read = False
             _CHECK.seen = False
             _CHECK.partial = False
+            _CHECK.refused = set()
             _SEEN.titles = {}
             try:
                 label = lookup(page_id, values)

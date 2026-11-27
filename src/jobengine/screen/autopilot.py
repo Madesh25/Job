@@ -382,8 +382,13 @@ def _finish(desk: Desk, lines: list[str], progress: Progress) -> list[Reply]:
             done += 1
             _count_approval(desk)
     over = len(rows) - len(reports)
-    lines.append(_summary(desk, reports, over))
-    replies = [Reply("\n\n".join(t for t in lines if t))]
+    from jobengine.track import run_log
+
+    # S10 (23 Nov, your ask): the summary names only the jobs that need you; the list of
+    # every job is in the Run Log page (the resumes and the asks follow here as before).
+    full = "\n\n".join(t for t in [*lines, _summary(desk, reports, over)] if t)
+    short = "\n\n".join(t for t in [*lines, _summary(desk, reports, over, short=True)] if t)
+    replies = [Reply(run_log.brief(full, short))]
     for report in reports:
         if report.ask:
             replies.append(Reply(report.ask))
@@ -401,20 +406,27 @@ def _finish(desk: Desk, lines: list[str], progress: Progress) -> list[Reply]:
     return replies
 
 
-def _summary(desk: Desk, reports: list[JobReport], over: int) -> str:
+def _summary(desk: Desk, reports: list[JobReport], over: int, short: bool = False) -> str:
+    """The run's summary; `short` (S10) lists only the jobs that need you (no resume)."""
     approved = [r for r in reports if r.approved]
+    listed = [(i, r) for i, r in enumerate(reports, 1)
+              if not short or not r.approved or r.resume != "resume saved"]
+    if short and listed:
+        listed_lines = ["\u26a0\ufe0f Needs you:", *(r.line(i) for i, r in listed)]
+    else:
+        listed_lines = [r.line(i) for i, r in listed]
     if not approved:
         text = "Autopilot done: no new Apply high or Apply normal job approved."
         if over:
             text += f" Today's limit ({approvals_limit(desk)}) is reached: {over} wait."
-        lines = [text, *(r.line(i) for i, r in enumerate(reports, 1))]
+        lines = [text, *listed_lines]
         return "\n".join([*lines, "Send /pending to review the other screened jobs."])
     counts: dict[str, int] = {}
     for r in approved:
         counts[r.verdict] = counts.get(r.verdict, 0) + 1
     split = ", ".join(f"{counts[v]} {v}" for v in AUTO_VERDICTS if counts.get(v))
     out = [f"Autopilot done: {len(approved)} job{'' if len(approved) == 1 else 's'} approved "
-           f"({split}).", *(r.line(i) for i, r in enumerate(reports, 1))]
+           f"({split}).", *listed_lines]
     if over and later_run_today(desk):
         out.append(f"{over} more wait in /pending: this morning run approves at most "
                    f"{approvals_limit(desk)} of the day's {day_approvals(desk)}, the evening "
