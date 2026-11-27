@@ -10,6 +10,7 @@ from dataclasses import dataclass
 
 from jobengine.track.models import (
     ACK,
+    CANT_HELP,
     FOLLOWUP_SENT,
     INTERVIEW,
     NEUTRAL,
@@ -42,6 +43,7 @@ EFFECTS: dict[str, tuple[str | None, str | None]] = {
     OFFER: ("Offer", "Replied"),
     REJECTION: ("Rejected", "Replied"),
     OPT_OUT: (None, "Do not contact"),
+    CANT_HELP: (None, "Dead end"),  # LOG-18: the job goes on, the company gets a new person
     ACK: (None, None),
     FOLLOWUP_SENT: ("Followed up", "Followed up"),
 }

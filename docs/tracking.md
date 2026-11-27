@@ -225,6 +225,12 @@ gave the email (Apollo, Hunter, Snov, Prospeo, Tomba, GitHub, Job posting), and 
   is never drafted again and never picked from the cache; it is kept so it is never found
   and mailed again. A late answer still turns it into Replied. Notion Config
   `contacts.dead_end_after` changes the number.
+- **LOG-18 (25 Nov, your rules): a new person after a silence or a no.** A **Ghosted** contact
+  (no answer 14 days after the follow-up) is never picked from the cache or drafted again, so
+  the company's next job gets a new person. A reply saying they **cannot help** or are not the
+  right person (reply class `cant_help`, also a "Can't help" button on a low-confidence card)
+  makes the contact **Dead end** with a note, even after an earlier friendly answer; the job's
+  own status is not changed. A late answer from a Ghosted person still turns them Replied.
 
 ## Reply classification
 
