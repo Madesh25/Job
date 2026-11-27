@@ -575,3 +575,20 @@ uses the column; a job without it uses Config `contacts.per_job` as before. Noti
 `contacts.find.apply_high`, `contacts.find.apply_low` and `contacts.find.with_connections`
 change the numbers; `contacts.find.on` = `false` turns it off.
 
+
+## Which of your connections come first (LOG-18 part C, 27 Nov, your rules)
+
+Your LinkedIn connections at a job's company are ordered by **whether they work in the job's
+country**, never by their name: first the people known to work there; then people whose place
+is unknown but with a sign of it (their position or company names the country or one of its
+cities, or you connected in 2026 or later: most people you connected with before work in
+India); then the other unknown ones. Inside each group: engineers, managers, HR, others.
+Juniors and people known to work in **another country** are left out, with a count line in the
+referral asks ("3 more work in India (3): left out, they cannot refer for this job").
+
+Where the unknown people work comes from **one Google search per company** (Config
+`model.people`: Gemini with Google Search, Google's official API; `contacts/connection_places.py`):
+no Prospeo or Hunter credit, and the bot never opens LinkedIn or google.com. An answer counts
+only when a search result names the person with this company; the country is saved in the 🤝
+LinkedIn Connections table (Location source "Google search"). A company is searched again
+after 90 days. Notion Config `connections.locate` = `off` stops the search.
