@@ -23,7 +23,7 @@ from jobengine.track.status import APPLIED_OR_LATER, REPLIED_OR_BETTER
 
 GROUPS = {
     "interview": ("screening", "interview", "offer"),
-    "rejection": ("rejection", "opt_out"),
+    "rejection": ("rejection", "opt_out", "cant_help"),
     "automatic": ("ack", "auto_reply"),
     "question": ("positive", "neutral", "other"),
 }

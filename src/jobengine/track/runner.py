@@ -33,13 +33,14 @@ from jobengine.track import bounces, followup, holiday, linking, reply_analysis
 from jobengine.track.classify import DEFAULT_OPT_OUT, classify, is_auto_reply
 from jobengine.track.models import (
     AUTO_REPLY,
+    CANT_HELP,
     FOLLOWUP_SENT,
     INTERVIEW,
     OPT_OUT,
     Classification,
     Message,
 )
-from jobengine.track.status import JOB_TERMINAL, advance_contact, effect
+from jobengine.track.status import CONTACT_FINAL, JOB_TERMINAL, advance_contact, effect
 
 log = logging.getLogger("jobengine.track")
 
@@ -57,7 +58,8 @@ DEAD_END = "Dead end"
 REMAILED = ("Contacted", "Followed up", "Ghosted", "Replied")
 # Buttons on a low-confidence card: (label, class). "positive" means Replied.
 CHOICES = (("Screening", "screening"), ("Interview", "interview"), ("Rejected", "rejection"),
-           ("Offer", "offer"), ("Replied", "positive"), ("Do not contact", "opt_out"),
+           ("Offer", "offer"), ("Replied", "positive"), ("Can't help", "cant_help"),
+           ("Do not contact", "opt_out"),
            ("Ignore", "ignore"))
 TOKEN_FAILED = "Gmail token for {account} failed: {reason}. Regenerate it (docs/gmail.md)."
 
@@ -449,12 +451,17 @@ def apply_contact_class(run: Run, pid: str, kind: str, report: DailyReport | Non
     """Section 3 for a cold-mail reply. Returns the report line."""
     c = run.contacts[pid]
     name = c.get("Name") or c.get("Email") or pid
-    target = "Do not contact" if kind == OPT_OUT else "Replied"
+    target = {OPT_OUT: "Do not contact", CANT_HELP: DEAD_END}.get(kind, "Replied")
     props: dict[str, Any] = {}
     new = advance_contact(c.get("Status"), target)
+    if kind == CANT_HELP and c.get("Status") not in CONTACT_FINAL:
+        # LOG-18: "I can't help" ends it even after an earlier friendly reply (Replied).
+        new = None if c.get("Status") == DEAD_END else DEAD_END
+        props["Notes"] = _append(c.get("Notes"), f"said they cannot help {run.today}: "
+                                 "not mailed again, the company's next job gets a new person")
     if new:
         props["Status"] = new
-    if kind != OPT_OUT and not c.get("Replied"):
+    if kind not in (OPT_OUT, CANT_HELP) and not c.get("Replied"):
         props["Replied"] = True  # reused for the company's next jobs
     if c.get("Follow-up draft ID"):
         props["Follow-up draft ID"] = ""

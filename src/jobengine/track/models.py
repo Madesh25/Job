@@ -9,8 +9,11 @@ from datetime import datetime
 ACK, POSITIVE, NEUTRAL = "ack", "positive", "neutral"
 SCREENING, INTERVIEW, OFFER = "screening", "interview", "offer"
 REJECTION, OPT_OUT, AUTO_REPLY, OTHER = "rejection", "opt_out", "auto_reply", "other"
+# LOG-18 (25 Nov, your rule): the person you mailed says they cannot help or are not the right
+# person. They are not mailed again for this company; its next job gets a new person.
+CANT_HELP = "cant_help"
 CLASSES = (ACK, POSITIVE, NEUTRAL, SCREENING, INTERVIEW, OFFER, REJECTION, OPT_OUT, AUTO_REPLY,
-           OTHER)
+           CANT_HELP, OTHER)
 # Not a reply class: the event "your follow-up was sent".
 FOLLOWUP_SENT = "followup_sent"
 

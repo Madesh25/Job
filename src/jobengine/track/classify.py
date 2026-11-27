@@ -42,7 +42,7 @@ DEFAULT_OPT_OUT = ("do not contact", "remove me", "unsubscribe", "not interested
 
 SYSTEM_PROMPT = """You classify one email reply received during a job search. Return one JSON
 object only: {"class": <one of ack, positive, neutral, screening, interview, offer, rejection,
-opt_out, auto_reply, other>, "confidence": <0.0 to 1.0>, "quote": <an exact short phrase
+opt_out, auto_reply, cant_help, other>, "confidence": <0.0 to 1.0>, "quote": <an exact short phrase
 copied from the text that shows the class>}.
 
 ack: an automatic or template confirmation that an application was received.
@@ -53,6 +53,8 @@ interview: invites to an interview or a technical round, or proposes interview t
 offer: makes a job offer.
 rejection: says no, the role is filled, or the process will not continue.
 opt_out: asks not to be contacted again.
+cant_help: the person says they cannot help or are not the right person to ask (they may name
+someone else); not a no about the job itself.
 auto_reply: out of office or another automatic reply.
 other: none of the above.
 The quote must be copied exactly from the text. When unsure, use a low confidence.
