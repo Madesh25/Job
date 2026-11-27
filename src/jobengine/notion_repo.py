@@ -67,6 +67,9 @@ JOB_PROPERTY_TYPES = {
     "Resume": "relation",
     "Applied date": "date",
     "Last activity date": "date",
+    # Written by screening, used by the contact finder (LOG-18, 27 Nov): how many contacts
+    # the job gets. Written only where the database has the column (NEW_JOB_COLUMNS).
+    "Contacts to find": "number",
     # Written by the contact finder (Module 05).
     "Contacts": "relation",
     "Contact source": "select",
@@ -509,11 +512,17 @@ def page_values(page: dict[str, Any]) -> dict[str, Any]:
     return {name: plain_value(prop) for name, prop in (page.get("properties") or {}).items()}
 
 
+# Columns added after the databases were made: left out of a write until the database has
+# them (prod gets them at go-live), so a missing column never fails screening.
+NEW_JOB_COLUMNS = ("Contacts to find",)
+
+
 class NotionJobsRepo:
     def __init__(self, client: NotionClient, data_source_id: str):
         self.client = client
         self.data_source_id = data_source_id
         self._years_type: str | None = None
+        self._columns: set[str] | None = None
         self._lock = threading.Lock()
 
     def _props(self, plan: dict[str, Any]) -> dict[str, Any]:
@@ -527,6 +536,16 @@ class NotionJobsRepo:
                     self._years_type = prop.get("type") or "rich_text"
             if self._years_type == "number":
                 plan = {**plan, "Years required": years_low(plan["Years required"])}
+        if any(name in plan for name in NEW_JOB_COLUMNS):
+            with self._lock:
+                if self._columns is None:
+                    schema = self.client.request("GET", f"/data_sources/{self.data_source_id}")
+                    self._columns = set(schema.get("properties") or {})
+            missing = [n for n in NEW_JOB_COLUMNS if n in plan and n not in self._columns]
+            if missing:
+                log.info("Job Opportunities has no column %s yet: not written",
+                         ", ".join(missing))
+                plan = {k: v for k, v in plan.items() if k not in missing}
         out = {}
         for name, value in plan.items():
             kind = JOB_PROPERTY_TYPES[name]

@@ -563,3 +563,15 @@ or not a DevOps focus).
 - `/agencies sent <name>` records today's date. The weekly digest names the agencies not
   contacted in the last 30 days.
 - Jobs that agencies post stay marked "Agency posting" (no cold mails), as before.
+
+## How many contacts a job gets (LOG-18, 27 Nov, your rules)
+
+Screening writes the job's **Contacts to find** column: **3** for Apply high (recruiter, hiring
+manager, team lead), **2** for Apply low (recruiter, hiring manager), **1** when your LinkedIn
+connections work there (not junior, not known to work in another country): the referral asks
+go to them, and one email to the recruiter (a hiring manager when none is found). A number you
+type in the column before Approve wins, and screening never overwrites it. The contact search
+uses the column; a job without it uses Config `contacts.per_job` as before. Notion Config
+`contacts.find.apply_high`, `contacts.find.apply_low` and `contacts.find.with_connections`
+change the numbers; `contacts.find.on` = `false` turns it off.
+

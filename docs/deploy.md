@@ -185,6 +185,9 @@ These exist on the DEV copies since Modules 02 to 08 and are now applied to prod
 - [ ] Job Opportunities: add the Skip reason option `No sponsorship` (jobs that offer no
       visa sponsorship are skipped with it; without the option Notion would add it itself).
 - [ ] Config: add `schedule.auto_fetch` = `false`.
+- [ ] Job Opportunities: add the number column `Contacts to find` (LOG-18, 27 Nov; screening
+      writes it, the contact search uses it; until it exists the bot leaves it out of its
+      writes).
 
 ## B4. Cloud Scheduler (time zone Asia/Kolkata)
 

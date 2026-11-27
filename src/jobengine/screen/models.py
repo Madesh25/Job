@@ -202,6 +202,7 @@ class JobRow:
     gaps: str | None = None
     swept_date: date | None = None
     first_seen: date | None = None  # the day a /fetch first found it (Swept: the last time)
+    contacts_to_find: int | None = None  # LOG-18: set by screening, yours to change
 
 
 # ---------------------------------------------------------------- the Gaps column
