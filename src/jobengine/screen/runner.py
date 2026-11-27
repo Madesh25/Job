@@ -82,6 +82,9 @@ class ScreenDeps:
     write: bool = True
     notes: list[str] = field(default_factory=list)
     state: BotState | None = None  # holds the daily screening count
+    # LOG-18: (company, country) -> how many of your LinkedIn connections work there and can
+    # help (not junior, not known to work in another country); None: not known here.
+    connections_at: Callable[[str, str], int] | None = None
 
 
 def fake_deps(s: Settings, base: Path = FIXTURES, write: bool = True) -> ScreenDeps:
@@ -157,7 +160,15 @@ def job_row(page_id: str, values: dict[str, Any]) -> JobRow:
         gaps=values.get("Gaps"),
         swept_date=values.get("Swept date"),
         first_seen=values.get("First seen"),
+        contacts_to_find=_whole(values.get("Contacts to find")),
     )
+
+
+def _whole(value: Any) -> int | None:
+    try:
+        return int(value) if value not in (None, "") else None
+    except (TypeError, ValueError):
+        return None
 
 
 def description(blocks: list[str], full_min: int = FULL_MIN_CHARS) -> tuple[str, str]:
@@ -233,6 +244,44 @@ def years_update(row: JobRow, jd: str) -> dict[str, Any]:
     if years is None or (row.years_required is not None and years <= row.years_required):
         return {}
     return {"Years required": experience(jd) or f"{years} years"}
+
+
+# LOG-18 (25 Nov, your rules): how many contacts a job gets. Notion Config
+# contacts.find.apply_high / apply_low / with_connections win over these.
+CONTACTS_TO_FIND = {"Apply high": 3, "Apply low": 2}
+WITH_CONNECTIONS = 1
+
+
+def contacts_to_find(config: Any, s: Settings, verdict: str, row: JobRow,
+                     connections_at: Callable[[str, str], int] | None) -> int | None:
+    """The "Contacts to find" number screening writes: 3 for Apply high, 2 for Apply low, 1
+    when your connections work there (referrals do the rest). None: leave the column as it
+    is (a Skip, or a number you set yourself)."""
+    if row.contacts_to_find is not None or verdict not in CONTACTS_TO_FIND:
+        return None
+    base = (s.contacts or {}).get("find") or {}
+    switch = config.get("contacts.find.on") if config is not None else None
+    if str(switch if switch not in (None, "") else base.get("on", True)).strip().lower() in (
+            "false", "off", "no", "0"):
+        return None  # off: every job uses Config contacts.per_job, as before
+
+    def number(key: str, default: int) -> int:
+        value = config.get(f"contacts.find.{key}") if config is not None else None
+        try:
+            return max(1, int(value if value not in (None, "") else base.get(key, default)))
+        except (TypeError, ValueError):
+            return default
+
+    if connections_at is not None:
+        try:
+            known = connections_at(row.company, row.country or "")
+        except Exception:  # the number by verdict then
+            log.info("connections not read for %s", row.company, exc_info=True)
+            known = 0
+        if known:
+            return number("with_connections", WITH_CONNECTIONS)
+    key = "apply_high" if verdict == "Apply high" else "apply_low"
+    return number(key, CONTACTS_TO_FIND[verdict])
 
 
 def plan_props(
@@ -388,7 +437,11 @@ class _Run:
             result.notes.extend(checks.notes)
             result.notes.extend(tiering.notes)
         if self.deps.write:
-            repo.update(row.page_id, plan_props(result, row, status_from) | prepared.years_fix)
+            found = contacts_to_find(self.config, self.s, result.verdict, row,
+                                     self.deps.connections_at)
+            extra = {"Contacts to find": found} if found else {}
+            repo.update(row.page_id,
+                        plan_props(result, row, status_from) | prepared.years_fix | extra)
             repo.append_body(row.page_id, body_section(result, self.today))
             day_ledger.count(f"screened.{result.verdict}")
         return result

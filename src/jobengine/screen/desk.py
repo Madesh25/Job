@@ -448,6 +448,8 @@ class Desk:
         self.add_skill: Callable[[str, str, str], None] | None = None
         # 🤝 LinkedIn Connections (contacts/connections.py): None when not set up here.
         self.connections: connections.ConnectionsStore | None = None
+        # LOG-18: screening writes "Contacts to find" 1 when your connections work there.
+        self.deps.connections_at = self.helpful_connections
         # /add (23 Oct): adds a Target Companies row (notion_repo.CompanyAdder); None: not here.
         self.companies: Any = None
         # The daily report and failure alerts by email (alerts.py): (subject, text) -> None
@@ -1921,6 +1923,13 @@ class Desk:
             log.warning("LinkedIn connections not read: %s", exc)
             return []
         return connections.at_company(rows, values["Company"], values.get("Country") or "")
+
+    def helpful_connections(self, company: str, country: str) -> int:
+        """Your connections at the company who can help with a job in `country`: not junior,
+        not known to work in another country (LOG-18)."""
+        matches = self._connections_at({"Company": company, "Country": country})
+        return sum(1 for m in matches
+                   if not m.country or m.country.casefold() == country.casefold())
 
     def _juniors_at(self, values: dict[str, Any]) -> int:
         if self.connections is None or not values.get("Company"):
