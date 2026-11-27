@@ -38,8 +38,8 @@ def test_showing_n_of_m(monkeypatch):
     monkeypatch.setattr(connections_mod, "MAX_SHOWN", 2)
     d = desk()
     [asks] = d.tap("rf:pl-clean")
-    assert ("Showing 2 of 3: the job's country first, then location unknown; engineers "
-            "first.") in asks.text
+    assert ("Showing 2 of 3: the job's country first, then location unknown (connected in "
+            "2026 or later, or the place in the title, first); engineers first.") in asks.text
     assert asks.buttons[0] == ("✅ I sent them (2)", "rk:pl-clean")
 
 

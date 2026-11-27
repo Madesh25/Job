@@ -44,10 +44,12 @@ def test_the_jobs_country_first_and_no_juniors_or_removed():
     stored.append(StoredRow("gone", Connection("Gone", "X", "", "", "Vistula Cloud",
                                                "SRE"), True))
     found = conn.at_company(stored, "Vistula Cloud", "Poland")
-    assert [m.row.person.name for m in found] == ["Ola Nowak", "Ewa Kowalska", "Piotr Example"]
+    # LOG-18: Piotr works in India: left out of a Poland job, counted by abroad().
+    assert [m.row.person.name for m in found] == ["Ola Nowak", "Ewa Kowalska"]
+    assert conn.abroad(stored, "Vistula Cloud", "Poland") == {"India": 1}
     text = conn.block(found, "Vistula Cloud", "Poland", FAKE_TODAY)
     assert "- Ola Nowak: Engineering Manager [Manager, Poland, has an email]" in text
-    assert "- Piotr Example: Senior DevOps Engineer [Engineer, India]" in text
+    assert "Piotr Example" not in text
 
 
 def test_nobody_in_the_country_gets_the_other_office_note():

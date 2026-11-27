@@ -1922,14 +1922,40 @@ class Desk:
         except Exception as exc:  # the contacts answer still comes without them
             log.warning("LinkedIn connections not read: %s", exc)
             return []
+        rows = self._locate(rows, values["Company"], values.get("Country") or "")
         return connections.at_company(rows, values["Company"], values.get("Country") or "")
+
+    def _locate(self, rows: list[Any], company: str, country: str) -> list[Any]:
+        """LOG-18: where the people with no country work, one Google search per company
+        (connection_places.py; no paid credits). Config connections.locate = off stops it."""
+        from jobengine.contacts import connection_places as places
+
+        try:
+            config = self.deps.config()
+            if str(config.get(places.SWITCH) or "on").strip().lower() == "off":
+                return rows
+            if not places.unknown_people(rows, company, country) or \
+                    not places.due(self.state, company, self.today()):
+                return rows
+            return places.locate(self.deps.llm(config), self.connections, self.state, rows,
+                                 company, country, self.today())
+        except Exception as exc:  # the connections are still shown, unordered by the search
+            log.warning("where connections at %s work: not searched: %s", company, exc)
+            return rows
+
+    def _abroad_at(self, values: dict[str, Any]) -> dict[str, int]:
+        if self.connections is None or not values.get("Company"):
+            return {}
+        try:
+            return connections.abroad(self.connections.rows_like(values["Company"]),
+                                      values["Company"], values.get("Country") or "")
+        except Exception:  # only a count in the message
+            return {}
 
     def helpful_connections(self, company: str, country: str) -> int:
         """Your connections at the company who can help with a job in `country`: not junior,
-        not known to work in another country (LOG-18)."""
-        matches = self._connections_at({"Company": company, "Country": country})
-        return sum(1 for m in matches
-                   if not m.country or m.country.casefold() == country.casefold())
+        not known to work in another country (LOG-18; at_company leaves those out)."""
+        return len(self._connections_at({"Company": company, "Country": country}))
 
     def _juniors_at(self, values: dict[str, Any]) -> int:
         if self.connections is None or not values.get("Company"):
@@ -2065,11 +2091,17 @@ class Desk:
         juniors = self._juniors_at(values)
         if juniors:
             facts.append(f"{juniors} junior left out (a junior cannot refer)")
+        far = self._abroad_at(values)  # LOG-18: they cannot refer for a job in this country
+        if far:
+            facts.append(f"{sum(far.values())} more work in "
+                         + ", ".join(f"{place} ({n})" for place, n in far.items())
+                         + ": left out, they cannot refer for this job")
         head += "\n" + "; ".join(facts) + "."
         if len(matches) > connections.MAX_SHOWN:
             head += (f"\nShowing {connections.MAX_SHOWN} of {len(matches)}: the job's country "
-                     "first, then location unknown; engineers first. The rest are in the 🤝 "
-                     "LinkedIn Connections table.")
+                     "first, then location unknown (connected in "
+                     f"{connections.RECENT_YEAR} or later, or the place in the title, first); "
+                     "engineers first. The rest are in the 🤝 LinkedIn Connections table.")
         blocks = [head]
         for m in matches[:connections.MAX_SHOWN]:
             p = m.row.person
